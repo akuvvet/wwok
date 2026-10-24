@@ -21,8 +21,15 @@ EK_GELD = {"max_digits": 12, "decimal_places": 4}
 # ---------------------------------------------------------------------------
 
 class Zahlungsbedingung(Zeitstempel):
+    nummer = models.PositiveSmallIntegerField("Nummer", unique=True, null=True, blank=True)
     bezeichnung = models.CharField("Bezeichnung", max_length=100, unique=True)
-    tage_netto = models.PositiveSmallIntegerField("Zahlungsziel netto (Tage)", default=0)
+    tage_netto = models.PositiveSmallIntegerField(
+        "Rechnung fällig (Tage nach Belegdatum)", default=0,
+        help_text="Belegdatum + diese Tage = Fälligkeitsdatum; ersetzt ff.ff.ffff im Belegtext.")
+    tage_mahnung = models.PositiveSmallIntegerField(
+        "Mahnung fällig (Tage nach Belegdatum)", default=0, help_text="Interne Frist für die Mahnung.")
+    tage_lieferstop = models.PositiveSmallIntegerField(
+        "Lieferstopp (Tage nach Belegdatum)", default=0, help_text="Interne Frist für den Lieferstopp.")
     skonto_tage = models.PositiveSmallIntegerField("Skontofrist (Tage)", default=0)
     skonto_prozent = models.DecimalField("Skonto %", max_digits=5, decimal_places=2, default=Decimal("0"))
     vorkasse = models.BooleanField("Vorkasse", default=False)
