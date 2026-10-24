@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block titel %}Verkauf – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Verkaufsabwicklung</h1>
+  <form method="post" class="zeile">{% csrf_token %}
+    <div>
+      <label for="mandant">Mandant</label>
+      <select name="mandant" id="mandant">
+        {% for m in mandanten %}<option value="{{ m.pk }}" {% if m == mandant %}selected{% endif %}>{{ m.firmenname }}</option>{% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="leise">Wechseln</button>
+  </form>
+  {% if not mandanten %}<p class="warnung">Noch kein Mandant angelegt – bitte unter Verwaltung → Mandanten anlegen.</p>{% endif %}
+</div>
+{% if mandant %}
+<div class="karte">
+  <h2>Kunde suchen</h2>
+  <form method="get" class="zeile">
+    <div><label for="q">Name, Nummer oder Ort (<code>*</code> = alle, <code>Mül*</code> = beginnt mit)</label>
+      <input id="q" name="q" value="{{ q }}" autofocus size="40"></div>
+    <button type="submit">Suchen</button>
+    <a class="knopf leise" href="/verwaltung/stammdaten/kunde/add/">Neukunde anlegen</a>
+  </form>
+  {% if treffer is not None %}
+    {% if treffer %}
+    <table style="margin-top:12px">
+      <tr><th>Nr.</th><th>Name</th><th>PLZ Ort</th><th>Telefon</th></tr>
+      {% for k in treffer %}
+      <tr><td><a href="{% url 'verkauf:kunde' k.pk %}">{{ k.nummer }}</a></td><td>{{ k.name1 }} {{ k.name2 }}</td>
+          <td>{{ k.plz }} {{ k.ort }}</td><td>{{ k.telefon }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p>Kein Kunde gefunden.</p>{% endif %}
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

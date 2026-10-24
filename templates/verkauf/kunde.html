@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block titel %}{{ kunde.name1 }} – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:start' %}" data-escape style="display:none">zurück</a>
+{% if kunde.gesperrt %}<div class="warnung">Kunde ist gesperrt – keine neuen Belege.</div>{% endif %}
+{% if kunde.hinweis %}<div class="warnung">{{ kunde.hinweis|linebreaksbr }}</div>{% endif %}
+<div class="karte">
+  <h1>{{ kunde.nummer }} – {{ kunde.name1 }} {{ kunde.name2 }}</h1>
+  <div class="raster">
+    <div>{{ kunde.strasse }}<br>{{ kunde.plz }} {{ kunde.ort }}</div>
+    <div>Tel. {{ kunde.telefon|default:"–" }}<br>{{ kunde.email|default:"–" }}</div>
+    <div>Preisstufe VK{{ kunde.preisstufe }}<br>Zahlung: {{ kunde.zahlungsbedingung|default:"–" }}
+      {% if kreditlimit %}<br>Kreditlimit {{ kreditlimit }} €{% endif %}</div>
+    <div>{% for a in ansprechpartner %}{{ a }}{% if a.hauptkontakt %} ★{% endif %}<br>{% endfor %}</div>
+  </div>
+  <p><a href="/verwaltung/stammdaten/kunde/{{ kunde.pk }}/change/">Kundendaten bearbeiten</a>
+     · <a href="https://www.google.com/maps/search/?api=1&query={{ kunde.strasse|urlencode }}+{{ kunde.plz }}+{{ kunde.ort|urlencode }}" target="_blank" rel="noopener">Karte</a></p>
+</div>
+
+{% if not kunde.gesperrt %}
+<div class="karte">
+  <h2>Neuen Beleg anlegen</h2>
+  <form method="post" action="{% url 'verkauf:beleg_neu' kunde.pk %}" class="zeile">{% csrf_token %}
+    {% for wert, name in arten %}<button name="art" value="{{ wert }}" type="submit" {% if wert != "AN" and wert != "AB" and wert != "RE" %}class="leise"{% endif %}>{{ name }}</button>{% endfor %}
+  </form>
+</div>
+{% endif %}
+
+<div class="karte">
+  <h2>Belege</h2>
+  <p class="zeile">
+    <a class="knopf {% if filter %}leise{% endif %}" href="?">Alle</a>
+    {% for wert, name in arten %}<a class="knopf {% if filter != wert %}leise{% endif %}" href="?art={{ wert }}">{{ name }}</a>{% endfor %}
+    <a class="knopf {% if filter != 'offen' %}leise{% endif %}" href="?art=offen">Offene</a>
+  </p>
+  <table>
+    <tr><th>Beleg</th><th>Datum</th><th class="zahl">Netto</th><th class="zahl">Brutto</th><th>Status</th></tr>
+    {% for b in belege %}
+    <tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b }}</a></td><td>{{ b.belegdatum|date:"d.m.Y" }}</td>
+        <td class="zahl">{{ b.summe_netto }}</td><td class="zahl">{{ b.summe_brutto }}</td>
+        <td>{% if b.abgeschlossen %}abgeschlossen{% else %}offen{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="5">Keine Belege.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

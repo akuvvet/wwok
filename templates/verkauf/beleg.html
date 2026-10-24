@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block titel %}{{ beleg }} – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:kunde' beleg.kunde.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>{{ beleg }} – <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}">{{ beleg.kunde.name1 }}</a></h1>
+  <p>{{ beleg.belegdatum|date:"d.m.Y" }}
+    {% if beleg.vorgaenger %}· aus <a href="{% url 'verkauf:beleg' beleg.vorgaenger.pk %}">{{ beleg.vorgaenger }}</a>{% endif %}
+    {% if beleg.gesperrt %}· <strong>abgeschlossen und gesperrt</strong> (Korrektur nur per Storno/Gutschrift){% endif %}</p>
+</div>
+
+<div class="karte">
+  <h2>Positionen</h2>
+  <table>
+    <tr><th>Pos.</th><th>Typ</th><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Menge</th>
+        <th class="zahl">Preis</th><th class="zahl">Rabatt %</th><th class="zahl">Netto</th><th></th></tr>
+    {% for p in positionen %}
+    <tr><td>{{ p.pos }}</td><td>{{ p.typ }}</td><td>{{ p.artikel.nummer|default:"" }}</td><td>{{ p.bezeichnung }}</td>
+        <td class="zahl">{{ p.menge|floatformat:"-3" }}</td><td class="zahl">{{ p.einzelpreis }}</td>
+        <td class="zahl">{{ p.rabatt_prozent|floatformat:"-2" }}</td><td class="zahl">{{ p.netto_gesamt }}</td>
+        <td>{% if not beleg.gesperrt %}
+          <form method="post" action="{% url 'verkauf:position_loeschen' beleg.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit">×</button></form>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="9">Noch keine Positionen.</td></tr>{% endfor %}
+  </table>
+
+  {% if not beleg.gesperrt %}
+  <form method="post" action="{% url 'verkauf:position_neu' beleg.pk %}" id="positionsform" class="zeile" style="margin-top:12px" autocomplete="off">{% csrf_token %}
+    <div><label>Typ</label>
+      <select name="typ"><option>A</option><option>P</option><option>L</option><option>G</option></select></div>
+    <div><label>Artikel (Nr. oder Name)</label>
+      <input name="artikel" id="artikel" list="artikelliste" size="22" autofocus></div>
+    <datalist id="artikelliste"></datalist>
+    <div><label>Bezeichnung (nur bei freier Position)</label><input name="bezeichnung" id="bezeichnung" size="26"></div>
+    <div><label>Menge</label><input name="menge" value="1" size="5"></div>
+    <div><label>Preis netto</label><input name="preis" id="preis" size="9"></div>
+    <div><label>Rabatt %</label><input name="rabatt" size="5"></div>
+    <button type="submit">Übernehmen (Enter)</button>
+  </form>
+  <p id="letzterpreis" style="opacity:.8;margin:6px 0 0"></p>
+  {% endif %}
+</div>
+
+<div class="karte">
+  <table style="max-width:360px;margin-left:auto">
+    {% if beleg.versandkosten %}<tr><td>Versandkosten</td><td class="zahl">{{ beleg.versandkosten }}</td></tr>{% endif %}
+    <tr><td>Netto</td><td class="zahl">{{ beleg.summe_netto }} €</td></tr>
+    <tr><td>Steuer</td><td class="zahl">{{ beleg.summe_steuer }} €</td></tr>
+    <tr><td><strong>Brutto</strong></td><td class="zahl"><strong>{{ beleg.summe_brutto }} €</strong></td></tr>
+  </table>
+</div>
+
+<div class="karte">
+  <h2>Abschluss</h2>
+  <form method="post" action="{% url 'verkauf:beleg_kopf' beleg.pk %}">{% csrf_token %}
+    <div class="raster">
+      <div><label>Zahlungsbedingung</label>
+        <select name="zahlungsbedingung"><option value="">–</option>
+          {% for z in zahlungsbedingungen %}<option value="{{ z.pk }}" {% if z.pk == beleg.zahlungsbedingung_id %}selected{% endif %}>{{ z.bezeichnung }}</option>{% endfor %}
+        </select></div>
+      <div><label>Versandart</label><input name="versandart" value="{{ beleg.versandart }}"></div>
+      <div><label>Versandkosten netto</label><input name="versandkosten" value="{{ beleg.versandkosten }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
+      <div><label>Ansprechpartner</label>
+        <select name="ansprechpartner" {% if beleg.gesperrt %}disabled{% endif %}><option value="">–</option>
+          {% for a in ansprechpartner %}<option value="{{ a.pk }}" {% if a.pk == beleg.ansprechpartner_id %}selected{% endif %}>{{ a }}</option>{% endfor %}
+        </select></div>
+      <div><label>Rechnungsanschrift</label><textarea name="rechnungsanschrift" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.rechnungsanschrift }}</textarea></div>
+      <div><label>Versandanschrift</label><textarea name="versandanschrift" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.versandanschrift }}</textarea></div>
+      <div><label>Bemerkung</label><textarea name="bemerkung" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.bemerkung }}</textarea></div>
+    </div>
+    <p class="zeile"><button type="submit">Speichern</button></p>
+  </form>
+  <div class="zeile">
+    {% if not beleg.abgeschlossen %}
+    <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" onsubmit="return confirm('Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}')">{% csrf_token %}<button type="submit">Abschließen &amp; Nummer vergeben</button></form>
+    {% endif %}
+    {% if beleg.folgeart %}
+    <form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">Als {{ beleg.folgeart_name }} übernehmen</button></form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block skript %}
+{% if not beleg.gesperrt %}
+<script>
+  (function () {
+    var feld = document.getElementById('artikel'), liste = document.getElementById('artikelliste');
+    var preis = document.getElementById('preis'), info = document.getElementById('letzterpreis');
+    var treffer = {}, timer;
+    function suche() {
+      var q = feld.value.trim();
+      if (treffer[q]) { uebernehmen(treffer[q]); return; }
+      if (q.length < 2) return;
+      fetch("{% url 'verkauf:api_artikel' %}?kunde={{ beleg.kunde.pk }}&q=" + encodeURIComponent(q), {credentials: 'same-origin'})
+        .then(function (r) { return r.json(); }).then(function (d) {
+          liste.innerHTML = '';
+          d.treffer.forEach(function (t) {
+            treffer[t.nummer] = t;
+            var o = document.createElement('option'); o.value = t.nummer; o.label = t.bezeichnung; liste.appendChild(o);
+          });
+          if (treffer[q]) uebernehmen(treffer[q]);
+        });
+    }
+    function uebernehmen(t) {
+      if (!preis.value) preis.value = t.preis;
+      info.textContent = t.bezeichnung + (t.letzter ? ' · letzter Preis dieses Kunden: ' + t.letzter.preis + ' € am ' + t.letzter.datum : '');
+    }
+    feld.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(suche, 200); });
+    feld.addEventListener('change', suche);
+  })();
+</script>
+{% endif %}
+{% endblock %}

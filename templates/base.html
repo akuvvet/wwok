@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titel %}wwok{% endblock %}</title>
+<style>
+  :root { --text:#1b1f24; --grund:#f4f5f7; --karte:#fff; --rand:#d5d9df; --akzent:#0b5cad; --warn:#b42318; --ok:#067647; }
+  @media (prefers-color-scheme: dark) {
+    :root { --text:#e6e8eb; --grund:#14171b; --karte:#1d2126; --rand:#343a42; --akzent:#6aa9ec; --warn:#f97066; --ok:#47cd89; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.4 system-ui, sans-serif; color:var(--text); background:var(--grund); }
+  header { display:flex; gap:16px; align-items:center; padding:10px 20px; background:var(--karte); border-bottom:1px solid var(--rand); }
+  header a { color:var(--akzent); text-decoration:none; } header .rechts { margin-left:auto; display:flex; gap:12px; align-items:center; }
+  main { max-width:1100px; margin:20px auto; padding:0 16px; }
+  .karte { background:var(--karte); border:1px solid var(--rand); border-radius:8px; padding:16px; margin-bottom:16px; }
+  h1 { font-size:20px; margin:0 0 12px; } h2 { font-size:16px; margin:0 0 8px; }
+  table { width:100%; border-collapse:collapse; } th,td { padding:6px 8px; border-bottom:1px solid var(--rand); text-align:left; vertical-align:top; }
+  td.zahl, th.zahl { text-align:right; font-variant-numeric:tabular-nums; }
+  input, select, textarea, button { font:inherit; color:inherit; background:var(--karte); border:1px solid var(--rand); border-radius:6px; padding:6px 8px; }
+  button, .knopf { background:var(--akzent); color:#fff; border-color:var(--akzent); cursor:pointer; text-decoration:none; display:inline-block; }
+  button.leise, .knopf.leise { background:transparent; color:var(--akzent); }
+  button.gefahr { background:transparent; color:var(--warn); border-color:var(--warn); }
+  .meldung { padding:8px 12px; border-radius:6px; margin-bottom:12px; border:1px solid var(--rand); background:var(--karte); }
+  .meldung.error { border-color:var(--warn); color:var(--warn); } .meldung.success { border-color:var(--ok); color:var(--ok); }
+  .warnung { border:1px solid var(--warn); color:var(--warn); padding:8px 12px; border-radius:6px; margin-bottom:12px; }
+  .raster { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+  label { display:block; font-size:13px; opacity:.8; margin-bottom:2px; }
+  .zeile { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
+  @media (max-width:640px) { th:nth-child(n+5), td:nth-child(n+5) { display:none; } }
+</style>
+</head>
+<body>
+<header>
+  <strong>wwok</strong>
+  <a href="{% url 'verkauf:start' %}">Verkauf</a>
+  <span class="rechts">
+    {% if user.is_authenticated %}
+      <span>{{ user.get_username }}</span>
+      {% if user.is_staff %}<a href="/verwaltung/">Verwaltung</a>{% endif %}
+      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="leise" type="submit">Abmelden</button></form>
+    {% endif %}
+  </span>
+</header>
+<main>
+  {% for m in messages %}<div class="meldung {{ m.tags }}">{{ m }}</div>{% endfor %}
+  {% block inhalt %}{% endblock %}
+</main>
+<script>
+  // Escape schließt die Maske und führt zur übergeordneten Seite
+  document.addEventListener('keydown', function (e) {
+    var ziel = document.querySelector('[data-escape]');
+    if (e.key === 'Escape' && ziel) { window.location = ziel.getAttribute('href'); }
+  });
+</script>
+{% block skript %}{% endblock %}
+</body>
+</html>

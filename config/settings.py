@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     # eigene Module
     "apps.kern",
     "apps.stammdaten",
+    "apps.verkauf",
 ]
 
 MIDDLEWARE = [
@@ -134,3 +135,7 @@ if not DEBUG:
 
 SESSION_COOKIE_AGE = 60 * 60 * 10  # 10 Stunden = ein Arbeitstag
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
+LOGIN_URL = "/konto/login/"
+LOGIN_REDIRECT_URL = "/verkauf/"
+LOGOUT_REDIRECT_URL = "/konto/login/"

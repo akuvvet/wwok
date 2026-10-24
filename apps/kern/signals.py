@@ -7,7 +7,7 @@ import json
 
 from .middleware import aktueller_benutzer
 
-PROTOKOLLIERTE_APPS = {"kern", "stammdaten"}
+PROTOKOLLIERTE_APPS = {"kern", "stammdaten", "verkauf"}
 AUSGENOMMEN = {"AenderungsProtokoll"}
 
 
