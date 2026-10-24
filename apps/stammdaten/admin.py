@@ -9,6 +9,11 @@ class KundeMandantInline(admin.TabularInline):
     extra = 0
 
 
+class KundenpreisInline(admin.TabularInline):
+    model = m.Kundenpreis
+    extra = 0
+
+
 class KundenanschriftInline(admin.StackedInline):
     model = m.Kundenanschrift
     extra = 0
@@ -27,7 +32,7 @@ class KundeAdmin(admin.ModelAdmin):
     list_filter = ["kundenart", "preisstufe", "gesperrt", "land"]
     search_fields = ["nummer", "name1", "name2", "ort", "email", "ust_id"]
     readonly_fields = ["erstkontakt", "angelegt_am", "geaendert_am", "geaendert_von"]
-    inlines = [KundeMandantInline, KundenanschriftInline, AnsprechpartnerKundeInline]
+    inlines = [KundeMandantInline, KundenanschriftInline, AnsprechpartnerKundeInline, KundenpreisInline]
     fieldsets = [
         ("Grunddaten", {"fields": ["nummer", ("name1", "name2", "name3"), "strasse", ("plz", "ort", "land"),
                                    ("telefon", "email", "webseite"), ("gesellschaftsform", "inhaber_gf")]}),
@@ -103,3 +108,15 @@ class ArtikelAdmin(admin.ModelAdmin):
 
 
 admin.site.register([m.Zahlungsbedingung, m.Steuersatz, m.Kategorie, m.Hersteller])
+
+
+@admin.register(m.PreisVorgabe)
+class PreisVorgabeAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return not m.PreisVorgabe.objects.exists()
+
+
+@admin.register(m.Kundenpreis)
+class KundenpreisAdmin(admin.ModelAdmin):
+    list_display = ["kunde", "artikel", "preis", "gueltig_ab", "gueltig_bis"]
+    search_fields = ["kunde__nummer", "kunde__name1", "artikel__nummer", "artikel__bezeichnung"]

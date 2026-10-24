@@ -426,8 +426,8 @@ def beleg_mail(request, beleg_id):
 
 
 def vorschlag_preis(artikel, kunde):
-    preis = getattr(artikel, f"vk{kunde.preisstufe}", None)
-    return preis if preis is not None else artikel.vk1
+    from apps.stammdaten.preise import verkaufspreis
+    return verkaufspreis(artikel, kunde)[0]
 
 
 @mit_mandant
@@ -451,7 +451,8 @@ def api_artikel(request):
                 .select_related("beleg").order_by("-beleg__belegdatum", "-id").first()
             if p:
                 letzte = {"preis": str(p.einzelpreis), "datum": p.beleg.belegdatum.strftime("%d.%m.%Y")}
-        preis = vorschlag_preis(a, kunde) if kunde else a.vk1
+        from apps.stammdaten.preise import verkaufspreis
+        preis, quelle = verkaufspreis(a, kunde)
         frei = None
         if a.typ == "A":
             from apps.lager.models import bestand, reserviert
@@ -461,5 +462,5 @@ def api_artikel(request):
             g = gruppen_verfuegbar(request.mandant, a)
             frei = str(g) if g is not None else None
         treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "typ": a.typ, "verfuegbar": frei,
-                        "preis": str(preis) if preis is not None else "", "letzter": letzte})
+                        "preis": str(preis) if preis is not None else "", "sonderpreis": quelle == "sonderpreis", "letzter": letzte})
     return JsonResponse({"treffer": treffer})

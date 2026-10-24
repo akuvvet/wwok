@@ -178,7 +178,7 @@
       liste.forEach(function (t, i) {
         var d = document.createElement('div');
         d.style.cssText = 'padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--rand);' + (i === aktiv ? 'background:var(--grund)' : '');
-        d.textContent = t.nummer + ' – ' + t.bezeichnung + (t.preis ? '  (' + t.preis + ' €)' : '') + (t.verfuegbar !== null ? '  · verfügbar ' + parseFloat(t.verfuegbar) : '');
+        d.textContent = t.nummer + ' – ' + t.bezeichnung + (t.preis ? '  (' + t.preis + ' €' + (t.sonderpreis ? ', Sonderpreis' : '') + ')' : '') + (t.verfuegbar !== null ? '  · verfügbar ' + parseFloat(t.verfuegbar) : '');
         d.addEventListener('mousedown', function (e) { e.preventDefault(); waehle(i); });
         box.appendChild(d);
       });

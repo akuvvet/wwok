@@ -430,3 +430,43 @@ class GruppenKomponente(Zeitstempel):
 
     def __str__(self):
         return f"{self.gruppe.nummer}: {self.menge:f} × {self.komponente.nummer}"
+
+
+class PreisVorgabe(models.Model):
+    """Globale Aufschläge auf den EK je Preisstufe (gelten, wenn weder Artikel noch Kategorie einen eigenen haben)."""
+
+    aufschlag_vk1 = models.DecimalField("Aufschlag VK1 %", max_digits=6, decimal_places=2, null=True, blank=True)
+    aufschlag_vk2 = models.DecimalField("Aufschlag VK2 %", max_digits=6, decimal_places=2, null=True, blank=True)
+    aufschlag_vk3 = models.DecimalField("Aufschlag VK3 %", max_digits=6, decimal_places=2, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Globale Preisvorgabe"
+        verbose_name_plural = "Globale Preisvorgabe"
+
+    def save(self, *args, **kwargs):
+        if not self.pk and PreisVorgabe.objects.exists():
+            raise ValueError("Es gibt nur eine globale Preisvorgabe – bitte die vorhandene bearbeiten.")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return "Globale Aufschläge"
+
+
+class Kundenpreis(Zeitstempel):
+    """Sonderpreis (netto) eines Kunden für einen Artikel, optional befristet."""
+
+    kunde = models.ForeignKey(Kunde, on_delete=models.CASCADE, related_name="sonderpreise")
+    artikel = models.ForeignKey(Artikel, on_delete=models.CASCADE, related_name="kundenpreise")
+    preis = models.DecimalField("Preis netto", **GELD)
+    gueltig_ab = models.DateField("gültig ab", null=True, blank=True)
+    gueltig_bis = models.DateField("gültig bis", null=True, blank=True)
+    bemerkung = models.CharField("Bemerkung", max_length=200, blank=True)
+
+    class Meta:
+        verbose_name = "Kundensonderpreis"
+        verbose_name_plural = "Kundensonderpreise"
+        ordering = ["kunde", "artikel"]
+        constraints = [models.UniqueConstraint(fields=["kunde", "artikel"], name="kundenpreis_eindeutig")]
+
+    def __str__(self):
+        return f"{self.kunde.nummer} / {self.artikel.nummer}: {self.preis}"

@@ -112,7 +112,8 @@ def position(request, reparatur_id):
         raise ValueError("Bezeichnung fehlt.")
     preis = zahl(request.POST.get("preis"))
     if preis is None and artikel:
-        preis = getattr(artikel, f"vk{reparatur.kunde.preisstufe}", None) or artikel.vk1
+        from apps.stammdaten.preise import verkaufspreis
+        preis = verkaufspreis(artikel, reparatur.kunde)[0]
     if preis is None:
         raise ValueError("Preis fehlt.")
     services.position_hinzufuegen(reparatur, art, bezeichnung, zahl(request.POST.get("menge"), Decimal("1")), preis, artikel)
