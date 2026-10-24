@@ -52,6 +52,7 @@ class Steuersatz(Zeitstempel):
 
 
 class Kategorie(Zeitstempel):
+    nummer = models.CharField("Nummer", max_length=20, unique=True, null=True, blank=True)
     name = models.CharField("Name", max_length=150)
     eltern = models.ForeignKey("self", verbose_name="übergeordnet", on_delete=models.PROTECT,
                                null=True, blank=True, related_name="unterkategorien")
