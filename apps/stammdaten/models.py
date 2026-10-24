@@ -79,7 +79,9 @@ class Kategorie(Zeitstempel):
 
 
 class Hersteller(Zeitstempel):
-    name = models.CharField("Name", max_length=150, unique=True)
+    kennzeichen = models.CharField("ID / Kennzeichen", max_length=20, unique=True, null=True, blank=True)
+    name = models.CharField("Name", max_length=150)
+    online = models.BooleanField("Online", default=False)
 
     class Meta:
         verbose_name = "Hersteller"
