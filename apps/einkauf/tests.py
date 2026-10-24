@@ -99,9 +99,13 @@ class EinkaufTest(TestCase):
 
         kunde = Kunde.objects.create(nummer="1", name1="K")
         angebot = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=kunde)
-        Position.objects.create(beleg=angebot, artikel=self.pa, bezeichnung="P", menge=Decimal("3"), einzelpreis=Decimal("30"))
+        from apps.stammdaten.models import Preislistenartikel
+        eintrag = Preislistenartikel.objects.create(lieferant=self.lf, bestellnummer="TD-P", herstellernummer="PX-1",
+                                                    bezeichnung="Preislistenartikel", ek=Decimal("20.0000"))
+        Position.objects.create(beleg=angebot, preisliste_artikel=eintrag, typ="P", bezeichnung="P", menge=Decimal("3"), einzelpreis=Decimal("30"))
         neu = services.bestellungen_aus_beleg(angebot)
         self.assertEqual((neu[0].lieferant, neu[0].positionen.get().menge, neu[0].positionen.get().ek), (self.lf, Decimal("3"), Decimal("20")))
+        self.assertIsNone(neu[0].positionen.get().artikel)  # bleibt Preislistenartikel bis zum Wareneingang
 
     def test_rechnung_skonto_abgleich_und_sepa(self):
         we = services.wareneingang_anlegen(self.m, self.lf)

@@ -60,3 +60,15 @@ def verkaufspreis(artikel, kunde=None, am=None):
     if preis is None and stufe != 1:  # fehlt die Händlerstufe, gilt ersatzweise VK1
         preis = stufenpreis(artikel, 1)
     return preis, ("stufe" if preis is not None else None)
+
+
+def preislistenpreis(eintrag, kunde=None):
+    """Netto-VK für einen Preislistenartikel: EK des Lieferanten plus globaler Aufschlag der Preisstufe; None ohne Aufschlag."""
+    stufe = kunde.preisstufe if kunde is not None else 1
+    vorgabe = PreisVorgabe.objects.first()
+    prozent = getattr(vorgabe, f"aufschlag_vk{stufe}", None) if vorgabe else None
+    if prozent is None and stufe != 1 and vorgabe:
+        prozent = vorgabe.aufschlag_vk1
+    if prozent is None:
+        return None
+    return (eintrag.ek * (Decimal("100") + prozent) / 100).quantize(CENT, rounding=ROUND_HALF_UP)

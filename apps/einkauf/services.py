@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from apps.lager.models import Bewegungsart, Lagerbewegung, bestand, reserviert
 from apps.lager.services import seriennummern_einlagern, zeilen
-from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Lieferant
+from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel
 from apps.verkauf.models import Belegart, Nummernkreis, Position
 
 from .models import (BestellPosition, BestellStatus, Bestellung, Lieferantenrechnung, Rma, RmaStatus,
@@ -36,9 +36,27 @@ def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None) -> Best
                                      bemerkung=bemerkung, aus_beleg=aus_beleg)
 
 
-def bestellposition(bestellung, artikel, menge, ek=None) -> BestellPosition:
+def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None) -> BestellPosition:
+    """Position zur Bestellung: eigener Artikel oder Artikel aus der Preisliste des Lieferanten (wird beim Wareneingang
+    zum eigenen Artikel)."""
     if bestellung.status not in (BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL):
         raise ValueError("Zu dieser Bestellung können keine Positionen mehr erfasst werden.")
+    if artikel is None and preisliste_artikel is not None and preisliste_artikel.artikel_id:
+        artikel = preisliste_artikel.artikel  # zu dem Eintrag gibt es schon einen eigenen Artikel
+    if artikel is None:
+        if preisliste_artikel is None:
+            raise ValueError("Artikel fehlt.")
+        if preisliste_artikel.lieferant_id != bestellung.lieferant_id:
+            raise ValueError(f"{preisliste_artikel.nummer} gehört zur Preisliste von {preisliste_artikel.lieferant.name1}, "
+                             f"nicht zu {bestellung.lieferant.name1}.")
+        pos = bestellung.positionen.filter(preisliste_artikel=preisliste_artikel, artikel__isnull=True, geliefert=0).first()
+        if pos:
+            pos.menge += menge
+            pos.save()
+            return pos
+        return BestellPosition.objects.create(
+            bestellung=bestellung, preisliste_artikel=preisliste_artikel, bestellnummer=preisliste_artikel.bestellnummer,
+            bezeichnung=preisliste_artikel.bezeichnung[:255], menge=menge, ek=ek if ek is not None else preisliste_artikel.ek)
     vorschlag, bestellnr = ek_vorschlag(bestellung.mandant, bestellung.lieferant, artikel)
     pos = bestellung.positionen.filter(artikel=artikel, geliefert=0).first()
     if pos:  # gleicher Artikel: Menge addieren
@@ -69,8 +87,11 @@ def bestellungen_aus_beleg(beleg) -> list:
     """Angebot/Auftrag in Lieferantenbestellungen kopieren: je Lieferant eine Bestellung (günstigster Lieferant)."""
     je_lieferant = defaultdict(list)
     ohne = []
-    for p in beleg.positionen.select_related("artikel"):
-        if not p.artikel_id or p.artikel.typ not in ("A", "P"):
+    for p in beleg.positionen.select_related("artikel", "preisliste_artikel__lieferant"):
+        if p.preisliste_artikel_id and not p.artikel_id:  # Typ P: der Lieferant steht an der Preislistenzeile
+            je_lieferant[p.preisliste_artikel.lieferant].append(p)
+            continue
+        if not p.artikel_id or p.artikel.typ != "A":
             continue
         al = guenstigster_lieferant(p.artikel)
         (je_lieferant[al.lieferant] if al else ohne).append(p)
@@ -78,7 +99,7 @@ def bestellungen_aus_beleg(beleg) -> list:
     for lieferant, positionen in je_lieferant.items():
         b = bestellung_anlegen(beleg.mandant, lieferant, f"Aus {beleg}", aus_beleg=beleg)
         for p in positionen:
-            bestellposition(b, p.artikel, p.menge)
+            bestellposition(b, p.artikel, p.menge, preisliste_artikel=p.preisliste_artikel)
         ergebnis.append(b)
     if not ergebnis:
         raise ValueError("Keiner der Artikel hat einen Lieferanten in den Preislisten.")
@@ -145,8 +166,41 @@ def wareneingang_anlegen(mandant, lieferant, bestellung=None, benutzer=None) -> 
     return we
 
 
+@transaction.atomic
+def artikel_aus_preisliste(eintrag):
+    """Aus einem Preislistenartikel (Typ P) wird beim Wareneingang ein eigener Artikel (Typ A)."""
+    if eintrag.artikel_id:
+        return eintrag.artikel
+    from apps.stammdaten.models import Hersteller, Steuersatz
+    nummer = (eintrag.herstellernummer or "")[:40]
+    artikel = Artikel.objects.filter(nummer__iexact=nummer).first() if nummer else None
+    if artikel is not None and artikel.herstellernummer.lower() != eintrag.herstellernummer.lower():
+        artikel = None  # gleiche Nummer, aber anderes Produkt
+    if artikel is None:
+        if not nummer or Artikel.objects.filter(nummer__iexact=nummer).exists():
+            nummer = f"P{eintrag.lieferant.nummer}-{eintrag.bestellnummer}"[:40]
+        steuer = Steuersatz.objects.filter(nummer=1).first() or Steuersatz.objects.order_by("-prozent").first()
+        if steuer is None:
+            raise ValueError("Es ist kein Steuersatz angelegt.")
+        hersteller = Hersteller.objects.filter(name__iexact=eintrag.hersteller).first() if eintrag.hersteller else None
+        if eintrag.hersteller and hersteller is None:
+            hersteller = Hersteller.objects.create(name=eintrag.hersteller[:150])
+        artikel = Artikel.objects.create(
+            nummer=nummer, typ="A", bezeichnung=eintrag.bezeichnung, herstellernummer=eintrag.herstellernummer, ean=eintrag.ean,
+            hersteller=hersteller, gewicht_kg=eintrag.gewicht_kg, steuersatz=steuer)
+    eintrag.artikel = artikel
+    eintrag.save(update_fields=["artikel"])
+    ArtikelLieferant.objects.get_or_create(
+        lieferant=eintrag.lieferant, bestellnummer=eintrag.bestellnummer,
+        defaults={"artikel": artikel, "ek": eintrag.ek, "bestand": eintrag.bestand, "lieferzeit_tage": eintrag.lieferzeit_tage,
+                  "preisliste": eintrag.preisliste, "aktualisiert_am": eintrag.aktualisiert_am})
+    BestellPosition.objects.filter(preisliste_artikel=eintrag, artikel__isnull=True).update(artikel=artikel)
+    return artikel
+
+
 def artikel_per_code(code: str, lieferant=None):
-    """Artikel über Scan-Code: EAN, Artikelnummer, Herstellernummer oder Bestellnummer des Lieferanten."""
+    """Artikel über Scan-Code: EAN, Artikelnummer, Herstellernummer oder Bestellnummer des Lieferanten.
+    Findet sich nur ein Preislistenartikel des Lieferanten, wird daraus der eigene Artikel angelegt."""
     code = code.strip()
     if not code:
         return None
@@ -158,7 +212,14 @@ def artikel_per_code(code: str, lieferant=None):
     if lieferant is not None:
         al = al.filter(lieferant=lieferant)
     al = al.select_related("artikel").first()
-    return al.artikel if al else None
+    if al:
+        return al.artikel
+    if lieferant is not None:
+        eintrag = Preislistenartikel.objects.filter(lieferant=lieferant).filter(
+            Q(bestellnummer__iexact=code) | Q(herstellernummer__iexact=code) | Q(ean=code)).first()
+        if eintrag:
+            return artikel_aus_preisliste(eintrag)
+    return None
 
 
 @transaction.atomic
@@ -182,7 +243,10 @@ def wareneingang_erfassen(we, artikel, menge=Decimal("1"), ek=None, seriennummer
 
 def wareneingang_aus_bestellung(we):
     """Offene Mengen der Bestellung als Zeilen vorbelegen."""
-    for bp in we.bestellung.positionen.all():
+    for bp in we.bestellung.positionen.select_related("preisliste_artikel"):
+        if bp.artikel_id is None and bp.preisliste_artikel_id:  # Preislistenartikel wird zum eigenen Artikel
+            bp.artikel = artikel_aus_preisliste(bp.preisliste_artikel)
+            bp.save(update_fields=["artikel"])
         if bp.offen > 0 and not we.positionen.filter(bestellposition=bp).exists():
             WareneingangPosition.objects.create(wareneingang=we, bestellposition=bp, artikel=bp.artikel, menge=bp.offen, ek=bp.ek)
 

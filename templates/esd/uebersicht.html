@@ -5,6 +5,19 @@
 <div class="karte">
   <h1>ESD-Keys {{ request.mandant }}</h1>
   <p style="opacity:.8">Artikel werden im Artikelstamm mit „ESD-Key-Artikel“ gekennzeichnet. Beim Abschluss von Lieferschein oder Rechnung wird automatisch ein Key aus dem Bestand des Mandanten zugeordnet.</p>
+  <form method="get" class="zeile">
+    <div><label for="q">Keys hinzufügen: Software-Artikel suchen{% if not software_vorhanden %} (Kategorie „Software“ nicht gefunden – es werden alle Artikel angeboten){% endif %}</label>
+      <input id="q" name="q" value="{{ q }}" size="40" placeholder="z. B. windows 11 pro"></div>
+    <button type="submit">Suchen</button>
+  </form>
+  {% if q %}
+  <table style="margin:12px 0">
+    <tr><th>Artikel</th><th>Bezeichnung</th><th>Kategorie</th><th></th></tr>
+    {% for a in kandidaten %}<tr><td>{{ a.nummer }}</td><td>{{ a.bezeichnung }}</td><td>{{ a.kategorie.name }}</td>
+      <td><form method="post" action="{% url 'esd:aktivieren' a.pk %}">{% csrf_token %}<button type="submit">{% if a.esd_key %}Keys verwalten{% else %}Keys hinzufügen{% endif %}</button></form></td></tr>
+    {% empty %}<tr><td colspan="4">Kein Software-Artikel gefunden.</td></tr>{% endfor %}
+  </table>
+  {% endif %}
   <table>
     <tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Keys</th><th class="zahl">noch vergebbar</th><th class="zahl">vergeben</th><th class="zahl">gesperrt</th></tr>
     {% for z in zeilen %}

@@ -5,7 +5,7 @@ from django.db import transaction
 
 from apps.verkauf.models import Belegart
 
-from .models import Bewegungsart, Lagerbewegung, Seriennummer, bestand
+from .models import BestandReichtNicht, Bewegungsart, Lagerbewegung, Seriennummer, bestand
 
 LAGERFUEHREND = "A"  # nur Typ A (Lagerartikel) wird gebucht
 
@@ -37,6 +37,14 @@ def buche_beleg(beleg, benutzer=None) -> int:
         if p.artikel_id and p.artikel.typ == LAGERFUEHREND:
             mengen[p.artikel_id] += p.menge
             artikel[p.artikel_id] = p.artikel
+    knapp = []  # Lieferschein/Rechnung nur mit ausreichendem Lagerbestand: sonst würde er unter 0 fallen
+    for artikel_id, menge in mengen.items():
+        vorhanden = bestand(beleg.mandant, artikel[artikel_id])
+        if vorhanden < menge:
+            knapp.append(f"{artikel[artikel_id].nummer} {artikel[artikel_id].bezeichnung[:40]} (benötigt {menge:f}, vorhanden {vorhanden:f})")
+    if knapp:
+        raise BestandReichtNicht("Lagerbestand reicht nicht für " + beleg.get_art_display() + ": " + "; ".join(knapp) +
+                                 ". Erst Wareneingang buchen oder die Menge ändern.")
     for artikel_id, menge in mengen.items():
         Lagerbewegung.objects.create(
             mandant=beleg.mandant, artikel=artikel[artikel_id], art=Bewegungsart.VERKAUF, menge=-menge,

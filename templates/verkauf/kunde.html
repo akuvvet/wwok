@@ -44,7 +44,7 @@
     <thead><tr><th></th><th>Beleg</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">bezahlt</th><th class="zahl">offen</th><th>Bezug</th><th>Status</th></tr></thead>
     <tbody>
     {% for z in zeilen %}{% with b=z.beleg %}
-    <tr><td>{% if b.abrechenbar %}<input type="checkbox" name="auswahl" value="{{ b.pk }}" title="Lieferschein für Rechnung auswählen">{% endif %}</td>
+    <tr><td>{% if sammelrechnung and b.abrechenbar %}<input type="checkbox" name="auswahl" value="{{ b.pk }}" title="Lieferschein für Rechnung auswählen">{% endif %}</td>
         <td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(Entwurf)" }}</a>
           {% if z.positionen %}<details><summary style="cursor:pointer;opacity:.7;font-size:12px">{{ z.positionen|length }} Position(en)</summary>
             <ul style="margin:4px 0 0 16px;padding:0;font-size:12px;opacity:.85">{% for p in z.positionen %}<li>{{ p.menge|floatformat:"-3" }} × {{ p.bezeichnung }}</li>{% endfor %}</ul></details>{% endif %}</td>
@@ -58,8 +58,8 @@
     </tbody>
   </table>
   </div>
-  <p class="zeile" style="margin-top:10px"><button type="submit" class="leise">Ausgewählte Lieferscheine in Rechnung umwandeln</button>
-    <span style="opacity:.7">Mehrere abgeschlossene Lieferscheine des Kunden lassen sich gemeinsam abrechnen.</span></p>
+  {% if sammelrechnung %}<p class="zeile" style="margin-top:10px"><button type="submit" class="leise">Ausgewählte Lieferscheine in Rechnung umwandeln</button>
+    <span style="opacity:.7">Es gibt mehrere offene Lieferscheine – wähle die aus, die gemeinsam abgerechnet werden sollen.</span></p>{% endif %}
   </form>
   {% include "seiten.html" %}
 </div>

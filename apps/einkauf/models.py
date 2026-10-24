@@ -62,7 +62,9 @@ class Bestellung(Zeitstempel):
 
 class BestellPosition(models.Model):
     bestellung = models.ForeignKey(Bestellung, on_delete=models.CASCADE, related_name="positionen")
-    artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT)
+    artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT, null=True, blank=True)
+    preisliste_artikel = models.ForeignKey("stammdaten.Preislistenartikel", on_delete=models.SET_NULL, null=True, blank=True,
+                                           related_name="+", help_text="Artikel aus der Lieferantenpreisliste; wird beim Wareneingang zum eigenen Artikel")
     bestellnummer = models.CharField("Bestellnr. des Lieferanten", max_length=100, blank=True)
     bezeichnung = models.CharField(max_length=255)
     menge = models.DecimalField(max_digits=10, decimal_places=3)
@@ -75,6 +77,12 @@ class BestellPosition(models.Model):
         ordering = ["id"]
 
     @property
+    def nummer(self) -> str:
+        if self.artikel_id:
+            return self.artikel.nummer
+        return self.preisliste_artikel.nummer if self.preisliste_artikel_id else ""
+
+    @property
     def offen(self) -> Decimal:
         return self.menge - self.geliefert
 
@@ -83,7 +91,7 @@ class BestellPosition(models.Model):
         return (self.menge * self.ek).quantize(Decimal("0.01"))
 
     def __str__(self):
-        return f"{self.menge:f} × {self.artikel.nummer}"
+        return f"{self.menge:f} × {self.nummer}"
 
 
 class Wareneingang(Zeitstempel):
@@ -278,8 +286,8 @@ class Preislistenprofil(Zeitstempel):
     sp_lieferzeit = models.CharField("Spalte Lieferzeit (Tage)", max_length=60, blank=True)
     sp_gewicht = models.CharField("Spalte Gewicht (kg)", max_length=60, blank=True)
     neue_artikel = models.BooleanField(
-        "unbekannte Artikel als Lieferantenprodukt (Typ P) anlegen", default=True,
-        help_text="Sonst werden nur Preise und Bestände bei bereits vorhandenen Artikeln aktualisiert.")
+        "alle Artikel der Liste in die Preislistentabelle übernehmen", default=True,
+        help_text="Sonst werden nur Zeilen übernommen, die zu einem eigenen Artikel passen (Herstellernummer oder EAN).")
     letzter_lauf = models.DateTimeField(null=True, blank=True, editable=False)
     laeuft_seit = models.DateTimeField(null=True, blank=True, editable=False,
                                        help_text="Gesetzt, solange ein Import läuft (verhindert Doppelläufe)")

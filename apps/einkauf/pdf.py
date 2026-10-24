@@ -40,7 +40,7 @@ def bestellung_pdf(bestellung) -> bytes:
               Paragraph(f"Bestellung {bestellung.nummer}", titel), Spacer(1, 4 * mm)]
     zeilen = [[absatz(t, fett) for t in ("Pos.", "Best.-Nr.", "Bezeichnung", "Menge", "EK netto", "Netto")]]
     for i, p in enumerate(bestellung.positionen.select_related("artikel"), start=1):
-        zeilen.append([str(i), absatz(p.bestellnummer or p.artikel.nummer, normal), absatz(p.bezeichnung, normal),
+        zeilen.append([str(i), absatz(p.bestellnummer or p.nummer, normal), absatz(p.bezeichnung, normal),
                        zahl(p.menge), euro(p.ek), euro(p.netto)])
     t = Table(zeilen, colWidths=[10 * mm, 30 * mm, 70 * mm, 16 * mm, 22 * mm, 22 * mm], repeatRows=1)
     t.setStyle(TableStyle([("FONT", (0, 1), (-1, -1), "Helvetica", 9), ("VALIGN", (0, 0), (-1, -1), "TOP"),

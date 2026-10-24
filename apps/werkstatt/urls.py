@@ -7,6 +7,7 @@ app_name = "werkstatt"
 urlpatterns = [
     path("", views.liste, name="liste"),
     path("annahme/", views.annahme, name="annahme"),
+    path("reklamation/<int:beleg_id>/", views.reklamation, name="reklamation"),
     path("<int:reparatur_id>/", views.detail, name="detail"),
     path("<int:reparatur_id>/status/", views.status, name="status"),
     path("<int:reparatur_id>/position/", views.position, name="position"),

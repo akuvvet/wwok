@@ -7,7 +7,7 @@ Menge, Grund und Beleg). Reserviert sind Mengen aus Aufträgen, die noch keinen 
 from decimal import Decimal
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from apps.kern.models import Mandant
@@ -24,6 +24,10 @@ class Bewegungsart(models.TextChoices):
     UMBUCHUNG = "UM", "Umbuchung zwischen Mandanten"
     WERKSTATT = "WV", "Werkstatt (Garantie-Teile)"
     KORREKTUR = "KO", "Korrektur"
+
+
+class BestandReichtNicht(ValueError):
+    """Ein Abgang würde den Lagerbestand unter 0 bringen (verboten)."""
 
 
 class Lagerbewegung(models.Model):
@@ -46,6 +50,15 @@ class Lagerbewegung(models.Model):
     def save(self, *args, **kwargs):
         if self.pk:
             raise PermissionError("Lagerbewegungen sind unveränderlich; bitte eine Gegenbuchung erfassen.")
+        if self.menge < 0:  # Der Lagerbestand darf nie unter 0 fallen
+            with transaction.atomic():
+                Artikel.objects.select_for_update().filter(pk=self.artikel_id).first()  # Sperre gegen gleichzeitige Abgänge
+                aktuell = bestand(self.mandant, self.artikel)
+                if aktuell + self.menge < 0:
+                    raise BestandReichtNicht(
+                        f"Lagerbestand reicht nicht: {self.artikel.nummer} – vorhanden {aktuell:f}, Abgang {-self.menge:f}.")
+                super().save(*args, **kwargs)
+            return
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

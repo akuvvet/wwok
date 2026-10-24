@@ -1,9 +1,10 @@
 from django.contrib import messages
 from django.core.paginator import Paginator
+from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from apps.stammdaten.models import Artikel
+from apps.stammdaten.models import Artikel, Kategorie
 from apps.verkauf.mail import MailFehler, senden_an
 from apps.verkauf.models import Beleg, Position
 from apps.verkauf.views import mit_mandant
@@ -12,12 +13,49 @@ from . import services
 from .models import ESDKey, ESDVergabe, KeyStatus, VergabeStatus
 
 
+def software_kategorien():
+    """IDs der Kategorie 'Software' samt aller Unterkategorien; None, wenn es keine solche Kategorie gibt."""
+    wurzeln = list(Kategorie.objects.filter(name__icontains="software", eltern__isnull=True).values_list("pk", flat=True))
+    if not wurzeln:
+        return None
+    ids = set(wurzeln)
+    for _ in range(5):
+        ids |= set(Kategorie.objects.filter(eltern_id__in=ids).values_list("pk", flat=True))
+    return ids
+
+
 @mit_mandant
 def uebersicht(request):
     zeilen = []
     for a in Artikel.objects.filter(esd_key=True).order_by("nummer"):
         zeilen.append({"artikel": a, **services.bestand(request.mandant, a)})
-    return render(request, "esd/uebersicht.html", {"zeilen": zeilen})
+    q = request.GET.get("q", "").strip()
+    ids = software_kategorien()
+    kandidaten = []
+    if q:  # nur Artikel der Kategorie Software anbieten
+        qs = Artikel.objects.filter(nicht_aktiv=False, typ="A")
+        if ids is not None:
+            qs = qs.filter(kategorie_id__in=ids)
+        for wort in q.split():
+            qs = qs.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
+                           | Q(hersteller__name__icontains=wort))
+        kandidaten = list(qs.select_related("kategorie").order_by("nummer")[:50])
+    return render(request, "esd/uebersicht.html", {"zeilen": zeilen, "q": q, "kandidaten": kandidaten, "software_vorhanden": ids is not None})
+
+
+@mit_mandant
+@require_POST
+def aktivieren(request, artikel_id):
+    """Artikel der Kategorie Software als ESD-Key-Artikel kennzeichnen, damit Keys importiert werden können."""
+    a = get_object_or_404(Artikel, pk=artikel_id, typ="A")
+    ids = software_kategorien()
+    if ids is not None and a.kategorie_id not in ids:
+        messages.error(request, "Keys lassen sich nur für Artikel der Kategorie Software hinzufügen.")
+        return redirect("esd:uebersicht")
+    if not a.esd_key:
+        a.esd_key = True
+        a.save()
+    return redirect("esd:artikel", artikel_id=a.pk)
 
 
 @mit_mandant

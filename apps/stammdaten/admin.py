@@ -120,3 +120,15 @@ class PreisVorgabeAdmin(admin.ModelAdmin):
 class KundenpreisAdmin(admin.ModelAdmin):
     list_display = ["kunde", "artikel", "preis", "gueltig_ab", "gueltig_bis"]
     search_fields = ["kunde__nummer", "kunde__name1", "artikel__nummer", "artikel__bezeichnung"]
+
+
+@admin.register(m.Preislistenartikel)
+class PreislistenartikelAdmin(admin.ModelAdmin):
+    """Artikel aus den Lieferantenpreislisten (Typ P). Sie entstehen durch den Preislistenimport; hier nur zum Nachsehen."""
+
+    list_display = ["lieferant", "herstellernummer", "bestellnummer", "bezeichnung", "hersteller", "ek", "bestand", "artikel"]
+    list_filter = ["lieferant"]
+    search_fields = ["bezeichnung", "herstellernummer", "bestellnummer", "ean", "hersteller"]
+    raw_id_fields = ["artikel"]
+    list_select_related = ["lieferant", "artikel"]
+    show_full_result_count = False  # bei Hunderttausenden Zeilen kein teures COUNT(*)

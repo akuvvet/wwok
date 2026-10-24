@@ -80,7 +80,7 @@ def beleg_pdf(beleg) -> bytes:
     if beleg.vortext:
         inhalt += [absatz(beleg.vortext, normal), Spacer(1, 4 * mm)]
     zeilen = [[absatz(t, fett) for t in ("Pos.", "Artikel", "Bezeichnung", "Menge", "Preis", "Rabatt", "Netto")]]
-    for p in beleg.positionen.select_related("artikel"):
+    for p in beleg.positionen.select_related("artikel", "preisliste_artikel"):
         text = p.bezeichnung + (f"\n{p.zusatztext}" if p.zusatztext else "")
         if p.lieferschein_id and not p.gruppe_id:
             text += f"\nLieferschein {p.lieferschein.nummer} vom {p.lieferschein.belegdatum:%d.%m.%Y}"
@@ -94,10 +94,10 @@ def beleg_pdf(beleg) -> bytes:
         if keys:
             text += "\nLizenzschlüssel: " + ", ".join(keys)
         if p.gruppe_id:  # Unterartikel einer Gruppe: eingerückt, ohne Einzelpreise
-            zeilen.append(["", absatz(p.artikel.nummer if p.artikel else "", normal), absatz("   – " + text, normal),
+            zeilen.append(["", absatz(p.artikelnummer, normal), absatz("   – " + text, normal),
                            zahl(p.menge), "", "", ""])
             continue
-        zeilen.append([str(p.pos), absatz(p.artikel.nummer if p.artikel else "", normal), absatz(text, normal),
+        zeilen.append([str(p.pos), absatz(p.artikelnummer, normal), absatz(text, normal),
                        zahl(p.menge), euro(p.einzelpreis), f"{zahl(p.rabatt_prozent)} %" if p.rabatt_prozent else "",
                        euro(p.netto_gesamt)])
     tabelle = Table(zeilen, colWidths=[12 * mm, 24 * mm, 58 * mm, 17 * mm, 21 * mm, 16 * mm, 22 * mm], repeatRows=1)

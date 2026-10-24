@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.kern.models import Mandant
-from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Zahlungsbedingung)
+from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from .models import Beleg, BelegGesperrt, Belegart, Position
 from .mail import MailFehler, beleg_senden
@@ -116,11 +116,13 @@ def kunde_detail(request, kunde_id):
             "offen": fin.offen(b) if rechnung else None,
             "bezug": b.vorgaenger.nummer if b.vorgaenger_id and b.vorgaenger.nummer else "",
             "positionen": list(b.positionen.select_related("artikel")[:15])})
+    offene_lieferscheine = sum(1 for b in Beleg.objects.filter(kunde=kunde, mandant=request.mandant, art=Belegart.LIEFERSCHEIN,
+                                                                abgeschlossen=True) if b.abrechenbar)
     mandantendaten = kunde.mandantendaten.filter(mandant=request.mandant).first()
     offen = fin.kunde_offen(request.mandant, kunde)
     limit = mandantendaten.kreditlimit if mandantendaten else None
     return render(request, "verkauf/kunde.html", {
-        "offen": offen, "limit_ueberschritten": bool(limit) and offen > limit,
+        "offen": offen, "limit_ueberschritten": bool(limit) and offen > limit, "sammelrechnung": offene_lieferscheine >= 2,
         "kunde": kunde, "zeilen": zeilen, "seite": seite, "parameter": parameter.urlencode(), "filter": art,
         "ab": ab, "ohne_storno": ohne_storno, "arten": Belegart.choices,
         "kreditlimit": mandantendaten.kreditlimit if mandantendaten else None,
@@ -159,7 +161,7 @@ def beleg_neu(request, kunde_id):
 def beleg_detail(request, beleg_id):
     from apps.lager.models import bestand, reserviert
     beleg = beleg_holen(request, beleg_id)
-    positionen = list(beleg.positionen.select_related("artikel"))
+    positionen = list(beleg.positionen.select_related("artikel", "preisliste_artikel__lieferant"))
     for p in positionen:  # Warnung, wenn der verfügbare Bestand nicht reicht
         p.knapp = None
         if p.artikel_id and p.artikel.typ == "A" and not beleg.abgeschlossen and beleg.art in ("AB", "LS", "RE"):
@@ -227,12 +229,29 @@ def beleg_kopf(request, beleg_id):
 def position_neu(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
     typ = request.POST.get("typ", "A")
-    nummer = request.POST.get("artikel", "").strip()
+    nummer = "" if request.POST.get("pl") else request.POST.get("artikel", "").strip()  # Preislistenartikel kommen über 'pl'
     artikel = Artikel.objects.filter(nummer__iexact=nummer, nicht_aktiv=False).select_related("steuersatz").first() if nummer else None
     if nummer and not artikel:
         raise ValueError(f"Artikel '{nummer}' nicht gefunden.")
     menge = dezimal(request.POST.get("menge"), Decimal("1"))
     rabatt = dezimal(request.POST.get("rabatt"), Decimal("0"))
+    if request.POST.get("pl"):  # Artikel aus der Lieferantenpreisliste (Typ P): ohne eigene Artikelanlage verkaufbar
+        from apps.stammdaten.models import Steuersatz
+        from apps.stammdaten.preise import preislistenpreis
+        if request.POST.get("gruppe"):
+            raise ValueError("Preislistenartikel können nicht in eine Gruppe aufgenommen werden.")
+        eintrag = get_object_or_404(Preislistenartikel.objects.select_related("lieferant"), pk=request.POST["pl"])
+        preis = dezimal(request.POST.get("preis"))
+        if preis is None:
+            preis = preislistenpreis(eintrag, beleg.kunde)
+        if preis is None:
+            raise ValueError("Für Preislistenartikel ist noch kein Aufschlag hinterlegt (Verwaltung → Globale Preisvorgabe) – bitte den Preis eintragen.")
+        standard = Steuersatz.objects.filter(nummer=1).first()
+        Position.objects.create(
+            beleg=beleg, typ="P", preisliste_artikel=eintrag, bezeichnung=(request.POST.get("bezeichnung", "").strip() or eintrag.bezeichnung)[:255],
+            menge=menge, einzelpreis=preis, rabatt_prozent=rabatt, steuer_prozent=standard.prozent if standard else Decimal("19"))
+        beleg.berechne()
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
     gruppe = None
     if request.POST.get("gruppe"):  # Unterposition einer frei zusammengestellten Gruppe
         gruppe = get_object_or_404(Position, pk=request.POST["gruppe"], beleg=beleg, typ="G", gruppe__isnull=True)
@@ -439,11 +458,15 @@ def api_artikel(request):
     if len(q) < 2:
         return JsonResponse({"treffer": []})
     artikel = Artikel.objects.filter(nicht_aktiv=False)
+    pl = Preislistenartikel.objects.filter(artikel__isnull=True).select_related("lieferant")  # verknüpfte stehen schon als eigener Artikel da
     for wort in q.split():  # jedes Wort muss irgendwo vorkommen, Reihenfolge egal
         artikel = artikel.filter(
             Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
             | Q(bezeichnung_erweitert__icontains=wort) | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+        pl = pl.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
+                       | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))
     artikel = artikel.select_related("steuersatz")[:20]
+    preisliste = list(pl.order_by("bezeichnung")[:15])
     treffer = []
     for a in artikel:
         letzte = None
@@ -464,4 +487,10 @@ def api_artikel(request):
             frei = str(g) if g is not None else None
         treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "typ": a.typ, "verfuegbar": frei,
                         "preis": str(preis) if preis is not None else "", "sonderpreis": quelle == "sonderpreis", "letzter": letzte})
+    from apps.stammdaten.preise import preislistenpreis
+    for e in preisliste:  # Lieferantenartikel (Typ P) mit Kurzname des Lieferanten
+        preis = preislistenpreis(e, kunde)
+        treffer.append({"nummer": e.nummer, "bezeichnung": e.bezeichnung, "typ": "P", "verfuegbar": None, "sonderpreis": False,
+                        "preis": str(preis) if preis is not None else "", "letzter": None, "pl": e.pk, "lieferant": e.lieferant.kurz,
+                        "lieferant_bestand": e.bestand})
     return JsonResponse({"treffer": treffer})

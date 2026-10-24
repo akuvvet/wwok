@@ -27,6 +27,7 @@ class ESDTest(TestCase):
         st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
         self.win = Artikel.objects.create(nummer="WIN11", bezeichnung="Windows 11 Pro", steuersatz=st, vk1=Decimal("120"), esd_key=True)
         self.user = get_user_model().objects.create_user("t", password="x" * 14)
+        buche_manuell(self.m, self.win, Bewegungsart.WARENEINGANG, Decimal("50"))  # Rechnungen brauchen Lagerbestand
 
     def beleg(self, kunde=None, art=Belegart.RECHNUNG, menge="1"):
         b = Beleg.objects.create(mandant=self.m, art=art, kunde=kunde or self.k1)

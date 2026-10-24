@@ -302,7 +302,7 @@ def kopiere_positionen(quelle, ziel):
     for p in quelle.positionen.order_by("pos", "id"):
         neu[p.pk] = Position.objects.create(
             beleg=ziel, gruppe=neu.get(p.gruppe_id), typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung,
-            menge=p.menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent,
+            preisliste_artikel=p.preisliste_artikel, menge=p.menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent,
             steuer_prozent=p.steuer_prozent, zusatztext=p.zusatztext, lieferschein=lieferschein or p.lieferschein,
             quellposition=p)
 
@@ -346,6 +346,8 @@ class Position(Zeitstempel):
     pos = models.PositiveSmallIntegerField("Pos.", default=0)
     typ = models.CharField("Typ", max_length=1, choices=Artikeltyp.choices, default=Artikeltyp.A)
     artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT, null=True, blank=True)
+    preisliste_artikel = models.ForeignKey("stammdaten.Preislistenartikel", on_delete=models.SET_NULL, null=True, blank=True,
+                                           related_name="+", help_text="Typ P: Artikel aus der Lieferantenpreisliste ohne eigene Artikelanlage")
     bezeichnung = models.CharField("Bezeichnung", max_length=255)
     zusatztext = models.TextField("Zusatztext", blank=True)
     menge = models.DecimalField("Menge", max_digits=10, decimal_places=3, default=Decimal("1"))
@@ -357,6 +359,13 @@ class Position(Zeitstempel):
         verbose_name = "Position"
         verbose_name_plural = "Positionen"
         ordering = ["pos", "id"]
+
+    @property
+    def artikelnummer(self) -> str:
+        """Nummer für Anzeige und Druck: eigener Artikel, sonst MSKU/Bestellnummer aus der Preisliste."""
+        if self.artikel_id:
+            return self.artikel.nummer
+        return self.preisliste_artikel.nummer if self.preisliste_artikel_id else ""
 
     @property
     def netto_gesamt(self) -> Decimal:

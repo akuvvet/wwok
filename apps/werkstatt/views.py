@@ -169,3 +169,43 @@ def schein(request, reparatur_id, art):
     antwort = HttpResponse(schein_pdf(reparatur, abholung=art == "abhol"), content_type="application/pdf")
     antwort["Content-Disposition"] = f'inline; filename="{reparatur.nummer}-{art}.pdf"'
     return antwort
+
+
+@mit_mandant
+def reklamation(request, beleg_id):
+    """Kunde reklamiert ein Gerät: aus einer Rechnung oder einem Lieferschein einen Werkstattauftrag anlegen.
+    Seriennummer, Artikel und Garantie (Belegdatum + Garantiemonate des Artikels, sonst 24 Monate) werden vorbelegt."""
+    from datetime import date
+
+    from apps.verkauf.models import Beleg, Belegart
+    beleg = get_object_or_404(Beleg.objects.select_related("kunde"), pk=beleg_id, mandant=request.mandant,
+                              art__in=[Belegart.RECHNUNG, Belegart.LIEFERSCHEIN])
+    heute = date.today()
+    zeilen = []
+    for p in beleg.positionen.filter(artikel__isnull=False).exclude(artikel__typ__in=["L", "G"]).select_related("artikel"):
+        monate = p.artikel.garantie_monate or 24
+        jahr, monat = divmod(beleg.belegdatum.month - 1 + monate, 12)
+        try:
+            ende = beleg.belegdatum.replace(year=beleg.belegdatum.year + jahr, month=monat + 1)
+        except ValueError:  # 29.02. → 28.02.
+            ende = beleg.belegdatum.replace(year=beleg.belegdatum.year + jahr, month=monat + 1, day=28)
+        zeilen.append({"position": p, "seriennummern": ", ".join(sn.nummer for sn in p.seriennummern.all()),
+                       "garantie_bis": ende, "in_garantie": ende >= heute})
+    if request.method == "POST":
+        try:
+            position = next(z for z in zeilen if str(z["position"].pk) == request.POST.get("position"))
+        except StopIteration:
+            messages.error(request, "Bitte das reklamierte Gerät wählen.")
+            return render(request, "werkstatt/reklamation.html", {"beleg": beleg, "zeilen": zeilen})
+        if not request.POST.get("fehler", "").strip():
+            messages.error(request, "Bitte beschreiben, was defekt ist.")
+            return render(request, "werkstatt/reklamation.html", {"beleg": beleg, "zeilen": zeilen})
+        p = position["position"]
+        reparatur = services.annehmen(
+            request.mandant, beleg.kunde, p.bezeichnung[:200], request.POST["fehler"].strip(),
+            request.POST.get("seriennummer", "").strip(), "", p.artikel, bool(request.POST.get("garantie")), request.user)
+        reparatur.interne_notiz = f"Reklamation zu {beleg} vom {beleg.belegdatum:%d.%m.%Y} (Garantie bis {position['garantie_bis']:%d.%m.%Y})"
+        reparatur.save()
+        messages.success(request, f"Werkstattauftrag {reparatur.nummer} zur Reklamation angelegt.")
+        return redirect("werkstatt:detail", reparatur_id=reparatur.pk)
+    return render(request, "werkstatt/reklamation.html", {"beleg": beleg, "zeilen": zeilen})

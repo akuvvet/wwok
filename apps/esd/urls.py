@@ -7,6 +7,7 @@ app_name = "esd"
 urlpatterns = [
     path("", views.uebersicht, name="uebersicht"),
     path("artikel/<int:artikel_id>/", views.artikel, name="artikel"),
+    path("artikel/<int:artikel_id>/aktivieren/", views.aktivieren, name="aktivieren"),
     path("key/<int:key_id>/status/", views.key_status, name="key_status"),
     path("beleg/<int:beleg_id>/", views.beleg, name="beleg"),
     path("beleg/<int:beleg_id>/zuordnen/", views.zuordnen, name="zuordnen"),

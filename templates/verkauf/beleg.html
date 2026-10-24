@@ -39,6 +39,7 @@
   <details class="menue-mehr"><summary class="knopf leise">Weitere Aktionen ▾</summary>
     <div class="mehr">
       {% if beleg.art == 'AN' or beleg.art == 'AB' %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}
+      {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'LS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'werkstatt:reklamation' beleg.pk %}">Gerät reklamiert → Werkstatt</a>{% endif %}
       {% if beleg.art == 'GS' and beleg.abgeschlossen %}<form method="post" action="{% url 'lager:retoure' beleg.pk %}" onsubmit="return confirm('Ware dieser Gutschrift ins Lager zurückbuchen?')">{% csrf_token %}<button class="leise" type="submit">Ware ins Lager zurückbuchen</button></form>{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen %}<form method="post" action="{% url 'verkauf:beleg_gutschrift' beleg.pk %}" onsubmit="return confirm('Gutschrift (Storno) zu dieser Rechnung anlegen?')">{% csrf_token %}<button class="gefahr" type="submit">Storno / Gutschrift</button></form>{% endif %}
       {% if loeschbar %}<form method="post" action="{% url 'verkauf:beleg_loeschen' beleg.pk %}" onsubmit="return confirm('{{ beleg.get_art_display }} wirklich löschen?')">{% csrf_token %}<button class="gefahr" type="submit">{{ beleg.get_art_display }} löschen</button></form>{% endif %}
@@ -60,7 +61,7 @@
       <td>{{ p.pos }}</td>
       <td>
         {% if p.gruppe_id %}<span style="padding-left:18px">↳ </span>{% endif %}
-        {% if p.artikel %}<span style="opacity:.7">{{ p.artikel.nummer }}</span> {% endif %}{% if p.typ == 'G' and not p.gruppe_id %}<strong>{{ p.bezeichnung }}</strong>{% else %}{{ p.bezeichnung }}{% endif %}
+        {% if p.artikelnummer %}<span style="opacity:.7">{{ p.artikelnummer }}</span> {% endif %}{% if p.preisliste_artikel %}<span class="marke" title="Artikel aus der Preisliste des Lieferanten">{{ p.preisliste_artikel.lieferant.kurz }}</span> {% endif %}{% if p.typ == 'G' and not p.gruppe_id %}<strong>{{ p.bezeichnung }}</strong>{% else %}{{ p.bezeichnung }}{% endif %}
         {% if p.zusatztext %}<br><small style="opacity:.75;white-space:pre-line">{{ p.zusatztext }}</small>{% endif %}
         {% if p.lieferschein and not p.gruppe_id %}<br><small style="opacity:.75">Lieferschein {{ p.lieferschein.nummer }} vom {{ p.lieferschein.belegdatum|date:"d.m.Y" }}</small>{% endif %}
         {% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
@@ -97,7 +98,7 @@
     <div><label>Typ</label>
       <select name="typ"><option>A</option><option>P</option><option>L</option><option>G</option></select></div>
     <div><label>Artikel (Nr. oder Suchwörter)</label>
-      <div style="position:relative"><input name="artikel" id="artikel" size="30" autofocus>
+      <div style="position:relative"><input name="artikel" id="artikel" size="30" autofocus><input type="hidden" name="pl" id="pl">
         <div id="trefferliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:520px;max-height:320px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
     {% if gruppen %}<div><label>zu Gruppe</label><select name="gruppe"><option value="">–</option>{% for g in gruppen %}<option value="{{ g.pk }}">{{ g.pos }} {{ g.bezeichnung }}</option>{% endfor %}</select></div>{% endif %}
     <div><label>Bezeichnung (nur bei freier Position)</label><input name="bezeichnung" id="bezeichnung" size="24"></div>
@@ -179,7 +180,7 @@
       liste.forEach(function (t, i) {
         var d = document.createElement('div');
         d.style.cssText = 'padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--rand);' + (i === aktiv ? 'background:var(--grund)' : '');
-        d.textContent = t.nummer + ' – ' + t.bezeichnung + (t.preis ? '  (' + t.preis + ' €' + (t.sonderpreis ? ', Sonderpreis' : '') + ')' : '') + (t.verfuegbar !== null ? '  · verfügbar ' + parseFloat(t.verfuegbar) : '');
+        d.textContent = (t.lieferant ? '[' + t.lieferant + '] ' : '') + t.nummer + ' – ' + t.bezeichnung + (t.preis ? '  (' + t.preis + ' €' + (t.sonderpreis ? ', Sonderpreis' : '') + ')' : '') + (t.verfuegbar !== null ? '  · verfügbar ' + parseFloat(t.verfuegbar) : '') + (t.lieferant && t.lieferant_bestand !== null && t.lieferant_bestand !== undefined ? '  · beim Lieferanten ' + t.lieferant_bestand : '');
         d.addEventListener('mousedown', function (e) { e.preventDefault(); waehle(i); });
         box.appendChild(d);
       });
@@ -187,7 +188,7 @@
     }
     function waehle(i) {
       var t = liste[i]; if (!t) return;
-      feld.value = t.nummer; preis.value = t.preis; typ.value = t.typ;
+      feld.value = t.nummer; preis.value = t.preis; typ.value = t.typ; document.getElementById('pl').value = t.pl || '';
       info.textContent = t.bezeichnung + (t.letzter ? ' · letzter Preis dieses Kunden: ' + t.letzter.preis + ' € am ' + t.letzter.datum : '');
       liste = []; aktiv = -1; zeige();
       document.querySelector('#positionsform input[name=menge]').focus(); document.querySelector('#positionsform input[name=menge]').select();
@@ -203,7 +204,7 @@
           zeige();
         });
     }
-    feld.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(suche, 200); });
+    feld.addEventListener('input', function () { document.getElementById('pl').value = ''; clearTimeout(timer); timer = setTimeout(suche, 200); });
     feld.addEventListener('keydown', function (e) {
       if (!liste.length) return;
       if (e.key === 'ArrowDown') { aktiv = Math.min(aktiv + 1, liste.length - 1); zeige(); e.preventDefault(); }

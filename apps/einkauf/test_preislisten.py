@@ -9,18 +9,18 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.kern.models import Mandant
-from apps.stammdaten.models import Artikel, ArtikelLieferant, Hersteller, Lieferant, Steuersatz
+from apps.stammdaten.models import Artikel, ArtikelLieferant, Lieferant, Preislistenartikel, Steuersatz
 
 from . import preislisten
 from .models import Preislistenprofil
 
 CSV = (
     "Best.-Nr.;Herst.-Nr.;EAN;Bezeichnung;Hersteller;EK;Bestand;Lieferzeit\n"
-    "TD-1;MX-100;4012345678901;Maus Logitech MX;Logitech;12,50;40;2\n"      # vorhandener Artikel (Herstellernummer)
-    "TD-2;;4099999999999;Tastatur Cherry;Cherry;1.234,56;5;3\n"             # neu (Typ P), Tausendertrenner
+    "TD-1;MX-100;4012345678901;Maus Logitech MX;Logitech;12,50;40;2\n"      # passt zu eigenem Artikel (Herstellernummer)
+    "TD-2;;4099999999999;Tastatur Cherry;Cherry;1.234,56;5;3\n"             # nur Preisliste, Tausendertrenner
     "TD-3;XX-3;;Kabel;;abc;1;1\n"                                           # Fehler: EK
     ";;;ohne Bestellnummer;;1,00;1;1\n"                                     # Fehler: Bestellnummer fehlt
-    "TD-5;;4012345678901;Maus per EAN;;11,90;;\n"                           # vorhandener Artikel über EAN
+    "TD-5;;4012345678901;Maus per EAN;;11,90;;\n"                           # passt zu eigenem Artikel über die EAN
 )
 
 
@@ -35,53 +35,56 @@ def profil(lieferant, **kw):
 
 class PreislistenTest(TestCase):
     def setUp(self):
-        self.lf = Lieferant.objects.create(nummer="L1", name1="Techdata GmbH")
+        self.lf = Lieferant.objects.create(nummer="L1", name1="Techdata GmbH", kurzname="Techdata")
         st = Steuersatz.objects.get(nummer=1)  # per Migration vorbelegt (19 %)
-        Hersteller.objects.create(kennzeichen="LOGI", name="Logitech")
         self.maus = Artikel.objects.create(nummer="M1", bezeichnung="Maus", herstellernummer="MX-100",
                                            ean="4012345678901", steuersatz=st)
 
     def test_vorschau_schreibt_nichts(self):
         p = profil(self.lf)
         v = preislisten.vorschau(p, CSV.encode())
-        self.assertEqual((v["gesamt"], v["zeilen"][0]["artikel"], v["zeilen"][1]["ergebnis"]), (5, self.maus, "wird angelegt"))
-        self.assertEqual(Artikel.objects.count(), 1)
+        self.assertEqual((v["gesamt"], v["zeilen"][0]["artikel"], v["zeilen"][1]["ergebnis"]), (5, self.maus, "neu in der Preisliste"))
+        self.assertEqual(Preislistenartikel.objects.count(), 0)
         self.assertEqual(ArtikelLieferant.objects.count(), 0)
 
-    def test_import_abgleich_neu_fehler_und_wiederholung(self):
+    def test_import_in_eigene_tabelle_mit_abgleich_und_fehlern(self):
         p = profil(self.lf)
         prot = preislisten.importieren(p, CSV.encode(), "liste.csv")
         self.assertEqual((prot.gelesen, prot.neu, prot.fehler), (5, 3, 2))
         self.assertEqual({f["zeile"] for f in prot.fehlerzeilen}, {4, 5})
-        al = ArtikelLieferant.objects.get(bestellnummer="TD-1")
-        self.assertEqual((al.artikel, al.ek, al.bestand, al.lieferzeit_tage), (self.maus, Decimal("12.5000"), 40, 2))
-        self.assertEqual(ArtikelLieferant.objects.get(bestellnummer="TD-5").artikel, self.maus)  # Abgleich über EAN
-        neu = Artikel.objects.get(nummer="PL1-TD-2")
-        self.assertEqual((neu.typ, neu.bezeichnung, neu.ean), ("P", "Tastatur Cherry", "4099999999999"))
-        self.assertEqual(ArtikelLieferant.objects.get(bestellnummer="TD-2").ek, Decimal("1234.5600"))
+        self.assertEqual(Artikel.objects.count(), 1)  # Preislistenartikel werden NICHT zu eigenen Artikeln
+        self.assertEqual(Preislistenartikel.objects.count(), 3)
+        e1 = Preislistenartikel.objects.get(bestellnummer="TD-1")
+        self.assertEqual((e1.artikel, e1.ek, e1.bestand, e1.lieferzeit_tage, e1.hersteller, e1.lieferant), (self.maus, Decimal("12.5000"), 40, 2, "Logitech", self.lf))
+        self.assertEqual(Preislistenartikel.objects.get(bestellnummer="TD-5").artikel, self.maus)  # Abgleich über EAN
+        e2 = Preislistenartikel.objects.get(bestellnummer="TD-2")
+        self.assertEqual((e2.artikel, e2.ek, e2.bezeichnung, e2.nummer), (None, Decimal("1234.5600"), "Tastatur Cherry", "TD-2"))
+        # zum eigenen Artikel wird der Lieferantenpreis mitgeführt, zu reinen Preislistenartikeln nicht
+        self.assertEqual(sorted(ArtikelLieferant.objects.values_list("bestellnummer", flat=True)), ["TD-1", "TD-5"])
         # zweiter Lauf mit geändertem Preis: nichts doppelt, nur geändert/unverändert
-        geaendert = CSV.replace("12,50", "13,00")
-        prot2 = preislisten.importieren(p, geaendert.encode(), "liste.csv")
+        prot2 = preislisten.importieren(p, CSV.replace("12,50", "13,00").encode(), "liste.csv")
         self.assertEqual((prot2.neu, prot2.geaendert, prot2.unveraendert, prot2.fehler), (0, 1, 2, 2))
+        self.assertEqual(Preislistenartikel.objects.get(bestellnummer="TD-1").ek, Decimal("13.0000"))
         self.assertEqual(ArtikelLieferant.objects.get(bestellnummer="TD-1").ek, Decimal("13.0000"))
-        self.assertEqual(Artikel.objects.count(), 2)
+        self.assertEqual(Preislistenartikel.objects.count(), 3)
         p.refresh_from_db()
         self.assertIsNotNone(p.letzter_lauf)
 
-    def test_ohne_neue_artikel_nur_aktualisieren(self):
+    def test_ohne_neue_artikel_nur_passende_uebernehmen(self):
         p = profil(self.lf, neue_artikel=False)
         prot = preislisten.importieren(p, CSV.encode())
         self.assertEqual((prot.neu, prot.uebersprungen), (2, 1))
-        self.assertFalse(Artikel.objects.filter(typ="P").exists())
+        self.assertFalse(Preislistenartikel.objects.filter(bestellnummer="TD-2").exists())
 
     def test_spaltennummern_ohne_kopfzeile_und_punkt_dezimal_ansi(self):
-        text = "TD-9|MX-100|9.99|7\n"
+        text = "TD-9|MX-100|9.99|7|Maus neu\n"
         p = profil(self.lf, trennzeichen="|", zeichensatz="cp1252", dezimaltrennzeichen=".", kopfzeile=False, erste_datenzeile=1,
-                   sp_bestellnummer="1", sp_herstellernummer="2", sp_ean="", sp_bezeichnung="", sp_hersteller="", sp_ek="3",
+                   sp_bestellnummer="1", sp_herstellernummer="2", sp_ean="", sp_bezeichnung="5", sp_hersteller="", sp_ek="3",
                    sp_bestand="4", sp_lieferzeit="")
         prot = preislisten.importieren(p, text.encode("cp1252"))
         self.assertEqual((prot.neu, prot.fehler), (1, 0))
-        self.assertEqual(ArtikelLieferant.objects.get().ek, Decimal("9.9900"))
+        e = Preislistenartikel.objects.get()
+        self.assertEqual((e.ek, e.artikel, e.bezeichnung), (Decimal("9.9900"), self.maus, "Maus neu"))
 
     def test_excel_und_xml(self):
         from openpyxl import Workbook
@@ -93,11 +96,11 @@ class PreislistenTest(TestCase):
         wb.save(puffer)
         p = profil(self.lf, dateityp="xlsx")
         self.assertEqual(preislisten.importieren(p, puffer.getvalue()).neu, 1)
-        self.assertEqual(ArtikelLieferant.objects.get(bestellnummer="X-1").ek, Decimal("11.5000"))
-        xml = b"""<?xml version="1.0"?><liste><artikel><nr>Y-1</nr><hnr>MX-100</hnr><preis>8,40</preis><menge>2</menge></artikel>
-                  <artikel><nr>Y-2</nr><preis>x</preis></artikel></liste>"""
+        self.assertEqual(Preislistenartikel.objects.get(bestellnummer="X-1").ek, Decimal("11.5000"))
+        xml = b"""<?xml version="1.0"?><liste><artikel><nr>Y-1</nr><hnr>MX-100</hnr><titel>Maus XML</titel><preis>8,40</preis><menge>2</menge></artikel>
+                  <artikel><nr>Y-2</nr><titel>Defekt</titel><preis>x</preis></artikel></liste>"""
         px = profil(self.lf, name="XML", dateityp="xml", xml_satz="artikel", sp_bestellnummer="nr", sp_herstellernummer="hnr",
-                    sp_ean="", sp_bezeichnung="", sp_hersteller="", sp_ek="preis", sp_bestand="menge", sp_lieferzeit="")
+                    sp_ean="", sp_bezeichnung="titel", sp_hersteller="", sp_ek="preis", sp_bestand="menge", sp_lieferzeit="")
         prot = preislisten.importieren(px, xml)
         self.assertEqual((prot.neu, prot.fehler), (1, 1))
 
@@ -125,9 +128,9 @@ class PreislistenTest(TestCase):
 
 @override_settings(SECURE_SSL_REDIRECT=False)
 class PreislistenMaskeTest(TestCase):
-    def test_vorschau_import_und_protokoll(self):
+    def test_vorschau_import_protokoll_und_suche(self):
         m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
-        lf = Lieferant.objects.create(nummer="L1", name1="Techdata GmbH")
+        lf = Lieferant.objects.create(nummer="L1", name1="Techdata GmbH", kurzname="Techdata")
         p = profil(lf)
         self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
         s = self.client.session
@@ -137,7 +140,7 @@ class PreislistenMaskeTest(TestCase):
         r = self.client.post(reverse("einkauf:preisliste", args=[p.pk]), {
             "aktion": "vorschau", "datei": SimpleUploadedFile("liste.csv", CSV.encode())})
         self.assertContains(r, "Vorschau: 5 Zeilen")
-        self.assertEqual(ArtikelLieferant.objects.count(), 0)
+        self.assertEqual(Preislistenartikel.objects.count(), 0)
         token = r.context["token"]
         r2 = self.client.post(reverse("einkauf:preisliste", args=[p.pk]), {"aktion": "importieren", "token": token})
         protokoll = p.importe.get()
@@ -145,3 +148,8 @@ class PreislistenMaskeTest(TestCase):
         self.assertContains(self.client.get(reverse("einkauf:preislistenimport", args=[protokoll.pk])), "ohne Bestellnummer")
         r3 = self.client.post(reverse("einkauf:preisliste", args=[p.pk]), {"aktion": "importieren", "token": token})
         self.assertContains(r3, "abgelaufen")  # Datei wurde nach dem Import entfernt
+        # Ansicht der Preislistenartikel: Suche mit mehreren Wörtern, Lieferant als Kurzname
+        seite = self.client.get(reverse("einkauf:preislistenartikel"), {"q": "cherry tast"})
+        self.assertContains(seite, "Tastatur Cherry")
+        self.assertContains(seite, "Techdata")
+        self.assertNotContains(seite, "Maus Logitech")

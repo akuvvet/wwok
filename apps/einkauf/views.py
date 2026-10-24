@@ -4,11 +4,11 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from apps.stammdaten.models import Artikel, Lieferant
+from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel
 from apps.verkauf.mail import MailFehler, senden_an
 from apps.verkauf.models import Beleg
 from apps.verkauf.views import mit_mandant
@@ -92,12 +92,66 @@ def bestellung_detail(request, bestellung_id):
 @schutz("einkauf:bestellung", "bestellung_id")
 def bestellung_position(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
+    menge, ek = zahl(request.POST.get("menge"), Decimal("1")), zahl(request.POST.get("ek"))
+    if menge <= 0:
+        raise ValueError("Die Menge muss größer als 0 sein.")
+    if request.POST.get("pl"):  # in der Suche gewählter Artikel aus der Preisliste des Lieferanten
+        eintrag = get_object_or_404(Preislistenartikel.objects.select_related("lieferant", "artikel"), pk=request.POST["pl"])
+        services.bestellposition(b, None, menge, ek, preisliste_artikel=eintrag)
+        return redirect("einkauf:bestellung", bestellung_id=b.pk)
     code = request.POST.get("artikel", "").strip()
-    artikel = services.artikel_per_code(code, b.lieferant) or Artikel.objects.filter(nummer__iexact=code).first()
+    artikel = Artikel.objects.filter(nummer__iexact=code).first() or services.artikel_per_code(code, b.lieferant)
     if artikel is None:
         raise ValueError(f"Artikel '{code}' nicht gefunden.")
-    services.bestellposition(b, artikel, zahl(request.POST.get("menge"), Decimal("1")), zahl(request.POST.get("ek")))
+    services.bestellposition(b, artikel, menge, ek)
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
+
+
+@mit_mandant
+def api_bestellartikel(request, bestellung_id):
+    """Suche für die Bestellposition: mehrere Wörter in beliebiger Reihenfolge, eigene Artikel und Preisliste des Lieferanten."""
+    b = bestellung_holen(request, bestellung_id)
+    q = request.GET.get("q", "").strip()
+    if len(q) < 2:
+        return JsonResponse({"treffer": []})
+    artikel = Artikel.objects.filter(nicht_aktiv=False, typ__in=["A", "L"])
+    eintraege = Preislistenartikel.objects.filter(lieferant=b.lieferant, artikel__isnull=True)
+    for wort in q.split():
+        artikel = artikel.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
+                                 | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+        eintraege = eintraege.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
+                                     | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))
+    treffer = []
+    for a in artikel.order_by("nummer")[:15]:
+        ek, bestellnr = services.ek_vorschlag(b.mandant, b.lieferant, a)
+        treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "ek": str(ek), "bestellnummer": bestellnr,
+                        "pl": None, "lieferant": "", "eigener": True})
+    for e in eintraege.order_by("bezeichnung")[:15]:
+        treffer.append({"nummer": e.nummer, "bezeichnung": e.bezeichnung, "ek": str(e.ek), "bestellnummer": e.bestellnummer,
+                        "pl": e.pk, "lieferant": e.lieferant.kurz, "bestand": e.bestand, "eigener": False})
+    return JsonResponse({"treffer": treffer})
+
+
+@mit_mandant
+def preislistenartikel(request):
+    """Alle Artikel aus den Lieferantenpreislisten durchsuchen (mehrere Wörter, beliebige Reihenfolge)."""
+    from django.core.paginator import Paginator
+    q = request.GET.get("q", "").strip()
+    lieferant = request.GET.get("lieferant", "")
+    eintraege = Preislistenartikel.objects.select_related("lieferant", "artikel")
+    if lieferant.isdigit():
+        eintraege = eintraege.filter(lieferant_id=int(lieferant))
+    if request.GET.get("verknuepft") == "1":
+        eintraege = eintraege.filter(artikel__isnull=False)
+    for wort in q.split():
+        eintraege = eintraege.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
+                                     | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))
+    seite = Paginator(eintraege.order_by("lieferant__nummer", "bezeichnung"), 50).get_page(request.GET.get("seite"))
+    parameter = request.GET.copy()
+    parameter.pop("seite", None)
+    return render(request, "einkauf/preislistenartikel.html", {
+        "seite": seite, "parameter": parameter.urlencode(), "q": q, "lieferant": lieferant,
+        "verknuepft": request.GET.get("verknuepft") == "1", "lieferanten": Lieferant.objects.filter(preislistenartikel__isnull=False).distinct()})
 
 
 @mit_mandant

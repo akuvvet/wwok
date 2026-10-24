@@ -1,5 +1,56 @@
 {% extends "base.html" %}
 {% block titel %}{{ b.nummer }} – wwok{% endblock %}
+
+{% block skript %}
+{% if b.status != 'storniert' and b.status != 'geliefert' %}
+<script>
+  (function () {
+    var feld = document.getElementById('artikel'), box = document.getElementById('trefferliste'), pl = document.getElementById('pl');
+    var ek = document.getElementById('ek'), hinweis = document.getElementById('hinweis');
+    var liste = [], aktiv = -1, timer, anfrage = 0;
+    function zeige() {
+      box.innerHTML = '';
+      liste.forEach(function (t, i) {
+        var d = document.createElement('div');
+        d.style.cssText = 'padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--rand);' + (i === aktiv ? 'background:var(--grund)' : '');
+        d.textContent = (t.lieferant ? '[' + t.lieferant + '] ' : '') + t.nummer + ' – ' + t.bezeichnung + '  (EK ' + t.ek + ' €' +
+          (t.bestand !== null && t.bestand !== undefined ? ', Lieferant-Bestand ' + t.bestand : '') + ')';
+        d.addEventListener('mousedown', function (e) { e.preventDefault(); waehle(i); });
+        box.appendChild(d);
+      });
+      box.style.display = liste.length ? 'block' : 'none';
+    }
+    function waehle(i) {
+      var t = liste[i]; if (!t) return;
+      feld.value = t.nummer; pl.value = t.pl || ''; ek.value = '';
+      hinweis.textContent = t.bezeichnung + ' · EK laut Preisliste ' + t.ek + ' €';
+      liste = []; aktiv = -1; zeige();
+      var menge = document.querySelector('#positionsform input[name=menge]'); menge.focus(); menge.select();
+    }
+    function suche() {
+      var q = feld.value.trim(), nr = ++anfrage;
+      if (q.length < 2) { liste = []; zeige(); return; }
+      fetch("{% url 'einkauf:bestellartikel_suche' b.pk %}?q=" + encodeURIComponent(q), {credentials: 'same-origin'})
+        .then(function (r) { return r.json(); }).then(function (d) {
+          if (nr !== anfrage) return;
+          liste = d.treffer; aktiv = liste.length ? 0 : -1;
+          liste.forEach(function (t, i) { if (t.nummer.toLowerCase() === q.toLowerCase()) aktiv = i; });
+          zeige();
+        });
+    }
+    feld.addEventListener('input', function () { pl.value = ''; clearTimeout(timer); timer = setTimeout(suche, 200); });
+    feld.addEventListener('keydown', function (e) {
+      if (!liste.length) return;
+      if (e.key === 'ArrowDown') { aktiv = Math.min(aktiv + 1, liste.length - 1); zeige(); e.preventDefault(); }
+      else if (e.key === 'ArrowUp') { aktiv = Math.max(aktiv - 1, 0); zeige(); e.preventDefault(); }
+      else if (e.key === 'Enter' && aktiv >= 0) { waehle(aktiv); e.preventDefault(); }
+      else if (e.key === 'Escape') { liste = []; zeige(); e.stopPropagation(); }
+    });
+    feld.addEventListener('blur', function () { setTimeout(function () { box.style.display = 'none'; }, 150); });
+  })();
+</script>
+{% endif %}
+{% endblock %}
 {% block inhalt %}
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
@@ -8,19 +59,22 @@
   <table>
     <tr><th>Artikel</th><th>Best.-Nr.</th><th>Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">geliefert</th><th class="zahl">EK netto</th><th class="zahl">Netto</th><th></th></tr>
     {% for p in positionen %}
-    <tr><td>{{ p.artikel.nummer }}</td><td>{{ p.bestellnummer }}</td><td>{{ p.bezeichnung }}</td><td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
+    <tr><td>{{ p.nummer }}{% if p.preisliste_artikel and not p.artikel %} <span class="marke" title="aus der Preisliste, wird beim Wareneingang zum eigenen Artikel">Preisliste</span>{% endif %}</td><td>{{ p.bestellnummer }}</td><td>{{ p.bezeichnung }}</td><td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
         <td class="zahl">{{ p.geliefert|floatformat:"-3" }}</td><td class="zahl">{{ p.ek }}</td><td class="zahl">{{ p.netto }}</td>
         <td>{% if not p.geliefert and b.status != 'storniert' %}<form method="post" action="{% url 'einkauf:bestellung_position_loeschen' b.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit">×</button></form>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="8">Noch keine Positionen.</td></tr>{% endfor %}
     <tr><td colspan="6"><strong>Summe netto</strong></td><td class="zahl"><strong>{{ netto }}</strong></td><td></td></tr>
   </table>
   {% if b.status != 'storniert' and b.status != 'geliefert' %}
-  <form method="post" action="{% url 'einkauf:bestellung_position' b.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
-    <div><label>Artikel (Nr., EAN, Hersteller- oder Bestellnr.)</label><input name="artikel" size="26" autofocus></div>
+  <form method="post" action="{% url 'einkauf:bestellung_position' b.pk %}" class="zeile erfassung" id="positionsform" autocomplete="off">{% csrf_token %}
+    <div><label>Artikel suchen (mehrere Wörter, beliebige Reihenfolge – z. B. „netz azza“)</label>
+      <div style="position:relative"><input name="artikel" id="artikel" size="40" autofocus><input type="hidden" name="pl" id="pl">
+        <div id="trefferliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:600px;max-height:340px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
     <div><label>Menge</label><input name="menge" value="1" size="5"></div>
-    <div><label>EK netto (leer = Preisliste)</label><input name="ek" size="9"></div>
-    <button type="submit">Hinzufügen</button>
+    <div><label>EK netto (leer = Preisliste)</label><input name="ek" id="ek" size="9"></div>
+    <button type="submit">Hinzufügen ⏎</button>
   </form>
+  <p id="hinweis" style="opacity:.8;margin:6px 0 0"></p>
   {% endif %}
   <div class="zeile" style="margin-top:12px">
     <a class="knopf leise" href="{% url 'einkauf:bestellung_pdf' b.pk %}" target="_blank">PDF</a>

@@ -277,6 +277,8 @@ class Ansprechpartner(Zeitstempel):
 
 class Lieferant(Partner):
     nummer = models.CharField("Lieferantennummer", max_length=20, unique=True)
+    kurzname = models.CharField("Kurzname", max_length=30, blank=True,
+                                help_text="Steht in Suchlisten neben den Preislistenartikeln, z. B. API, Kosatec, Ingram.")
     mindestbestellwert = models.DecimalField("Mindestbestellwert netto", null=True, blank=True, **GELD)
     versandkostenfrei_ab = models.DecimalField("versandkostenfrei ab netto", null=True, blank=True, **GELD)
     lieferzeit_tage = models.PositiveSmallIntegerField("Lieferzeit (Tage)", null=True, blank=True)
@@ -285,6 +287,11 @@ class Lieferant(Partner):
         verbose_name = "Lieferant"
         verbose_name_plural = "Lieferanten"
         ordering = ["nummer"]
+
+    @property
+    def kurz(self) -> str:
+        """Kurzname für Listen; ohne Eintrag das erste Wort des Namens."""
+        return self.kurzname or (self.name1.split() or [self.nummer])[0]
 
 
 class LieferantMandant(Zeitstempel):
@@ -473,3 +480,40 @@ class Kundenpreis(Zeitstempel):
 
     def __str__(self):
         return f"{self.kunde.nummer} / {self.artikel.nummer}: {self.preis}"
+
+
+class Preislistenartikel(models.Model):
+    """Artikel aus den Preislisten der Lieferanten (Typ P) – eigene Tabelle, getrennt von den eigenen Artikeln (Typ A).
+    Alle Preislistenimporte landen hier; der Lieferant steht dabei, damit API, Kosatec, Ingram usw. unterscheidbar sind.
+    Beim ersten Wareneingang entsteht daraus ein eigener Artikel (Typ A), der hier verknüpft wird."""
+
+    lieferant = models.ForeignKey(Lieferant, on_delete=models.PROTECT, related_name="preislistenartikel")
+    bestellnummer = models.CharField("Bestellnummer des Lieferanten (SKU)", max_length=100)
+    herstellernummer = models.CharField("Herstellernummer (MSKU)", max_length=100, blank=True, db_index=True)
+    ean = models.CharField("EAN", max_length=14, blank=True, db_index=True)
+    bezeichnung = models.CharField("Bezeichnung", max_length=255)
+    hersteller = models.CharField("Hersteller", max_length=150, blank=True)
+    kategorie = models.CharField("Kategorie des Lieferanten", max_length=150, blank=True)
+    ek = models.DecimalField("EK netto", **EK_GELD)
+    bestand = models.IntegerField("Bestand beim Lieferanten", null=True, blank=True)
+    lieferzeit_tage = models.PositiveSmallIntegerField("Lieferzeit (Tage)", null=True, blank=True)
+    gewicht_kg = models.DecimalField("Gewicht (kg)", max_digits=9, decimal_places=3, null=True, blank=True)
+    artikel = models.ForeignKey(Artikel, on_delete=models.SET_NULL, null=True, blank=True, related_name="preislisteneintraege",
+                                verbose_name="verknüpfter eigener Artikel")
+    preisliste = models.CharField("aus Preisliste", max_length=150, blank=True)
+    aktualisiert_am = models.DateTimeField("zuletzt aktualisiert", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Preislistenartikel"
+        verbose_name_plural = "Preislistenartikel"
+        ordering = ["lieferant", "bezeichnung"]
+        constraints = [models.UniqueConstraint(fields=["lieferant", "bestellnummer"], name="preislistenartikel_eindeutig")]
+        indexes = [models.Index(fields=["bezeichnung"])]
+
+    def __str__(self):
+        return f"[{self.lieferant.kurz}] {self.herstellernummer or self.bestellnummer} – {self.bezeichnung}"
+
+    @property
+    def nummer(self) -> str:
+        """Nummer für die Anzeige: MSKU, sonst Bestellnummer des Lieferanten."""
+        return self.herstellernummer or self.bestellnummer

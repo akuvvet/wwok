@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.kern.models import Mandant
-from apps.stammdaten.models import Artikel, ArtikelLieferant, Lieferant, Steuersatz
+from apps.stammdaten.models import Artikel, ArtikelLieferant, Lieferant, Preislistenartikel, Steuersatz
 
 from . import assistent
 from .models import Preislistenprofil
@@ -68,7 +68,7 @@ class AssistentTest(TestCase):
         imp = self.client.post(reverse("einkauf:preisliste", args=[profil.pk]), {"aktion": "importieren", "token": token}, follow=True)
         self.assertContains(imp, "2 neu")
         self.assertEqual(ArtikelLieferant.objects.get(bestellnummer="TD-1").artikel, self.maus)  # über Herstellernummer verknüpft
-        self.assertEqual(ArtikelLieferant.objects.get(bestellnummer="TD-2").ek, Decimal("1234.5600"))
+        self.assertEqual(Preislistenartikel.objects.get(bestellnummer="TD-2").ek, Decimal("1234.5600"))  # nur Preisliste
 
     def test_pflichtfelder_und_zuordnung_aendern(self):
         r = self.client.post(reverse("einkauf:preislisten_neu"), {
