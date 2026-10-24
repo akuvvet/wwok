@@ -49,6 +49,8 @@ INSTALLED_APPS = [
     "apps.kern",
     "apps.stammdaten",
     "apps.verkauf",
+    "apps.lager",
+    "apps.finanzen",
 ]
 
 MIDDLEWARE = [

@@ -12,6 +12,8 @@ urlpatterns = [
     path("verwaltung/", admin.site.urls),
     path("konto/", include("django.contrib.auth.urls")),
     path("verkauf/", include("apps.verkauf.urls")),
+    path("lager/", include("apps.lager.urls")),
+    path("finanzen/", include("apps.finanzen.urls")),
     path("", RedirectView.as_view(pattern_name="verkauf:start", permanent=False)),
 ]
 
