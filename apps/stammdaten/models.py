@@ -340,10 +340,10 @@ class Artikel(Zeitstempel):
     # Online (eine Checkbox für Shop, eBay, Kaufland)
     online = models.BooleanField("online", default=False)
     kurzbeschreibung = models.TextField("Kurzbeschreibung", blank=True)
-    keywords = models.CharField("Keywords", max_length=500, blank=True)
-    meta_titel = models.CharField("Metatitel", max_length=255, blank=True)
-    meta_description = models.CharField("Meta-Description", max_length=500, blank=True)
-    meta_keywords = models.CharField("Meta-Keywords", max_length=500, blank=True)
+    keywords = models.TextField("Keywords", blank=True)
+    meta_titel = models.TextField("Metatitel", blank=True)
+    meta_description = models.TextField("Meta-Description", blank=True)
+    meta_keywords = models.TextField("Meta-Keywords", blank=True)
 
     class Meta:
         verbose_name = "Artikel"
