@@ -22,6 +22,7 @@ class Bewegungsart(models.TextChoices):
     EIGENVERBRAUCH = "EV", "Eigenverbrauch"
     INVENTUR = "IN", "Inventur-Differenz"
     UMBUCHUNG = "UM", "Umbuchung zwischen Mandanten"
+    WERKSTATT = "WV", "Werkstatt (Garantie-Teile)"
     KORREKTUR = "KO", "Korrektur"
 
 

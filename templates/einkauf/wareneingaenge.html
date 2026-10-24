@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block titel %}Wareneingang – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Wareneingänge {{ request.mandant }}</h1>
+  <form method="post" action="{% url 'einkauf:wareneingang_neu' %}" class="zeile">{% csrf_token %}
+    <div><label>Zu Bestellung</label><select name="bestellung"><option value="">– ohne Bestellung –</option>
+      {% for b in offene %}<option value="{{ b.pk }}">{{ b.nummer }} {{ b.lieferant.name1 }}</option>{% endfor %}</select></div>
+    <div><label>oder Lieferant</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.name1 }}</option>{% endfor %}</select></div>
+    <button type="submit">Wareneingang starten</button>
+  </form>
+  <table style="margin-top:12px">
+    <tr><th>Nr.</th><th>Datum</th><th>Lieferant</th><th>Bestellung</th><th>gebucht</th></tr>
+    {% for w in liste %}<tr><td><a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a></td><td>{{ w.datum|date:"d.m.Y" }}</td><td>{{ w.lieferant.name1 }}</td><td>{{ w.bestellung.nummer|default:"" }}</td><td>{% if w.gebucht %}ja{% else %}offen{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="5">Keine Wareneingänge.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

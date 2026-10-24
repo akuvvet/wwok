@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titel %}Werkstatt – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Werkstatt {{ request.mandant }}</h1>
+  <form method="get" class="zeile">
+    <div><label for="q">Suche (Auftrag, Gerät, Seriennummer, Kunde)</label><input id="q" name="q" value="{{ q }}" size="34" autofocus></div>
+    <div><label>Status</label><select name="status"><option value="offen" {% if status == 'offen' %}selected{% endif %}>offene</option>
+      <option value="alle" {% if status == 'alle' %}selected{% endif %}>alle</option>
+      {% for w, n in stati %}<option value="{{ w }}" {% if status == w %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+    <button type="submit">Filtern</button>
+    <a class="knopf" href="{% url 'werkstatt:annahme' %}">Gerät annehmen</a>
+  </form>
+  <table style="margin-top:12px">
+    <tr><th>Auftrag</th><th>Angenommen</th><th>Kunde</th><th>Gerät</th><th>Seriennummer</th><th>Status</th></tr>
+    {% for r in reparaturen %}
+    <tr><td><a href="{% url 'werkstatt:detail' r.pk %}">{{ r.nummer }}</a>{% if r.garantie %} <small>(Garantie)</small>{% endif %}</td>
+        <td>{{ r.angenommen_am|date:"d.m.Y" }}</td><td>{{ r.kunde.name1 }}</td><td>{{ r.geraet }}</td><td>{{ r.seriennummer }}</td>
+        <td>{{ r.get_status_display }}</td></tr>
+    {% empty %}<tr><td colspan="6">Keine Aufträge.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

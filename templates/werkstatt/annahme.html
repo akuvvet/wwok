@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block titel %}Geräteannahme – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'werkstatt:liste' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Geräteannahme</h1>
+  <form method="post">{% csrf_token %}
+    <div class="raster">
+      <div><label>Kundennummer</label><input name="kundennummer" value="{{ post.kundennummer|default:kunde.nummer|default:'' }}" autofocus>
+        {% if kunde %}<small>{{ kunde.name1 }}, {{ kunde.ort }}</small>{% endif %}</div>
+      <div><label>Gerät</label><input name="geraet" value="{{ post.geraet }}" placeholder="z. B. Notebook Lenovo T14"></div>
+      <div><label>Seriennummer</label><input name="seriennummer" value="{{ post.seriennummer }}"></div>
+      <div><label>Artikelnummer (optional)</label><input name="artikel" value="{{ post.artikel }}"></div>
+      <div><label>Zubehör</label><input name="zubehoer" value="{{ post.zubehoer }}" placeholder="Netzteil, Tasche …"></div>
+    </div>
+    <p><label>Fehlerbeschreibung</label><textarea name="fehler" rows="5" style="width:100%">{{ post.fehler }}</textarea></p>
+    <p class="zeile">
+      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="garantie" {% if post.garantie %}checked{% endif %}> Garantiefall (keine Rechnung)</label>
+      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="mail" checked> Statusmail an Kunden</label>
+    </p>
+    <button type="submit">Annehmen</button>
+  </form>
+</div>
+{% endblock %}

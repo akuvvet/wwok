@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block titel %}RMA – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>RMA / Rücksendungen {{ request.mandant }}</h1>
+  <form method="post" action="{% url 'einkauf:rma_neu' %}" class="zeile">{% csrf_token %}
+    <div><label>Lieferant</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.name1 }}</option>{% endfor %}</select></div>
+    <div><label>Artikelnr.</label><input name="artikel" size="12"></div>
+    <div><label>Bezeichnung</label><input name="bezeichnung" size="22"></div>
+    <div><label>Seriennummer</label><input name="seriennummer" size="14"></div>
+    <div><label>Fehler</label><input name="fehler" size="30"></div>
+    <button type="submit">Anlegen</button>
+  </form>
+  <table style="margin-top:12px">
+    <tr><th>RMA</th><th>Lieferant</th><th>Gerät/Artikel</th><th>Seriennr.</th><th>Status</th><th class="zahl">Gutschrift</th></tr>
+    {% for r in liste %}<tr><td><a href="{% url 'einkauf:rma' r.pk %}">{{ r.nummer }}</a></td><td>{{ r.lieferant.name1 }}</td><td>{{ r.bezeichnung }}</td><td>{{ r.seriennummer }}</td><td>{{ r.get_status_display }}</td><td class="zahl">{{ r.gutschrift_betrag|default_if_none:"" }}</td></tr>
+    {% empty %}<tr><td colspan="6">Keine RMA-Fälle.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

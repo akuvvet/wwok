@@ -222,7 +222,9 @@ class Mailvorlage(Zeitstempel):
 class MailVersand(models.Model):
     """Unveränderlicher Nachweis, wann welcher Beleg an wen verschickt wurde."""
 
-    beleg = models.ForeignKey(Beleg, on_delete=models.PROTECT, related_name="mails")
+    beleg = models.ForeignKey(Beleg, on_delete=models.PROTECT, related_name="mails", null=True, blank=True)
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    bezug = models.CharField("Bezug", max_length=100, blank=True, help_text="z. B. Reparatur oder Bestellung")
     zeitpunkt = models.DateTimeField(default=timezone.now, db_index=True)
     benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     an = models.CharField("An", max_length=500)
@@ -245,7 +247,7 @@ class MailVersand(models.Model):
         raise PermissionError("Versandprotokoll ist unveränderlich.")
 
     def __str__(self):
-        return f"{self.beleg} → {self.an} ({'ok' if self.erfolgreich else 'Fehler'})"
+        return f"{self.beleg or self.bezug} → {self.an} ({'ok' if self.erfolgreich else 'Fehler'})"
 
 
 def kopiere_positionen(quelle, ziel):

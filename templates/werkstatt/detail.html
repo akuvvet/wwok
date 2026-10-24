@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block titel %}{{ r.nummer }} – Werkstatt – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'werkstatt:liste' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>{{ r.nummer }} – {{ r.geraet }}</h1>
+  <div class="raster">
+    <div>Kunde<br><a href="{% url 'verkauf:kunde' r.kunde.pk %}">{{ r.kunde.name1 }}</a><br>{{ r.kunde.telefon }}</div>
+    <div>Seriennummer<br>{{ r.seriennummer|default:"–" }}{% if r.seriennummer %}<br><a href="{% url 'lager:seriennummern' %}?q={{ r.seriennummer }}">im Lager suchen</a>{% endif %}</div>
+    <div>Angenommen<br>{{ r.angenommen_am|date:"d.m.Y" }}{% if r.fertig_am %}<br>fertig {{ r.fertig_am|date:"d.m.Y" }}{% endif %}{% if r.abgeholt_am %}<br>abgeholt {{ r.abgeholt_am|date:"d.m.Y" }}{% endif %}</div>
+    <div>Status<br><strong>{{ r.get_status_display }}</strong>{% if r.garantie %}<br>Garantiefall{% endif %}</div>
+  </div>
+  <p style="margin-top:12px"><strong>Fehler:</strong> {{ r.fehler|linebreaksbr }}<br><strong>Zubehör:</strong> {{ r.zubehoer|default:"–" }}</p>
+  <form method="post" action="{% url 'werkstatt:status' r.pk %}" class="zeile">{% csrf_token %}
+    {% for w, n in stati %}{% if w != r.status and w != 'storniert' and w != 'rma' %}<button name="status" value="{{ w }}" type="submit" class="leise">→ {{ n }}</button>{% endif %}{% endfor %}
+  </form>
+  <p style="margin-top:8px"><a class="knopf leise" href="{% url 'werkstatt:schein' r.pk 'annahme' %}" target="_blank">Annahmeschein</a>
+     <a class="knopf leise" href="{% url 'werkstatt:schein' r.pk 'abhol' %}" target="_blank">Abholschein</a>
+     {% if rma %}<a class="knopf leise" href="{% url 'einkauf:rma' rma.pk %}">RMA {{ rma.nummer }}</a>{% else %}<a class="knopf leise" href="{% url 'einkauf:rma_aus_reparatur' r.pk %}">In Lieferanten-RMA übernehmen</a>{% endif %}</p>
+</div>
+
+<div class="karte">
+  <h2>Teile und Arbeitszeit</h2>
+  <table>
+    <tr><th>Art</th><th>Bezeichnung</th><th class="zahl">Menge/Std.</th><th class="zahl">Preis</th><th class="zahl">Netto</th><th></th></tr>
+    {% for p in positionen %}
+    <tr><td>{{ p.get_art_display }}</td><td>{{ p.artikel.nummer|default:"" }} {{ p.bezeichnung }}</td><td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
+        <td class="zahl">{{ p.einzelpreis }}</td><td class="zahl">{{ p.netto }}</td>
+        <td>{% if not r.rechnung and not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:position_loeschen' r.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit">×</button></form>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="6">Noch nichts erfasst.</td></tr>{% endfor %}
+    <tr><td colspan="4"><strong>Summe netto</strong></td><td class="zahl"><strong>{{ netto }}</strong></td><td></td></tr>
+  </table>
+  {% if not r.rechnung and not r.teile_gebucht %}
+  <form method="post" action="{% url 'werkstatt:position' r.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <div><label>Art</label><select name="art"><option value="T">Teil</option><option value="A">Arbeitszeit</option></select></div>
+    <div><label>Artikelnr. (Teil)</label><input name="artikel" size="14"></div>
+    <div><label>Bezeichnung</label><input name="bezeichnung" size="26"></div>
+    <div><label>Menge/Std.</label><input name="menge" value="1" size="5"></div>
+    <div><label>Preis netto</label><input name="preis" size="8"></div>
+    <button type="submit">Erfassen</button>
+  </form>
+  {% endif %}
+  <div class="zeile" style="margin-top:12px">
+    {% if r.garantie %}
+      {% if not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:garantie_buchen' r.pk %}">{% csrf_token %}<button type="submit">Garantie: Teile aus Lager abbuchen</button></form>{% else %}<span>Teile sind abgebucht.</span>{% endif %}
+    {% elif r.rechnung %}<a class="knopf" href="{% url 'verkauf:beleg' r.rechnung.pk %}">Rechnung {{ r.rechnung }}</a>
+    {% else %}<form method="post" action="{% url 'werkstatt:rechnung' r.pk %}">{% csrf_token %}<button type="submit">Rechnung erstellen</button></form>{% endif %}
+  </div>
+</div>
+
+<div class="karte">
+  <h2>Interne Notiz</h2>
+  <form method="post" action="{% url 'werkstatt:notiz' r.pk %}">{% csrf_token %}
+    <p><textarea name="interne_notiz" rows="3" style="width:100%">{{ r.interne_notiz }}</textarea></p>
+    <p class="zeile"><div><label>Seriennummer</label><input name="seriennummer" value="{{ r.seriennummer }}"></div>
+      {% if not r.rechnung %}<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="garantie" {% if r.garantie %}checked{% endif %}> Garantiefall</label>{% endif %}
+      <button type="submit" class="leise">Speichern</button></p>
+  </form>
+</div>
+{% endblock %}

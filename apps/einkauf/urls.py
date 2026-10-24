@@ -1,0 +1,35 @@
+from django.urls import path
+
+from . import views
+
+app_name = "einkauf"
+
+urlpatterns = [
+    path("", views.bestellungen, name="bestellungen"),
+    path("bestellung/neu/", views.bestellung_neu, name="bestellung_neu"),
+    path("bestellung/<int:bestellung_id>/", views.bestellung_detail, name="bestellung"),
+    path("bestellung/<int:bestellung_id>/position/", views.bestellung_position, name="bestellung_position"),
+    path("bestellung/<int:bestellung_id>/position/<int:position_id>/loeschen/", views.bestellung_position_loeschen, name="bestellung_position_loeschen"),
+    path("bestellung/<int:bestellung_id>/bestellen/", views.bestellung_bestellen, name="bestellung_bestellen"),
+    path("bestellung/<int:bestellung_id>/stornieren/", views.bestellung_stornieren, name="bestellung_stornieren"),
+    path("bestellung/<int:bestellung_id>/pdf/", views.bestellung_pdf_ansicht, name="bestellung_pdf"),
+    path("bestellung/<int:bestellung_id>/mail/", views.bestellung_mail, name="bestellung_mail"),
+    path("aus-beleg/<int:beleg_id>/", views.bestellung_aus_beleg, name="aus_beleg"),
+    path("vorschlag/", views.vorschlag, name="vorschlag"),
+    path("wareneingang/", views.wareneingaenge, name="wareneingaenge"),
+    path("wareneingang/neu/", views.wareneingang_neu, name="wareneingang_neu"),
+    path("wareneingang/<int:we_id>/", views.wareneingang_detail, name="wareneingang"),
+    path("wareneingang/<int:we_id>/scan/", views.wareneingang_scan, name="wareneingang_scan"),
+    path("wareneingang/<int:we_id>/position/<int:position_id>/", views.wareneingang_zeile_aendern, name="wareneingang_zeile"),
+    path("wareneingang/<int:we_id>/buchen/", views.wareneingang_buchen, name="wareneingang_buchen"),
+    path("rechnungen/", views.rechnungen, name="rechnungen"),
+    path("rechnungen/neu/", views.rechnung_neu, name="rechnung_neu"),
+    path("rechnungen/e-rechnung/", views.rechnung_erechnung, name="rechnung_erechnung"),
+    path("rechnungen/sepa/", views.sepa_export, name="sepa"),
+    path("rechnungen/<int:rechnung_id>/", views.rechnung_detail, name="rechnung"),
+    path("rechnungen/<int:rechnung_id>/bezahlt/", views.rechnung_bezahlt, name="rechnung_bezahlt"),
+    path("rma/", views.rma_liste, name="rma_liste"),
+    path("rma/neu/", views.rma_neu, name="rma_neu"),
+    path("rma/aus-reparatur/<int:reparatur_id>/", views.rma_aus_reparatur, name="rma_aus_reparatur"),
+    path("rma/<int:rma_id>/", views.rma_detail, name="rma"),
+]

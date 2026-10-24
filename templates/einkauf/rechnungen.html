@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block titel %}Lieferantenrechnungen – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Lieferantenrechnungen {{ request.mandant }}</h1>
+  <p class="zeile"><a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">Nicht bezahlt</a>
+    <a class="knopf {% if status != 'bezahlt' %}leise{% endif %}" href="?status=bezahlt">Bezahlt</a>
+    <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a></p>
+  <form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile">{% csrf_token %}
+    <div><label>Lieferant</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.name1 }}</option>{% endfor %}</select></div>
+    <div><label>Rechnungsnr.</label><input name="rechnungsnummer" size="14"></div>
+    <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
+    <div><label>Netto</label><input name="netto" size="9"></div>
+    <div><label>Brutto</label><input name="brutto" size="9"></div>
+    <button type="submit">Erfassen</button>
+  </form>
+  <form method="post" action="{% url 'einkauf:rechnung_erechnung' %}" enctype="multipart/form-data" class="zeile" style="margin-top:10px">{% csrf_token %}
+    <div><label>E-Rechnung einlesen (XRechnung/ZUGFeRD: XML oder PDF)</label><input type="file" name="datei" accept=".xml,.pdf"></div>
+    <button type="submit" class="leise">Einlesen</button>
+  </form>
+</div>
+<div class="karte">
+  <form method="post" action="{% url 'einkauf:sepa' %}">{% csrf_token %}
+  <table>
+    <tr><th></th><th>Lieferant</th><th>Rechnung</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">zu zahlen</th><th>Abgleich</th><th>Status</th></tr>
+    {% for r, abgleich, zahlbetrag in zeilen %}
+    <tr><td>{% if r.status != 'bezahlt' %}<input type="checkbox" name="auswahl" value="{{ r.pk }}">{% endif %}</td>
+        <td>{{ r.lieferant.name1 }}</td><td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a></td>
+        <td>{{ r.datum|date:"d.m.Y" }}</td><td>{{ r.faellig|date:"d.m.Y" }}</td><td class="zahl">{{ r.brutto }}</td>
+        <td class="zahl">{{ zahlbetrag }}{% if zahlbetrag != r.brutto %} <small>(Skonto)</small>{% endif %}</td>
+        <td>{% if not abgleich.verknuepft %}<span style="opacity:.6">kein Wareneingang</span>{% elif abgleich.ok %}passt{% else %}<span style="color:var(--warn)">Abweichung {{ abgleich.differenz }} €</span>{% endif %}</td>
+        <td>{{ r.get_status_display }}</td></tr>
+    {% empty %}<tr><td colspan="9">Keine Rechnungen.</td></tr>{% endfor %}
+  </table>
+  <p class="zeile" style="margin-top:12px"><span><label>Ausführungsdatum</label><input type="date" name="ausfuehrung" value="{{ heute }}"></span>
+    <button type="submit">SEPA-Datei für Auswahl erzeugen (StarMoney)</button></p>
+  </form>
+</div>
+{% endblock %}

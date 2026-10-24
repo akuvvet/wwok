@@ -147,7 +147,9 @@ def seriennummer_suche(request):
     q = request.GET.get("q", "").strip()
     treffer = Seriennummer.objects.filter(mandant=request.mandant, nummer__icontains=q).select_related(
         "artikel", "position__beleg__kunde")[:100] if q else []
-    return render(request, "lager/seriennummern.html", {"q": q, "treffer": treffer})
+    from apps.werkstatt.models import Reparatur
+    reparaturen = Reparatur.objects.filter(mandant=request.mandant, seriennummer__icontains=q).select_related("kunde")[:50] if q else []
+    return render(request, "lager/seriennummern.html", {"q": q, "treffer": treffer, "reparaturen": reparaturen})
 
 
 @mit_mandant

@@ -37,6 +37,8 @@
   <a href="{% url 'verkauf:start' %}">Verkauf</a>
   <a href="{% url 'lager:uebersicht' %}">Lager</a>
   <a href="{% url 'finanzen:offene_posten' %}">Finanzen</a>
+  <a href="{% url 'einkauf:bestellungen' %}">Einkauf</a>
+  <a href="{% url 'werkstatt:liste' %}">Werkstatt</a>
   <span class="rechts">
     {% if user.is_authenticated %}
       <span>{{ user.get_username }}</span>

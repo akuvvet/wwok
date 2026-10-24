@@ -18,6 +18,12 @@
         <td>{{ sn.position.beleg.kunde.name1|default:"" }}</td></tr>
     {% empty %}<tr><td colspan="6">Keine Seriennummer gefunden.</td></tr>{% endfor %}
   </table>
+  {% if reparaturen %}
+  <h2 style="margin-top:16px">Werkstatt</h2>
+  <table>
+    {% for r in reparaturen %}<tr><td><a href="{% url 'werkstatt:detail' r.pk %}">{{ r.nummer }}</a></td><td>{{ r.geraet }}</td><td>{{ r.seriennummer }}</td><td>{{ r.kunde.name1 }}</td><td>{{ r.get_status_display }}</td></tr>{% endfor %}
+  </table>
+  {% endif %}
   {% endif %}
 </div>
 {% endblock %}

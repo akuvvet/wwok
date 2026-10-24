@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block titel %}{{ r }} – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:rechnungen' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>{{ r.lieferant.name1 }} – Rechnung {{ r.rechnungsnummer }}</h1>
+  <div class="raster">
+    <div>Datum<br>{{ r.datum|date:"d.m.Y" }}</div><div>fällig<br>{{ r.faellig|date:"d.m.Y" }}</div>
+    <div>Netto / Steuer<br>{{ r.netto }} / {{ r.steuer }} €</div><div>Brutto<br><strong>{{ r.brutto }} €</strong></div>
+    <div>zu zahlen<br><strong>{{ zahlbetrag }} €</strong>{% if r.skonto_bis %}<br><small>Skonto {{ r.skonto_prozent }} % bis {{ r.skonto_bis|date:"d.m.Y" }}</small>{% endif %}</div>
+    <div>Status<br>{{ r.get_status_display }}{% if r.bezahlt_am %}<br>{{ r.bezahlt_am|date:"d.m.Y" }}, {{ r.bezahlter_betrag }} €{% endif %}</div>
+  </div>
+  {% if abgleich.verknuepft %}<p style="margin-top:12px">{% if abgleich.ok %}Wareneingänge netto {{ abgleich.wareneingang_netto }} € – passt zur Rechnung.{% else %}<span class="warnung" style="display:inline-block">Abweichung: Wareneingänge netto {{ abgleich.wareneingang_netto }} €, Rechnung {{ r.netto }} € (Differenz {{ abgleich.differenz }} €)</span>{% endif %}</p>{% endif %}
+  {% if r.status != 'bezahlt' %}
+  <form method="post" action="{% url 'einkauf:rechnung_bezahlt' r.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <div><label>bezahlt am</label><input type="date" name="datum" value="{{ heute }}"></div>
+    <div><label>Betrag</label><input name="betrag" value="{{ zahlbetrag }}" size="9"></div>
+    <button type="submit">Als bezahlt buchen</button>
+  </form>{% endif %}
+</div>
+<div class="karte">
+  <h2>Verknüpfte Wareneingänge</h2>
+  <form method="post">{% csrf_token %}
+    {% for w in kandidaten %}<label style="display:flex;gap:8px;align-items:center;opacity:1"><input type="checkbox" name="wareneingang" value="{{ w.pk }}" {% if w.pk in verknuepft %}checked{% endif %}>
+      {{ w.nummer }} · {{ w.datum|date:"d.m.Y" }} · {{ w.summe_netto }} € netto · {{ w.lieferschein }}</label>
+    {% empty %}<p>Keine gebuchten Wareneingänge dieses Lieferanten.</p>{% endfor %}
+    <p><button type="submit" class="leise">Verknüpfung speichern</button></p>
+  </form>
+</div>
+{% endblock %}

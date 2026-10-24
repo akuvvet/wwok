@@ -34,6 +34,16 @@ def anrede(beleg) -> str:
     return "Sehr geehrte Damen und Herren"
 
 
+def anrede_text(kunde) -> str:
+    """Anrede für Mails ohne Beleg: über den Hauptkontakt des Kunden."""
+    ap = kunde.ansprechpartner.filter(hauptkontakt=True).first()
+    if ap and ap.nachname and ap.anrede == "Herr":
+        return f"Sehr geehrter Herr {ap.nachname}"
+    if ap and ap.nachname and ap.anrede == "Frau":
+        return f"Sehr geehrte Frau {ap.nachname}"
+    return "Sehr geehrte Damen und Herren"
+
+
 def platzhalter(beleg) -> dict:
     return {
         "anrede": anrede(beleg), "art": beleg.get_art_display(), "art_mit_artikel": ARTIKEL.get(beleg.art, "den Beleg"),
@@ -77,18 +87,21 @@ def adressen(text: str) -> list:
     return [a.strip() for a in re.split(r"[,;\s]+", text or "") if a.strip()]
 
 
-def senden(beleg, an: str, betreff: str, text: str, pdf: bytes, dateiname: str, benutzer=None) -> MailVersand:
-    """Verschickt eine Mail mit PDF-Anhang und legt in jedem Fall einen Protokolleintrag zum Beleg an."""
+def senden_an(mandant, an: str, betreff: str, text: str, pdf: bytes = None, dateiname: str = "", beleg=None,
+              bezug: str = "", benutzer=None) -> MailVersand:
+    """Verschickt eine Mail (optional mit PDF-Anhang) für einen Mandanten und protokolliert sie in jedem Fall."""
     empfaenger = adressen(an)
     if not empfaenger:
         raise MailFehler("Keine Empfängeradresse angegeben.")
-    m = beleg.mandant
-    protokoll = MailVersand(beleg=beleg, an=", ".join(empfaenger), betreff=betreff, text=text, benutzer=benutzer)
+    protokoll = MailVersand(beleg=beleg, mandant=mandant, bezug=bezug, an=", ".join(empfaenger), betreff=betreff,
+                            text=text, benutzer=benutzer)
     try:
         nachricht = EmailMessage(
-            subject=betreff, body=text, to=empfaenger, bcc=[m.kopie_an] if m.kopie_an else [],
-            from_email=f"{m.absender_name or m.firmenname} <{m.absender_email}>", connection=verbindung(m))
-        nachricht.attach(dateiname, pdf, "application/pdf")
+            subject=betreff, body=text, to=empfaenger, bcc=[mandant.kopie_an] if mandant.kopie_an else [],
+            from_email=f"{mandant.absender_name or mandant.firmenname} <{mandant.absender_email}>",
+            connection=verbindung(mandant))
+        if pdf:
+            nachricht.attach(dateiname, pdf, "application/pdf")
         nachricht.send()
         protokoll.erfolgreich = True
     except Exception as fehler:  # Protokoll auch bei Fehlern, Meldung an die Maske
@@ -98,6 +111,11 @@ def senden(beleg, an: str, betreff: str, text: str, pdf: bytes, dateiname: str, 
     if not protokoll.erfolgreich:
         raise MailFehler(f"Versand fehlgeschlagen: {protokoll.fehler}")
     return protokoll
+
+
+def senden(beleg, an: str, betreff: str, text: str, pdf: bytes, dateiname: str, benutzer=None) -> MailVersand:
+    """Verschickt eine Mail mit PDF-Anhang und legt einen Protokolleintrag zum Beleg an."""
+    return senden_an(beleg.mandant, an, betreff, text, pdf, dateiname, beleg=beleg, benutzer=benutzer)
 
 
 def beleg_senden(beleg, an: str, betreff: str, text: str, benutzer=None) -> MailVersand:

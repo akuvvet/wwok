@@ -42,8 +42,8 @@ class MailvorlageAdmin(admin.ModelAdmin):
 class MailVersandAdmin(admin.ModelAdmin):
     """Nur lesen – Nachweis über versendete Belege."""
 
-    list_display = ["zeitpunkt", "beleg", "an", "erfolgreich", "benutzer"]
-    list_filter = ["erfolgreich", "beleg__mandant"]
+    list_display = ["zeitpunkt", "beleg", "bezug", "an", "erfolgreich", "benutzer"]
+    list_filter = ["erfolgreich", "mandant"]
     search_fields = ["an", "beleg__nummer"]
 
     def has_add_permission(self, request):

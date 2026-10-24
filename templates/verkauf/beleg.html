@@ -85,6 +85,7 @@
     <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" onsubmit="return confirm('Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}')">{% csrf_token %}<button type="submit">Abschließen &amp; Nummer vergeben</button></form>
     {% endif %}
     <a class="knopf leise" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank">PDF anzeigen</a>
+    {% if beleg.art == 'AN' or beleg.art == 'AB' %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}
     {% if beleg.nummer %}<a class="knopf leise" href="{% url 'verkauf:beleg_mail' beleg.pk %}">Per E-Mail senden{% if beleg.mails.exists %} (bereits versendet){% endif %}</a>{% endif %}
     {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'AB' and beleg.nummer %}<a class="knopf leise" href="{% url 'finanzen:beleg' beleg.pk %}">Zahlungen / offene Posten</a>{% endif %}
     {% if beleg.art == 'GS' and beleg.abgeschlossen %}

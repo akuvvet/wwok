@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block titel %}{{ rma.nummer }} – RMA – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:rma_liste' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>{{ rma.nummer }} – {{ rma.bezeichnung }}</h1>
+  <p>Lieferant: {{ rma.lieferant.name1 }} · Seriennummer: {{ rma.seriennummer|default:"–" }}
+     {% if rma.reparatur %}· Werkstatt: <a href="{% url 'werkstatt:detail' rma.reparatur.pk %}">{{ rma.reparatur.nummer }}</a>{% endif %}</p>
+  <p><strong>Fehler:</strong> {{ rma.fehler|linebreaksbr }}</p>
+  <form method="post">{% csrf_token %}
+    <div class="raster">
+      <div><label>Status</label><select name="status">{% for w, n in stati %}<option value="{{ w }}" {% if w == rma.status %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+      <div><label>RMA-Nr. des Lieferanten</label><input name="lieferanten_rma_nr" value="{{ rma.lieferanten_rma_nr }}"></div>
+      <div><label>Gutschrift (€)</label><input name="gutschrift_betrag" value="{{ rma.gutschrift_betrag|default_if_none:'' }}"></div>
+    </div>
+    <p><label>Notiz</label><textarea name="notiz" rows="3" style="width:100%">{{ rma.notiz }}</textarea></p>
+    <p>{% if rma.eingesendet_am %}Eingesendet: {{ rma.eingesendet_am|date:"d.m.Y" }}{% endif %} {% if rma.erledigt_am %}· erledigt: {{ rma.erledigt_am|date:"d.m.Y" }}{% endif %}</p>
+    <button type="submit">Speichern</button>
+  </form>
+</div>
+{% endblock %}
