@@ -406,3 +406,27 @@ class ArtikelLieferant(Zeitstempel):
 
     def __str__(self):
         return f"{self.lieferant.name1}: {self.bestellnummer}"
+
+
+class GruppenKomponente(Zeitstempel):
+    """Standardzusammensetzung eines G-Artikels (Gruppe); im Beleg frei änderbar."""
+
+    gruppe = models.ForeignKey(Artikel, on_delete=models.CASCADE, related_name="komponenten",
+                               limit_choices_to={"typ": Artikeltyp.G})
+    komponente = models.ForeignKey(Artikel, on_delete=models.PROTECT, related_name="in_gruppen")
+    menge = models.DecimalField("Menge", max_digits=10, decimal_places=3, default=Decimal("1"))
+
+    class Meta:
+        verbose_name = "Komponente"
+        verbose_name_plural = "Komponenten"
+        constraints = [models.UniqueConstraint(fields=["gruppe", "komponente"], name="gruppenkomponente_eindeutig")]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.gruppe_id and self.gruppe.typ != Artikeltyp.G:
+            raise ValidationError("Komponenten gibt es nur bei Artikeln vom Typ G.")
+        if self.komponente_id and self.komponente.typ == Artikeltyp.G:
+            raise ValidationError("Eine Gruppe darf keine weitere Gruppe enthalten.")
+
+    def __str__(self):
+        return f"{self.gruppe.nummer}: {self.menge:f} × {self.komponente.nummer}"

@@ -145,3 +145,64 @@ class VerkaufTest(TestCase):
 
     def test_login_pflicht(self):
         self.assertEqual(self.client.get(reverse("verkauf:start")).status_code, 302)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class GruppenTest(TestCase):
+    def setUp(self):
+        from apps.stammdaten.models import GruppenKomponente
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        self.kunde = Kunde.objects.create(nummer="1", name1="K", preisstufe=1)
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.cpu = Artikel.objects.create(nummer="CPU", bezeichnung="Prozessor", steuersatz=st, vk1=Decimal("100"))
+        self.ram = Artikel.objects.create(nummer="RAM", bezeichnung="Speicher", steuersatz=st, vk1=Decimal("40"))
+        self.pc = Artikel.objects.create(nummer="PC1", typ="G", bezeichnung="Büro-PC", steuersatz=st)
+        GruppenKomponente.objects.create(gruppe=self.pc, komponente=self.cpu, menge=Decimal("1"))
+        GruppenKomponente.objects.create(gruppe=self.pc, komponente=self.ram, menge=Decimal("2"))
+        user = get_user_model().objects.create_user("t", password="x" * 14)
+        self.client.force_login(user)
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+        self.beleg = Beleg.objects.create(mandant=self.m, art=Belegart.LIEFERSCHEIN, kunde=self.kunde)
+
+    def post(self, **daten):
+        return self.client.post(reverse("verkauf:position_neu", args=[self.beleg.pk]), daten)
+
+    def test_gruppenartikel_komponenten_preis_und_abbuchung(self):
+        from apps.lager.models import Bewegungsart, bestand, gruppen_verfuegbar
+        from apps.lager.services import buche_manuell
+        buche_manuell(self.m, self.cpu, Bewegungsart.WARENEINGANG, Decimal("3"))
+        buche_manuell(self.m, self.ram, Bewegungsart.WARENEINGANG, Decimal("5"))
+        self.assertEqual(gruppen_verfuegbar(self.m, self.pc), Decimal("2"))  # RAM begrenzt: 5 // 2
+        self.post(artikel="PC1", menge="2", typ="G")
+        kopf = self.beleg.positionen.get(gruppe__isnull=True)
+        self.assertEqual(kopf.einzelpreis, Decimal("180"))  # 100 + 2 × 40
+        self.assertEqual(self.beleg.positionen.filter(gruppe=kopf).count(), 2)
+        self.beleg.refresh_from_db()
+        self.assertEqual(self.beleg.summe_netto, Decimal("360.00"))  # Unterartikel zählen nicht extra
+        kopf_url = reverse("verkauf:gruppenpreis", args=[self.beleg.pk, kopf.pk])
+        self.client.post(kopf_url, {"preis": "150"})
+        self.beleg.refresh_from_db()
+        self.assertEqual(self.beleg.summe_netto, Decimal("300.00"))  # manuell überschrieben
+        self.beleg.abschliessen()
+        self.assertEqual((bestand(self.m, self.cpu), bestand(self.m, self.ram)), (Decimal("1"), Decimal("1")))
+        from .pdf import beleg_pdf
+        self.assertTrue(beleg_pdf(self.beleg).startswith(b"%PDF"))
+
+    def test_freie_gruppe_und_folgebeleg_kopiert_struktur(self):
+        self.post(typ="G", bezeichnung="Angebot Netzwerk", preis="500", menge="1")
+        kopf = self.beleg.positionen.get()
+        self.post(artikel="CPU", menge="1", gruppe=str(kopf.pk))
+        self.post(artikel="RAM", menge="4", gruppe=str(kopf.pk))
+        self.assertEqual(self.beleg.positionen.filter(gruppe=kopf).count(), 2)
+        self.beleg.refresh_from_db()
+        self.assertEqual(self.beleg.summe_netto, Decimal("500.00"))
+        self.client.post(reverse("verkauf:gruppenpreis", args=[self.beleg.pk, kopf.pk]), {"preis": ""})
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("260.00"))  # Summe der Unterpositionen: 100 + 4 × 40
+        re = self.beleg.folgebeleg_erzeugen()
+        neu_kopf = re.positionen.get(gruppe__isnull=True)
+        self.assertEqual(re.positionen.filter(gruppe=neu_kopf).count(), 2)
+        self.assertEqual(re.summe_netto, Decimal("260.00"))
+        self.assertContains(self.client.get(reverse("verkauf:beleg", args=[re.pk])), "Angebot Netzwerk")

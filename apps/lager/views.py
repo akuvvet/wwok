@@ -64,7 +64,12 @@ def artikel_detail(request, artikel_id):
     daten = ArtikelMandant.objects.filter(artikel=artikel, mandant=request.mandant).first()
     b = bestand(request.mandant, artikel)
     r = reserviert(request.mandant, artikel)
+    gruppe = None
+    if artikel.typ == "G":  # Bestand einer Gruppe ergibt sich aus den Komponenten
+        from .models import gruppen_verfuegbar
+        gruppe = gruppen_verfuegbar(request.mandant, artikel)
     return render(request, "lager/artikel.html", {
+        "gruppe_verfuegbar": gruppe, "komponenten": artikel.komponenten.select_related("komponente") if artikel.typ == "G" else [],
         "artikel": artikel, "daten": daten, "bestand": b, "reserviert": r, "verfuegbar": b - r,
         "bewegungen": Lagerbewegung.objects.filter(mandant=request.mandant, artikel=artikel).select_related("beleg", "benutzer")[:100],
         "arten": [(a.value, a.label) for a in MANUELL],

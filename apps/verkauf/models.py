@@ -166,11 +166,7 @@ class Beleg(Zeitstempel):
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
             versandkosten=self.versandkosten, bemerkung=self.bemerkung, vorgaenger=self)
-        for p in self.positionen.all():
-            Position.objects.create(
-                beleg=neu, typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung, menge=p.menge,
-                einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent,
-                zusatztext=p.zusatztext)
+        kopiere_positionen(self, neu)
         neu.berechne()
         return neu
 
@@ -185,11 +181,7 @@ class Beleg(Zeitstempel):
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
             versandkosten=self.versandkosten, bemerkung=f"Gutschrift zu Rechnung {self.nummer}", vorgaenger=self)
-        for p in self.positionen.all():
-            Position.objects.create(
-                beleg=neu, typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung, menge=p.menge,
-                einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent,
-                zusatztext=p.zusatztext)
+        kopiere_positionen(self, neu)
         neu.berechne()
         return neu
 
@@ -256,8 +248,20 @@ class MailVersand(models.Model):
         return f"{self.beleg} → {self.an} ({'ok' if self.erfolgreich else 'Fehler'})"
 
 
+def kopiere_positionen(quelle, ziel):
+    """Kopiert alle Positionen samt Gruppenzuordnung in einen anderen Beleg."""
+    neu = {}
+    for p in quelle.positionen.order_by("pos", "id"):
+        neu[p.pk] = Position.objects.create(
+            beleg=ziel, gruppe=neu.get(p.gruppe_id), typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung,
+            menge=p.menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent,
+            steuer_prozent=p.steuer_prozent, zusatztext=p.zusatztext)
+
+
 class Position(Zeitstempel):
     beleg = models.ForeignKey(Beleg, on_delete=models.CASCADE, related_name="positionen")
+    gruppe = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="unterpositionen",
+                               help_text="Gesetzt bei Unterpositionen einer Gruppe (Typ G); sie haben keinen eigenen Preis.")
     pos = models.PositiveSmallIntegerField("Pos.", default=0)
     typ = models.CharField("Typ", max_length=1, choices=Artikeltyp.choices, default=Artikeltyp.A)
     artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT, null=True, blank=True)
@@ -275,6 +279,8 @@ class Position(Zeitstempel):
 
     @property
     def netto_gesamt(self) -> Decimal:
+        if self.gruppe_id:  # Unterartikel einer Gruppe: der Preis steht an der Gruppenposition
+            return Decimal("0.00")
         return runden(self.menge * self.einzelpreis * (Decimal("100") - self.rabatt_prozent) / 100)
 
     def save(self, *args, **kwargs):

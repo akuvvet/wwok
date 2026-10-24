@@ -10,6 +10,8 @@
     <div>verfügbar<br><strong style="font-size:22px">{{ verfuegbar|floatformat:"-3" }}</strong></div>
     <div>Durchschnitts-EK<br>{{ artikel.durchschnitts_ek|default:"–" }} €</div>
   </div>
+  {% if artikel.typ == 'G' %}<p>Gruppe: verfügbar aus Komponenten <strong>{{ gruppe_verfuegbar|default_if_none:"–" }}</strong> –
+    {% for k in komponenten %}{{ k.menge|floatformat:"-3" }} × <a href="{% url 'lager:artikel' k.komponente.pk %}">{{ k.komponente.nummer }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
   {% if daten.mindestbestand and bestand < daten.mindestbestand %}<p class="warnung" style="margin-top:12px">Unter Mindestbestand ({{ daten.mindestbestand }}).</p>{% endif %}
 </div>
 

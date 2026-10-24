@@ -76,13 +76,21 @@ class ArtikelLieferantInline(admin.TabularInline):
     extra = 0
 
 
+class GruppenKomponenteInline(admin.TabularInline):
+    model = m.GruppenKomponente
+    fk_name = "gruppe"
+    extra = 0
+    autocomplete_fields = []
+    verbose_name_plural = "Komponenten (nur bei Typ G)"
+
+
 @admin.register(m.Artikel)
 class ArtikelAdmin(admin.ModelAdmin):
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "online", "nicht_aktiv"]
     list_filter = ["typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
     search_fields = ["nummer", "bezeichnung", "herstellernummer", "ean"]
     readonly_fields = ["durchschnitts_ek", "angelegt_am", "geaendert_am", "geaendert_von"]
-    inlines = [ArtikelMandantInline, ArtikelLieferantInline, ArtikelBildInline]
+    inlines = [ArtikelMandantInline, ArtikelLieferantInline, GruppenKomponenteInline, ArtikelBildInline]
     fieldsets = [
         ("Grunddaten", {"fields": [("nummer", "typ"), "bezeichnung", "bezeichnung_erweitert", "kategorie",
                                    ("hersteller", "herstellernummer", "ean"), ("garantie_monate", "nicht_aktiv")]}),

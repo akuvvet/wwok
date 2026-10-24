@@ -78,6 +78,10 @@ def beleg_pdf(beleg) -> bytes:
     zeilen = [[absatz(t, fett) for t in ("Pos.", "Artikel", "Bezeichnung", "Menge", "Preis", "Rabatt", "Netto")]]
     for p in beleg.positionen.select_related("artikel"):
         text = p.bezeichnung + (f"\n{p.zusatztext}" if p.zusatztext else "")
+        if p.gruppe_id:  # Unterartikel einer Gruppe: eingerückt, ohne Einzelpreise
+            zeilen.append(["", absatz(p.artikel.nummer if p.artikel else "", normal), absatz("   – " + text, normal),
+                           zahl(p.menge), "", "", ""])
+            continue
         zeilen.append([str(p.pos), absatz(p.artikel.nummer if p.artikel else "", normal), absatz(text, normal),
                        zahl(p.menge), euro(p.einzelpreis), f"{zahl(p.rabatt_prozent)} %" if p.rabatt_prozent else "",
                        euro(p.netto_gesamt)])

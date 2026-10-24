@@ -89,3 +89,14 @@ class Seriennummer(models.Model):
 
     def __str__(self):
         return f"{self.artikel.nummer} SN {self.nummer}"
+
+
+def gruppen_verfuegbar(mandant, gruppe):
+    """Wie viele Gruppen sich aus dem verfügbaren Bestand der Lagerkomponenten (Typ A) bilden lassen."""
+    mengen = []
+    for k in gruppe.komponenten.select_related("komponente"):
+        if k.komponente.typ != "A" or not k.menge:
+            continue
+        frei = bestand(mandant, k.komponente) - reserviert(mandant, k.komponente)
+        mengen.append((frei / k.menge).to_integral_value(rounding="ROUND_FLOOR"))
+    return min(mengen) if mengen else None

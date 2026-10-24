@@ -147,6 +147,7 @@ def beleg_detail(request, beleg_id):
     return render(request, "verkauf/beleg.html", {
         "kredit_warnung": kredit_warnung, "kunde_offen": offen, "kreditlimit": limit,
         "beleg": beleg, "positionen": positionen,
+        "gruppen": [p for p in positionen if p.typ == "G" and not p.gruppe_id],
         "zahlungsbedingungen": Zahlungsbedingung.objects.all(),
         "ansprechpartner": beleg.kunde.ansprechpartner.all()})
 
@@ -195,19 +196,69 @@ def position_neu(request, beleg_id):
     artikel = Artikel.objects.filter(nummer__iexact=nummer, nicht_aktiv=False).select_related("steuersatz").first() if nummer else None
     if nummer and not artikel:
         raise ValueError(f"Artikel '{nummer}' nicht gefunden.")
+    menge = dezimal(request.POST.get("menge"), Decimal("1"))
+    rabatt = dezimal(request.POST.get("rabatt"), Decimal("0"))
+    gruppe = None
+    if request.POST.get("gruppe"):  # Unterposition einer frei zusammengestellten Gruppe
+        gruppe = get_object_or_404(Position, pk=request.POST["gruppe"], beleg=beleg, typ="G", gruppe__isnull=True)
+        if not artikel:
+            raise ValueError("Unterpositionen brauchen einen Artikel.")
     bezeichnung = request.POST.get("bezeichnung", "").strip() or (artikel.bezeichnung if artikel else "")
     if not bezeichnung:
         raise ValueError("Artikel oder Bezeichnung fehlt.")
     preis = dezimal(request.POST.get("preis"))
+    steuer = artikel.steuersatz.prozent if artikel else Decimal("19")
+
+    if artikel and artikel.typ == "G" and not gruppe:  # Gruppenartikel: Komponenten werden als Unterpositionen angelegt
+        komponenten = list(artikel.komponenten.select_related("komponente__steuersatz"))
+        kopf = Position.objects.create(beleg=beleg, typ="G", artikel=artikel, bezeichnung=bezeichnung, menge=menge,
+                                       einzelpreis=preis if preis is not None else Decimal("0"), rabatt_prozent=rabatt,
+                                       steuer_prozent=steuer)
+        summe = Decimal("0")
+        for k in komponenten:
+            einzel = vorschlag_preis(k.komponente, beleg.kunde) or Decimal("0")
+            Position.objects.create(beleg=beleg, gruppe=kopf, typ=k.komponente.typ, artikel=k.komponente,
+                                    bezeichnung=k.komponente.bezeichnung, menge=menge * k.menge, einzelpreis=einzel,
+                                    steuer_prozent=k.komponente.steuersatz.prozent)
+            summe += einzel * k.menge
+        if preis is None:
+            kopf.einzelpreis = summe
+            kopf.save()
+    elif gruppe or typ == "G" and not artikel:  # Unterposition bzw. frei benannte Gruppe
+        if gruppe:
+            if preis is None:
+                preis = vorschlag_preis(artikel, beleg.kunde) or Decimal("0")
+            Position.objects.create(beleg=beleg, gruppe=gruppe, typ=artikel.typ, artikel=artikel, bezeichnung=bezeichnung,
+                                    menge=menge, einzelpreis=preis, steuer_prozent=steuer)
+        else:
+            Position.objects.create(beleg=beleg, typ="G", bezeichnung=bezeichnung, menge=menge,
+                                    einzelpreis=preis if preis is not None else Decimal("0"), rabatt_prozent=rabatt,
+                                    steuer_prozent=steuer)
+    else:
+        if preis is None:
+            preis = vorschlag_preis(artikel, beleg.kunde) if artikel else None
+        if preis is None:
+            raise ValueError("Preis fehlt.")
+        Position.objects.create(
+            beleg=beleg, typ=artikel.typ if artikel else typ, artikel=artikel, bezeichnung=bezeichnung,
+            menge=menge, einzelpreis=preis, rabatt_prozent=rabatt, steuer_prozent=steuer)
+    beleg.berechne()
+    return redirect("verkauf:beleg", beleg_id=beleg.pk)
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+def gruppenpreis(request, beleg_id, position_id):
+    """Gesamtpreis der Gruppe festlegen; leer = Summe der Unterpositionen (bei Menge der Gruppe pro Stück)."""
+    beleg = beleg_holen(request, beleg_id)
+    kopf = get_object_or_404(Position, pk=position_id, beleg=beleg, typ="G", gruppe__isnull=True)
+    preis = dezimal(request.POST.get("preis"))
     if preis is None:
-        preis = vorschlag_preis(artikel, beleg.kunde) if artikel else None
-    if preis is None:
-        raise ValueError("Preis fehlt.")
-    Position.objects.create(
-        beleg=beleg, typ=artikel.typ if artikel else typ, artikel=artikel, bezeichnung=bezeichnung,
-        menge=dezimal(request.POST.get("menge"), Decimal("1")), einzelpreis=preis,
-        rabatt_prozent=dezimal(request.POST.get("rabatt"), Decimal("0")),
-        steuer_prozent=artikel.steuersatz.prozent if artikel else Decimal("19"))
+        summe = sum((u.menge * u.einzelpreis for u in kopf.unterpositionen.all()), Decimal("0"))
+        preis = (summe / kopf.menge) if kopf.menge else Decimal("0")
+    kopf.einzelpreis = preis.quantize(Decimal("0.01"))
+    kopf.save()
     beleg.berechne()
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
@@ -309,6 +360,10 @@ def api_artikel(request):
         if a.typ == "A":
             from apps.lager.models import bestand, reserviert
             frei = str(bestand(request.mandant, a) - reserviert(request.mandant, a))
+        elif a.typ == "G":
+            from apps.lager.models import gruppen_verfuegbar
+            g = gruppen_verfuegbar(request.mandant, a)
+            frei = str(g) if g is not None else None
         treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "typ": a.typ, "verfuegbar": frei,
                         "preis": str(preis) if preis is not None else "", "letzter": letzte})
     return JsonResponse({"treffer": treffer})
