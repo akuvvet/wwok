@@ -21,6 +21,7 @@ class Bewegungsart(models.TextChoices):
     RETOURE = "RT", "Kundenretoure"
     EIGENVERBRAUCH = "EV", "Eigenverbrauch"
     INVENTUR = "IN", "Inventur-Differenz"
+    UMBUCHUNG = "UM", "Umbuchung zwischen Mandanten"
     KORREKTUR = "KO", "Korrektur"
 
 
@@ -64,3 +65,27 @@ def reserviert(mandant, artikel) -> Decimal:
     return Position.objects.filter(
         artikel=artikel, beleg__mandant=mandant, beleg__art=Belegart.AUFTRAG, beleg__folgebelege__isnull=True
     ).aggregate(s=models.Sum("menge"))["s"] or Decimal("0")
+
+
+class Seriennummer(models.Model):
+    """Seriennummer eines Artikels vom Wareneingang bis zum Verkauf (und zurück bei Retoure)."""
+
+    IM_LAGER, VERKAUFT = "lager", "verkauft"
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="seriennummern")
+    artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT, related_name="seriennummern")
+    nummer = models.CharField("Seriennummer", max_length=100, db_index=True)
+    status = models.CharField(max_length=8, default=IM_LAGER, choices=[(IM_LAGER, "im Lager"), (VERKAUFT, "verkauft")])
+    eingang = models.DateTimeField("Wareneingang", default=timezone.now)
+    eingang_bemerkung = models.CharField(max_length=200, blank=True)
+    position = models.ForeignKey("verkauf.Position", on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name="seriennummern")
+
+    class Meta:
+        verbose_name = "Seriennummer"
+        verbose_name_plural = "Seriennummern"
+        ordering = ["artikel", "nummer"]
+        constraints = [models.UniqueConstraint(fields=["mandant", "artikel", "nummer"], name="seriennummer_eindeutig")]
+
+    def __str__(self):
+        return f"{self.artikel.nummer} SN {self.nummer}"

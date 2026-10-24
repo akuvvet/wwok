@@ -75,3 +75,66 @@ class LagerTest(TestCase):
                              {"art": "WE", "menge": "5", "bemerkung": "Lieferung"})
         self.assertEqual(bestand(self.m, self.a), Decimal("15"))
         self.assertContains(self.client.get(reverse("lager:artikel", args=[self.a.pk])), "Lieferung")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class LagerErgaenzungTest(TestCase):
+    def setUp(self):
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        self.m2 = Mandant.objects.create(kurzname="ZONE", firmenname="ZONE Handel")
+        self.kunde = Kunde.objects.create(nummer="1", name1="Kunde")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.a = Artikel.objects.create(nummer="N1", bezeichnung="Notebook", steuersatz=st, vk1=Decimal("500"))
+        self.client_user = get_user_model().objects.create_user("t", password="x" * 14)
+
+    def login(self):
+        self.client.force_login(self.client_user)
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+
+    def test_seriennummern_wareneingang_bis_verkauf_und_retoure(self):
+        from .models import Seriennummer
+        from .services import retoure_aus_gutschrift, seriennummern_einlagern, seriennummern_zuordnen
+        buche_manuell(self.m, self.a, Bewegungsart.WARENEINGANG, Decimal("2"))
+        seriennummern_einlagern(self.m, self.a, "SN1\nSN2")
+        with self.assertRaises(ValueError):
+            seriennummern_einlagern(self.m, self.a, "SN1")
+        re = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde)
+        pos = Position.objects.create(beleg=re, artikel=self.a, bezeichnung="Notebook", einzelpreis=Decimal("500"))
+        with self.assertRaises(ValueError):
+            seriennummern_zuordnen(pos, "SN9")  # nicht im Lager
+        with self.assertRaises(ValueError):
+            seriennummern_zuordnen(pos, "SN1\nSN2")  # mehr als Menge 1
+        seriennummern_zuordnen(pos, "SN2")
+        self.assertEqual(Seriennummer.objects.get(nummer="SN2").status, "verkauft")
+        re.abschliessen()
+        self.assertEqual(bestand(self.m, self.a), Decimal("1"))
+        from apps.verkauf.pdf import beleg_pdf
+        self.assertTrue(beleg_pdf(re).startswith(b"%PDF"))
+        g = re.gutschrift_erzeugen()
+        g.abschliessen()
+        self.assertEqual(retoure_aus_gutschrift(g), 1)
+        self.assertEqual(bestand(self.m, self.a), Decimal("2"))
+        with self.assertRaises(ValueError):
+            retoure_aus_gutschrift(g)  # nur einmal
+
+    def test_umbuchung_inventurliste_und_masken(self):
+        from .services import umbuchen
+        buche_manuell(self.m, self.a, Bewegungsart.WARENEINGANG, Decimal("5"))
+        umbuchen(self.m, self.m2, self.a, Decimal("2"))
+        self.assertEqual((bestand(self.m, self.a), bestand(self.m2, self.a)), (Decimal("3"), Decimal("2")))
+        with self.assertRaises(ValueError):
+            umbuchen(self.m, self.m, self.a, Decimal("1"))
+        self.login()
+        r = self.client.get(reverse("lager:inventur_liste"))
+        self.assertContains(r, "N1")
+        self.client.post(reverse("lager:inventur_liste"), {f"gezaehlt_{self.a.pk}": "4"})
+        self.assertEqual(bestand(self.m, self.a), Decimal("4"))
+        self.client.post(reverse("lager:buchen", args=[self.a.pk]),
+                         {"art": "WE", "menge": "2", "seriennummern": "A\nB\nC"})  # falsche Anzahl
+        self.assertEqual(bestand(self.m, self.a), Decimal("4"))
+        self.client.post(reverse("lager:buchen", args=[self.a.pk]), {"art": "WE", "menge": "2", "seriennummern": "A\nB"})
+        self.assertEqual(bestand(self.m, self.a), Decimal("6"))
+        self.assertContains(self.client.get(reverse("lager:seriennummern"), {"q": "A"}), "Notebook")
+        self.assertContains(self.client.get(reverse("lager:artikel", args=[self.a.pk])), "Seriennummern")

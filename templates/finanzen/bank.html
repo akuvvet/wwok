@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block titel %}Bankabgleich – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Zahlungsabgleich {{ request.mandant }}</h1>
+  <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a></p>
+  <form method="post" enctype="multipart/form-data" class="zeile">{% csrf_token %}
+    <div><label for="datei">Kontoauszug (CSV oder CAMT.053-XML)</label><input id="datei" type="file" name="datei" accept=".csv,.xml,.txt"></div>
+    <button type="submit">Importieren</button>
+  </form>
+  <p style="opacity:.8">Eingänge mit Rechnungsnummer (z. B. RE2026-00012) im Verwendungszweck und passendem offenem Betrag werden sofort gebucht. Bereits importierte Umsätze werden übersprungen.</p>
+</div>
+<div class="karte">
+  <p class="zeile">
+    <a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">Offen</a>
+    <a class="knopf {% if status != 'zugeordnet' %}leise{% endif %}" href="?status=zugeordnet">Zugeordnet</a>
+    <a class="knopf {% if status != 'ignoriert' %}leise{% endif %}" href="?status=ignoriert">Ignoriert</a>
+    <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a>
+  </p>
+  <table>
+    <tr><th>Datum</th><th class="zahl">Betrag</th><th>Name</th><th>Verwendungszweck</th><th>Zuordnung</th></tr>
+    {% for u in umsaetze %}
+    <tr><td>{{ u.buchungsdatum|date:"d.m.Y" }}</td><td class="zahl">{{ u.betrag }}</td><td>{{ u.name }}</td><td>{{ u.zweck }}</td>
+      <td>
+        {% if u.status == 'zugeordnet' %}{{ u.vorschlag.nummer }}
+        {% elif u.status == 'ignoriert' %}ignoriert
+        {% else %}
+        <form method="post" action="{% url 'finanzen:bank_zuordnen' u.pk %}" class="zeile">{% csrf_token %}
+          <input name="rechnung" placeholder="RE2026-00001" value="{{ u.vorschlag.nummer|default:'' }}" size="14">
+          <button type="submit">Buchen</button>
+          <button type="submit" name="aktion" value="ignorieren" class="leise">Ignorieren</button>
+        </form>
+        {% if u.vorschlag %}<small style="color:var(--warn)">Vorschlag: Betrag weicht vom offenen Betrag ab</small>{% endif %}
+        {% endif %}
+      </td></tr>
+    {% empty %}<tr><td colspan="5">Keine Umsätze.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

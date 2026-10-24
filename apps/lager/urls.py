@@ -9,5 +9,10 @@ urlpatterns = [
     path("artikel/<int:artikel_id>/", views.artikel_detail, name="artikel"),
     path("artikel/<int:artikel_id>/buchen/", views.buchen, name="buchen"),
     path("artikel/<int:artikel_id>/inventur/", views.inventur_buchen, name="inventur"),
+    path("artikel/<int:artikel_id>/umbuchung/", views.umbuchung, name="umbuchung"),
+    path("seriennummern/", views.seriennummer_suche, name="seriennummern"),
+    path("position/<int:position_id>/seriennummern/", views.position_seriennummern, name="position_sn"),
+    path("gutschrift/<int:beleg_id>/retoure/", views.gutschrift_retoure, name="retoure"),
+    path("inventur/", views.inventur_liste, name="inventur_liste"),
     path("artikel/<int:artikel_id>/stamm/", views.stamm, name="stamm"),
 ]

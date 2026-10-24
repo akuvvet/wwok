@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block titel %}DATEV-Export – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>DATEV-Export {{ request.mandant }}</h1>
+  <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a></p>
+  <form method="post" class="zeile">{% csrf_token %}
+    <div><label>von</label><input type="date" name="von" value="{{ von }}"></div>
+    <div><label>bis</label><input type="date" name="bis" value="{{ bis }}"></div>
+    <button type="submit">Buchungsstapel herunterladen</button>
+  </form>
+  <p style="opacity:.8">Enthalten sind abgeschlossene Rechnungen und Gutschriften (Debitor an Erlöse, je Steuersatz) sowie Zahlungen (Bank bzw. Kasse an Debitor).
+     Debitor = Kundennummer. Beraternummer, Mandantennummer und Konten stellst du unter Verwaltung → Mandanten ein (Vorgabe SKR03: Erlöse 8400/8300, Bank 1200, Kasse 1000).
+     Vor dem ersten Einsatz bitte mit dem Steuerberater prüfen.</p>
+</div>
+{% endblock %}

@@ -19,8 +19,16 @@
     <div><label>Grund</label><select name="art">{% for wert, name in arten %}<option value="{{ wert }}">{{ name }}</option>{% endfor %}</select></div>
     <div><label>Menge (bei Korrektur auch negativ)</label><input name="menge" size="8"></div>
     <div><label>Bemerkung</label><input name="bemerkung" size="30"></div>
+    <div><label>Seriennummern (bei Wareneingang/Retoure, eine pro Zeile)</label><textarea name="seriennummern" rows="2" cols="28"></textarea></div>
     <button type="submit">Buchen</button>
   </form>
+  {% if andere_mandanten %}
+  <form method="post" action="{% url 'lager:umbuchung' artikel.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <div><label>Umbuchung nach</label><select name="nach">{% for m in andere_mandanten %}<option value="{{ m.pk }}">{{ m.kurzname }}</option>{% endfor %}</select></div>
+    <div><label>Menge</label><input name="menge" size="6"></div>
+    <button type="submit" class="leise">Umbuchen</button>
+  </form>
+  {% endif %}
   <form method="post" action="{% url 'lager:inventur' artikel.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
     <div><label>Inventur: gezählter Bestand</label><input name="gezaehlt" size="8"></div>
     <button type="submit" class="leise">Differenz buchen</button>
@@ -31,6 +39,17 @@
     <button type="submit" class="leise">Speichern</button>
   </form>
 </div>
+
+{% if seriennummern %}
+<div class="karte">
+  <h2>Seriennummern</h2>
+  <table>
+    <tr><th>Seriennummer</th><th>Status</th><th>Eingang</th><th>Beleg</th></tr>
+    {% for sn in seriennummern %}<tr><td>{{ sn.nummer }}</td><td>{{ sn.get_status_display }}</td><td>{{ sn.eingang|date:"d.m.Y" }}</td>
+      <td>{% if sn.position %}<a href="{% url 'verkauf:beleg' sn.position.beleg.pk %}">{{ sn.position.beleg }}</a>{% endif %}</td></tr>{% endfor %}
+  </table>
+</div>
+{% endif %}
 
 <div class="karte">
   <h2>Bestandshistorie</h2>

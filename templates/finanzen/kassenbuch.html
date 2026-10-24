@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block titel %}Kassenbuch – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Kassenbuch {{ request.mandant }}</h1>
+  <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a> · Kassenstand: <strong style="font-size:18px">{{ stand }} €</strong></p>
+  <form method="post" class="zeile">{% csrf_token %}
+    <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
+    <div><label>Art</label><select name="art"><option value="E">Einnahme</option><option value="A">Ausgabe</option></select></div>
+    <div><label>Betrag</label><input name="betrag" size="9" autofocus></div>
+    <div><label>Buchungstext</label><input name="text" size="36"></div>
+    <button type="submit">Buchen</button>
+  </form>
+  <p style="opacity:.8">Einträge sind fortlaufend nummeriert und unveränderlich; Korrekturen erfolgen per Gegenbuchung. Barzahlungen auf Rechnungen werden automatisch eingetragen.
+     Hinweis: Ob für den Barverkauf eine TSE nötig ist, klärt der Steuerberater.</p>
+  <table>
+    <tr><th>Nr.</th><th>Datum</th><th>Text</th><th class="zahl">Einnahme</th><th class="zahl">Ausgabe</th></tr>
+    {% for k in eintraege %}
+    <tr><td>{{ k.nummer }}</td><td>{{ k.datum|date:"d.m.Y" }}</td><td>{{ k.text }}</td>
+        <td class="zahl">{% if k.art == 'E' %}{{ k.betrag }}{% endif %}</td><td class="zahl">{% if k.art == 'A' %}{{ k.betrag }}{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="5">Noch keine Einträge.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

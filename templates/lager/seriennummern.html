@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titel %}Seriennummern – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'lager:uebersicht' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Seriennummer suchen {{ request.mandant }}</h1>
+  <form method="get" class="zeile">
+    <div><label for="q">Seriennummer (Teil genügt)</label><input id="q" name="q" value="{{ q }}" autofocus size="30"></div>
+    <button type="submit">Suchen</button>
+  </form>
+  {% if q %}
+  <table style="margin-top:12px">
+    <tr><th>Seriennummer</th><th>Artikel</th><th>Status</th><th>Wareneingang</th><th>Verkauft mit</th><th>Kunde</th></tr>
+    {% for sn in treffer %}
+    <tr><td>{{ sn.nummer }}</td><td><a href="{% url 'lager:artikel' sn.artikel.pk %}">{{ sn.artikel.nummer }}</a> {{ sn.artikel.bezeichnung }}</td>
+        <td>{{ sn.get_status_display }}</td><td>{{ sn.eingang|date:"d.m.Y" }}</td>
+        <td>{% if sn.position %}<a href="{% url 'verkauf:beleg' sn.position.beleg.pk %}">{{ sn.position.beleg }}</a>{% endif %}</td>
+        <td>{{ sn.position.beleg.kunde.name1|default:"" }}</td></tr>
+    {% empty %}<tr><td colspan="6">Keine Seriennummer gefunden.</td></tr>{% endfor %}
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

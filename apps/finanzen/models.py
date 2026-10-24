@@ -94,3 +94,72 @@ class Mahnung(models.Model):
 
     def __str__(self):
         return f"{self.bezeichnung} zu {self.beleg}"
+
+
+class Bankumsatz(models.Model):
+    """Zeile eines importierten Kontoauszugs (CSV oder CAMT.053)."""
+
+    OFFEN, ZUGEORDNET, IGNORIERT = "offen", "zugeordnet", "ignoriert"
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="bankumsaetze")
+    buchungsdatum = models.DateField("Buchungsdatum")
+    betrag = models.DecimalField("Betrag", max_digits=12, decimal_places=2)
+    name = models.CharField("Auftraggeber/Empfänger", max_length=150, blank=True)
+    iban = models.CharField("IBAN", max_length=34, blank=True)
+    zweck = models.CharField("Verwendungszweck", max_length=500, blank=True)
+    status = models.CharField(max_length=10, default=OFFEN, choices=[
+        (OFFEN, "offen"), (ZUGEORDNET, "zugeordnet"), (IGNORIERT, "ignoriert")], db_index=True)
+    vorschlag = models.ForeignKey("verkauf.Beleg", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    zahlung = models.OneToOneField(Zahlung, on_delete=models.PROTECT, null=True, blank=True, related_name="bankumsatz")
+    pruefsumme = models.CharField(max_length=64, db_index=True)
+    importiert_am = models.DateTimeField(default=timezone.now)
+    importiert_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Bankumsatz"
+        verbose_name_plural = "Bankumsätze"
+        ordering = ["-buchungsdatum", "-id"]
+        constraints = [models.UniqueConstraint(fields=["mandant", "pruefsumme"], name="bankumsatz_eindeutig")]
+
+    def __str__(self):
+        return f"{self.buchungsdatum:%d.%m.%Y} {self.betrag} € {self.name}"
+
+
+class Kassenbuch(models.Model):
+    """Kassenbuch pro Mandant: fortlaufend nummeriert, unveränderlich (Korrektur per Gegenbuchung).
+    TSE-Pflicht beim Barverkauf ist mit dem Steuerberater zu klären (Pflichtenheft Abschnitt 18)."""
+
+    EINNAHME, AUSGABE = "E", "A"
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="kassenbuch")
+    nummer = models.PositiveIntegerField("lfd. Nr.")
+    datum = models.DateField("Datum", default=timezone.localdate)
+    art = models.CharField("Art", max_length=1, choices=[(EINNAHME, "Einnahme"), (AUSGABE, "Ausgabe")])
+    betrag = models.DecimalField("Betrag", max_digits=12, decimal_places=2)
+    text = models.CharField("Buchungstext", max_length=200)
+    beleg = models.ForeignKey("verkauf.Beleg", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    erfasst_am = models.DateTimeField(default=timezone.now)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Kassenbuch"
+        verbose_name_plural = "Kassenbuch"
+        ordering = ["-nummer"]
+        constraints = [models.UniqueConstraint(fields=["mandant", "nummer"], name="kassenbuch_nummer_eindeutig")]
+
+    @property
+    def signierter_betrag(self):
+        return self.betrag if self.art == self.EINNAHME else -self.betrag
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise PermissionError("Kassenbucheinträge sind unveränderlich; bitte eine Gegenbuchung erfassen.")
+        if self.betrag <= 0:
+            raise ValueError("Betrag muss positiv sein.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionError("Kassenbucheinträge sind unveränderlich; bitte eine Gegenbuchung erfassen.")
+
+    def __str__(self):
+        return f"Kasse {self.nummer}: {self.text}"

@@ -58,6 +58,14 @@ class Mandant(Zeitstempel):
     smtp_benutzer = models.CharField("SMTP-Benutzer", max_length=150, blank=True)
     absender_email = models.EmailField("Absenderadresse", blank=True)
     absender_name = models.CharField("Absendername", max_length=100, blank=True)
+    # DATEV-Export (Kontenrahmen SKR03 als Vorgabe; mit dem Steuerberater abstimmen)
+    datev_berater = models.CharField("DATEV Beraternummer", max_length=10, blank=True)
+    datev_mandant = models.CharField("DATEV Mandantennummer", max_length=10, blank=True)
+    konto_erloes_19 = models.CharField("Erlöskonto 19 %", max_length=8, default="8400")
+    konto_erloes_7 = models.CharField("Erlöskonto 7 %", max_length=8, default="8300")
+    konto_erloes_0 = models.CharField("Erlöskonto steuerfrei", max_length=8, default="8200")
+    konto_bank = models.CharField("Bankkonto", max_length=8, default="1200")
+    konto_kasse = models.CharField("Kassenkonto", max_length=8, default="1000")
     kopie_an = models.EmailField("Kopie (BCC) an", blank=True, help_text="Optional: jede Belegmail zusätzlich hierhin.")
 
     class Meta:

@@ -5,11 +5,15 @@ from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from apps.stammdaten.models import Artikel, ArtikelMandant
+from apps.kern.models import Mandant
+from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie
 from apps.verkauf.views import mit_mandant
 
-from .models import Bewegungsart, Lagerbewegung, bestand, reserviert
-from .services import buche_manuell, inventur
+from apps.verkauf.models import Beleg, Position
+
+from .models import Bewegungsart, Lagerbewegung, Seriennummer, bestand, reserviert
+from .services import (buche_manuell, inventur, retoure_aus_gutschrift, seriennummern_einlagern,
+                       seriennummern_zuordnen, umbuchen, zeilen)
 
 MANUELL = [Bewegungsart.WARENEINGANG, Bewegungsart.EIGENVERBRAUCH, Bewegungsart.RETOURE, Bewegungsart.KORREKTUR]
 
@@ -63,7 +67,9 @@ def artikel_detail(request, artikel_id):
     return render(request, "lager/artikel.html", {
         "artikel": artikel, "daten": daten, "bestand": b, "reserviert": r, "verfuegbar": b - r,
         "bewegungen": Lagerbewegung.objects.filter(mandant=request.mandant, artikel=artikel).select_related("beleg", "benutzer")[:100],
-        "arten": [(a.value, a.label) for a in MANUELL]})
+        "arten": [(a.value, a.label) for a in MANUELL],
+        "seriennummern": Seriennummer.objects.filter(mandant=request.mandant, artikel=artikel).select_related("position__beleg")[:200],
+        "andere_mandanten": Mandant.objects.filter(aktiv=True).exclude(pk=request.mandant.pk)})
 
 
 @mit_mandant
@@ -74,8 +80,15 @@ def buchen(request, artikel_id):
         menge = zahl(request.POST.get("menge"))
         if menge is None:
             raise ValueError("Menge fehlt.")
-        buche_manuell(request.mandant, artikel, request.POST.get("art"), menge,
-                      request.POST.get("bemerkung", "").strip(), request.user)
+        art = request.POST.get("art")
+        seriennummern = zeilen(request.POST.get("seriennummern"))
+        if seriennummern and art not in (Bewegungsart.WARENEINGANG, Bewegungsart.RETOURE):
+            raise ValueError("Seriennummern nur bei Wareneingang oder Retoure.")
+        if seriennummern and len(seriennummern) != abs(menge):
+            raise ValueError(f"{len(seriennummern)} Seriennummern, aber Menge {abs(menge):f}.")
+        buche_manuell(request.mandant, artikel, art, menge, request.POST.get("bemerkung", "").strip(), request.user)
+        if seriennummern:
+            seriennummern_einlagern(request.mandant, artikel, chr(10).join(seriennummern), request.POST.get("bemerkung", "").strip())
         messages.success(request, "Gebucht.")
     except ValueError as fehler:
         messages.error(request, str(fehler))
@@ -109,3 +122,78 @@ def stamm(request, artikel_id):
     daten.save()
     messages.success(request, "Gespeichert.")
     return redirect("lager:artikel", artikel_id=artikel.pk)
+
+
+@mit_mandant
+@require_POST
+def umbuchung(request, artikel_id):
+    artikel = get_object_or_404(Artikel, pk=artikel_id)
+    try:
+        ziel = get_object_or_404(Mandant, pk=request.POST.get("nach"), aktiv=True)
+        umbuchen(request.mandant, ziel, artikel, zahl(request.POST.get("menge"), Decimal("0")), request.user)
+        messages.success(request, f"Nach {ziel.kurzname} umgebucht.")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("lager:artikel", artikel_id=artikel.pk)
+
+
+@mit_mandant
+def seriennummer_suche(request):
+    q = request.GET.get("q", "").strip()
+    treffer = Seriennummer.objects.filter(mandant=request.mandant, nummer__icontains=q).select_related(
+        "artikel", "position__beleg__kunde")[:100] if q else []
+    return render(request, "lager/seriennummern.html", {"q": q, "treffer": treffer})
+
+
+@mit_mandant
+@require_POST
+def position_seriennummern(request, position_id):
+    position = get_object_or_404(Position.objects.select_related("beleg", "artikel"), pk=position_id,
+                                 beleg__mandant=request.mandant)
+    try:
+        if not position.artikel_id:
+            raise ValueError("Nur bei Artikelpositionen.")
+        seriennummern_zuordnen(position, request.POST.get("seriennummern", ""))
+        messages.success(request, "Seriennummern gespeichert.")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("verkauf:beleg", beleg_id=position.beleg_id)
+
+
+@mit_mandant
+@require_POST
+def gutschrift_retoure(request, beleg_id):
+    beleg = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
+    try:
+        anzahl = retoure_aus_gutschrift(beleg, request.user)
+        messages.success(request, f"{anzahl} Artikel ins Lager zurückgebucht.")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("verkauf:beleg", beleg_id=beleg.pk)
+
+
+@mit_mandant
+def inventur_liste(request):
+    """Zählliste mit Erfassung: gezählte Mengen eintragen, Differenzen werden gebucht."""
+    summen = {s["artikel"]: s["s"] for s in Lagerbewegung.objects.filter(mandant=request.mandant)
+              .values("artikel").annotate(s=Sum("menge"))}
+    plaetze = {d.artikel_id: d.lagerplatz for d in ArtikelMandant.objects.filter(mandant=request.mandant)}
+    kategorie = request.GET.get("kategorie", "")
+    artikel = Artikel.objects.filter(pk__in=[a for a, s in summen.items() if s], typ="A")
+    if kategorie.isdigit():
+        artikel = artikel.filter(kategorie_id=int(kategorie))
+    if request.method == "POST":
+        gebucht = 0
+        for a in artikel:
+            wert = request.POST.get(f"gezaehlt_{a.pk}", "").strip()
+            if wert:
+                try:
+                    gebucht += bool(inventur(request.mandant, a, zahl(wert), request.user))
+                except ValueError as fehler:
+                    messages.error(request, f"{a.nummer}: {fehler}")
+        messages.success(request, f"{gebucht} Differenzbuchung(en) erstellt.")
+        return redirect(request.get_full_path())
+    zeilen_ = sorted(({"artikel": a, "soll": summen.get(a.pk, Decimal("0")), "platz": plaetze.get(a.pk, "")}
+                      for a in artikel.select_related("kategorie")), key=lambda z: (z["platz"], z["artikel"].nummer))
+    return render(request, "lager/inventur.html", {
+        "zeilen": zeilen_, "kategorie": kategorie, "kategorien": Kategorie.objects.filter(eltern__isnull=True)})

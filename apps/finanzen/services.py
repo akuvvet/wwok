@@ -6,7 +6,9 @@ from django.utils import timezone
 
 from apps.verkauf.models import Beleg, Belegart
 
-from .models import Mahnstufe, Mahnung, Zahlung
+from apps.kern.models import Mandant
+
+from .models import Kassenbuch, Mahnstufe, Mahnung, Zahlart, Zahlung
 
 CENT = Decimal("0.01")
 STANDARD_STUFEN = [
@@ -122,8 +124,25 @@ def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None) -
         raise ValueError("Zahlungen können nur auf abgeschlossene Rechnungen oder Aufträge gebucht werden.")
     if betrag == 0:
         raise ValueError("Betrag darf nicht 0 sein.")
-    return Zahlung.objects.create(mandant=beleg.mandant, beleg=beleg, betrag=betrag, datum=datum, zahlart=zahlart,
-                                  bemerkung=bemerkung, benutzer=benutzer)
+    zahlung = Zahlung.objects.create(mandant=beleg.mandant, beleg=beleg, betrag=betrag, datum=datum, zahlart=zahlart,
+                                     bemerkung=bemerkung, benutzer=benutzer)
+    if zahlart == Zahlart.BAR:  # Barzahlung läuft ins Kassenbuch
+        kasse_buchen(beleg.mandant, Kassenbuch.EINNAHME if betrag > 0 else Kassenbuch.AUSGABE, abs(betrag),
+                     f"{'Barzahlung' if betrag > 0 else 'Barrückzahlung'} {beleg.nummer}", datum, beleg, benutzer)
+    return zahlung
+
+
+@transaction.atomic
+def kasse_buchen(mandant, art, betrag, text, datum=None, beleg=None, benutzer=None) -> Kassenbuch:
+    """Fortlaufend nummerierter, unveränderlicher Kassenbucheintrag."""
+    Mandant.objects.select_for_update().get(pk=mandant.pk)  # Sperre, damit Nummern lückenlos bleiben
+    letzte = Kassenbuch.objects.filter(mandant=mandant).aggregate(m=models.Max("nummer"))["m"] or 0
+    return Kassenbuch.objects.create(mandant=mandant, nummer=letzte + 1, art=art, betrag=betrag, text=text,
+                                     datum=datum or timezone.localdate(), beleg=beleg, benutzer=benutzer)
+
+
+def kassenstand(mandant) -> Decimal:
+    return sum((k.signierter_betrag for k in Kassenbuch.objects.filter(mandant=mandant)), Decimal("0"))
 
 
 def kontoauszug(mandant, kunde):
