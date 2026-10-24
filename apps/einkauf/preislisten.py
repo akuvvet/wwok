@@ -8,7 +8,10 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from decimal import Decimal, InvalidOperation
 
+from datetime import timedelta
+
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.stammdaten.models import Artikel, ArtikelLieferant, Hersteller, Steuersatz
@@ -185,85 +188,132 @@ def vorschau(profil, inhalt: bytes, anzahl: int = 15) -> dict:
     return {"gesamt": len(zeilen), "zeilen": zeilen_vorschau}
 
 
-def importieren(profil, inhalt: bytes, dateiname: str = "", benutzer=None) -> Preislistenimport:
-    zeilen = zeilen_lesen(profil, inhalt)
-    protokoll = Preislistenimport(profil=profil, dateiname=dateiname[:200], gelesen=len(zeilen), benutzer=benutzer)
-    fehler = []
+SPERRE_STUNDEN = 3  # ein abgestürzter Lauf blockiert das Profil nicht länger als so lange
+
+
+def sperre_holen(profil) -> None:
+    """Verhindert, dass dieselbe Preisliste zweimal gleichzeitig importiert wird (Cron und Handstart)."""
     jetzt = timezone.now()
+    erfolgt = Preislistenprofil.objects.filter(pk=profil.pk).filter(
+        Q(laeuft_seit__isnull=True) | Q(laeuft_seit__lt=jetzt - timedelta(hours=SPERRE_STUNDEN))).update(laeuft_seit=jetzt)
+    if not erfolgt:
+        raise PreislistenFehler("Für diese Preisliste läuft bereits ein Import – bitte warten, bis er fertig ist.")
+
+
+def sperre_freigeben(profil) -> None:
+    Preislistenprofil.objects.filter(pk=profil.pk).update(laeuft_seit=None)
+
+
+def importieren(profil, inhalt: bytes, dateiname: str = "", benutzer=None) -> Preislistenimport:
+    """Liest die Preisliste im Speicher ab: vorhandene Artikel und Lieferantenpreise werden einmal geladen, geschrieben
+    wird nur, was sich ändert (neue Zeilen und Änderungen in Blöcken)."""
+    zeilen = zeilen_lesen(profil, inhalt)  # Formatfehler vor dem Sperren melden
+    sperre_holen(profil)
+    try:
+        return _importieren(profil, zeilen, dateiname, benutzer)
+    finally:
+        sperre_freigeben(profil)
+
+
+def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislistenimport:
+    protokoll = Preislistenimport(profil=profil, dateiname=dateiname[:200], gelesen=len(zeilen), benutzer=benutzer)
+    fehler, jetzt = [], timezone.now()
     steuer = Steuersatz.objects.filter(nummer=1).first() or Steuersatz.objects.order_by("-prozent").first()
     hersteller = {}
     for h in Hersteller.objects.order_by("kennzeichen"):
         hersteller.setdefault(h.name.lower(), h)
+
+    vorhanden = {al.bestellnummer: al for al in ArtikelLieferant.objects.filter(lieferant=profil.lieferant)}
+    nach_hnr, nach_ean, nummern = {}, {}, set()
+    for artikel_id, nummer, hnr, ean in Artikel.objects.values_list("id", "nummer", "herstellernummer", "ean"):
+        nummern.add(nummer)
+        if hnr:
+            nach_hnr.setdefault(hnr.lower(), artikel_id)
+        if ean:
+            nach_ean.setdefault(ean, artikel_id)
+    neue, geaenderte = [], []  # (ArtikelLieferant) – neue stehen schon in 'vorhanden', damit doppelte Zeilen zusammenfallen
+
+    def schreiben():
+        if neue:
+            ArtikelLieferant.objects.bulk_create(neue, batch_size=500)
+            neue.clear()
+        if geaenderte:
+            ArtikelLieferant.objects.bulk_update(geaenderte, ["ek", "bestand", "lieferzeit_tage", "preisliste", "aktualisiert_am"], batch_size=500)
+            geaenderte.clear()
+
     for nr, z in zeilen:
         try:
-            with transaction.atomic():
-                ergebnis = zeile_importieren(profil, z, jetzt, steuer, hersteller)
-            setattr(protokoll, ergebnis, getattr(protokoll, ergebnis) + 1)
+            bestellnr = z.get("bestellnummer", "").strip()
+            if not bestellnr:
+                raise ValueError("Bestellnummer fehlt.")
+            ek = zahl(z.get("ek", ""), profil.dezimaltrennzeichen).quantize(Decimal("0.0001"))
+            if ek < 0:
+                raise ValueError("EK ist negativ.")
+            bestand = int(zahl(z["bestand"], profil.dezimaltrennzeichen)) if z.get("bestand") else None
+            lieferzeit = int(zahl(z["lieferzeit"], profil.dezimaltrennzeichen)) if z.get("lieferzeit") else None
+            hnr, ean = z.get("herstellernummer", "").strip(), z.get("ean", "").strip()
+
+            al = vorhanden.get(bestellnr)
+            if al is not None:
+                aenderung = (al.ek != ek) or (bestand is not None and al.bestand != bestand) \
+                    or (lieferzeit is not None and al.lieferzeit_tage != lieferzeit)
+                if aenderung:
+                    al.ek, al.preisliste, al.aktualisiert_am = ek, profil.name[:150], jetzt
+                    if bestand is not None:
+                        al.bestand = bestand
+                    if lieferzeit is not None:
+                        al.lieferzeit_tage = lieferzeit
+                    if al.pk:
+                        geaenderte.append(al)
+                    protokoll.geaendert += 1
+                else:
+                    protokoll.unveraendert += 1
+                continue
+
+            artikel_id = nach_hnr.get(hnr.lower()) if hnr else None
+            if artikel_id is None and ean:
+                artikel_id = nach_ean.get(ean)
+            if artikel_id is None:
+                if not profil.neue_artikel:
+                    protokoll.uebersprungen += 1
+                    continue
+                if not z.get("bezeichnung"):
+                    raise ValueError("Unbekannter Artikel ohne Bezeichnung kann nicht angelegt werden.")
+                if steuer is None:
+                    raise ValueError("Es ist kein Steuersatz angelegt.")
+                nummer, zaehler = f"P{profil.lieferant.nummer}-{bestellnr}"[:40], 1
+                while nummer in nummern:  # Kürzung kann zu Kollisionen führen
+                    zaehler += 1
+                    nummer = f"P{profil.lieferant.nummer}-{bestellnr}"[:36] + f"~{zaehler}"
+                gewicht = zahl(z["gewicht"], profil.dezimaltrennzeichen) if z.get("gewicht") else None
+                artikel = Artikel.objects.create(
+                    nummer=nummer, typ="P", bezeichnung=z["bezeichnung"][:255], herstellernummer=hnr[:100], ean=ean[:14],
+                    steuersatz=steuer, hersteller=hersteller.get(z.get("hersteller", "").lower()), gewicht_kg=gewicht)
+                artikel_id = artikel.pk
+                nummern.add(nummer)
+                if hnr:
+                    nach_hnr.setdefault(hnr.lower(), artikel_id)
+                if ean:
+                    nach_ean.setdefault(ean, artikel_id)
+            al = ArtikelLieferant(artikel_id=artikel_id, lieferant=profil.lieferant, bestellnummer=bestellnr, ek=ek,
+                                  bestand=bestand, lieferzeit_tage=lieferzeit, preisliste=profil.name[:150], aktualisiert_am=jetzt)
+            vorhanden[bestellnr] = al
+            neue.append(al)
+            protokoll.neu += 1
+            if len(neue) >= 500 or len(geaenderte) >= 500:
+                schreiben()
         except (ValueError, PreislistenFehler) as grund:
             protokoll.fehler += 1
             if len(fehler) < 200:
                 fehler.append({"zeile": nr, "grund": str(grund), "daten": z})
+    schreiben()
     protokoll.fehlerzeilen = fehler
     protokoll.meldung = f"{protokoll.neu} neu, {protokoll.geaendert} geändert, {protokoll.unveraendert} unverändert, " \
                         f"{protokoll.uebersprungen} übersprungen, {protokoll.fehler} Fehler"
     protokoll.save()
+    Preislistenprofil.objects.filter(pk=profil.pk).update(letzter_lauf=jetzt)
     profil.letzter_lauf = jetzt
-    profil.save(update_fields=["letzter_lauf"])
     return protokoll
-
-
-def zeile_importieren(profil, z: dict, jetzt, steuer, hersteller) -> str:
-    """Gibt 'neu', 'geaendert', 'unveraendert' oder 'uebersprungen' zurück."""
-    bestellnr = z.get("bestellnummer", "").strip()
-    if not bestellnr:
-        raise ValueError("Bestellnummer fehlt.")
-    ek = zahl(z.get("ek", ""), profil.dezimaltrennzeichen).quantize(Decimal("0.0001"))
-    if ek < 0:
-        raise ValueError("EK ist negativ.")
-    bestand = None
-    if z.get("bestand"):
-        bestand = int(zahl(z["bestand"], profil.dezimaltrennzeichen))
-    lieferzeit = int(zahl(z["lieferzeit"], profil.dezimaltrennzeichen)) if z.get("lieferzeit") else None
-
-    al = ArtikelLieferant.objects.filter(lieferant=profil.lieferant, bestellnummer=bestellnr).select_related("artikel").first()
-    artikel = al.artikel if al else artikel_finden(z)
-    angelegt = False
-    if artikel is None:
-        if not profil.neue_artikel:
-            return "uebersprungen"
-        if not z.get("bezeichnung"):
-            raise ValueError("Unbekannter Artikel ohne Bezeichnung kann nicht angelegt werden.")
-        if steuer is None:
-            raise ValueError("Es ist kein Steuersatz angelegt.")
-        nummer = f"P{profil.lieferant.nummer}-{bestellnr}"[:40]
-        gewicht = zahl(z["gewicht"], profil.dezimaltrennzeichen) if z.get("gewicht") else None
-        artikel = Artikel.objects.create(
-            nummer=nummer, typ="P", bezeichnung=z["bezeichnung"][:255], herstellernummer=z.get("herstellernummer", "")[:100],
-            ean=z.get("ean", "")[:14], steuersatz=steuer, hersteller=hersteller.get(z.get("hersteller", "").lower()),
-            gewicht_kg=gewicht)
-        angelegt = True
-    else:  # fehlende Stammdaten ergänzen, vorhandene nicht überschreiben
-        geaendert = False
-        if not artikel.herstellernummer and z.get("herstellernummer"):
-            artikel.herstellernummer, geaendert = z["herstellernummer"][:100], True
-        if not artikel.ean and z.get("ean"):
-            artikel.ean, geaendert = z["ean"][:14], True
-        if geaendert:
-            artikel.save()
-
-    if al is None:
-        ArtikelLieferant.objects.create(
-            artikel=artikel, lieferant=profil.lieferant, bestellnummer=bestellnr, ek=ek, bestand=bestand,
-            lieferzeit_tage=lieferzeit, preisliste=profil.name[:150], aktualisiert_am=jetzt)
-        return "neu"
-    aenderung = (al.ek != ek) or (bestand is not None and al.bestand != bestand) or (lieferzeit is not None and al.lieferzeit_tage != lieferzeit)
-    al.ek, al.preisliste, al.aktualisiert_am = ek, profil.name[:150], jetzt
-    if bestand is not None:
-        al.bestand = bestand
-    if lieferzeit is not None:
-        al.lieferzeit_tage = lieferzeit
-    al.save()
-    return "geaendert" if aenderung else "unveraendert"
 
 
 def faellige_profile(jetzt=None):

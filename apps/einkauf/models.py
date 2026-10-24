@@ -281,6 +281,8 @@ class Preislistenprofil(Zeitstempel):
         "unbekannte Artikel als Lieferantenprodukt (Typ P) anlegen", default=True,
         help_text="Sonst werden nur Preise und Bestände bei bereits vorhandenen Artikeln aktualisiert.")
     letzter_lauf = models.DateTimeField(null=True, blank=True, editable=False)
+    laeuft_seit = models.DateTimeField(null=True, blank=True, editable=False,
+                                       help_text="Gesetzt, solange ein Import läuft (verhindert Doppelläufe)")
 
     class Meta:
         verbose_name = "Preislistenprofil"
