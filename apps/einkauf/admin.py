@@ -49,7 +49,7 @@ class PreislistenprofilAdmin(admin.ModelAdmin):
     fieldsets = [
         ("Preisliste", {"fields": ["lieferant", "name", "aktiv", "neue_artikel"]}),
         ("Quelle und Zeitplan", {"fields": ["quelle", "adresse", "port", "pfad", "benutzer", "intervall_stunden"],
-                                 "description": "Das Passwort steht nicht hier, sondern in der .env als PREISLISTE_PW_<ID des Profils>."}),
+                                 "description": "Download-Adresse: die vollständige URL (https://…) ins Feld „Adresse“, Benutzer = z. B. Kundennummer. FTP/SFTP: Server in „Adresse“, Dateipfad in „Pfad“. Das Passwort steht nicht hier, sondern in der .env als PREISLISTE_PW_<ID des Profils>."}),
         ("Dateiformat", {"fields": ["dateityp", "zeichensatz", ("trennzeichen", "textbegrenzer"), "dezimaltrennzeichen",
                                     ("kopfzeile", "erste_datenzeile"), "xml_satz"]}),
         ("Feldzuordnung (Spaltenüberschrift oder Spaltennummer)", {"fields": [

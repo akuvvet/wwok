@@ -290,6 +290,23 @@ class Preislistenprofil(Zeitstempel):
     def __str__(self):
         return f"{self.lieferant.name1}: {self.name}"
 
+    @property
+    def passwort_variable(self) -> str:
+        return f"PREISLISTE_PW_{self.pk}"
+
+    @property
+    def url_adresse(self) -> str:
+        """Die Adresse steht im Feld 'Adresse'; eine versehentlich im Feld 'Datei auf dem Server' eingetragene URL wird mit genutzt."""
+        adresse = (self.adresse or "").strip()
+        return adresse if adresse else (self.pfad or "").strip()
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.quelle == Quelle.URL and not self.url_adresse.lower().startswith(("http://", "https://")):
+            raise ValidationError({"adresse": "Bei „Download-Adresse“ bitte die vollständige Adresse mit https:// eintragen."})
+        if self.quelle in (Quelle.FTP, Quelle.SFTP) and (not self.adresse.strip() or not self.pfad.strip()):
+            raise ValidationError("Bei FTP/SFTP bitte Server und Dateipfad eintragen.")
+
 
 class Preislistenimport(models.Model):
     """Protokoll eines Imports: Anzahl neu/geändert/Fehler, fehlerhafte Zeilen einsehbar."""

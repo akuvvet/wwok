@@ -3,6 +3,7 @@ import csv
 import ftplib
 import io
 import os
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from decimal import Decimal, InvalidOperation
@@ -25,7 +26,7 @@ class PreislistenFehler(Exception):
 # ---- Abruf ------------------------------------------------------------------------------------------
 
 def passwort(profil) -> str:
-    return os.environ.get(f"PREISLISTE_PW_{profil.pk}", "")
+    return os.environ.get(profil.passwort_variable, "")
 
 
 def abrufen(profil):
@@ -54,14 +55,25 @@ def abrufen(profil):
             raise PreislistenFehler(f"SFTP-Abruf fehlgeschlagen: {fehler}")
         return os.path.basename(profil.pfad), inhalt
     if profil.quelle == Quelle.URL:
+        url = profil.url_adresse
+        if not url.lower().startswith(("http://", "https://")):
+            raise PreislistenFehler("Bitte die vollständige Adresse (https://…) im Feld „FTP-Server bzw. URL“ eintragen.")
         try:
-            anfrage = urllib.request.Request(profil.adresse)
+            anfrage = urllib.request.Request(url)
             if profil.benutzer:
+                if not passwort(profil):
+                    raise PreislistenFehler(f"Das Passwort fehlt: {profil.passwort_variable} in der .env eintragen "
+                                            "und den Dienst neu starten.")
                 import base64
                 anfrage.add_header("Authorization", "Basic " + base64.b64encode(
                     f"{profil.benutzer}:{passwort(profil)}".encode()).decode())
-            with urllib.request.urlopen(anfrage, timeout=60) as antwort:
-                return os.path.basename(profil.adresse.split("?")[0]) or "preisliste", antwort.read()
+            with urllib.request.urlopen(anfrage, timeout=300) as antwort:
+                return os.path.basename(url.split("?")[0].rstrip("/")) or "preisliste.csv", antwort.read()
+        except PreislistenFehler:
+            raise
+        except urllib.error.HTTPError as fehler:
+            hinweis = " – Benutzer oder Passwort prüfen." if fehler.code in (401, 403) else ""
+            raise PreislistenFehler(f"Download fehlgeschlagen: Der Server antwortet mit {fehler.code} {fehler.reason}{hinweis}")
         except Exception as fehler:
             raise PreislistenFehler(f"Download fehlgeschlagen: {fehler}")
     raise PreislistenFehler("Dieses Profil wird per Datei-Upload gefüllt.")
