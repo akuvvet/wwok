@@ -29,7 +29,7 @@ Nicht die Shopware-Datenbank verwenden.
 
 ```bash
 cd /var/www/vhosts/okaycomputer.de/erp.okaycomputer.de
-git clone git@github.com:akuvvet/wwok.git app
+git clone github-wwok:akuvvet/wwok.git app   # Host-Alias mit Deploy-Key
 python3 -m venv venv
 source venv/bin/activate
 pip install -r app/requirements.txt
@@ -39,6 +39,7 @@ cd app
 python manage.py migrate
 python manage.py collectstatic --noinput
 python manage.py createsuperuser
+chmod 600 .env
 ```
 
 Geheimschlüssel erzeugen:
@@ -78,9 +79,9 @@ systemctl enable --now wwok
 Plesk → erp.okaycomputer.de → Apache & nginx-Einstellungen → **Zusätzliche nginx-Anweisungen**:
 
 ```nginx
-location /static/ { alias /var/www/vhosts/okaycomputer.de/erp.okaycomputer.de/app/staticfiles/; }
-location /medien/ { alias /var/www/vhosts/okaycomputer.de/erp-daten/medien/; }
-location / {
+location ^~ /static/ { alias /var/www/vhosts/okaycomputer.de/erp.okaycomputer.de/app/staticfiles/; }
+location ^~ /medien/ { alias /var/www/vhosts/okaycomputer.de/erp-daten/medien/; }
+location ~ ^/ {   # nicht "location /": Plesk definiert das selbst
     proxy_pass http://127.0.0.1:8010;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto https;
