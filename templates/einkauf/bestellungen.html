@@ -9,6 +9,7 @@
     <a class="knopf leise" href="{% url 'einkauf:vorschlag' %}">Bestellvorschlag</a>
     <a class="knopf leise" href="{% url 'einkauf:wareneingaenge' %}">Wareneingänge</a>
     <a class="knopf leise" href="{% url 'einkauf:rechnungen' %}">Lieferantenrechnungen</a>
+    <a class="knopf leise" href="{% url 'einkauf:preislisten' %}">Preislisten</a>
     <a class="knopf leise" href="{% url 'einkauf:rma_liste' %}">RMA</a>
   </p>
   <form method="post" action="{% url 'einkauf:bestellung_neu' %}" class="zeile">{% csrf_token %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block titel %}{{ profil.name }} – Preisliste – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:preislisten' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>{{ profil.lieferant.name1 }} – {{ profil.name }}</h1>
+  <p>{{ profil.get_quelle_display }} · {{ profil.get_dateityp_display }}{% if profil.dateityp == 'csv' %} · Trennzeichen „{{ profil.trennzeichen }}“, {{ profil.zeichensatz }}{% endif %}
+    · <a href="/verwaltung/einkauf/preislistenprofil/{{ profil.pk }}/change/">Profil bearbeiten</a></p>
+  {% if not vorschau %}
+  <form method="post" enctype="multipart/form-data" class="zeile">{% csrf_token %}
+    <input type="hidden" name="aktion" value="vorschau">
+    {% if profil.quelle == 'upload' %}<div><label>Preisliste (Datei)</label><input type="file" name="datei"></div>
+    {% else %}<div><label>Abruf von {{ profil.adresse }}{{ profil.pfad }}</label></div>{% endif %}
+    <button type="submit">Vorschau anzeigen</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if vorschau %}
+<div class="karte">
+  <h2>Vorschau: {{ vorschau.gesamt }} Zeilen in {{ dateiname }}</h2>
+  <p style="opacity:.8">Es wurde noch nichts gespeichert. Prüfe die Zuordnung der ersten Zeilen.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Zeile</th><th>Bestell-Nr.</th><th>Herst.-Nr.</th><th>EAN</th><th>Bezeichnung</th><th class="zahl">EK</th><th>Bestand</th><th>Ergebnis</th></tr></thead>
+    <tbody>{% for z in vorschau.zeilen %}
+    <tr><td>{{ z.nr }}</td><td>{{ z.daten.bestellnummer }}</td><td>{{ z.daten.herstellernummer }}</td><td>{{ z.daten.ean }}</td><td>{{ z.daten.bezeichnung }}</td>
+        <td class="zahl">{{ z.ek }}</td><td>{{ z.daten.bestand }}</td>
+        <td>{{ z.ergebnis }}{% if z.artikel %}: {{ z.artikel.nummer }}{% endif %}</td></tr>
+    {% endfor %}</tbody></table></div>
+  <form method="post" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <input type="hidden" name="aktion" value="importieren"><input type="hidden" name="token" value="{{ token }}">
+    <button type="submit">Jetzt importieren ({{ vorschau.gesamt }} Zeilen)</button>
+    <a class="knopf leise" href="{% url 'einkauf:preisliste' profil.pk %}">Abbrechen</a>
+  </form>
+</div>
+{% endif %}
+
+<div class="karte">
+  <h2>Bisherige Importe</h2>
+  <table>
+    {% for i in importe %}<tr><td><a href="{% url 'einkauf:preislistenimport' i.pk %}">{{ i.zeitpunkt|date:"d.m.Y H:i" }}</a></td><td>{{ i.dateiname }}</td><td>{{ i.meldung }}</td></tr>
+    {% empty %}<tr><td>Noch kein Import.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

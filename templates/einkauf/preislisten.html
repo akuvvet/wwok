@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block titel %}Preislisten – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Preislisten der Lieferanten</h1>
+  <p style="opacity:.8">Je Lieferanten-Preisliste gibt es ein Importprofil (Format, Spaltenzuordnung, Quelle). Profile legst du unter
+    <a href="/verwaltung/einkauf/preislistenprofil/">Verwaltung → Preislistenprofile</a> an; danach kannst du hier Dateien einlesen oder Abrufe auslösen.</p>
+  <table>
+    <tr><th>Profil</th><th>Lieferant</th><th>Quelle</th><th>Format</th><th>Zeitplan</th><th>letzter Import</th></tr>
+    {% for p in profile %}
+    <tr><td><a href="{% url 'einkauf:preisliste' p.pk %}">{{ p.name }}</a>{% if not p.aktiv %} <small>(inaktiv)</small>{% endif %}</td>
+        <td>{{ p.lieferant.name1 }}</td><td>{{ p.get_quelle_display }}</td><td>{{ p.get_dateityp_display }}</td>
+        <td>{% if p.intervall_stunden %}alle {{ p.intervall_stunden }} Std.{% else %}manuell{% endif %}</td>
+        <td>{% with letzter=p.importe.first %}{% if letzter %}<a href="{% url 'einkauf:preislistenimport' letzter.pk %}">{{ letzter.zeitpunkt|date:"d.m.Y H:i" }}</a> – {{ letzter.meldung }}{% else %}–{% endif %}{% endwith %}</td></tr>
+    {% empty %}<tr><td colspan="6">Noch kein Profil angelegt.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

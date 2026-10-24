@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block titel %}Import {{ p.zeitpunkt|date:"d.m.Y H:i" }} – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:preisliste' p.profil.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Import {{ p.profil.name }} · {{ p.zeitpunkt|date:"d.m.Y H:i" }}</h1>
+  <div class="raster">
+    <div>gelesen<br><strong>{{ p.gelesen }}</strong></div><div>neu<br><strong>{{ p.neu }}</strong></div>
+    <div>geändert<br><strong>{{ p.geaendert }}</strong></div><div>unverändert<br><strong>{{ p.unveraendert }}</strong></div>
+    <div>übersprungen<br><strong>{{ p.uebersprungen }}</strong></div><div>Fehler<br><strong style="color:{% if p.fehler %}var(--warn){% endif %}">{{ p.fehler }}</strong></div>
+  </div>
+  {% if p.fehlerzeilen %}
+  <h2 style="margin-top:16px">Fehlerhafte Zeilen{% if p.fehler > p.fehlerzeilen|length %} (erste {{ p.fehlerzeilen|length }}){% endif %}</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Zeile</th><th>Grund</th><th>Bestell-Nr.</th><th>Bezeichnung</th><th>EK</th></tr></thead>
+    <tbody>{% for f in p.fehlerzeilen %}<tr><td>{{ f.zeile }}</td><td>{{ f.grund }}</td><td>{{ f.daten.bestellnummer }}</td><td>{{ f.daten.bezeichnung }}</td><td>{{ f.daten.ek }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+</div>
+{% endblock %}

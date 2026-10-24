@@ -395,6 +395,7 @@ class ArtikelLieferant(Zeitstempel):
     bestellnummer = models.CharField("Bestellnummer des Lieferanten", max_length=100)
     ek = models.DecimalField("EK netto", null=True, blank=True, **EK_GELD)
     bestand = models.IntegerField("Bestand beim Lieferanten", null=True, blank=True)
+    lieferzeit_tage = models.PositiveSmallIntegerField("Lieferzeit (Tage)", null=True, blank=True)
     preisliste = models.CharField("aus Preisliste", max_length=150, blank=True)
     aktualisiert_am = models.DateTimeField("Preisliste eingelesen am", null=True, blank=True)
 

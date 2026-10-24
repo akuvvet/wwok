@@ -4,3 +4,5 @@ Pillow>=10.0
 gunicorn>=22.0
 xlrd>=2.0
 reportlab>=4.0
+openpyxl>=3.1
+paramiko>=3.4

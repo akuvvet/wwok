@@ -1,3 +1,4 @@
+import os
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -442,3 +443,60 @@ def rma_detail(request, rma_id):
             messages.error(request, str(fehler))
         return redirect("einkauf:rma", rma_id=rma.pk)
     return render(request, "einkauf/rma.html", {"rma": rma, "stati": RmaStatus.choices})
+
+
+# ---- Preislisten ------------------------------------------------------------------------------------
+
+@mit_mandant
+def preislisten_liste(request):
+    from .models import Preislistenprofil
+    return render(request, "einkauf/preislisten.html", {
+        "profile": Preislistenprofil.objects.select_related("lieferant").prefetch_related("importe")})
+
+
+@mit_mandant
+def preisliste(request, profil_id):
+    import uuid
+
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+
+    from . import preislisten
+    from .models import Preislistenprofil
+    profil = get_object_or_404(Preislistenprofil.objects.select_related("lieferant"), pk=profil_id)
+    kontext = {"profil": profil, "importe": profil.importe.all()[:10], "vorschau": None, "token": ""}
+    if request.method == "POST":
+        aktion = request.POST.get("aktion")
+        try:
+            if aktion == "vorschau":
+                datei = request.FILES.get("datei")
+                if profil.quelle == "upload" and not datei:
+                    raise ValueError("Bitte eine Datei wählen.")
+                if datei:
+                    name, inhalt = datei.name, datei.read()
+                else:
+                    name, inhalt = preislisten.abrufen(profil)
+                token = f"{uuid.uuid4().hex}__{name}"
+                default_storage.save(f"tmp/preislisten/{token}", ContentFile(inhalt))
+                kontext.update(vorschau=preislisten.vorschau(profil, inhalt), token=token, dateiname=name)
+            elif aktion == "importieren":
+                token = request.POST.get("token", "")
+                pfad = f"tmp/preislisten/{os.path.basename(token)}"
+                if not token or not default_storage.exists(pfad):
+                    raise ValueError("Die Vorschau ist abgelaufen – bitte erneut hochladen.")
+                with default_storage.open(pfad) as f:
+                    inhalt = f.read()
+                protokoll = preislisten.importieren(profil, inhalt, token.split("__", 1)[-1], request.user)
+                default_storage.delete(pfad)
+                messages.success(request, f"Import abgeschlossen: {protokoll.meldung}")
+                return redirect("einkauf:preislistenimport", import_id=protokoll.pk)
+        except (ValueError, preislisten.PreislistenFehler) as fehler:
+            messages.error(request, str(fehler))
+    return render(request, "einkauf/preisliste.html", kontext)
+
+
+@mit_mandant
+def preislistenimport(request, import_id):
+    from .models import Preislistenimport
+    protokoll = get_object_or_404(Preislistenimport.objects.select_related("profil", "profil__lieferant"), pk=import_id)
+    return render(request, "einkauf/preislistenimport.html", {"p": protokoll})

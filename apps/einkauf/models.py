@@ -228,3 +228,86 @@ class Rma(Zeitstempel):
 
     def __str__(self):
         return f"{self.nummer} {self.bezeichnung}"
+
+
+class Quelle(models.TextChoices):
+    UPLOAD = "upload", "Datei-Upload"
+    FTP = "ftp", "FTP-Abruf"
+    SFTP = "sftp", "SFTP-Abruf"
+    URL = "url", "Download-Adresse (HTTP/HTTPS)"
+
+
+class Dateityp(models.TextChoices):
+    CSV = "csv", "CSV / TXT"
+    XLSX = "xlsx", "Excel (XLSX)"
+    XLS = "xls", "Excel (XLS)"
+    XML = "xml", "XML"
+
+
+class Preislistenprofil(Zeitstempel):
+    """Importprofil für die Preisliste eines Lieferanten: einmal einrichten, danach automatisch nutzbar.
+    Spaltenangaben: Spaltenüberschrift (bei Kopfzeile) oder Spaltennummer (1 = erste Spalte);
+    bei XML der Name des Unterelements bzw. Attributs."""
+
+    lieferant = models.ForeignKey(Lieferant, on_delete=models.PROTECT, related_name="preislistenprofile")
+    name = models.CharField("Bezeichnung der Preisliste", max_length=100)
+    aktiv = models.BooleanField(default=True)
+    quelle = models.CharField(max_length=6, choices=Quelle.choices, default=Quelle.UPLOAD)
+    adresse = models.CharField("FTP-Server bzw. URL", max_length=300, blank=True)
+    port = models.PositiveIntegerField(null=True, blank=True)
+    pfad = models.CharField("Datei auf dem Server", max_length=300, blank=True)
+    benutzer = models.CharField("Benutzer", max_length=100, blank=True)
+    intervall_stunden = models.PositiveIntegerField(
+        "automatisch abrufen alle … Stunden", default=0, help_text="0 = nur manuell. Läuft über den Befehl preislisten_abrufen.")
+    dateityp = models.CharField(max_length=4, choices=Dateityp.choices, default=Dateityp.CSV)
+    zeichensatz = models.CharField(max_length=10, default="utf-8", choices=[("utf-8", "UTF-8"), ("cp1252", "ANSI (Windows-1252)")])
+    trennzeichen = models.CharField(max_length=3, default=";", help_text="Für Tabulator: \t")
+    textbegrenzer = models.CharField(max_length=1, default='"', blank=True)
+    dezimaltrennzeichen = models.CharField(max_length=1, default=",", choices=[(",", "Komma"), (".", "Punkt")])
+    kopfzeile = models.BooleanField("Datei hat eine Kopfzeile", default=True)
+    erste_datenzeile = models.PositiveIntegerField(default=2, help_text="Zeilennummer der ersten Datenzeile (bei XML ohne Bedeutung)")
+    xml_satz = models.CharField("XML: Element je Artikel", max_length=60, blank=True)
+    sp_bestellnummer = models.CharField("Spalte Bestellnummer des Lieferanten", max_length=60)
+    sp_herstellernummer = models.CharField("Spalte Herstellernummer", max_length=60, blank=True)
+    sp_ean = models.CharField("Spalte EAN", max_length=60, blank=True)
+    sp_bezeichnung = models.CharField("Spalte Bezeichnung", max_length=60, blank=True)
+    sp_hersteller = models.CharField("Spalte Hersteller", max_length=60, blank=True)
+    sp_kategorie = models.CharField("Spalte Kategorie", max_length=60, blank=True)
+    sp_ek = models.CharField("Spalte EK netto", max_length=60)
+    sp_bestand = models.CharField("Spalte Bestand", max_length=60, blank=True)
+    sp_lieferzeit = models.CharField("Spalte Lieferzeit (Tage)", max_length=60, blank=True)
+    sp_gewicht = models.CharField("Spalte Gewicht (kg)", max_length=60, blank=True)
+    neue_artikel = models.BooleanField(
+        "unbekannte Artikel als Lieferantenprodukt (Typ P) anlegen", default=True,
+        help_text="Sonst werden nur Preise und Bestände bei bereits vorhandenen Artikeln aktualisiert.")
+    letzter_lauf = models.DateTimeField(null=True, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "Preislistenprofil"
+        verbose_name_plural = "Preislistenprofile"
+        ordering = ["lieferant", "name"]
+
+    def __str__(self):
+        return f"{self.lieferant.name1}: {self.name}"
+
+
+class Preislistenimport(models.Model):
+    """Protokoll eines Imports: Anzahl neu/geändert/Fehler, fehlerhafte Zeilen einsehbar."""
+
+    profil = models.ForeignKey(Preislistenprofil, on_delete=models.CASCADE, related_name="importe")
+    zeitpunkt = models.DateTimeField(default=timezone.now)
+    dateiname = models.CharField(max_length=200, blank=True)
+    gelesen = models.PositiveIntegerField(default=0)
+    neu = models.PositiveIntegerField(default=0)
+    geaendert = models.PositiveIntegerField(default=0)
+    unveraendert = models.PositiveIntegerField(default=0)
+    uebersprungen = models.PositiveIntegerField(default=0)
+    fehler = models.PositiveIntegerField(default=0)
+    fehlerzeilen = models.JSONField(default=list, blank=True)
+    meldung = models.CharField(max_length=300, blank=True)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Preislistenimport"
+        verbose_name_plural = "Preislistenimporte"
+        ordering = ["-zeitpunkt"]

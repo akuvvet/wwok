@@ -1,6 +1,7 @@
 from django.contrib import admin
 
-from .models import (BestellPosition, Bestellung, Lieferantenrechnung, Rma, Wareneingang, WareneingangPosition)
+from .models import (BestellPosition, Bestellung, Lieferantenrechnung, Preislistenimport, Preislistenprofil, Rma,
+                     Wareneingang, WareneingangPosition)
 
 
 class BestellPositionInline(admin.TabularInline):
@@ -39,3 +40,31 @@ class LieferantenrechnungAdmin(admin.ModelAdmin):
 class RmaAdmin(admin.ModelAdmin):
     list_display = ["nummer", "mandant", "lieferant", "bezeichnung", "status"]
     list_filter = ["mandant", "status"]
+
+
+@admin.register(Preislistenprofil)
+class PreislistenprofilAdmin(admin.ModelAdmin):
+    list_display = ["name", "lieferant", "quelle", "dateityp", "intervall_stunden", "aktiv", "letzter_lauf"]
+    list_filter = ["quelle", "dateityp", "aktiv"]
+    fieldsets = [
+        ("Preisliste", {"fields": ["lieferant", "name", "aktiv", "neue_artikel"]}),
+        ("Quelle und Zeitplan", {"fields": ["quelle", "adresse", "port", "pfad", "benutzer", "intervall_stunden"],
+                                 "description": "Das Passwort steht nicht hier, sondern in der .env als PREISLISTE_PW_<ID des Profils>."}),
+        ("Dateiformat", {"fields": ["dateityp", "zeichensatz", ("trennzeichen", "textbegrenzer"), "dezimaltrennzeichen",
+                                    ("kopfzeile", "erste_datenzeile"), "xml_satz"]}),
+        ("Feldzuordnung (Spaltenüberschrift oder Spaltennummer)", {"fields": [
+            "sp_bestellnummer", "sp_herstellernummer", "sp_ean", "sp_bezeichnung", "sp_hersteller", "sp_kategorie",
+            "sp_ek", "sp_bestand", "sp_lieferzeit", "sp_gewicht"]}),
+    ]
+
+
+@admin.register(Preislistenimport)
+class PreislistenimportAdmin(admin.ModelAdmin):
+    list_display = ["zeitpunkt", "profil", "gelesen", "neu", "geaendert", "fehler"]
+    list_filter = ["profil"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
