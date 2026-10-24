@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -11,6 +11,7 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Zahlungsbedingung)
 
 from .models import Beleg, BelegGesperrt, Belegart, Position
+from .pdf import beleg_pdf
 
 
 def dezimal(text, standard=None):
@@ -216,6 +217,24 @@ def beleg_folgebeleg(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
     neu = beleg.folgebeleg_erzeugen()
     return redirect("verkauf:beleg", beleg_id=neu.pk)
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+def beleg_gutschrift(request, beleg_id):
+    beleg = beleg_holen(request, beleg_id)
+    neu = beleg.gutschrift_erzeugen()
+    messages.success(request, "Gutschrift als Entwurf angelegt – prüfen und abschließen.")
+    return redirect("verkauf:beleg", beleg_id=neu.pk)
+
+
+@mit_mandant
+def beleg_pdf_ansicht(request, beleg_id):
+    beleg = beleg_holen(request, beleg_id)
+    antwort = HttpResponse(beleg_pdf(beleg), content_type="application/pdf")
+    antwort["Content-Disposition"] = f'inline; filename="{beleg.nummer or "entwurf"}.pdf"'
+    return antwort
 
 
 def vorschlag_preis(artikel, kunde):

@@ -95,5 +95,25 @@ class VerkaufTest(TestCase):
             self.assertEqual([t["nummer"] for t in self.client.get(url, {"q": q}).json()["treffer"]], ["A2"], q)
         self.assertEqual(self.client.get(url, {"q": "netz maus"}).json()["treffer"], [])
 
+    def test_faelligkeit_pdf_und_gutschrift(self):
+        from datetime import date
+
+        from apps.stammdaten.models import Zahlungsbedingung
+
+        from .pdf import beleg_pdf
+        zb = Zahlungsbedingung.objects.create(bezeichnung="10 Tage", tage_netto=10,
+                                              druck_text="Zahlbar innerhalb 10 Tagen bis zum ff.ff.ffff")
+        b = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde, zahlungsbedingung=zb,
+                                 belegdatum=date(2026, 3, 25))
+        Position.objects.create(beleg=b, bezeichnung="Dienst äöü", einzelpreis=Decimal("100"))
+        self.assertEqual(b.zahlungstext, "Zahlbar innerhalb 10 Tagen bis zum 04.04.2026")
+        self.assertTrue(beleg_pdf(b).startswith(b"%PDF"))  # Entwurf
+        b.abschliessen()
+        b.refresh_from_db()
+        g = b.gutschrift_erzeugen()
+        self.assertEqual((g.art, g.vorgaenger, g.summe_brutto), ("GS", b, Decimal("119.00")))
+        with self.assertRaises(ValueError):
+            g.gutschrift_erzeugen()
+
     def test_login_pflicht(self):
         self.assertEqual(self.client.get(reverse("verkauf:start")).status_code, 302)

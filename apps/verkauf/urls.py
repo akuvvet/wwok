@@ -14,5 +14,7 @@ urlpatterns = [
     path("beleg/<int:beleg_id>/position/<int:position_id>/loeschen/", views.position_loeschen, name="position_loeschen"),
     path("beleg/<int:beleg_id>/abschliessen/", views.beleg_abschliessen, name="beleg_abschliessen"),
     path("beleg/<int:beleg_id>/folgebeleg/", views.beleg_folgebeleg, name="beleg_folgebeleg"),
+    path("beleg/<int:beleg_id>/gutschrift/", views.beleg_gutschrift, name="beleg_gutschrift"),
+    path("beleg/<int:beleg_id>/pdf/", views.beleg_pdf_ansicht, name="beleg_pdf"),
     path("api/artikel/", views.api_artikel, name="api_artikel"),
 ]

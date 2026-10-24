@@ -4,6 +4,7 @@ Verkauf: Belege (Angebot -> Auftrag -> Lieferschein -> Rechnung, Gutschrift) - P
 Belege und Nummernkreise sind pro Mandant getrennt. Abgeschlossene Rechnungen und
 Gutschriften sind gesperrt (GoBD); Korrektur nur per Storno/Gutschrift.
 """
+from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import models, transaction
@@ -167,6 +168,40 @@ class Beleg(Zeitstempel):
                 zusatztext=p.zusatztext)
         neu.berechne()
         return neu
+
+
+    @transaction.atomic
+    def gutschrift_erzeugen(self) -> "Beleg":
+        """Storno/Gutschrift zu einer abgeschlossenen Rechnung (Positionen unverändert, Belegart Gutschrift)."""
+        if self.art != Belegart.RECHNUNG or not self.abgeschlossen:
+            raise ValueError("Eine Gutschrift gibt es nur zu einer abgeschlossenen Rechnung.")
+        neu = Beleg.objects.create(
+            mandant=self.mandant, art=Belegart.GUTSCHRIFT, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
+            zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
+            versandanschrift=self.versandanschrift, versandart=self.versandart,
+            versandkosten=self.versandkosten, bemerkung=f"Gutschrift zu Rechnung {self.nummer}", vorgaenger=self)
+        for p in self.positionen.all():
+            Position.objects.create(
+                beleg=neu, typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung, menge=p.menge,
+                einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent,
+                zusatztext=p.zusatztext)
+        neu.berechne()
+        return neu
+
+    @property
+    def faellig_am(self):
+        """Belegdatum + Tage der Zahlungsbedingung (Rechnung fällig)."""
+        if not self.zahlungsbedingung_id:
+            return None
+        return self.belegdatum + timedelta(days=self.zahlungsbedingung.tage_netto)
+
+    @property
+    def zahlungstext(self) -> str:
+        """Text der Zahlungsbedingung; ff.ff.ffff wird durch das Fälligkeitsdatum ersetzt."""
+        zb = self.zahlungsbedingung
+        if not zb:
+            return ""
+        return (zb.druck_text or zb.bezeichnung).replace("ff.ff.ffff", self.faellig_am.strftime("%d.%m.%Y"))
 
 
 class Position(Zeitstempel):
