@@ -7,6 +7,7 @@ Gutschriften sind gesperrt (GoBD); Korrektur nur per Storno/Gutschrift.
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -202,6 +203,53 @@ class Beleg(Zeitstempel):
         if not zb:
             return ""
         return (zb.druck_text or zb.bezeichnung).replace("ff.ff.ffff", self.faellig_am.strftime("%d.%m.%Y"))
+
+
+class Mailvorlage(Zeitstempel):
+    """Betreff und Text je Mandant und Belegart. Platzhalter: {anrede} {art} {nummer} {firma} {kunde} {datum}
+    {faelligkeit} {zahlungstext} {betrag}"""
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT)
+    art = models.CharField("Belegart", max_length=2, choices=Belegart.choices)
+    betreff = models.CharField("Betreff", max_length=200)
+    text = models.TextField("Text")
+
+    class Meta:
+        verbose_name = "Mailvorlage"
+        verbose_name_plural = "Mailvorlagen"
+        constraints = [models.UniqueConstraint(fields=["mandant", "art"], name="mailvorlage_eindeutig")]
+
+    def __str__(self):
+        return f"{self.mandant} – {self.get_art_display()}"
+
+
+class MailVersand(models.Model):
+    """Unveränderlicher Nachweis, wann welcher Beleg an wen verschickt wurde."""
+
+    beleg = models.ForeignKey(Beleg, on_delete=models.PROTECT, related_name="mails")
+    zeitpunkt = models.DateTimeField(default=timezone.now, db_index=True)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    an = models.CharField("An", max_length=500)
+    betreff = models.CharField("Betreff", max_length=200)
+    text = models.TextField("Text")
+    erfolgreich = models.BooleanField(default=False)
+    fehler = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        verbose_name = "Mailversand"
+        verbose_name_plural = "Mailversand"
+        ordering = ["-zeitpunkt"]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise PermissionError("Versandprotokoll ist unveränderlich.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionError("Versandprotokoll ist unveränderlich.")
+
+    def __str__(self):
+        return f"{self.beleg} → {self.an} ({'ok' if self.erfolgreich else 'Fehler'})"
 
 
 class Position(Zeitstempel):

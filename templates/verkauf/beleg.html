@@ -74,6 +74,7 @@
     <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" onsubmit="return confirm('Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}')">{% csrf_token %}<button type="submit">Abschließen &amp; Nummer vergeben</button></form>
     {% endif %}
     <a class="knopf leise" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank">PDF anzeigen</a>
+    {% if beleg.nummer %}<a class="knopf leise" href="{% url 'verkauf:beleg_mail' beleg.pk %}">Per E-Mail senden{% if beleg.mails.exists %} (bereits versendet){% endif %}</a>{% endif %}
     {% if beleg.art == 'RE' and beleg.abgeschlossen %}
     <form method="post" action="{% url 'verkauf:beleg_gutschrift' beleg.pk %}" onsubmit="return confirm('Gutschrift (Storno) zu dieser Rechnung anlegen?')">{% csrf_token %}<button class="gefahr" type="submit">Storno / Gutschrift</button></form>
     {% endif %}

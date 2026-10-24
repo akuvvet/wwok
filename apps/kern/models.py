@@ -49,6 +49,16 @@ class Mandant(Zeitstempel):
     bic = models.CharField("BIC", max_length=11, blank=True)
     glaeubiger_id = models.CharField("Gläubiger-ID (SEPA)", max_length=35, blank=True)
     aktiv = models.BooleanField("aktiv", default=True)
+    # E-Mail-Versand (das Passwort steht nicht hier, sondern in der .env als SMTP_PASSWORD_<KURZNAME>)
+    smtp_host = models.CharField("SMTP-Server", max_length=100, blank=True)
+    smtp_port = models.PositiveIntegerField("SMTP-Port", default=587)
+    smtp_sicherheit = models.CharField(
+        "Verschlüsselung", max_length=8, default="starttls",
+        choices=[("starttls", "STARTTLS (Port 587)"), ("ssl", "SSL/TLS (Port 465)")])
+    smtp_benutzer = models.CharField("SMTP-Benutzer", max_length=150, blank=True)
+    absender_email = models.EmailField("Absenderadresse", blank=True)
+    absender_name = models.CharField("Absendername", max_length=100, blank=True)
+    kopie_an = models.EmailField("Kopie (BCC) an", blank=True, help_text="Optional: jede Belegmail zusätzlich hierhin.")
 
     class Meta:
         verbose_name = "Mandant"

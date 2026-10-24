@@ -115,5 +115,29 @@ class VerkaufTest(TestCase):
         with self.assertRaises(ValueError):
             g.gutschrift_erzeugen()
 
+    def test_mailversand(self):
+        from django.core import mail
+
+        from .mail import MailFehler, beleg_senden, vorschlag
+        from .models import MailVersand
+        self.m.smtp_host, self.m.absender_email = "smtp.example.test", "rechnung@okay.test"
+        self.m.save()
+        self.kunde.email = "kunde@example.test"
+        self.kunde.save()
+        b = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde)
+        Position.objects.create(beleg=b, bezeichnung="Dienst", einzelpreis=Decimal("10"))
+        with self.assertRaises(MailFehler):  # Entwurf ohne Nummer
+            beleg_senden(b, "x@example.test", "s", "t")
+        b.abschliessen()
+        b.refresh_from_db()
+        an, betreff, text = vorschlag(b)
+        self.assertEqual(an, "kunde@example.test")
+        self.assertIn(b.nummer, betreff)
+        self.assertTrue(text.startswith("Sehr geehrte Damen und Herren"))
+        with self.settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"), \
+                self.assertRaises(MailFehler):  # SMTP-Server nicht erreichbar -> Fehler wird protokolliert
+            beleg_senden(b, an, betreff, text)
+        self.assertFalse(MailVersand.objects.get().erfolgreich)
+
     def test_login_pflicht(self):
         self.assertEqual(self.client.get(reverse("verkauf:start")).status_code, 302)

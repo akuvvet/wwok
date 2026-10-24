@@ -11,6 +11,8 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Zahlungsbedingung)
 
 from .models import Beleg, BelegGesperrt, Belegart, Position
+from .mail import MailFehler, beleg_senden
+from .mail import vorschlag as mail_vorschlag
 from .pdf import beleg_pdf
 
 
@@ -235,6 +237,25 @@ def beleg_pdf_ansicht(request, beleg_id):
     antwort = HttpResponse(beleg_pdf(beleg), content_type="application/pdf")
     antwort["Content-Disposition"] = f'inline; filename="{beleg.nummer or "entwurf"}.pdf"'
     return antwort
+
+
+@mit_mandant
+def beleg_mail(request, beleg_id):
+    beleg = beleg_holen(request, beleg_id)
+    if not beleg.nummer:
+        messages.error(request, "Erst abschließen und nummerieren, dann versenden.")
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    an, betreff, text = mail_vorschlag(beleg)
+    if request.method == "POST":
+        an, betreff, text = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
+        try:
+            versand = beleg_senden(beleg, an, betreff, text, benutzer=request.user)
+            messages.success(request, f"{beleg} an {versand.an} versendet.")
+            return redirect("verkauf:beleg", beleg_id=beleg.pk)
+        except MailFehler as fehler:
+            messages.error(request, str(fehler))
+    return render(request, "verkauf/mail.html", {
+        "beleg": beleg, "an": an, "betreff": betreff, "text": text, "bisher": beleg.mails.all()[:10]})
 
 
 def vorschlag_preis(artikel, kunde):
