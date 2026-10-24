@@ -81,6 +81,8 @@ class Beleg(Zeitstempel):
     bemerkung = models.TextField("Bemerkung", blank=True)
     vorgaenger = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="folgebelege")
+    lieferscheine = models.ManyToManyField("self", symmetrical=False, blank=True, related_name="rechnungen",
+                                           help_text="Bei Sammelrechnungen: alle Lieferscheine, die abgerechnet werden")
     abgeschlossen = models.BooleanField("abgeschlossen", default=False, editable=False)
     summe_netto = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
     summe_steuer = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
@@ -99,6 +101,33 @@ class Beleg(Zeitstempel):
     @property
     def gesperrt(self) -> bool:
         return self.abgeschlossen and self.art in GESPERRT_NACH_ABSCHLUSS
+
+    def loeschhindernis(self):
+        """Grund, warum der Beleg nicht gelöscht werden darf (None = löschbar).
+        Löschbar sind Angebote, Kundenbestellungen (Aufträge) und noch nicht nummerierte Rechnungs-/Gutschriftentwürfe."""
+        if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG) and not (
+                self.art in GESPERRT_NACH_ABSCHLUSS and not self.abgeschlossen and not self.nummer):
+            return f"{self.get_art_display()} kann nicht gelöscht werden – Korrektur nur per Storno/Gutschrift."
+        if self.folgebelege.exists() or self.rechnungen.exists():
+            return "Es gibt Folgebelege (z. B. Lieferschein oder Rechnung) – bitte zuerst diese entfernen."
+        if self.mails.exists():
+            return "Der Beleg wurde per E-Mail versendet; der Versandnachweis muss erhalten bleiben."
+        if self.zahlungen.exists():
+            return "Zum Beleg gibt es Zahlungen (Anzahlung) – bitte zuerst stornieren."
+        if self.lagerbewegungen.exists():
+            return "Zum Beleg gibt es Lagerbuchungen."
+        return None
+
+    def positionen_pruefen(self):
+        """Ein Beleg ohne Position darf nicht abgeschlossen, versendet oder weitergeführt werden."""
+        if not self.positionen.exists():
+            raise ValueError(f"{self} hat keine Position – erst Positionen erfassen.")
+
+    @property
+    def abrechenbar(self) -> bool:
+        """Abgeschlossener Lieferschein, der noch in keine Rechnung (und keinen anderen Folgebeleg) übernommen wurde."""
+        return (self.art == Belegart.LIEFERSCHEIN and self.abgeschlossen
+                and not self.folgebelege.exists() and not self.rechnungen.exists())
 
     @property
     def folgeart(self):
@@ -161,12 +190,15 @@ class Beleg(Zeitstempel):
         art = self.folgeart
         if not art:
             raise ValueError("Für diese Belegart gibt es keinen Folgebeleg.")
+        self.positionen_pruefen()
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
             versandkosten=self.versandkosten, bemerkung=self.bemerkung, vorgaenger=self)
         kopiere_positionen(self, neu)
+        if self.art == Belegart.LIEFERSCHEIN:
+            neu.lieferscheine.add(self)
         neu.berechne()
         return neu
 
@@ -251,17 +283,50 @@ class MailVersand(models.Model):
 
 
 def kopiere_positionen(quelle, ziel):
-    """Kopiert alle Positionen samt Gruppenzuordnung in einen anderen Beleg."""
+    """Kopiert alle Positionen samt Gruppenzuordnung in einen anderen Beleg. Stammt die Quelle aus einem
+    Lieferschein, bleibt der Lieferschein an der Position vermerkt (Nummer und Datum im Ausdruck)."""
     neu = {}
+    lieferschein = quelle if quelle.art == Belegart.LIEFERSCHEIN else None
     for p in quelle.positionen.order_by("pos", "id"):
         neu[p.pk] = Position.objects.create(
             beleg=ziel, gruppe=neu.get(p.gruppe_id), typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung,
             menge=p.menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent,
-            steuer_prozent=p.steuer_prozent, zusatztext=p.zusatztext)
+            steuer_prozent=p.steuer_prozent, zusatztext=p.zusatztext, lieferschein=lieferschein or p.lieferschein,
+            quellposition=p)
+
+
+@transaction.atomic
+def rechnung_aus_lieferscheinen(lieferscheine) -> Beleg:
+    """Mehrere Lieferscheine eines Kunden zu einer Rechnung zusammenfassen."""
+    lieferscheine = sorted(lieferscheine, key=lambda b: (b.belegdatum, b.pk))
+    if not lieferscheine:
+        raise ValueError("Keine Lieferscheine ausgewählt.")
+    erster = lieferscheine[0]
+    for ls in lieferscheine:
+        if ls.mandant_id != erster.mandant_id or ls.kunde_id != erster.kunde_id:
+            raise ValueError("Alle Lieferscheine müssen zum selben Kunden und Mandanten gehören.")
+        if not ls.abrechenbar:
+            raise ValueError(f"{ls} ist nicht abrechenbar (nicht abgeschlossen oder schon berechnet).")
+    rechnung = Beleg.objects.create(
+        mandant=erster.mandant, art=Belegart.RECHNUNG, kunde=erster.kunde, ansprechpartner=erster.ansprechpartner,
+        zahlungsbedingung=erster.zahlungsbedingung or erster.kunde.zahlungsbedingung,
+        rechnungsanschrift=erster.rechnungsanschrift, versandanschrift=erster.versandanschrift,
+        versandart=erster.versandart, vorgaenger=erster,
+        bemerkung="Lieferscheine: " + ", ".join(ls.nummer for ls in lieferscheine))
+    for ls in lieferscheine:
+        kopiere_positionen(ls, rechnung)
+    rechnung.lieferscheine.set(lieferscheine)
+    rechnung.versandkosten = sum((ls.versandkosten for ls in lieferscheine), Decimal("0"))
+    rechnung.save()
+    rechnung.berechne()
+    return rechnung
 
 
 class Position(Zeitstempel):
     beleg = models.ForeignKey(Beleg, on_delete=models.CASCADE, related_name="positionen")
+    lieferschein = models.ForeignKey(Beleg, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+                                     help_text="Lieferschein, aus dem die Position übernommen wurde")
+    quellposition = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     gruppe = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="unterpositionen",
                                help_text="Gesetzt bei Unterpositionen einer Gruppe (Typ G); sie haben keinen eigenen Preis.")
     pos = models.PositiveSmallIntegerField("Pos.", default=0)

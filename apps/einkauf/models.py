@@ -149,6 +149,7 @@ class Lieferantenrechnung(Zeitstempel):
     status = models.CharField(max_length=10, choices=RechnungStatus.choices, default=RechnungStatus.OFFEN, db_index=True)
     bezahlt_am = models.DateField(null=True, blank=True)
     bezahlter_betrag = models.DecimalField(**GELD, null=True, blank=True)
+    historie = models.TextField("Änderungshistorie", blank=True, help_text="Stornos der Zahlung mit Grund, Benutzer und Zeitpunkt")
     quelle = models.CharField(max_length=20, default="manuell")
     bemerkung = models.CharField(max_length=200, blank=True)
 
@@ -161,6 +162,19 @@ class Lieferantenrechnung(Zeitstempel):
 
     def __str__(self):
         return f"{self.lieferant.name1} {self.rechnungsnummer}"
+
+    def zahlung_stornieren(self, grund, benutzer=None):
+        """Zahlungsausgang rückgängig machen: Rechnung ist wieder offen; Grund und Benutzer bleiben in der Historie."""
+        grund = (grund or "").strip()
+        if not grund:
+            raise ValueError("Bitte einen Stornogrund angeben.")
+        if self.status != RechnungStatus.BEZAHLT:
+            raise ValueError("Die Rechnung ist nicht als bezahlt gebucht.")
+        zeile = (f"{timezone.localtime():%d.%m.%Y %H:%M} {benutzer or '-'}: Zahlung vom "
+                 f"{self.bezahlt_am:%d.%m.%Y} über {self.bezahlter_betrag} € storniert – {grund}")
+        self.historie = (self.historie + chr(10) + zeile).strip()
+        self.status, self.bezahlt_am, self.bezahlter_betrag = RechnungStatus.OFFEN, None, None
+        self.save()
 
     def zahlbetrag(self, am=None) -> Decimal:
         """Betrag für die Überweisung; Skonto nur, wenn die Skontofrist am Zahlungstag noch läuft."""

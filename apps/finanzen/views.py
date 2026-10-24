@@ -71,6 +71,19 @@ def zahlung_buchen(request, beleg_id):
 
 
 @mit_mandant
+@require_POST
+def zahlung_storno(request, zahlung_id):
+    from .models import Zahlung
+    zahlung = get_object_or_404(Zahlung.objects.select_related("beleg"), pk=zahlung_id, mandant=request.mandant)
+    try:
+        services.zahlung_stornieren(zahlung, request.POST.get("grund"), request.user)
+        messages.success(request, "Zahlung storniert (Gegenbuchung erstellt).")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("finanzen:beleg", beleg_id=zahlung.beleg_id)
+
+
+@mit_mandant
 def kontoauszug(request, kunde_id):
     kunde = get_object_or_404(Kunde, pk=kunde_id)
     zeilen, saldo = services.kontoauszug(request.mandant, kunde)

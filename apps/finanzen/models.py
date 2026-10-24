@@ -31,6 +31,9 @@ class Zahlung(models.Model):
     bemerkung = models.CharField("Bemerkung", max_length=200, blank=True)
     erfasst_am = models.DateTimeField(default=timezone.now)
     benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    storno_zu = models.OneToOneField("self", on_delete=models.PROTECT, null=True, blank=True, related_name="storniert_durch",
+                                     help_text="Gesetzt bei einer Stornobuchung: die ursprüngliche Zahlung")
+    storno_grund = models.CharField("Stornogrund", max_length=300, blank=True)
 
     class Meta:
         verbose_name = "Zahlung"

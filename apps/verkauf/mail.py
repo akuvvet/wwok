@@ -122,4 +122,6 @@ def beleg_senden(beleg, an: str, betreff: str, text: str, benutzer=None) -> Mail
     """Verschickt den Beleg als PDF."""
     if not beleg.nummer:
         raise MailFehler("Entwürfe ohne Belegnummer können nicht versendet werden.")
+    if not beleg.positionen.exists():
+        raise MailFehler("Ein Beleg ohne Position kann nicht versendet werden.")
     return senden(beleg, an, betreff, text, beleg_pdf(beleg), f"{beleg.nummer}.pdf", benutzer)

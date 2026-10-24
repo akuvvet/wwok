@@ -16,6 +16,8 @@ def bucht_bestand(beleg) -> bool:
         return True
     if beleg.art != Belegart.RECHNUNG:
         return False
+    if beleg.pk and beleg.lieferscheine.exists():  # Sammelrechnung aus Lieferscheinen: schon abgebucht
+        return False
     vorher = beleg.vorgaenger
     while vorher is not None:
         if vorher.art == Belegart.LIEFERSCHEIN:

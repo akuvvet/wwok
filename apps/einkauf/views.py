@@ -134,6 +134,19 @@ def bestellung_stornieren(request, bestellung_id):
 
 
 @mit_mandant
+@require_POST
+def bestellung_loeschen(request, bestellung_id):
+    b = bestellung_holen(request, bestellung_id)
+    if b.wareneingaenge.exists():
+        messages.error(request, "Zur Bestellung gibt es Wareneingänge – sie kann nicht gelöscht werden.")
+        return redirect("einkauf:bestellung", bestellung_id=b.pk)
+    nummer = b.nummer
+    b.delete()
+    messages.success(request, f"Bestellung {nummer} gelöscht.")
+    return redirect("einkauf:bestellungen")
+
+
+@mit_mandant
 def bestellung_pdf_ansicht(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
     antwort = HttpResponse(bestellung_pdf(b), content_type="application/pdf")
@@ -348,6 +361,16 @@ def rechnung_bezahlt(request, rechnung_id):
     r.bezahlt_am = tag(request.POST.get("datum"))
     r.bezahlter_betrag = zahl(request.POST.get("betrag"), r.zahlbetrag(r.bezahlt_am))
     r.save()
+    return redirect("einkauf:rechnung", rechnung_id=r.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:rechnung", "rechnung_id")
+def rechnung_zahlung_storno(request, rechnung_id):
+    r = get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
+    r.zahlung_stornieren(request.POST.get("grund"), request.user)
+    messages.success(request, "Zahlung storniert; die Rechnung ist wieder offen.")
     return redirect("einkauf:rechnung", rechnung_id=r.pk)
 
 

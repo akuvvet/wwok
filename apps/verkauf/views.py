@@ -146,7 +146,7 @@ def beleg_detail(request, beleg_id):
     kredit_warnung = bool(limit) and not beleg.abgeschlossen and offen + beleg.summe_brutto > limit
     return render(request, "verkauf/beleg.html", {
         "kredit_warnung": kredit_warnung, "kunde_offen": offen, "kreditlimit": limit,
-        "beleg": beleg, "positionen": positionen,
+        "beleg": beleg, "positionen": positionen, "loeschbar": beleg.loeschhindernis() is None,
         "gruppen": [p for p in positionen if p.typ == "G" and not p.gruppe_id],
         "zahlungsbedingungen": Zahlungsbedingung.objects.all(),
         "ansprechpartner": beleg.kunde.ansprechpartner.all()})
@@ -294,6 +294,42 @@ def beleg_folgebeleg(request, beleg_id):
 
 @mit_mandant
 @require_POST
+def beleg_loeschen(request, beleg_id):
+    beleg = beleg_holen(request, beleg_id)
+    grund = beleg.loeschhindernis()
+    if grund:
+        messages.error(request, grund)
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    kunde_id, name = beleg.kunde_id, str(beleg)
+    try:
+        beleg.delete()
+    except Exception as fehler:  # z. B. geschützte Verknüpfungen
+        messages.error(request, f"{name} kann nicht gelöscht werden: {fehler}")
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    messages.success(request, f"{name} gelöscht.")
+    return redirect("verkauf:kunde", kunde_id=kunde_id)
+
+
+@mit_mandant
+@require_POST
+def lieferscheine_abrechnen(request, kunde_id):
+    kunde = get_object_or_404(Kunde, pk=kunde_id)
+    ids = request.POST.getlist("auswahl")
+    try:
+        from .models import rechnung_aus_lieferscheinen
+        lieferscheine = list(Beleg.objects.filter(pk__in=ids, mandant=request.mandant, kunde=kunde, art=Belegart.LIEFERSCHEIN))
+        if len(lieferscheine) != len(set(ids)):
+            raise ValueError("Ungültige Auswahl.")
+        rechnung = rechnung_aus_lieferscheinen(lieferscheine)
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+        return redirect("verkauf:kunde", kunde_id=kunde.pk)
+    messages.success(request, f"Rechnung als Entwurf aus {len(lieferscheine)} Lieferschein(en) angelegt – prüfen und abschließen.")
+    return redirect("verkauf:beleg", beleg_id=rechnung.pk)
+
+
+@mit_mandant
+@require_POST
 @sperr_schutz
 def beleg_gutschrift(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
@@ -313,6 +349,9 @@ def beleg_pdf_ansicht(request, beleg_id):
 @mit_mandant
 def beleg_mail(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
+    if beleg.nummer and not beleg.positionen.exists():
+        messages.error(request, "Ein Beleg ohne Position kann nicht versendet werden.")
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
     if not beleg.nummer:
         messages.error(request, "Erst abschließen und nummerieren, dann versenden.")
         return redirect("verkauf:beleg", beleg_id=beleg.pk)

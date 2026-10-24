@@ -12,7 +12,15 @@
   * { box-sizing: border-box; }
   body { margin:0; font:15px/1.4 system-ui, sans-serif; color:var(--text); background:var(--grund); }
   header { display:flex; gap:16px; align-items:center; padding:10px 20px; background:var(--karte); border-bottom:1px solid var(--rand); }
-  header a { color:var(--akzent); text-decoration:none; } header .rechts { margin-left:auto; display:flex; gap:12px; align-items:center; }
+  a { color:var(--akzent); }
+  header a:not(.knopf) { text-decoration:none; }
+  .knopf { padding:6px 12px; border:1px solid var(--akzent); border-radius:6px; text-decoration:none; line-height:1.3; }
+  .knopf:not(.leise) { color:#fff; }
+  .menue { display:flex; gap:6px; flex-wrap:wrap; }
+  .scroll { max-height:62vh; overflow:auto; border:1px solid var(--rand); border-radius:6px; }
+  .scroll thead th { position:sticky; top:0; background:var(--karte); z-index:1; box-shadow:0 1px 0 var(--rand); }
+  .seiten { display:flex; gap:10px; align-items:center; justify-content:center; margin-top:12px; flex-wrap:wrap; }
+  header .rechts { margin-left:auto; display:flex; gap:12px; align-items:center; }
   main { max-width:1100px; margin:20px auto; padding:0 16px; }
   .karte { background:var(--karte); border:1px solid var(--rand); border-radius:8px; padding:16px; margin-bottom:16px; }
   h1 { font-size:20px; margin:0 0 12px; } h2 { font-size:16px; margin:0 0 8px; }
@@ -34,15 +42,19 @@
 <body>
 <header>
   <strong>wwok</strong>
-  <a href="{% url 'verkauf:start' %}">Verkauf</a>
-  <a href="{% url 'lager:uebersicht' %}">Lager</a>
-  <a href="{% url 'finanzen:offene_posten' %}">Finanzen</a>
-  <a href="{% url 'einkauf:bestellungen' %}">Einkauf</a>
-  <a href="{% url 'werkstatt:liste' %}">Werkstatt</a>
+  <nav class="menue">
+    {% with bereich=request.resolver_match.namespace %}
+    <a class="knopf {% if bereich != 'verkauf' %}leise{% endif %}" href="{% url 'verkauf:start' %}">Verkauf</a>
+    <a class="knopf {% if bereich != 'lager' %}leise{% endif %}" href="{% url 'lager:uebersicht' %}">Lager</a>
+    <a class="knopf {% if bereich != 'finanzen' %}leise{% endif %}" href="{% url 'finanzen:offene_posten' %}">Finanzen</a>
+    <a class="knopf {% if bereich != 'einkauf' %}leise{% endif %}" href="{% url 'einkauf:bestellungen' %}">Einkauf</a>
+    <a class="knopf {% if bereich != 'werkstatt' %}leise{% endif %}" href="{% url 'werkstatt:liste' %}">Werkstatt</a>
+    {% endwith %}
+  </nav>
   <span class="rechts">
     {% if user.is_authenticated %}
       <span>{{ user.get_username }}</span>
-      {% if user.is_staff %}<a href="/verwaltung/">Verwaltung</a>{% endif %}
+      {% if user.is_staff %}<a class="knopf leise" href="/verwaltung/">Verwaltung</a>{% endif %}
       <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="leise" type="submit">Abmelden</button></form>
     {% endif %}
   </span>

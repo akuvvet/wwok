@@ -1,0 +1,11 @@
+{% comment %}Blätterleiste für eine Page aus dem Paginator: Variablen "seite" und "parameter" (aktuelle Filter als Querystring){% endcomment %}
+{% if seite.paginator.num_pages > 1 %}
+<nav class="seiten" aria-label="Seiten">
+  {% if seite.has_previous %}<a class="knopf leise" href="?{{ parameter }}&seite=1" title="erste Seite">«</a>
+  <a class="knopf leise" href="?{{ parameter }}&seite={{ seite.previous_page_number }}">‹ zurück</a>{% endif %}
+  <span>Seite {{ seite.number }} von {{ seite.paginator.num_pages }}
+    ({{ seite.start_index }}–{{ seite.end_index }} von {{ seite.paginator.count }})</span>
+  {% if seite.has_next %}<a class="knopf leise" href="?{{ parameter }}&seite={{ seite.next_page_number }}">weiter ›</a>
+  <a class="knopf leise" href="?{{ parameter }}&seite={{ seite.paginator.num_pages }}" title="letzte Seite">»</a>{% endif %}
+</nav>
+{% endif %}

@@ -8,6 +8,7 @@ urlpatterns = [
     path("", views.offene_posten, name="offene_posten"),
     path("beleg/<int:beleg_id>/", views.beleg_op, name="beleg"),
     path("beleg/<int:beleg_id>/zahlung/", views.zahlung_buchen, name="zahlung"),
+    path("zahlung/<int:zahlung_id>/storno/", views.zahlung_storno, name="zahlung_storno"),
     path("kunde/<int:kunde_id>/konto/", views.kontoauszug, name="kontoauszug"),
     path("bank/", views.bank, name="bank"),
     path("bank/<int:umsatz_id>/", views.bank_zuordnen, name="bank_zuordnen"),

@@ -16,7 +16,7 @@
     <tr><th>Pos.</th><th>Typ</th><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Menge</th>
         <th class="zahl">Preis</th><th class="zahl">Rabatt %</th><th class="zahl">Netto</th><th></th></tr>
     {% for p in positionen %}
-    <tr{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}><td>{{ p.pos }}</td><td>{{ p.typ }}</td><td>{{ p.artikel.nummer|default:"" }}</td><td>{% if p.gruppe_id %}<span style="padding-left:18px">↳ </span>{% endif %}{% if p.typ == 'G' and not p.gruppe_id %}<strong>{{ p.bezeichnung }}</strong>{% else %}{{ p.bezeichnung }}{% endif %}{% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
+    <tr{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}><td>{{ p.pos }}</td><td>{{ p.typ }}</td><td>{{ p.artikel.nummer|default:"" }}</td><td>{% if p.gruppe_id %}<span style="padding-left:18px">↳ </span>{% endif %}{% if p.typ == 'G' and not p.gruppe_id %}<strong>{{ p.bezeichnung }}</strong>{% else %}{{ p.bezeichnung }}{% endif %}{% if p.lieferschein and not p.gruppe_id %}<br><small style="opacity:.75">Lieferschein {{ p.lieferschein.nummer }} vom {{ p.lieferschein.belegdatum|date:"d.m.Y" }}</small>{% endif %}{% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
           {% if p.artikel and p.artikel.typ == 'A' and beleg.art == 'LS' or p.artikel and p.artikel.typ == 'A' and beleg.art == 'RE' %}
           <details><summary style="cursor:pointer;opacity:.8">Seriennummern{% if p.seriennummern.all %} ({{ p.seriennummern.count }}){% endif %}</summary>
             <form method="post" action="{% url 'lager:position_sn' p.pk %}">{% csrf_token %}
@@ -93,6 +93,9 @@
     {% endif %}
     {% if beleg.art == 'RE' and beleg.abgeschlossen %}
     <form method="post" action="{% url 'verkauf:beleg_gutschrift' beleg.pk %}" onsubmit="return confirm('Gutschrift (Storno) zu dieser Rechnung anlegen?')">{% csrf_token %}<button class="gefahr" type="submit">Storno / Gutschrift</button></form>
+    {% endif %}
+    {% if loeschbar %}
+    <form method="post" action="{% url 'verkauf:beleg_loeschen' beleg.pk %}" onsubmit="return confirm('{{ beleg.get_art_display }} wirklich löschen?')">{% csrf_token %}<button class="gefahr" type="submit">{{ beleg.get_art_display }} löschen</button></form>
     {% endif %}
     {% if beleg.folgeart %}
     <form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">Als {{ beleg.folgeart_name }} übernehmen</button></form>

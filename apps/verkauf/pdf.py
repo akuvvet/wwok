@@ -78,6 +78,12 @@ def beleg_pdf(beleg) -> bytes:
     zeilen = [[absatz(t, fett) for t in ("Pos.", "Artikel", "Bezeichnung", "Menge", "Preis", "Rabatt", "Netto")]]
     for p in beleg.positionen.select_related("artikel"):
         text = p.bezeichnung + (f"\n{p.zusatztext}" if p.zusatztext else "")
+        if p.lieferschein_id and not p.gruppe_id:
+            text += f"\nLieferschein {p.lieferschein.nummer} vom {p.lieferschein.belegdatum:%d.%m.%Y}"
+        seriennummern = [sn.nummer for sn in p.seriennummern.all()] or (
+            [sn.nummer for sn in p.quellposition.seriennummern.all()] if p.quellposition_id else [])
+        if seriennummern:
+            text += "\nSeriennummer(n): " + ", ".join(seriennummern)
         if p.gruppe_id:  # Unterartikel einer Gruppe: eingerückt, ohne Einzelpreise
             zeilen.append(["", absatz(p.artikel.nummer if p.artikel else "", normal), absatz("   – " + text, normal),
                            zahl(p.menge), "", "", ""])

@@ -35,13 +35,18 @@
     {% for wert, name in arten %}<a class="knopf {% if filter != wert %}leise{% endif %}" href="?art={{ wert }}">{{ name }}</a>{% endfor %}
     <a class="knopf {% if filter != 'offen' %}leise{% endif %}" href="?art=offen">Offene</a>
   </p>
+  <form method="post" action="{% url 'verkauf:lieferscheine_abrechnen' kunde.pk %}">{% csrf_token %}
   <table>
-    <tr><th>Beleg</th><th>Datum</th><th class="zahl">Netto</th><th class="zahl">Brutto</th><th>Status</th></tr>
+    <tr><th></th><th>Beleg</th><th>Datum</th><th class="zahl">Netto</th><th class="zahl">Brutto</th><th>Status</th></tr>
     {% for b in belege %}
-    <tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b }}</a></td><td>{{ b.belegdatum|date:"d.m.Y" }}</td>
+    <tr><td>{% if b.abrechenbar %}<input type="checkbox" name="auswahl" value="{{ b.pk }}" title="Lieferschein für Rechnung auswählen">{% endif %}</td>
+        <td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b }}</a></td><td>{{ b.belegdatum|date:"d.m.Y" }}</td>
         <td class="zahl">{{ b.summe_netto }}</td><td class="zahl">{{ b.summe_brutto }}</td>
-        <td>{% if b.abgeschlossen %}abgeschlossen{% else %}offen{% endif %}</td></tr>
-    {% empty %}<tr><td colspan="5">Keine Belege.</td></tr>{% endfor %}
+        <td>{% if b.abgeschlossen %}abgeschlossen{% if b.art == 'LS' and not b.abrechenbar %} · berechnet{% endif %}{% else %}offen{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="6">Keine Belege.</td></tr>{% endfor %}
   </table>
+  <p class="zeile" style="margin-top:10px"><button type="submit" class="leise">Ausgewählte Lieferscheine in Rechnung umwandeln</button>
+    <span style="opacity:.7">Mehrere abgeschlossene Lieferscheine des Kunden lassen sich gemeinsam abrechnen.</span></p>
+  </form>
 </div>
 {% endblock %}

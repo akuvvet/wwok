@@ -119,17 +119,39 @@ def mahnung_erstellen(beleg, stufe_nr, benutzer=None, heute=None) -> Mahnung:
 
 
 @transaction.atomic
-def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None) -> Zahlung:
+def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, storno_zu=None, storno_grund="") -> Zahlung:
     if beleg.art not in (Belegart.RECHNUNG, Belegart.AUFTRAG) or (beleg.art == Belegart.RECHNUNG and not beleg.abgeschlossen):
         raise ValueError("Zahlungen können nur auf abgeschlossene Rechnungen oder Aufträge gebucht werden.")
     if betrag == 0:
         raise ValueError("Betrag darf nicht 0 sein.")
     zahlung = Zahlung.objects.create(mandant=beleg.mandant, beleg=beleg, betrag=betrag, datum=datum, zahlart=zahlart,
-                                     bemerkung=bemerkung, benutzer=benutzer)
+                                     bemerkung=bemerkung, benutzer=benutzer, storno_zu=storno_zu, storno_grund=storno_grund)
     if zahlart == Zahlart.BAR:  # Barzahlung läuft ins Kassenbuch
         kasse_buchen(beleg.mandant, Kassenbuch.EINNAHME if betrag > 0 else Kassenbuch.AUSGABE, abs(betrag),
-                     f"{'Barzahlung' if betrag > 0 else 'Barrückzahlung'} {beleg.nummer}", datum, beleg, benutzer)
+                     (f"Storno Barzahlung {beleg.nummer}: {storno_grund}" if storno_zu and betrag < 0 else
+                      f"Storno Barrückzahlung {beleg.nummer}: {storno_grund}" if storno_zu else
+                      f"{'Barzahlung' if betrag > 0 else 'Barrückzahlung'} {beleg.nummer}"), datum, beleg, benutzer)
     return zahlung
+
+
+@transaction.atomic
+def zahlung_stornieren(zahlung, grund, benutzer=None, datum=None) -> Zahlung:
+    """Storno eines Zahlungseingangs (oder -ausgangs) per Gegenbuchung; der Grund ist Pflicht.
+    Bar-Zahlungen laufen automatisch ins Kassenbuch zurück, ein zugeordneter Bankumsatz wird wieder frei."""
+    grund = (grund or "").strip()
+    if not grund:
+        raise ValueError("Bitte einen Stornogrund angeben.")
+    if zahlung.storno_zu_id:
+        raise ValueError("Eine Stornobuchung kann nicht erneut storniert werden.")
+    if Zahlung.objects.filter(storno_zu=zahlung).exists():
+        raise ValueError("Diese Zahlung ist bereits storniert.")
+    gegen = zahlung_buchen(zahlung.beleg, -zahlung.betrag, datum or timezone.localdate(), zahlung.zahlart,
+                           f"Storno: {grund}"[:200], benutzer, storno_zu=zahlung, storno_grund=grund[:300])
+    from .models import Bankumsatz
+    for u in Bankumsatz.objects.filter(zahlung=zahlung):
+        u.zahlung, u.status = None, Bankumsatz.OFFEN  # Umsatz kann neu zugeordnet werden
+        u.save(update_fields=["zahlung", "status"])
+    return gegen
 
 
 @transaction.atomic

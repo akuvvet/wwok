@@ -5,6 +5,7 @@ from .models import Beleg, MailVersand, Mailvorlage, Nummernkreis, Position
 
 class PositionInline(admin.TabularInline):
     model = Position
+    fk_name = "beleg"
     extra = 0
     can_delete = False
     readonly_fields = [f.name for f in Position._meta.fields if f.name not in ("id",)]

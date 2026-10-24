@@ -27,6 +27,7 @@
     {% if b.status != 'storniert' %}<a class="knopf" href="{% url 'einkauf:bestellung_mail' b.pk %}">Per E-Mail bestellen</a>{% endif %}
     {% if b.status == 'entwurf' %}<form method="post" action="{% url 'einkauf:bestellung_bestellen' b.pk %}">{% csrf_token %}<button class="leise" type="submit">Als bestellt markieren</button></form>{% endif %}
     {% if b.status == 'bestellt' or b.status == 'teil' %}<form method="post" action="{% url 'einkauf:wareneingang_neu' %}">{% csrf_token %}<input type="hidden" name="bestellung" value="{{ b.pk }}"><button type="submit">Wareneingang erfassen</button></form>{% endif %}
+    {% if not wareneingaenge %}<form method="post" action="{% url 'einkauf:bestellung_loeschen' b.pk %}" onsubmit="return confirm('Bestellung wirklich löschen?')">{% csrf_token %}<button class="gefahr" type="submit">Löschen</button></form>{% endif %}
     {% if b.status != 'storniert' and not wareneingaenge %}<form method="post" action="{% url 'einkauf:bestellung_stornieren' b.pk %}" onsubmit="return confirm('Bestellung stornieren?')">{% csrf_token %}<button class="gefahr" type="submit">Stornieren</button></form>{% endif %}
   </div>
   {% if wareneingaenge %}<p style="margin-top:12px">Wareneingänge: {% for w in wareneingaenge %}<a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}

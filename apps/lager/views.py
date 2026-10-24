@@ -1,6 +1,7 @@
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
+from django.core.paginator import Paginator
 from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -37,25 +38,44 @@ def suche(q):
     return artikel
 
 
+SEITENGROESSEN = (25, 50, 100, 200)
+
+
 @mit_mandant
 def uebersicht(request):
     q = request.GET.get("q", "").strip()
     nur_bestand = request.GET.get("bestand") == "1"
+    kategorie = request.GET.get("kategorie", "")
+    try:
+        pro_seite = int(request.GET.get("pro_seite", 50))
+    except ValueError:
+        pro_seite = 50
+    pro_seite = pro_seite if pro_seite in SEITENGROESSEN else 50
     summen = {s["artikel"]: s["s"] for s in Lagerbewegung.objects.filter(mandant=request.mandant)
               .values("artikel").annotate(s=Sum("menge"))}
-    zeilen, lagerwert = [], Decimal("0")
-    artikel = suche(q).select_related("steuersatz") if q else Artikel.objects.filter(nicht_aktiv=False)
+    artikel = suche(q) if q else Artikel.objects.filter(nicht_aktiv=False)
+    if kategorie.isdigit():  # gewählte Kategorie samt Unterkategorien (bis zu drei Ebenen)
+        ids = {int(kategorie)}
+        for _ in range(3):
+            ids |= set(Kategorie.objects.filter(eltern_id__in=ids).values_list("pk", flat=True))
+        artikel = artikel.filter(kategorie_id__in=ids)
     if nur_bestand:
         artikel = artikel.filter(pk__in=[a for a, s in summen.items() if s])
-    for a in artikel.order_by("nummer")[:300]:
+    seite = Paginator(artikel.select_related("steuersatz").order_by("nummer"), pro_seite).get_page(request.GET.get("seite"))
+    zeilen = []
+    for a in seite.object_list:
         b = summen.get(a.pk, Decimal("0"))
-        r = reserviert(request.mandant, a) if b or q else Decimal("0")
-        zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": b - r,
-                       "wert": b * a.durchschnitts_ek if a.durchschnitts_ek else None})
+        r = reserviert(request.mandant, a) if b else Decimal("0")
+        zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": b - r})
+    lagerwert = Decimal("0")
     for a in Artikel.objects.filter(pk__in=[k for k, s in summen.items() if s], durchschnitts_ek__isnull=False):
         lagerwert += summen[a.pk] * a.durchschnitts_ek
+    parameter = request.GET.copy()
+    parameter.pop("seite", None)
     return render(request, "lager/uebersicht.html", {
-        "zeilen": zeilen, "q": q, "nur_bestand": nur_bestand, "lagerwert": lagerwert.quantize(Decimal("0.01"))})
+        "zeilen": zeilen, "q": q, "nur_bestand": nur_bestand, "lagerwert": lagerwert.quantize(Decimal("0.01")),
+        "seite": seite, "parameter": parameter.urlencode(), "kategorie": kategorie, "pro_seite": pro_seite,
+        "seitengroessen": SEITENGROESSEN, "kategorien": Kategorie.objects.filter(eltern__isnull=True)})
 
 
 @mit_mandant

@@ -23,9 +23,12 @@
     <button type="submit">Buchen</button>
   </form>
   <table style="margin-top:12px">
-    <tr><th>Datum</th><th>Zahlart</th><th class="zahl">Betrag</th><th>Bemerkung</th><th>Benutzer</th></tr>
-    {% for z in zahlungen %}<tr><td>{{ z.datum|date:"d.m.Y" }}</td><td>{{ z.get_zahlart_display }}</td><td class="zahl">{{ z.betrag }}</td><td>{{ z.bemerkung }}</td><td>{{ z.benutzer|default:"" }}</td></tr>
-    {% empty %}<tr><td colspan="5">Noch keine Zahlungen.</td></tr>{% endfor %}
+    <tr><th>Datum</th><th>Zahlart</th><th class="zahl">Betrag</th><th>Bemerkung / Stornogrund</th><th>Benutzer</th><th></th></tr>
+    {% for z in zahlungen %}<tr><td>{{ z.datum|date:"d.m.Y" }}</td><td>{{ z.get_zahlart_display }}</td><td class="zahl">{{ z.betrag }}</td><td>{{ z.bemerkung }}{% if z.storno_zu_id %} <em>(Storno)</em>{% endif %}</td><td>{{ z.benutzer|default:"" }}</td>
+        <td>{% if z.storno_zu_id %}{% elif z.storniert_durch %}<span style="opacity:.6">storniert</span>
+          {% else %}<form method="post" action="{% url 'finanzen:zahlung_storno' z.pk %}" class="zeile">{% csrf_token %}
+            <input name="grund" placeholder="Stornogrund (Pflicht)" size="22" required><button type="submit" class="gefahr">Stornieren</button></form>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="6">Noch keine Zahlungen.</td></tr>{% endfor %}
   </table>
 </div>
 
