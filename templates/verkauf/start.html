@@ -22,6 +22,7 @@
       <input id="q" name="q" value="{{ q }}" autofocus size="40"></div>
     <button type="submit">Suchen</button>
     <a class="knopf leise" href="/verwaltung/stammdaten/kunde/add/">Neukunde anlegen</a>
+    <a class="knopf leise" href="{% url 'shop:uebersicht' %}">Shops &amp; Online-Bestellungen</a>
   </form>
   {% if treffer is not None %}
     {% if treffer %}

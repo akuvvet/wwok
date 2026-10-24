@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "apps.werkstatt",
     "apps.einkauf",
     "apps.esd",
+    "apps.shop",
 ]
 
 MIDDLEWARE = [

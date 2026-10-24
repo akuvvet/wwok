@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block titel %}Shops – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Shops {{ request.mandant }}</h1>
+  <p style="opacity:.8">Shops legst du unter <a href="/verwaltung/shop/shop/">Verwaltung → Shops</a> an. Online-Artikel (Häkchen „online“) werden mit verfügbarem Bestand und Preis an den Shop gemeldet; Bestellungen kommen als Auftrag ins System.</p>
+  {% for s in shops %}
+  <div class="karte" style="background:var(--grund)">
+    <h2>{{ s.name }} {% if not s.aktiv %}<span class="marke">inaktiv</span>{% endif %}</h2>
+    <p>{{ s.url }} · Sicherheitsbestand {{ s.bestand_puffer }} · Preisstufe VK{{ s.preisstufe }}<br>
+       Letzter Bestellimport: {{ s.letzter_bestellimport|date:"d.m.Y H:i"|default:"noch nie" }} · Letzter Abgleich: {{ s.letzter_abgleich|date:"d.m.Y H:i"|default:"noch nie" }}</p>
+    {% if s.aktiv %}
+    <div class="zeile">
+      <form method="post" action="{% url 'shop:bestellungen' s.pk %}">{% csrf_token %}<button type="submit">Bestellungen abrufen</button></form>
+      <form method="post" action="{% url 'shop:abgleich' s.pk %}" class="zeile">{% csrf_token %}<button type="submit">Bestand &amp; Preise senden</button>
+        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="alle"> alle Artikel (nicht nur Änderungen)</label></form>
+    </div>{% endif %}
+    {% for p in s.protokolle.all|slice:":3" %}<p style="margin:6px 0 0;font-size:13px;{% if not p.erfolgreich %}color:var(--warn){% endif %}">{{ p.zeitpunkt|date:"d.m. H:i" }} · {{ p.art }}: {{ p.meldung }}</p>{% endfor %}
+  </div>
+  {% empty %}<p>Noch kein Shop angelegt.</p>{% endfor %}
+</div>
+<div class="karte">
+  <h2>Zuletzt importierte Bestellungen</h2>
+  <table>
+    <tr><th>Importiert</th><th>Shop</th><th>Bestellung</th><th>Auftrag</th><th>Kunde</th><th>Hinweis</th></tr>
+    {% for b in bestellungen %}<tr><td>{{ b.importiert_am|date:"d.m.Y H:i" }}</td><td>{{ b.shop.name }}</td><td>{{ b.bestellnummer }}</td>
+      <td>{% if b.beleg %}<a href="{% url 'verkauf:beleg' b.beleg.pk %}">{{ b.beleg }}</a>{% endif %}</td><td>{{ b.beleg.kunde.name1 }}</td><td>{{ b.hinweis }}</td></tr>
+    {% empty %}<tr><td colspan="6">Noch keine Bestellungen importiert.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}
