@@ -1,0 +1,22 @@
+# Zugangsdaten – niemals einchecken
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Django
+lokal.sqlite3
+staticfiles/
+medien/
+*.log
+
+# Editor / System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
