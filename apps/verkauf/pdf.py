@@ -65,6 +65,8 @@ def beleg_pdf(beleg) -> bytes:
     daten = [["Kunden-Nr.", k.nummer], ["Datum", beleg.belegdatum.strftime("%d.%m.%Y")]]
     if beleg.nummer:
         daten.insert(0, [f"{beleg.get_art_display()}-Nr.", beleg.nummer])
+    if beleg.referenz:
+        daten.append(["Ihre Referenz", beleg.referenz])
     if beleg.ansprechpartner:
         daten.append(["Ansprechpartner", str(beleg.ansprechpartner)])
     if beleg.vorgaenger and beleg.vorgaenger.nummer:
@@ -75,6 +77,8 @@ def beleg_pdf(beleg) -> bytes:
     inhalt += [kopf, Spacer(1, 10 * mm),
                Paragraph(escape(f"{beleg.get_art_display()} {beleg.nummer or ''}".strip()), titel), Spacer(1, 4 * mm)]
 
+    if beleg.vortext:
+        inhalt += [absatz(beleg.vortext, normal), Spacer(1, 4 * mm)]
     zeilen = [[absatz(t, fett) for t in ("Pos.", "Artikel", "Bezeichnung", "Menge", "Preis", "Rabatt", "Netto")]]
     for p in beleg.positionen.select_related("artikel"):
         text = p.bezeichnung + (f"\n{p.zusatztext}" if p.zusatztext else "")
@@ -99,8 +103,10 @@ def beleg_pdf(beleg) -> bytes:
     inhalt += [tabelle, Spacer(1, 4 * mm)]
 
     summen = []
-    if beleg.versandkosten:
-        summen.append(["Versandkosten netto", euro(beleg.versandkosten)])
+    for name, wert in (("Versandkosten netto", beleg.versandkosten), ("Verpackung netto", beleg.verpackung),
+                       ("Versicherung netto", beleg.versicherung)):
+        if wert:
+            summen.append([name, euro(wert)])
     summen += [["Summe netto", euro(beleg.summe_netto)], ["Umsatzsteuer", euro(beleg.summe_steuer)],
                ["Gutschriftbetrag" if beleg.art == Belegart.GUTSCHRIFT else "Gesamtbetrag", euro(beleg.summe_brutto)]]
     st = Table(summen, colWidths=[40 * mm, 30 * mm], hAlign="RIGHT")
@@ -114,7 +120,7 @@ def beleg_pdf(beleg) -> bytes:
         inhalt += [absatz(f"Versandart: {beleg.versandart}", normal)]
     if beleg.zahlungstext and beleg.art != Belegart.LIEFERSCHEIN:
         inhalt += [Spacer(1, 3 * mm), absatz(beleg.zahlungstext, normal)]
-    if beleg.bemerkung:
-        inhalt += [Spacer(1, 3 * mm), absatz(beleg.bemerkung, normal)]
+    if beleg.schlusstext:
+        inhalt += [Spacer(1, 3 * mm), absatz(beleg.schlusstext, normal)]
     doc.build(inhalt, onFirstPage=seite, onLaterPages=seite)
     return puffer.getvalue()

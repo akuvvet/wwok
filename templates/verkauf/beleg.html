@@ -3,108 +3,169 @@
 {% block inhalt %}
 <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}" data-escape style="display:none">zurück</a>
 {% if kredit_warnung %}<div class="warnung">Kreditlimit würde überschritten: offen {{ kunde_offen }} € + dieser Beleg {{ beleg.summe_brutto }} € &gt; Limit {{ kreditlimit }} €.</div>{% endif %}
-<div class="karte">
-  <h1>{{ beleg }} – <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}">{{ beleg.kunde.name1 }}</a></h1>
-  <p>{{ beleg.belegdatum|date:"d.m.Y" }}
-    {% if beleg.vorgaenger %}· aus <a href="{% url 'verkauf:beleg' beleg.vorgaenger.pk %}">{{ beleg.vorgaenger }}</a>{% endif %}
-    {% if beleg.gesperrt %}· <strong>abgeschlossen und gesperrt</strong> (Korrektur nur per Storno/Gutschrift){% endif %}</p>
+
+<div class="karte kopfkarte">
+  <div>
+    <h1>{{ beleg.get_art_display }} {{ beleg.nummer|default:"(Entwurf)" }}</h1>
+    <p class="zeile" style="margin:0">
+      <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}"><strong>{{ beleg.kunde.nummer }} · {{ beleg.kunde.name1 }}</strong></a>
+      <span>{{ beleg.belegdatum|date:"d.m.Y" }}</span>
+      {% if beleg.gesperrt %}<span class="marke gesperrt">abgeschlossen &amp; gesperrt</span>
+      {% elif beleg.abgeschlossen %}<span class="marke ok">abgeschlossen</span>
+      {% else %}<span class="marke">Entwurf</span>{% endif %}
+      {% if beleg.vorgaenger %}<span>aus <a href="{% url 'verkauf:beleg' beleg.vorgaenger.pk %}">{{ beleg.vorgaenger }}</a></span>{% endif %}
+      {% if beleg.referenz %}<span>Ref.: {{ beleg.referenz }}</span>{% endif %}
+    </p>
+    {% if beleg.gesperrt %}<p style="margin:6px 0 0;opacity:.75">Korrektur nur per Storno/Gutschrift. Versandart und Zahlungsbedingung bleiben änderbar.</p>{% endif %}
+  </div>
+  <div class="summe">
+    <div style="opacity:.7">Brutto</div>
+    <div class="betrag">{{ beleg.summe_brutto }} €</div>
+    <div style="opacity:.7">netto {{ beleg.summe_netto }} €</div>
+  </div>
 </div>
 
-<div class="karte">
-  <h2>Positionen</h2>
+<div class="aktionen">
+  {% if not beleg.abgeschlossen %}
+  <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" onsubmit="return confirm('Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}')">{% csrf_token %}<button type="submit">Abschließen &amp; Nummer vergeben</button></form>
+  {% endif %}
+  {% if beleg.folgeart %}
+  <form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">Als {{ beleg.folgeart_name }} übernehmen</button></form>
+  {% endif %}
+  <a class="knopf leise" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank">PDF</a>
+  {% if beleg.nummer %}<a class="knopf leise" href="{% url 'verkauf:beleg_mail' beleg.pk %}">E-Mail{% if beleg.mails.exists %} (versendet){% endif %}</a>{% endif %}
+  {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'AB' and beleg.nummer %}<a class="knopf leise" href="{% url 'finanzen:beleg' beleg.pk %}">Zahlungen</a>{% endif %}
+  <details class="menue-mehr"><summary class="knopf leise">Weitere Aktionen ▾</summary>
+    <div class="mehr">
+      {% if beleg.art == 'AN' or beleg.art == 'AB' %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}
+      {% if beleg.art == 'GS' and beleg.abgeschlossen %}<form method="post" action="{% url 'lager:retoure' beleg.pk %}" onsubmit="return confirm('Ware dieser Gutschrift ins Lager zurückbuchen?')">{% csrf_token %}<button class="leise" type="submit">Ware ins Lager zurückbuchen</button></form>{% endif %}
+      {% if beleg.art == 'RE' and beleg.abgeschlossen %}<form method="post" action="{% url 'verkauf:beleg_gutschrift' beleg.pk %}" onsubmit="return confirm('Gutschrift (Storno) zu dieser Rechnung anlegen?')">{% csrf_token %}<button class="gefahr" type="submit">Storno / Gutschrift</button></form>{% endif %}
+      {% if loeschbar %}<form method="post" action="{% url 'verkauf:beleg_loeschen' beleg.pk %}" onsubmit="return confirm('{{ beleg.get_art_display }} wirklich löschen?')">{% csrf_token %}<button class="gefahr" type="submit">{{ beleg.get_art_display }} löschen</button></form>{% endif %}
+    </div>
+  </details>
+</div>
+
+<div class="tabs" role="tablist">
+  <button type="button" class="tab aktiv" data-tab="positionen">Positionen <span class="zaehler">{{ positionen|length }}</span></button>
+  <button type="button" class="tab" data-tab="versand">Versand &amp; Zahlung</button>
+  <button type="button" class="tab" data-tab="texte">Texte &amp; Notizen</button>
+</div>
+
+<div class="karte tabinhalt" id="tab-positionen">
   <table>
-    <tr><th>Pos.</th><th>Typ</th><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Menge</th>
-        <th class="zahl">Preis</th><th class="zahl">Rabatt %</th><th class="zahl">Netto</th><th></th></tr>
+    <tr><th>Pos.</th><th>Artikel / Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">Preis</th><th class="zahl">Rabatt</th><th class="zahl">Netto</th><th></th></tr>
     {% for p in positionen %}
-    <tr{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}><td>{{ p.pos }}</td><td>{{ p.typ }}</td><td>{{ p.artikel.nummer|default:"" }}</td><td>{% if p.gruppe_id %}<span style="padding-left:18px">↳ </span>{% endif %}{% if p.typ == 'G' and not p.gruppe_id %}<strong>{{ p.bezeichnung }}</strong>{% else %}{{ p.bezeichnung }}{% endif %}{% if p.lieferschein and not p.gruppe_id %}<br><small style="opacity:.75">Lieferschein {{ p.lieferschein.nummer }} vom {{ p.lieferschein.belegdatum|date:"d.m.Y" }}</small>{% endif %}{% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
-          {% if p.artikel and p.artikel.typ == 'A' and beleg.art == 'LS' or p.artikel and p.artikel.typ == 'A' and beleg.art == 'RE' %}
-          <details><summary style="cursor:pointer;opacity:.8">Seriennummern{% if p.seriennummern.all %} ({{ p.seriennummern.count }}){% endif %}</summary>
-            <form method="post" action="{% url 'lager:position_sn' p.pk %}">{% csrf_token %}
-              <textarea name="seriennummern" rows="3" cols="30">{% for sn in p.seriennummern.all %}{{ sn.nummer }}
-{% endfor %}</textarea><br><button type="submit" class="leise">Speichern</button></form></details>{% endif %}</td>
-        <td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
-        <td class="zahl">{% if p.gruppe_id %}<span style="opacity:.6">{{ p.einzelpreis }}</span>{% elif p.typ == 'G' and not beleg.gesperrt %}
-          <form method="post" action="{% url 'verkauf:gruppenpreis' beleg.pk p.pk %}" style="display:flex;gap:4px;justify-content:flex-end">{% csrf_token %}
-            <input name="preis" value="{{ p.einzelpreis }}" size="8" title="Gruppenpreis netto; leer lassen = Summe der Unterpositionen">
-            <button type="submit" class="leise" title="Gruppenpreis speichern (leer = Summe der Unterpositionen)">OK</button></form>{% else %}{{ p.einzelpreis }}{% endif %}</td>
-        <td class="zahl">{% if not p.gruppe_id %}{{ p.rabatt_prozent|floatformat:"-2" }}{% endif %}</td><td class="zahl">{% if not p.gruppe_id %}{{ p.netto_gesamt }}{% endif %}</td>
-        <td>{% if not beleg.gesperrt %}
-          <form method="post" action="{% url 'verkauf:position_loeschen' beleg.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit">×</button></form>{% endif %}</td></tr>
-    {% empty %}<tr><td colspan="9">Noch keine Positionen.</td></tr>{% endfor %}
+    <tr{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}>
+      <td>{{ p.pos }}</td>
+      <td>
+        {% if p.gruppe_id %}<span style="padding-left:18px">↳ </span>{% endif %}
+        {% if p.artikel %}<span style="opacity:.7">{{ p.artikel.nummer }}</span> {% endif %}{% if p.typ == 'G' and not p.gruppe_id %}<strong>{{ p.bezeichnung }}</strong>{% else %}{{ p.bezeichnung }}{% endif %}
+        {% if p.zusatztext %}<br><small style="opacity:.75;white-space:pre-line">{{ p.zusatztext }}</small>{% endif %}
+        {% if p.lieferschein and not p.gruppe_id %}<br><small style="opacity:.75">Lieferschein {{ p.lieferschein.nummer }} vom {{ p.lieferschein.belegdatum|date:"d.m.Y" }}</small>{% endif %}
+        {% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
+        {% if p.artikel and p.artikel.typ == 'A' and beleg.art == 'LS' or p.artikel and p.artikel.typ == 'A' and beleg.art == 'RE' %}
+        <details><summary style="cursor:pointer;opacity:.8">Seriennummern{% if p.seriennummern.all %} ({{ p.seriennummern.count }}){% endif %}</summary>
+          <form method="post" action="{% url 'lager:position_sn' p.pk %}">{% csrf_token %}
+            <textarea name="seriennummern" rows="3" cols="30">{% for sn in p.seriennummern.all %}{{ sn.nummer }}
+{% endfor %}</textarea><br><button type="submit" class="leise">Speichern</button></form></details>{% endif %}
+        {% if not beleg.gesperrt %}
+        <details><summary style="cursor:pointer;opacity:.8">bearbeiten</summary>
+          <form method="post" action="{% url 'verkauf:position_aendern' beleg.pk p.pk %}" class="zeile" style="margin-top:6px">{% csrf_token %}
+            <div><label>Menge</label><input name="menge" value="{{ p.menge|floatformat:'-3' }}" size="6"></div>
+            {% if not p.gruppe_id %}<div><label>Preis netto</label><input name="preis" value="{{ p.einzelpreis }}" size="8"></div>
+            <div><label>Rabatt %</label><input name="rabatt" value="{{ p.rabatt_prozent|floatformat:'-2' }}" size="5"></div>{% endif %}
+            <div><label>Zusatztext (wird gedruckt)</label><input name="zusatztext" value="{{ p.zusatztext }}" size="30"></div>
+            <button type="submit">Speichern</button>
+          </form></details>
+        {% endif %}
+      </td>
+      <td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
+      <td class="zahl">{% if p.gruppe_id %}<span style="opacity:.6">{{ p.einzelpreis }}</span>{% elif p.typ == 'G' and not beleg.gesperrt %}
+        <form method="post" action="{% url 'verkauf:gruppenpreis' beleg.pk p.pk %}" style="display:flex;gap:4px;justify-content:flex-end">{% csrf_token %}
+          <input name="preis" value="{{ p.einzelpreis }}" size="8" title="Gruppenpreis netto; leer lassen = Summe der Unterpositionen">
+          <button type="submit" class="leise" title="Gruppenpreis speichern (leer = Summe der Unterpositionen)">OK</button></form>{% else %}{{ p.einzelpreis }}{% endif %}</td>
+      <td class="zahl">{% if not p.gruppe_id and p.rabatt_prozent %}{{ p.rabatt_prozent|floatformat:"-2" }} %{% endif %}</td>
+      <td class="zahl">{% if not p.gruppe_id %}{{ p.netto_gesamt }}{% endif %}</td>
+      <td>{% if not beleg.gesperrt %}<form method="post" action="{% url 'verkauf:position_loeschen' beleg.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit" title="Position löschen">×</button></form>{% endif %}</td>
+    </tr>
+    {% empty %}<tr><td colspan="7" style="padding:20px;text-align:center;opacity:.7">Noch keine Positionen – unten einen Artikel suchen und mit Enter übernehmen.</td></tr>{% endfor %}
   </table>
 
   {% if not beleg.gesperrt %}
-  <form method="post" action="{% url 'verkauf:position_neu' beleg.pk %}" id="positionsform" class="zeile" style="margin-top:12px" autocomplete="off">{% csrf_token %}
+  <form method="post" action="{% url 'verkauf:position_neu' beleg.pk %}" id="positionsform" class="erfassung zeile" autocomplete="off">{% csrf_token %}
     <div><label>Typ</label>
       <select name="typ"><option>A</option><option>P</option><option>L</option><option>G</option></select></div>
-    <div><label>Artikel (Nr. oder Name)</label>
+    <div><label>Artikel (Nr. oder Suchwörter)</label>
       <div style="position:relative"><input name="artikel" id="artikel" size="30" autofocus>
         <div id="trefferliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:520px;max-height:320px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
     {% if gruppen %}<div><label>zu Gruppe</label><select name="gruppe"><option value="">–</option>{% for g in gruppen %}<option value="{{ g.pk }}">{{ g.pos }} {{ g.bezeichnung }}</option>{% endfor %}</select></div>{% endif %}
-    <div><label>Bezeichnung (nur bei freier Position)</label><input name="bezeichnung" id="bezeichnung" size="26"></div>
+    <div><label>Bezeichnung (nur bei freier Position)</label><input name="bezeichnung" id="bezeichnung" size="24"></div>
     <div><label>Menge</label><input name="menge" value="1" size="5"></div>
     <div><label>Preis netto</label><input name="preis" id="preis" size="9"></div>
     <div><label>Rabatt %</label><input name="rabatt" size="5"></div>
-    <button type="submit">Übernehmen (Enter)</button>
+    <button type="submit">Übernehmen ⏎</button>
   </form>
   <p id="letzterpreis" style="opacity:.8;margin:6px 0 0"></p>
   {% endif %}
-</div>
 
-<div class="karte">
-  <table style="max-width:360px;margin-left:auto">
-    {% if beleg.versandkosten %}<tr><td>Versandkosten</td><td class="zahl">{{ beleg.versandkosten }}</td></tr>{% endif %}
+  <table class="summentabelle">
+    {% if beleg.versandkosten %}<tr><td>Versandkosten</td><td class="zahl">{{ beleg.versandkosten }} €</td></tr>{% endif %}
+    {% if beleg.verpackung %}<tr><td>Verpackung</td><td class="zahl">{{ beleg.verpackung }} €</td></tr>{% endif %}
+    {% if beleg.versicherung %}<tr><td>Versicherung</td><td class="zahl">{{ beleg.versicherung }} €</td></tr>{% endif %}
     <tr><td>Netto</td><td class="zahl">{{ beleg.summe_netto }} €</td></tr>
     <tr><td>Steuer</td><td class="zahl">{{ beleg.summe_steuer }} €</td></tr>
     <tr><td><strong>Brutto</strong></td><td class="zahl"><strong>{{ beleg.summe_brutto }} €</strong></td></tr>
   </table>
 </div>
 
-<div class="karte">
-  <h2>Abschluss</h2>
-  <form method="post" action="{% url 'verkauf:beleg_kopf' beleg.pk %}">{% csrf_token %}
-    <div class="raster">
-      <div><label>Zahlungsbedingung</label>
-        <select name="zahlungsbedingung"><option value="">–</option>
-          {% for z in zahlungsbedingungen %}<option value="{{ z.pk }}" {% if z.pk == beleg.zahlungsbedingung_id %}selected{% endif %}>{{ z.bezeichnung }}</option>{% endfor %}
-        </select></div>
-      <div><label>Versandart</label><input name="versandart" value="{{ beleg.versandart }}"></div>
-      <div><label>Versandkosten netto</label><input name="versandkosten" value="{{ beleg.versandkosten }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
-      <div><label>Ansprechpartner</label>
-        <select name="ansprechpartner" {% if beleg.gesperrt %}disabled{% endif %}><option value="">–</option>
-          {% for a in ansprechpartner %}<option value="{{ a.pk }}" {% if a.pk == beleg.ansprechpartner_id %}selected{% endif %}>{{ a }}</option>{% endfor %}
-        </select></div>
-      <div><label>Rechnungsanschrift</label><textarea name="rechnungsanschrift" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.rechnungsanschrift }}</textarea></div>
-      <div><label>Versandanschrift</label><textarea name="versandanschrift" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.versandanschrift }}</textarea></div>
-      <div><label>Bemerkung</label><textarea name="bemerkung" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.bemerkung }}</textarea></div>
-    </div>
-    <p class="zeile"><button type="submit">Speichern</button></p>
-  </form>
-  <div class="zeile">
-    {% if not beleg.abgeschlossen %}
-    <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" onsubmit="return confirm('Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}')">{% csrf_token %}<button type="submit">Abschließen &amp; Nummer vergeben</button></form>
-    {% endif %}
-    <a class="knopf leise" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank">PDF anzeigen</a>
-    {% if beleg.art == 'AN' or beleg.art == 'AB' %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}
-    {% if beleg.nummer %}<a class="knopf leise" href="{% url 'verkauf:beleg_mail' beleg.pk %}">Per E-Mail senden{% if beleg.mails.exists %} (bereits versendet){% endif %}</a>{% endif %}
-    {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'AB' and beleg.nummer %}<a class="knopf leise" href="{% url 'finanzen:beleg' beleg.pk %}">Zahlungen / offene Posten</a>{% endif %}
-    {% if beleg.art == 'GS' and beleg.abgeschlossen %}
-    <form method="post" action="{% url 'lager:retoure' beleg.pk %}" onsubmit="return confirm('Ware dieser Gutschrift ins Lager zurückbuchen?')">{% csrf_token %}<button class="leise" type="submit">Ware ins Lager zurückbuchen</button></form>
-    {% endif %}
-    {% if beleg.art == 'RE' and beleg.abgeschlossen %}
-    <form method="post" action="{% url 'verkauf:beleg_gutschrift' beleg.pk %}" onsubmit="return confirm('Gutschrift (Storno) zu dieser Rechnung anlegen?')">{% csrf_token %}<button class="gefahr" type="submit">Storno / Gutschrift</button></form>
-    {% endif %}
-    {% if loeschbar %}
-    <form method="post" action="{% url 'verkauf:beleg_loeschen' beleg.pk %}" onsubmit="return confirm('{{ beleg.get_art_display }} wirklich löschen?')">{% csrf_token %}<button class="gefahr" type="submit">{{ beleg.get_art_display }} löschen</button></form>
-    {% endif %}
-    {% if beleg.folgeart %}
-    <form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">Als {{ beleg.folgeart_name }} übernehmen</button></form>
-    {% endif %}
+<form method="post" action="{% url 'verkauf:beleg_kopf' beleg.pk %}">{% csrf_token %}
+<div class="karte tabinhalt" id="tab-versand" hidden>
+  <div class="raster">
+    <div><label>Zahlungsbedingung</label>
+      <select name="zahlungsbedingung"><option value="">–</option>
+        {% for z in zahlungsbedingungen %}<option value="{{ z.pk }}" {% if z.pk == beleg.zahlungsbedingung_id %}selected{% endif %}>{{ z.bezeichnung }}</option>{% endfor %}
+      </select></div>
+    <div><label>Versandart</label><input name="versandart" value="{{ beleg.versandart }}"></div>
+    <div><label>Ansprechpartner</label>
+      <select name="ansprechpartner" {% if beleg.gesperrt %}disabled{% endif %}><option value="">–</option>
+        {% for a in ansprechpartner %}<option value="{{ a.pk }}" {% if a.pk == beleg.ansprechpartner_id %}selected{% endif %}>{{ a }}</option>{% endfor %}
+      </select></div>
+    <div><label>Ihre Referenz / Bestellnummer des Kunden</label><input name="referenz" value="{{ beleg.referenz }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
+    <div><label>Versandkosten netto</label><input name="versandkosten" value="{{ beleg.versandkosten }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
+    <div><label>Verpackung netto</label><input name="verpackung" value="{{ beleg.verpackung }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
+    <div><label>Versicherung netto</label><input name="versicherung" value="{{ beleg.versicherung }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
+  </div>
+  <div class="raster" style="margin-top:12px">
+    <div><label>Rechnungsanschrift</label><textarea name="rechnungsanschrift" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.rechnungsanschrift }}</textarea></div>
+    <div><label>Versandanschrift</label><textarea name="versandanschrift" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.versandanschrift }}</textarea></div>
   </div>
 </div>
+<div class="karte tabinhalt" id="tab-texte" hidden>
+  <div class="raster">
+    <div><label>Text vor den Positionen (wird gedruckt)</label><textarea name="vortext" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.vortext }}</textarea></div>
+    <div><label>Text nach den Positionen (wird gedruckt)</label><textarea name="schlusstext" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.schlusstext }}</textarea></div>
+    <div><label>Interne Bemerkung (wird nicht gedruckt)</label><textarea name="bemerkung" rows="5" {% if beleg.gesperrt %}disabled{% endif %}>{{ beleg.bemerkung }}</textarea></div>
+  </div>
+</div>
+<p class="speicherleiste" id="speichern" hidden><button type="submit">Änderungen speichern</button></p>
+</form>
 {% endblock %}
 
 {% block skript %}
+<script>
+  (function () {
+    var tabs = document.querySelectorAll('.tab'), speichern = document.getElementById('speichern');
+    function zeige(name) {
+      tabs.forEach(function (t) { t.classList.toggle('aktiv', t.dataset.tab === name); });
+      document.querySelectorAll('.tabinhalt').forEach(function (p) { p.hidden = p.id !== 'tab-' + name; });
+      speichern.hidden = name === 'positionen';
+      try { history.replaceState(null, '', '#' + name); } catch (e) {}
+    }
+    tabs.forEach(function (t) { t.addEventListener('click', function () { zeige(t.dataset.tab); }); });
+    var start = (location.hash || '').replace('#', '');
+    if (['versand', 'texte'].indexOf(start) >= 0) zeige(start);
+  })();
+</script>
 {% if not beleg.gesperrt %}
 <script>
   (function () {
@@ -128,7 +189,7 @@
       feld.value = t.nummer; preis.value = t.preis; typ.value = t.typ;
       info.textContent = t.bezeichnung + (t.letzter ? ' · letzter Preis dieses Kunden: ' + t.letzter.preis + ' € am ' + t.letzter.datum : '');
       liste = []; aktiv = -1; zeige();
-      document.querySelector('input[name=menge]').focus(); document.querySelector('input[name=menge]').select();
+      document.querySelector('#positionsform input[name=menge]').focus(); document.querySelector('#positionsform input[name=menge]').select();
     }
     function suche() {
       var q = feld.value.trim(), nr = ++anfrage;

@@ -19,6 +19,26 @@
   .menue { display:flex; gap:6px; flex-wrap:wrap; }
   .scroll { max-height:62vh; overflow:auto; border:1px solid var(--rand); border-radius:6px; }
   .scroll thead th { position:sticky; top:0; background:var(--karte); z-index:1; box-shadow:0 1px 0 var(--rand); }
+  [hidden] { display:none !important; }
+  .kopfkarte { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+  .kopfkarte h1 { margin-bottom:6px; }
+  .summe { text-align:right; } .summe .betrag { font-size:26px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .marke { display:inline-block; padding:1px 8px; border-radius:10px; border:1px solid var(--rand); font-size:12px; }
+  .marke.ok { border-color:var(--ok); color:var(--ok); } .marke.gesperrt { border-color:var(--warn); color:var(--warn); }
+  .aktionen { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  .aktionen form { margin:0; }
+  .menue-mehr { position:relative; } .menue-mehr summary { list-style:none; cursor:pointer; }
+  .menue-mehr .mehr { position:absolute; z-index:10; right:0; top:110%; min-width:260px; background:var(--karte); border:1px solid var(--rand);
+    border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:6px; box-shadow:0 4px 14px rgba(0,0,0,.18); }
+  .menue-mehr .mehr button { width:100%; text-align:left; }
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--rand); margin-bottom:-1px; }
+  .tab { background:transparent; color:var(--text); border:1px solid transparent; border-bottom:none; border-radius:8px 8px 0 0; padding:8px 16px; }
+  .tab.aktiv { background:var(--karte); border-color:var(--rand); font-weight:600; position:relative; top:1px; }
+  .tab .zaehler { opacity:.6; font-weight:400; }
+  .tabinhalt { border-top-left-radius:0; }
+  .erfassung { margin-top:12px; padding:12px; border:1px dashed var(--rand); border-radius:8px; background:var(--grund); }
+  .summentabelle { max-width:320px; margin:16px 0 0 auto; width:auto; min-width:260px; }
+  .speicherleiste { position:sticky; bottom:0; padding:10px 0; background:var(--grund); }
   .seiten { display:flex; gap:10px; align-items:center; justify-content:center; margin-top:12px; flex-wrap:wrap; }
   header .rechts { margin-left:auto; display:flex; gap:12px; align-items:center; }
   main { max-width:1100px; margin:20px auto; padding:0 16px; }
@@ -36,13 +56,13 @@
   .raster { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
   label { display:block; font-size:13px; opacity:.8; margin-bottom:2px; }
   .zeile { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
-  @media (max-width:640px) { th:nth-child(n+5), td:nth-child(n+5) { display:none; } }
+  @media (max-width:640px) { table { display:block; overflow-x:auto; } header { flex-wrap:wrap; } main { margin:12px auto; } }
 </style>
 </head>
 <body>
 <header>
   <strong>wwok</strong>
-  <nav class="menue">
+  {% if user.is_authenticated %}<nav class="menue">
     {% with bereich=request.resolver_match.namespace %}
     <a class="knopf {% if bereich != 'verkauf' %}leise{% endif %}" href="{% url 'verkauf:start' %}">Verkauf</a>
     <a class="knopf {% if bereich != 'lager' %}leise{% endif %}" href="{% url 'lager:uebersicht' %}">Lager</a>
@@ -50,7 +70,7 @@
     <a class="knopf {% if bereich != 'einkauf' %}leise{% endif %}" href="{% url 'einkauf:bestellungen' %}">Einkauf</a>
     <a class="knopf {% if bereich != 'werkstatt' %}leise{% endif %}" href="{% url 'werkstatt:liste' %}">Werkstatt</a>
     {% endwith %}
-  </nav>
+  </nav>{% endif %}
   <span class="rechts">
     {% if user.is_authenticated %}
       <span>{{ user.get_username }}</span>

@@ -40,8 +40,9 @@ def beleg_zeilen(beleg):
     netto = defaultdict(Decimal)
     for p in beleg.positionen.all():
         netto[p.steuer_prozent] += p.netto_gesamt
-    if beleg.versandkosten:
-        netto[max(netto, default=Decimal("19"))] += beleg.versandkosten
+    nebenkosten = beleg.versandkosten + beleg.verpackung + beleg.versicherung
+    if nebenkosten:
+        netto[max(netto, default=Decimal("19"))] += nebenkosten
     for satz, basis in sorted(netto.items()):
         yield satz, runden(basis) + runden(basis * satz / 100)
 

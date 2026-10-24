@@ -78,7 +78,12 @@ class Beleg(Zeitstempel):
     versandanschrift = models.TextField("Versandanschrift", blank=True)
     versandart = models.CharField("Versandart", max_length=100, blank=True)
     versandkosten = models.DecimalField("Versandkosten netto", max_digits=12, decimal_places=2, default=Decimal("0"))
-    bemerkung = models.TextField("Bemerkung", blank=True)
+    verpackung = models.DecimalField("Verpackung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
+    versicherung = models.DecimalField("Versicherung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
+    referenz = models.CharField("Ihre Referenz / Bestellnummer", max_length=100, blank=True)
+    vortext = models.TextField("Text vor den Positionen", blank=True)
+    schlusstext = models.TextField("Text nach den Positionen", blank=True)
+    bemerkung = models.TextField("Bemerkung (intern, wird nicht gedruckt)", blank=True)
     vorgaenger = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="folgebelege")
     lieferscheine = models.ManyToManyField("self", symmetrical=False, blank=True, related_name="rechnungen",
@@ -141,7 +146,7 @@ class Beleg(Zeitstempel):
         if self.pk and self.gesperrt:
             vorher = Beleg.objects.get(pk=self.pk)
             # nur Versandart und Zahlungsbedingung bleiben änderbar
-            for feld in ("kunde_id", "belegdatum", "versandkosten", "summe_netto", "summe_brutto", "art", "nummer"):
+            for feld in ("kunde_id", "belegdatum", "versandkosten", "verpackung", "versicherung", "summe_netto", "summe_brutto", "art", "nummer"):
                 if getattr(vorher, feld) != getattr(self, feld):
                     raise BelegGesperrt(f"{self}: Feld '{feld}' ist nach Abschluss gesperrt.")
         self.nummer = self.nummer or None
@@ -159,10 +164,11 @@ class Beleg(Zeitstempel):
             n = p.netto_gesamt
             netto += n
             saetze[p.steuer_prozent] = saetze.get(p.steuer_prozent, Decimal("0")) + n
-        if self.versandkosten:
+        nebenkosten = self.versandkosten + self.verpackung + self.versicherung
+        if nebenkosten:
             satz = max(saetze, default=Decimal("19"))
-            saetze[satz] = saetze.get(satz, Decimal("0")) + self.versandkosten
-            netto += self.versandkosten
+            saetze[satz] = saetze.get(satz, Decimal("0")) + nebenkosten
+            netto += nebenkosten
         steuer = sum((runden(basis * satz / 100) for satz, basis in saetze.items()), Decimal("0"))
         self.summe_netto, self.summe_steuer = runden(netto), steuer
         self.summe_brutto = self.summe_netto + steuer
@@ -195,7 +201,9 @@ class Beleg(Zeitstempel):
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
-            versandkosten=self.versandkosten, bemerkung=self.bemerkung, vorgaenger=self)
+            versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
+            referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
+            bemerkung=self.bemerkung, vorgaenger=self)
         kopiere_positionen(self, neu)
         if self.art == Belegart.LIEFERSCHEIN:
             neu.lieferscheine.add(self)
@@ -212,7 +220,8 @@ class Beleg(Zeitstempel):
             mandant=self.mandant, art=Belegart.GUTSCHRIFT, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
-            versandkosten=self.versandkosten, bemerkung=f"Gutschrift zu Rechnung {self.nummer}", vorgaenger=self)
+            versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
+            referenz=self.referenz, bemerkung=f"Gutschrift zu Rechnung {self.nummer}", vorgaenger=self)
         kopiere_positionen(self, neu)
         neu.berechne()
         return neu
@@ -317,6 +326,8 @@ def rechnung_aus_lieferscheinen(lieferscheine) -> Beleg:
         kopiere_positionen(ls, rechnung)
     rechnung.lieferscheine.set(lieferscheine)
     rechnung.versandkosten = sum((ls.versandkosten for ls in lieferscheine), Decimal("0"))
+    rechnung.verpackung = sum((ls.verpackung for ls in lieferscheine), Decimal("0"))
+    rechnung.versicherung = sum((ls.versicherung for ls in lieferscheine), Decimal("0"))
     rechnung.save()
     rechnung.berechne()
     return rechnung

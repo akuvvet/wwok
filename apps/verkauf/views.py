@@ -80,20 +80,49 @@ def start(request):
 
 @mit_mandant
 def kunde_detail(request, kunde_id):
+    from datetime import date
+
+    from django.core.paginator import Paginator
+
+    from apps.finanzen import services as fin
     kunde = get_object_or_404(Kunde, pk=kunde_id)
-    belege = Beleg.objects.filter(kunde=kunde, mandant=request.mandant).select_related("kunde")
+    belege = Beleg.objects.filter(kunde=kunde, mandant=request.mandant).select_related("kunde", "zahlungsbedingung", "vorgaenger")
     art = request.GET.get("art", "")
     if art == "offen":
         belege = belege.filter(abgeschlossen=False)
     elif art in Belegart.values:
         belege = belege.filter(art=art)
+    ab = request.GET.get("ab", "")
+    try:
+        if ab:
+            belege = belege.filter(belegdatum__gte=date.fromisoformat(ab))
+    except ValueError:
+        ab = ""
+    ohne_storno = request.GET.get("ohne_storno") == "1"
+    if ohne_storno:  # Gutschriften und vollständig gutgeschriebene Rechnungen ausblenden
+        storniert = [b.vorgaenger_id for b in Beleg.objects.filter(
+            kunde=kunde, mandant=request.mandant, art=Belegart.GUTSCHRIFT, abgeschlossen=True).select_related("vorgaenger")
+            if b.vorgaenger_id and b.summe_brutto >= b.vorgaenger.summe_brutto]
+        belege = belege.exclude(art=Belegart.GUTSCHRIFT).exclude(pk__in=storniert)
+    parameter = request.GET.copy()
+    parameter.pop("seite", None)
+    seite = Paginator(belege, 25).get_page(request.GET.get("seite"))
+    zeilen = []
+    for b in seite.object_list:
+        rechnung = b.art == Belegart.RECHNUNG and b.abgeschlossen
+        zeilen.append({
+            "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None,
+            "bezahlt": fin.bezahlt(b) + fin.gutgeschrieben(b) if rechnung else None,
+            "offen": fin.offen(b) if rechnung else None,
+            "bezug": b.vorgaenger.nummer if b.vorgaenger_id and b.vorgaenger.nummer else "",
+            "positionen": list(b.positionen.select_related("artikel")[:15])})
     mandantendaten = kunde.mandantendaten.filter(mandant=request.mandant).first()
-    from apps.finanzen.services import kunde_offen
-    offen = kunde_offen(request.mandant, kunde)
+    offen = fin.kunde_offen(request.mandant, kunde)
     limit = mandantendaten.kreditlimit if mandantendaten else None
     return render(request, "verkauf/kunde.html", {
         "offen": offen, "limit_ueberschritten": bool(limit) and offen > limit,
-        "kunde": kunde, "belege": belege[:200], "filter": art, "arten": Belegart.choices,
+        "kunde": kunde, "zeilen": zeilen, "seite": seite, "parameter": parameter.urlencode(), "filter": art,
+        "ab": ab, "ohne_storno": ohne_storno, "arten": Belegart.choices,
         "kreditlimit": mandantendaten.kreditlimit if mandantendaten else None,
         "ansprechpartner": kunde.ansprechpartner.all()})
 
@@ -179,6 +208,11 @@ def beleg_kopf(request, beleg_id):
         beleg.versandanschrift = request.POST.get("versandanschrift", "")
         beleg.bemerkung = request.POST.get("bemerkung", "")
         beleg.versandkosten = dezimal(request.POST.get("versandkosten"), Decimal("0"))
+        beleg.verpackung = dezimal(request.POST.get("verpackung"), Decimal("0"))
+        beleg.versicherung = dezimal(request.POST.get("versicherung"), Decimal("0"))
+        beleg.referenz = request.POST.get("referenz", "").strip()[:100]
+        beleg.vortext = request.POST.get("vortext", "")
+        beleg.schlusstext = request.POST.get("schlusstext", "")
     beleg.save()
     if not beleg.gesperrt:
         beleg.berechne()
@@ -259,6 +293,29 @@ def gruppenpreis(request, beleg_id, position_id):
         preis = (summe / kopf.menge) if kopf.menge else Decimal("0")
     kopf.einzelpreis = preis.quantize(Decimal("0.01"))
     kopf.save()
+    beleg.berechne()
+    return redirect("verkauf:beleg", beleg_id=beleg.pk)
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+def position_aendern(request, beleg_id, position_id):
+    """Menge, Preis, Rabatt und Zusatztext einer Position ändern (Unterpositionen einer Gruppe: nur Menge und Text)."""
+    beleg = beleg_holen(request, beleg_id)
+    p = get_object_or_404(Position, pk=position_id, beleg=beleg)
+    menge = dezimal(request.POST.get("menge"), p.menge)
+    if menge <= 0:
+        raise ValueError("Die Menge muss größer als 0 sein.")
+    p.menge = menge
+    p.zusatztext = request.POST.get("zusatztext", "")
+    if not p.gruppe_id:
+        p.einzelpreis = dezimal(request.POST.get("preis"), p.einzelpreis)
+        rabatt = dezimal(request.POST.get("rabatt"), Decimal("0"))
+        if not 0 <= rabatt <= 100:
+            raise ValueError("Der Rabatt muss zwischen 0 und 100 % liegen.")
+        p.rabatt_prozent = rabatt
+    p.save()
     beleg.berechne()
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
