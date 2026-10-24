@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titel %}Lager – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Lager {{ request.mandant }}</h1>
+  <form method="get" class="zeile">
+    <div><label for="q">Artikel suchen (mehrere Wörter, beliebige Reihenfolge)</label>
+      <input id="q" name="q" value="{{ q }}" size="40" autofocus></div>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="bestand" value="1" {% if nur_bestand %}checked{% endif %}> nur mit Bestand</label>
+    <button type="submit">Suchen</button>
+  </form>
+  <p>Lagerwert (Durchschnitts-EK × Bestand): <strong>{{ lagerwert }} €</strong></p>
+  <table>
+    <tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Bestand</th><th class="zahl">reserviert</th><th class="zahl">verfügbar</th></tr>
+    {% for z in zeilen %}
+    <tr><td><a href="{% url 'lager:artikel' z.artikel.pk %}">{{ z.artikel.nummer }}</a></td><td>{{ z.artikel.bezeichnung }}</td>
+        <td class="zahl">{{ z.bestand|floatformat:"-3" }}</td><td class="zahl">{{ z.reserviert|floatformat:"-3" }}</td>
+        <td class="zahl"><strong>{{ z.verfuegbar|floatformat:"-3" }}</strong></td></tr>
+    {% empty %}<tr><td colspan="5">Keine Artikel.</td></tr>{% endfor %}
+  </table>
+  <p style="opacity:.7">Angezeigt werden bis zu 300 Artikel.</p>
+</div>
+{% endblock %}

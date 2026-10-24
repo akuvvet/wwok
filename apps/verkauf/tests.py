@@ -132,6 +132,10 @@ class VerkaufTest(TestCase):
         b.refresh_from_db()
         an, betreff, text = vorschlag(b)
         self.assertEqual(an, "kunde@example.test")
+        self.kunde.email_weitere = "buchhaltung@example.test, kunde@example.test"
+        self.kunde.save()
+        b.kunde.refresh_from_db()
+        self.assertEqual(vorschlag(b)[0], "kunde@example.test, buchhaltung@example.test")
         self.assertIn(b.nummer, betreff)
         self.assertTrue(text.startswith("Sehr geehrte Damen und Herren"))
         with self.settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"), \

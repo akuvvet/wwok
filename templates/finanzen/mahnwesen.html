@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block titel %}Mahnwesen – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Mahnwesen {{ request.mandant }}</h1>
+  <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a></p>
+  <h2>Fällige Mahnungen</h2>
+  <form method="post" action="{% url 'finanzen:mahnungen_erstellen' %}">{% csrf_token %}
+  <table>
+    <tr><th></th><th>Rechnung</th><th>Kunde</th><th>fällig seit</th><th class="zahl">offen</th><th>Nächste Stufe</th><th class="zahl">Gebühr</th></tr>
+    {% for z in vorschlag %}
+    <tr><td><input type="checkbox" name="auswahl" value="{{ z.beleg.pk }}:{{ z.stufe.stufe }}" checked></td>
+        <td><a href="{% url 'finanzen:beleg' z.beleg.pk %}">{{ z.beleg.nummer }}</a></td><td>{{ z.beleg.kunde.name1 }}</td>
+        <td>{{ z.faellig|date:"d.m.Y" }} ({{ z.ueberfaellig }} Tage)</td><td class="zahl">{{ z.offen }}</td>
+        <td>{{ z.stufe.bezeichnung }}</td><td class="zahl">{{ z.stufe.gebuehr }}</td></tr>
+    {% empty %}<tr><td colspan="7">Aktuell ist nichts zu mahnen.</td></tr>{% endfor %}
+  </table>
+  {% if vorschlag %}<p><button type="submit">Ausgewählte Mahnungen erstellen</button></p>{% endif %}
+  </form>
+</div>
+<div class="karte">
+  <h2>Bisherige Mahnungen</h2>
+  <table>
+    <tr><th>Datum</th><th>Rechnung</th><th>Kunde</th><th>Stufe</th><th class="zahl">offen</th><th>zahlbar bis</th><th></th></tr>
+    {% for m in bisher %}
+    <tr><td>{{ m.datum|date:"d.m.Y" }}</td><td>{{ m.beleg.nummer }}</td><td>{{ m.beleg.kunde.name1 }}</td><td>{{ m.bezeichnung }}</td>
+        <td class="zahl">{{ m.offener_betrag }}</td><td>{{ m.frist|date:"d.m.Y" }}</td>
+        <td><a href="{% url 'finanzen:mahnung_pdf' m.pk %}" target="_blank">PDF</a> · <a href="{% url 'finanzen:mahnung_mail' m.pk %}">E-Mail</a></td></tr>
+    {% empty %}<tr><td colspan="7">Noch keine Mahnungen.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

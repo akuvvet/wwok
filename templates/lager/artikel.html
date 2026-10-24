@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block titel %}{{ artikel.nummer }} – Lager – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'lager:uebersicht' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>{{ artikel.nummer }} – {{ artikel.bezeichnung }}</h1>
+  <div class="raster">
+    <div>Bestand<br><strong style="font-size:22px">{{ bestand|floatformat:"-3" }}</strong></div>
+    <div>reserviert (offene Aufträge)<br><strong style="font-size:22px">{{ reserviert|floatformat:"-3" }}</strong></div>
+    <div>verfügbar<br><strong style="font-size:22px">{{ verfuegbar|floatformat:"-3" }}</strong></div>
+    <div>Durchschnitts-EK<br>{{ artikel.durchschnitts_ek|default:"–" }} €</div>
+  </div>
+  {% if daten.mindestbestand and bestand < daten.mindestbestand %}<p class="warnung" style="margin-top:12px">Unter Mindestbestand ({{ daten.mindestbestand }}).</p>{% endif %}
+</div>
+
+<div class="karte">
+  <h2>Buchen</h2>
+  <form method="post" action="{% url 'lager:buchen' artikel.pk %}" class="zeile">{% csrf_token %}
+    <div><label>Grund</label><select name="art">{% for wert, name in arten %}<option value="{{ wert }}">{{ name }}</option>{% endfor %}</select></div>
+    <div><label>Menge (bei Korrektur auch negativ)</label><input name="menge" size="8"></div>
+    <div><label>Bemerkung</label><input name="bemerkung" size="30"></div>
+    <button type="submit">Buchen</button>
+  </form>
+  <form method="post" action="{% url 'lager:inventur' artikel.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <div><label>Inventur: gezählter Bestand</label><input name="gezaehlt" size="8"></div>
+    <button type="submit" class="leise">Differenz buchen</button>
+  </form>
+  <form method="post" action="{% url 'lager:stamm' artikel.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <div><label>Lagerplatz</label><input name="lagerplatz" value="{{ daten.lagerplatz }}" size="14"></div>
+    <div><label>Mindestbestand</label><input name="mindestbestand" value="{{ daten.mindestbestand|default_if_none:'' }}" size="6"></div>
+    <button type="submit" class="leise">Speichern</button>
+  </form>
+</div>
+
+<div class="karte">
+  <h2>Bestandshistorie</h2>
+  <table>
+    <tr><th>Datum</th><th>Grund</th><th class="zahl">Menge</th><th>Beleg</th><th>Bemerkung</th><th>Benutzer</th></tr>
+    {% for b in bewegungen %}
+    <tr><td>{{ b.zeitpunkt|date:"d.m.Y H:i" }}</td><td>{{ b.get_art_display }}</td><td class="zahl">{{ b.menge|floatformat:"-3" }}</td>
+        <td>{% if b.beleg %}<a href="{% url 'verkauf:beleg' b.beleg.pk %}">{{ b.beleg }}</a>{% endif %}</td>
+        <td>{{ b.bemerkung }}</td><td>{{ b.benutzer|default:"" }}</td></tr>
+    {% empty %}<tr><td colspan="6">Noch keine Bewegungen.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

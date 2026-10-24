@@ -88,7 +88,11 @@ def kunde_detail(request, kunde_id):
     elif art in Belegart.values:
         belege = belege.filter(art=art)
     mandantendaten = kunde.mandantendaten.filter(mandant=request.mandant).first()
+    from apps.finanzen.services import kunde_offen
+    offen = kunde_offen(request.mandant, kunde)
+    limit = mandantendaten.kreditlimit if mandantendaten else None
     return render(request, "verkauf/kunde.html", {
+        "offen": offen, "limit_ueberschritten": bool(limit) and offen > limit,
         "kunde": kunde, "belege": belege[:200], "filter": art, "arten": Belegart.choices,
         "kreditlimit": mandantendaten.kreditlimit if mandantendaten else None,
         "ansprechpartner": kunde.ansprechpartner.all()})
@@ -124,9 +128,25 @@ def beleg_neu(request, kunde_id):
 
 @mit_mandant
 def beleg_detail(request, beleg_id):
+    from apps.lager.models import bestand, reserviert
     beleg = beleg_holen(request, beleg_id)
+    positionen = list(beleg.positionen.select_related("artikel"))
+    for p in positionen:  # Warnung, wenn der verfügbare Bestand nicht reicht
+        p.knapp = None
+        if p.artikel_id and p.artikel.typ == "A" and not beleg.abgeschlossen and beleg.art in ("AB", "LS", "RE"):
+            frei = bestand(beleg.mandant, p.artikel) - reserviert(beleg.mandant, p.artikel)
+            if beleg.art == "AB":
+                frei += p.menge  # die eigene Reservierung nicht doppelt zählen
+            if frei < p.menge:
+                p.knapp = frei
+    from apps.finanzen.services import kunde_offen
+    md = beleg.kunde.mandantendaten.filter(mandant=beleg.mandant).first()
+    limit = md.kreditlimit if md else None
+    offen = kunde_offen(beleg.mandant, beleg.kunde)
+    kredit_warnung = bool(limit) and not beleg.abgeschlossen and offen + beleg.summe_brutto > limit
     return render(request, "verkauf/beleg.html", {
-        "beleg": beleg, "positionen": beleg.positionen.select_related("artikel"),
+        "kredit_warnung": kredit_warnung, "kunde_offen": offen, "kreditlimit": limit,
+        "beleg": beleg, "positionen": positionen,
         "zahlungsbedingungen": Zahlungsbedingung.objects.all(),
         "ansprechpartner": beleg.kunde.ansprechpartner.all()})
 
@@ -285,6 +305,10 @@ def api_artikel(request):
             if p:
                 letzte = {"preis": str(p.einzelpreis), "datum": p.beleg.belegdatum.strftime("%d.%m.%Y")}
         preis = vorschlag_preis(a, kunde) if kunde else a.vk1
-        treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "typ": a.typ,
+        frei = None
+        if a.typ == "A":
+            from apps.lager.models import bestand, reserviert
+            frei = str(bestand(request.mandant, a) - reserviert(request.mandant, a))
+        treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "typ": a.typ, "verfuegbar": frei,
                         "preis": str(preis) if preis is not None else "", "letzter": letzte})
     return JsonResponse({"treffer": treffer})

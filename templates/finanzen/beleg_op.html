@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titel %}{{ beleg }} – Zahlungen – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1><a href="{% url 'verkauf:beleg' beleg.pk %}">{{ beleg }}</a> – {{ beleg.kunde.name1 }}</h1>
+  <div class="raster">
+    <div>Rechnungsbetrag<br><strong>{{ beleg.summe_brutto }} €</strong></div>
+    <div>bezahlt<br><strong>{{ bezahlt }} €</strong></div>
+    <div>Gutschriften<br><strong>{{ gutschrift }} €</strong></div>
+    <div>offen<br><strong style="font-size:20px">{{ offen }} €</strong></div>
+    <div>fällig am<br>{{ faellig|date:"d.m.Y" }}</div>
+  </div>
+</div>
+
+<div class="karte">
+  <h2>Zahlung buchen</h2>
+  <form method="post" action="{% url 'finanzen:zahlung' beleg.pk %}" class="zeile">{% csrf_token %}
+    <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
+    <div><label>Betrag brutto (negativ = Gegenbuchung)</label><input name="betrag" value="{{ offen }}" size="10" autofocus></div>
+    <div><label>Zahlart</label><select name="zahlart">{% for w, n in zahlarten %}<option value="{{ w }}">{{ n }}</option>{% endfor %}</select></div>
+    <div><label>Bemerkung</label><input name="bemerkung" size="26"></div>
+    <button type="submit">Buchen</button>
+  </form>
+  <table style="margin-top:12px">
+    <tr><th>Datum</th><th>Zahlart</th><th class="zahl">Betrag</th><th>Bemerkung</th><th>Benutzer</th></tr>
+    {% for z in zahlungen %}<tr><td>{{ z.datum|date:"d.m.Y" }}</td><td>{{ z.get_zahlart_display }}</td><td class="zahl">{{ z.betrag }}</td><td>{{ z.bemerkung }}</td><td>{{ z.benutzer|default:"" }}</td></tr>
+    {% empty %}<tr><td colspan="5">Noch keine Zahlungen.</td></tr>{% endfor %}
+  </table>
+</div>
+
+{% if mahnungen %}
+<div class="karte">
+  <h2>Mahnungen</h2>
+  <table>
+    {% for m in mahnungen %}<tr><td>{{ m.datum|date:"d.m.Y" }}</td><td>{{ m.bezeichnung }}</td><td class="zahl">{{ m.gebuehr }} € Gebühr</td>
+      <td><a href="{% url 'finanzen:mahnung_pdf' m.pk %}" target="_blank">PDF</a></td></tr>{% endfor %}
+  </table>
+</div>
+{% endif %}
+<p><a href="{% url 'finanzen:kontoauszug' beleg.kunde.pk %}">Kundenkontoauszug</a> · <a href="{% url 'finanzen:offene_posten' %}?kunde={{ beleg.kunde.pk }}">alle offenen Posten des Kunden</a></p>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titel %}{{ mahnung }} senden – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'finanzen:mahnwesen' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>{{ mahnung }} per E-Mail senden</h1>
+  <form method="post">{% csrf_token %}
+    <p><label for="an">An (mehrere Adressen mit Komma trennen)</label><input id="an" name="an" value="{{ an }}" style="width:100%" autofocus></p>
+    <p><label for="betreff">Betreff</label><input id="betreff" name="betreff" value="{{ betreff }}" style="width:100%"></p>
+    <p><label for="text">Text</label><textarea id="text" name="text" rows="12" style="width:100%">{{ text }}</textarea></p>
+    <p>Anhang: <a href="{% url 'finanzen:mahnung_pdf' mahnung.pk %}" target="_blank">Mahnung als PDF</a></p>
+    <p class="zeile"><button type="submit">Senden</button><a class="knopf leise" href="{% url 'finanzen:mahnwesen' %}">Abbrechen (Esc)</a></p>
+  </form>
+</div>
+{% endblock %}

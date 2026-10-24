@@ -51,7 +51,10 @@ def vorschlag(beleg):
     betreff = (vorlage.betreff if vorlage else STANDARD_BETREFF).format_map(_Leer(werte))
     text = (vorlage.text if vorlage else STANDARD_TEXT).format_map(_Leer(werte))
     ap = beleg.ansprechpartner
-    an = (ap.email if ap and ap.email else beleg.kunde.email) or ""
+    empfaenger = [(ap.email if ap and ap.email else beleg.kunde.email) or ""]
+    if beleg.art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT):
+        empfaenger += adressen(beleg.kunde.email_weitere)
+    an = ", ".join(dict.fromkeys(a for a in empfaenger if a))  # ohne Dubletten, Reihenfolge bleibt
     return an, betreff, re.sub(r"\n{3,}", "\n\n", text)
 
 
@@ -74,10 +77,8 @@ def adressen(text: str) -> list:
     return [a.strip() for a in re.split(r"[,;\s]+", text or "") if a.strip()]
 
 
-def beleg_senden(beleg, an: str, betreff: str, text: str, benutzer=None) -> MailVersand:
-    """Verschickt den Beleg als PDF und legt in jedem Fall einen Protokolleintrag an."""
-    if not beleg.nummer:
-        raise MailFehler("Entwürfe ohne Belegnummer können nicht versendet werden.")
+def senden(beleg, an: str, betreff: str, text: str, pdf: bytes, dateiname: str, benutzer=None) -> MailVersand:
+    """Verschickt eine Mail mit PDF-Anhang und legt in jedem Fall einen Protokolleintrag zum Beleg an."""
     empfaenger = adressen(an)
     if not empfaenger:
         raise MailFehler("Keine Empfängeradresse angegeben.")
@@ -87,7 +88,7 @@ def beleg_senden(beleg, an: str, betreff: str, text: str, benutzer=None) -> Mail
         nachricht = EmailMessage(
             subject=betreff, body=text, to=empfaenger, bcc=[m.kopie_an] if m.kopie_an else [],
             from_email=f"{m.absender_name or m.firmenname} <{m.absender_email}>", connection=verbindung(m))
-        nachricht.attach(f"{beleg.nummer}.pdf", beleg_pdf(beleg), "application/pdf")
+        nachricht.attach(dateiname, pdf, "application/pdf")
         nachricht.send()
         protokoll.erfolgreich = True
     except Exception as fehler:  # Protokoll auch bei Fehlern, Meldung an die Maske
@@ -97,3 +98,10 @@ def beleg_senden(beleg, an: str, betreff: str, text: str, benutzer=None) -> Mail
     if not protokoll.erfolgreich:
         raise MailFehler(f"Versand fehlgeschlagen: {protokoll.fehler}")
     return protokoll
+
+
+def beleg_senden(beleg, an: str, betreff: str, text: str, benutzer=None) -> MailVersand:
+    """Verschickt den Beleg als PDF."""
+    if not beleg.nummer:
+        raise MailFehler("Entwürfe ohne Belegnummer können nicht versendet werden.")
+    return senden(beleg, an, betreff, text, beleg_pdf(beleg), f"{beleg.nummer}.pdf", benutzer)

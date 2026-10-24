@@ -131,6 +131,9 @@ class Partner(Zeitstempel):
     ust_id_geprueft_am = models.DateField("USt-ID geprüft am", null=True, blank=True)
     zahlungsbedingung = models.ForeignKey(Zahlungsbedingung, verbose_name="Zahlungsbedingung",
                                           on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    email_weitere = models.TextField(
+        "weitere E-Mail-Adressen", blank=True,
+        help_text="Komma oder Zeilenumbruch; werden bei Rechnungen, Gutschriften und Mahnungen mit angeschrieben.")
     hinweis = models.TextField("Hinweis (wird beim Öffnen angezeigt)", blank=True)
     # Bankverbindung
     kontoinhaber = models.CharField("Kontoinhaber", max_length=150, blank=True)
@@ -361,6 +364,8 @@ class ArtikelMandant(Zeitstempel):
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT)
     letzter_ek = models.DecimalField("letzter EK", null=True, blank=True, **EK_GELD)
     letzter_ek_datum = models.DateField("letzter EK am", null=True, blank=True)
+    lagerplatz = models.CharField("Lagerplatz (Regal/Fach)", max_length=40, blank=True)
+    mindestbestand = models.PositiveIntegerField("Mindestbestand", null=True, blank=True)
 
     class Meta:
         verbose_name = "Artikeldaten pro Mandant"

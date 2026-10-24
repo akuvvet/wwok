@@ -35,6 +35,8 @@
 <header>
   <strong>wwok</strong>
   <a href="{% url 'verkauf:start' %}">Verkauf</a>
+  <a href="{% url 'lager:uebersicht' %}">Lager</a>
+  <a href="{% url 'finanzen:offene_posten' %}">Finanzen</a>
   <span class="rechts">
     {% if user.is_authenticated %}
       <span>{{ user.get_username }}</span>

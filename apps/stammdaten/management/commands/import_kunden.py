@@ -32,9 +32,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("datei")
         parser.add_argument("--mandant", default="OKAY", help="Mandant, dem das Kreditlimit zugeordnet wird")
+        parser.add_argument("--nur-weitere-mails", action="store_true",
+                            help="nur das Feld 'weitere E-Mail-Adressen' bei vorhandenen Kunden füllen, nichts sonst ändern")
 
     @transaction.atomic
-    def handle(self, datei, mandant, **opts):
+    def handle(self, datei, mandant, nur_weitere_mails=False, **opts):
         mandant_obj = Mandant.objects.filter(kurzname=mandant).first()
         if mandant_obj is None:
             raise CommandError(f"Mandant '{mandant}' nicht gefunden")
@@ -75,7 +77,15 @@ class Command(BaseCommand):
             if zb_nr and zb_nr not in zb:
                 ohne_zb.append(f"{nummer}: ZB {zb_nr}")
             hinweis = "\n".join(t for t in (text(k[c["Bemerkung"]]), text(k[c["Hinweis"]])) if t)
+            haupt = erste_adresse(k[c["E-Mail"]])
+            weitere = list(dict.fromkeys(
+                a.strip() for z in zeilen for a in re.split(r"[,;]", text(z[c["E-Mail"]]))
+                if a.strip() and a.strip().lower() != haupt.lower()))
+            if nur_weitere_mails:
+                Kunde.objects.filter(nummer=nummer).update(email_weitere=", ".join(weitere))
+                continue
             kunde, angelegt = Kunde.objects.update_or_create(nummer=nummer, defaults={
+                "email_weitere": ", ".join(weitere),
                 "name1": firma, "name2": text(k[c["Name 3"]]),
                 "strasse": text(k[c["Strasse"]]), "plz": text(k[c["PLZ"]]), "ort": text(k[c["Ort"]]),
                 "land": land or "DE", "telefon": text(k[c["Telefon 1"]]), "email": erste_adresse(k[c["E-Mail"]]),
@@ -111,9 +121,12 @@ class Command(BaseCommand):
             telefon2.extend(nummer for z in zeilen if text(z[kopf.index("Telefon 2")]))
             steuernummer.extend(nummer for z in zeilen if text(z[kopf.index("Steuernummer")]))
 
+        if nur_weitere_mails:
+            self.stdout.write(f"E-Mail-Adressen bei {len(gruppen)} Kunden aktualisiert")
+            return
         self.stdout.write(f"{len(gruppen)} Kunden ({neu} neu), {Ansprechpartner.objects.filter(kunde__nummer__in=list(gruppen)).count()} Ansprechpartner aus {blatt.nrows - 1} Zeilen")
         for titel, liste in (("Zahlungsbedingung nicht gefunden", ohne_zb),
-                             ("Mehrere E-Mail-Adressen (nur erste übernommen)", mehrere_mails),
+                             ("Mehrere E-Mail-Adressen (erste als Hauptadresse, übrige unter weitere E-Mail-Adressen)", mehrere_mails),
                              ("Telefon 2 nicht übernommen bei Kunde", sorted(set(telefon2))),
                              ("Steuernummer nicht übernommen bei Kunde", sorted(set(steuernummer)))):
             if liste:

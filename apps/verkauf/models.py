@@ -151,6 +151,10 @@ class Beleg(Zeitstempel):
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
         self.abgeschlossen = True
         Beleg.objects.filter(pk=self.pk).update(nummer=self.nummer, abgeschlossen=True)
+        from apps.lager.services import buche_beleg  # Lieferschein/Rechnung buchen den Bestand ab
+        from apps.kern.middleware import aktueller_benutzer
+        benutzer = aktueller_benutzer()
+        buche_beleg(self, benutzer if benutzer is not None and benutzer.is_authenticated else None)
 
     @transaction.atomic
     def folgebeleg_erzeugen(self) -> "Beleg":
