@@ -189,7 +189,10 @@ class Beleg(Zeitstempel):
         from apps.lager.services import buche_beleg  # Lieferschein/Rechnung buchen den Bestand ab
         from apps.kern.middleware import aktueller_benutzer
         benutzer = aktueller_benutzer()
-        buche_beleg(self, benutzer if benutzer is not None and benutzer.is_authenticated else None)
+        benutzer = benutzer if benutzer is not None and benutzer.is_authenticated else None
+        buche_beleg(self, benutzer)
+        from apps.esd.services import beleg_zuordnen  # ESD-Keys beim Verkauf automatisch zuordnen
+        beleg_zuordnen(self, benutzer)
 
     @transaction.atomic
     def folgebeleg_erzeugen(self) -> "Beleg":

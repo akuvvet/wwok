@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block titel %}{{ artikel.nummer }} – ESD-Keys – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'esd:uebersicht' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>{{ artikel.nummer }} – {{ artikel.bezeichnung }}</h1>
+  <p>{{ bestand.keys }} Keys · <strong>{{ bestand.frei }}</strong> noch vergebbar · {{ bestand.vergeben }} Vergaben · {{ bestand.gesperrt }} gesperrt</p>
+  <form method="post">{% csrf_token %}
+    <div><label>Keys importieren (eine Zeile je Key; Volumenkey mit „Key;Anzahl“)</label>
+      <textarea name="keys" rows="6" style="width:100%" placeholder="AAAAA-BBBBB-CCCCC-DDDDD-EEEEE&#10;VOLUMEN-KEY-1;10"></textarea></div>
+    <p class="zeile"><span><label>Vergaben je Key (wenn nicht in der Zeile angegeben)</label><input name="max_vergaben" value="1" size="4"></span>
+      <button type="submit">Importieren</button></p>
+  </form>
+</div>
+<div class="karte">
+  <p class="zeile">
+    <a class="knopf {% if status %}leise{% endif %}" href="?">Alle</a>
+    <a class="knopf {% if status != 'frei' %}leise{% endif %}" href="?status=frei">Noch vergebbar</a>
+    <a class="knopf {% if status != 'gesperrt' %}leise{% endif %}" href="?status=gesperrt">Gesperrt</a>
+  </p>
+  <div class="scroll"><table>
+    <thead><tr><th>Key</th><th class="zahl">Vergaben</th><th>Status</th><th>vergeben an</th><th></th></tr></thead>
+    <tbody>{% for k in seite.object_list %}
+    <tr><td><code>{{ k.key }}</code></td><td class="zahl">{{ k.vergeben }} / {{ k.max_vergaben }}</td>
+        <td>{% if k.status == 'gesperrt' %}<span class="marke gesperrt">gesperrt</span>{% elif k.erschoepft %}<span class="marke">erschöpft</span>{% else %}<span class="marke ok">{{ k.frei }} frei</span>{% endif %}</td>
+        <td>{% for v in k.vergaben.all %}{% if v.status == 'aktiv' %}<a href="{% url 'esd:beleg' v.beleg_id %}">{{ v.kunde.name1 }}</a>{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}</td>
+        <td><form method="post" action="{% url 'esd:key_status' k.pk %}">{% csrf_token %}<button type="submit" class="leise">{% if k.status == 'gesperrt' %}entsperren{% else %}sperren{% endif %}</button></form></td></tr>
+    {% empty %}<tr><td colspan="5">Keine Keys.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "seiten.html" %}
+</div>
+{% endblock %}

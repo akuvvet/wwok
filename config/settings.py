@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "apps.finanzen",
     "apps.werkstatt",
     "apps.einkauf",
+    "apps.esd",
 ]
 
 MIDDLEWARE = [

@@ -35,6 +35,7 @@
   <a class="knopf leise" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank">PDF</a>
   {% if beleg.nummer %}<a class="knopf leise" href="{% url 'verkauf:beleg_mail' beleg.pk %}">E-Mail{% if beleg.mails.exists %} (versendet){% endif %}</a>{% endif %}
   {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'AB' and beleg.nummer %}<a class="knopf leise" href="{% url 'finanzen:beleg' beleg.pk %}">Zahlungen</a>{% endif %}
+  {% if beleg.esd_vergaben.exists or esd_positionen %}<a class="knopf leise" href="{% url 'esd:beleg' beleg.pk %}">ESD-Keys</a>{% endif %}
   <details class="menue-mehr"><summary class="knopf leise">Weitere Aktionen ▾</summary>
     <div class="mehr">
       {% if beleg.art == 'AN' or beleg.art == 'AB' %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}

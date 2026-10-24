@@ -1,0 +1,130 @@
+from decimal import Decimal
+
+from django.db import transaction
+from django.db.models import F, Sum
+
+from apps.verkauf.models import Belegart
+
+from .models import ESDKey, ESDVergabe, KeyStatus, VergabeStatus
+
+
+def zeilen(text: str) -> list:
+    """Eine Zeile je Key; optional 'Key;Anzahl' (Volumenkey) oder 'Key<Tab>Anzahl'."""
+    ergebnis = []
+    for z in (text or "").splitlines():
+        z = z.strip()
+        if not z:
+            continue
+        teile = [t.strip() for t in z.replace("\t", ";").split(";")]
+        anzahl = int(teile[1]) if len(teile) > 1 and teile[1].isdigit() else None
+        ergebnis.append((teile[0], anzahl))
+    return ergebnis
+
+
+@transaction.atomic
+def importieren(mandant, artikel, text, max_vergaben=1):
+    """Legt Keys an; bereits vorhandene Keys werden gezählt, nicht doppelt angelegt. Rückgabe: (neu, doppelt)."""
+    if max_vergaben < 1:
+        raise ValueError("Die maximale Vergabeanzahl muss mindestens 1 sein.")
+    neu = doppelt = 0
+    for key, anzahl in zeilen(text):
+        _, angelegt = ESDKey.objects.get_or_create(
+            mandant=mandant, artikel=artikel, key=key, defaults={"max_vergaben": anzahl or max_vergaben})
+        neu += angelegt
+        doppelt += not angelegt
+    return neu, doppelt
+
+
+def bestand(mandant, artikel) -> dict:
+    keys = ESDKey.objects.filter(mandant=mandant, artikel=artikel)
+    aktiv = keys.filter(status=KeyStatus.AKTIV)
+    frei = aktiv.aggregate(s=Sum(F("max_vergaben") - F("vergeben")))["s"] or 0
+    return {"keys": keys.count(), "frei": max(frei, 0), "gesperrt": keys.filter(status=KeyStatus.GESPERRT).count(),
+            "vergeben": keys.aggregate(s=Sum("vergeben"))["s"] or 0}
+
+
+def hat_key_vom_kunden(key, kunde) -> bool:
+    return ESDVergabe.objects.filter(key=key, kunde=kunde, status=VergabeStatus.AKTIV).exists()
+
+
+@transaction.atomic
+def zuordnen(position, anzahl, erlaube_doppelt=False, bemerkung="", benutzer=None) -> list:
+    """Vergibt Keys an die Position; ein Key geht nie zweimal an denselben Kunden, außer der Verkäufer entscheidet
+    ausdrücklich anders (erlaube_doppelt, mit Begründung)."""
+    beleg, artikel = position.beleg, position.artikel
+    if artikel is None or not artikel.esd_key:
+        raise ValueError("Der Artikel ist nicht als ESD-Key-Artikel gekennzeichnet.")
+    if erlaube_doppelt and not bemerkung.strip():
+        raise ValueError("Für die erneute Vergabe an denselben Kunden bitte eine Begründung angeben.")
+    vergaben = []
+    ausgeschlossen = 0
+    kandidaten = list(ESDKey.objects.select_for_update().filter(
+        mandant=beleg.mandant, artikel=artikel, status=KeyStatus.AKTIV, vergeben__lt=F("max_vergaben")).order_by("-vergeben", "id"))
+    for _ in range(anzahl):
+        key = None
+        for k in kandidaten:
+            if k.frei <= 0:
+                continue
+            if not erlaube_doppelt and hat_key_vom_kunden(k, beleg.kunde):
+                ausgeschlossen += 1
+                continue
+            key = k
+            break
+        if key is None:
+            hinweis = (" Ein Key wäre nur durch erneute Vergabe an denselben Kunden möglich – das muss der Verkäufer ausdrücklich bestätigen."
+                       if ausgeschlossen else "")
+            raise ValueError(f"Nicht genug ESD-Keys für {artikel.nummer} ({len(vergaben)} von {anzahl} verfügbar).{hinweis}")
+        key.vergeben += 1
+        key.save(update_fields=["vergeben"])
+        vergaben.append(ESDVergabe.objects.create(key=key, kunde=beleg.kunde, beleg=beleg, position=position,
+                                                  bemerkung=bemerkung[:300], benutzer=benutzer))
+    return vergaben
+
+
+def vergeben_menge(position) -> int:
+    """Bereits aktive Vergaben der Position bzw. der Quellposition (Lieferschein → Rechnung)."""
+    n = position.esd_vergaben.filter(status=VergabeStatus.AKTIV).count()
+    if position.quellposition_id:
+        n = max(n, position.quellposition.esd_vergaben.filter(status=VergabeStatus.AKTIV).count())
+    return n
+
+
+@transaction.atomic
+def beleg_zuordnen(beleg, benutzer=None) -> int:
+    """Automatische Zuordnung beim Verkauf (Lieferschein oder Rechnung); bereits versorgte Positionen werden übersprungen."""
+    if beleg.art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG):
+        return 0
+    anzahl = 0
+    for p in beleg.positionen.select_related("artikel", "quellposition"):
+        if p.artikel_id and p.artikel.esd_key:
+            fehlt = int(p.menge) - vergeben_menge(p)
+            if fehlt > 0:
+                anzahl += len(zuordnen(p, fehlt, benutzer=benutzer))
+    return anzahl
+
+
+@transaction.atomic
+def rueckgabe(vergabe, entscheidung, benutzer=None):
+    """Retoure: der Key wird freigegeben (wieder vergebbar) oder gesperrt (nie wieder vergeben)."""
+    if vergabe.status != VergabeStatus.AKTIV:
+        raise ValueError("Diese Vergabe ist bereits zurückgenommen.")
+    key = ESDKey.objects.select_for_update().get(pk=vergabe.key_id)
+    if entscheidung == "freigeben":
+        key.vergeben = max(key.vergeben - 1, 0)
+        vergabe.status = VergabeStatus.FREIGEGEBEN
+    elif entscheidung == "sperren":
+        key.status = KeyStatus.GESPERRT
+        vergabe.status = VergabeStatus.GESPERRT
+    else:
+        raise ValueError("Bitte freigeben oder sperren wählen.")
+    key.save()
+    vergabe.save()
+
+
+def keys_text(beleg) -> list:
+    """Aktive Keys des Belegs je Position als (Bezeichnung, [Keys])."""
+    ergebnis = {}
+    for v in beleg.esd_vergaben.filter(status=VergabeStatus.AKTIV).select_related("key", "position"):
+        name = v.position.bezeichnung if v.position_id else v.key.artikel.bezeichnung
+        ergebnis.setdefault(name, []).append(v.key.key)
+    return list(ergebnis.items())

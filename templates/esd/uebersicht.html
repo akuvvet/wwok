@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block titel %}ESD-Keys – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'lager:uebersicht' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>ESD-Keys {{ request.mandant }}</h1>
+  <p style="opacity:.8">Artikel werden im Artikelstamm mit „ESD-Key-Artikel“ gekennzeichnet. Beim Abschluss von Lieferschein oder Rechnung wird automatisch ein Key aus dem Bestand des Mandanten zugeordnet.</p>
+  <table>
+    <tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Keys</th><th class="zahl">noch vergebbar</th><th class="zahl">vergeben</th><th class="zahl">gesperrt</th></tr>
+    {% for z in zeilen %}
+    <tr><td><a href="{% url 'esd:artikel' z.artikel.pk %}">{{ z.artikel.nummer }}</a></td><td>{{ z.artikel.bezeichnung }}</td>
+        <td class="zahl">{{ z.keys }}</td><td class="zahl"><strong {% if z.frei == 0 %}style="color:var(--warn)"{% endif %}>{{ z.frei }}</strong></td>
+        <td class="zahl">{{ z.vergeben }}</td><td class="zahl">{{ z.gesperrt }}</td></tr>
+    {% empty %}<tr><td colspan="6">Noch kein Artikel als ESD-Key-Artikel gekennzeichnet (Verwaltung → Artikel).</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

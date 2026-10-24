@@ -331,6 +331,8 @@ class Artikel(Zeitstempel):
     gewicht_kg = models.DecimalField("Gewicht (kg)", max_digits=9, decimal_places=3, null=True, blank=True)
     garantie_monate = models.PositiveSmallIntegerField("Garantie (Monate)", null=True, blank=True)
     nicht_aktiv = models.BooleanField("nicht aktiv", default=False)
+    esd_key = models.BooleanField("ESD-Key-Artikel (Lizenzschlüssel)", default=False,
+                                  help_text="Beim Verkauf wird automatisch ein Key aus dem Key-Bestand zugeordnet.")
     steuersatz = models.ForeignKey(Steuersatz, on_delete=models.PROTECT)
     # Preise (netto). Leer = aus Aufschlag berechnet.
     durchschnitts_ek = models.DecimalField("Durchschnitts-EK", null=True, blank=True, editable=False, **EK_GELD)

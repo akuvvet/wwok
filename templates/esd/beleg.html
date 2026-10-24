@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block titel %}ESD-Keys {{ b }} – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' b.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>ESD-Keys zu <a href="{% url 'verkauf:beleg' b.pk %}">{{ b }}</a> – {{ b.kunde.name1 }}</h1>
+  <table>
+    <tr><th>Position</th><th>Key</th><th>Vergeben am</th><th>Status</th><th>Retoure</th></tr>
+    {% for v in vergaben %}
+    <tr><td>{{ v.position.bezeichnung }}</td><td><code>{{ v.key.key }}</code>{% if v.bemerkung %}<br><small>{{ v.bemerkung }}</small>{% endif %}</td>
+        <td>{{ v.datum|date:"d.m.Y H:i" }}</td><td>{{ v.get_status_display }}</td>
+        <td>{% if v.status == 'aktiv' %}<form method="post" action="{% url 'esd:rueckgabe' v.pk %}" class="zeile">{% csrf_token %}
+          <button name="entscheidung" value="freigeben" class="leise" type="submit" title="Key wird wieder vergebbar">Key freigeben</button>
+          <button name="entscheidung" value="sperren" class="gefahr" type="submit" title="Key wird nie wieder vergeben">Key sperren</button></form>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="5">Noch keine Keys vergeben.</td></tr>{% endfor %}
+  </table>
+  {% if vergaben %}<p style="margin-top:12px"><a class="knopf" href="{% url 'esd:mail' b.pk %}">Keys per E-Mail an den Kunden senden</a>
+    <span style="opacity:.7"> – auf der Rechnung stehen die Keys im PDF unter der Position.</span></p>{% endif %}
+</div>
+<div class="karte">
+  <h2>Keys manuell zuordnen</h2>
+  <p style="opacity:.8">Normalerweise geschieht das automatisch beim Abschluss von Lieferschein oder Rechnung. Hier kannst du vorab zuordnen oder bewusst denselben Key erneut an den Kunden vergeben.</p>
+  {% for z in positionen %}
+  <form method="post" action="{% url 'esd:zuordnen' b.pk %}" class="zeile" style="margin-bottom:8px">{% csrf_token %}
+    <input type="hidden" name="position" value="{{ z.position.pk }}">
+    <div style="min-width:240px"><strong>{{ z.position.bezeichnung }}</strong><br><small>{{ z.vergeben }} von {{ z.position.menge|floatformat:"-0" }} zugeordnet · {{ z.bestand }} Keys vergebbar</small></div>
+    <div><label>Anzahl</label><input name="anzahl" value="1" size="3"></div>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="doppelt"> erneut an denselben Kunden</label>
+    <div><label>Begründung (bei erneuter Vergabe Pflicht)</label><input name="bemerkung" size="26"></div>
+    <button type="submit">Zuordnen</button>
+  </form>
+  {% empty %}<p>Dieser Beleg enthält keine ESD-Key-Artikel.</p>{% endfor %}
+</div>
+{% endblock %}

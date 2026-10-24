@@ -98,7 +98,7 @@ class ArtikelAdmin(admin.ModelAdmin):
     inlines = [ArtikelMandantInline, ArtikelLieferantInline, GruppenKomponenteInline, ArtikelBildInline]
     fieldsets = [
         ("Grunddaten", {"fields": [("nummer", "typ"), "bezeichnung", "bezeichnung_erweitert", "kategorie",
-                                   ("hersteller", "herstellernummer", "ean"), ("garantie_monate", "nicht_aktiv")]}),
+                                   ("hersteller", "herstellernummer", "ean"), ("garantie_monate", "nicht_aktiv"), "esd_key"]}),
         ("Maße", {"fields": [("laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg")]}),
         ("Preise", {"fields": ["steuersatz", "durchschnitts_ek", ("vk1", "aufschlag_vk1"),
                                ("vk2", "aufschlag_vk2"), ("vk3", "aufschlag_vk3")]}),

@@ -175,6 +175,7 @@ def beleg_detail(request, beleg_id):
     kredit_warnung = bool(limit) and not beleg.abgeschlossen and offen + beleg.summe_brutto > limit
     return render(request, "verkauf/beleg.html", {
         "kredit_warnung": kredit_warnung, "kunde_offen": offen, "kreditlimit": limit,
+        "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),
         "beleg": beleg, "positionen": positionen, "loeschbar": beleg.loeschhindernis() is None,
         "gruppen": [p for p in positionen if p.typ == "G" and not p.gruppe_id],
         "zahlungsbedingungen": Zahlungsbedingung.objects.all(),

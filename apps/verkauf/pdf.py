@@ -88,6 +88,11 @@ def beleg_pdf(beleg) -> bytes:
             [sn.nummer for sn in p.quellposition.seriennummern.all()] if p.quellposition_id else [])
         if seriennummern:
             text += "\nSeriennummer(n): " + ", ".join(seriennummern)
+        keys = [v.key.key for v in p.esd_vergaben.filter(status="aktiv").order_by("id").select_related("key")] or (
+            [v.key.key for v in p.quellposition.esd_vergaben.filter(status="aktiv").order_by("id").select_related("key")]
+            if p.quellposition_id else [])
+        if keys:
+            text += "\nLizenzschlüssel: " + ", ".join(keys)
         if p.gruppe_id:  # Unterartikel einer Gruppe: eingerückt, ohne Einzelpreise
             zeilen.append(["", absatz(p.artikel.nummer if p.artikel else "", normal), absatz("   – " + text, normal),
                            zahl(p.menge), "", "", ""])
