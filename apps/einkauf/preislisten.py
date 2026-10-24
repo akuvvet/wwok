@@ -223,6 +223,15 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
     for h in Hersteller.objects.order_by("kennzeichen"):
         hersteller.setdefault(h.name.lower(), h)
 
+    def hersteller_zu(name: str):
+        """Hersteller über den Namen finden, sonst neu anlegen (Preislisten bringen den Namen mit)."""
+        name = (name or "").strip()[:150]
+        if not name:
+            return None
+        if name.lower() not in hersteller:
+            hersteller[name.lower()] = Hersteller.objects.create(name=name)
+        return hersteller[name.lower()]
+
     vorhanden = {al.bestellnummer: al for al in ArtikelLieferant.objects.filter(lieferant=profil.lieferant)}
     nach_hnr, nach_ean, nummern = {}, {}, set()
     for artikel_id, nummer, hnr, ean in Artikel.objects.values_list("id", "nummer", "herstellernummer", "ean"):
@@ -281,14 +290,16 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
                     raise ValueError("Unbekannter Artikel ohne Bezeichnung kann nicht angelegt werden.")
                 if steuer is None:
                     raise ValueError("Es ist kein Steuersatz angelegt.")
-                nummer, zaehler = f"P{profil.lieferant.nummer}-{bestellnr}"[:40], 1
-                while nummer in nummern:  # Kürzung kann zu Kollisionen führen
+                # Artikelnummer = Herstellernummer (MSKU); fehlt sie oder ist sie schon vergeben: Lieferantennummer-Bestellnummer
+                nummer = hnr[:40] if hnr and hnr not in nummern else f"P{profil.lieferant.nummer}-{bestellnr}"[:40]
+                zaehler = 1
+                while nummer in nummern:  # Kürzung/Dubletten können zu Kollisionen führen
                     zaehler += 1
                     nummer = f"P{profil.lieferant.nummer}-{bestellnr}"[:36] + f"~{zaehler}"
                 gewicht = zahl(z["gewicht"], profil.dezimaltrennzeichen) if z.get("gewicht") else None
                 artikel = Artikel.objects.create(
                     nummer=nummer, typ="P", bezeichnung=z["bezeichnung"][:255], herstellernummer=hnr[:100], ean=ean[:14],
-                    steuersatz=steuer, hersteller=hersteller.get(z.get("hersteller", "").lower()), gewicht_kg=gewicht)
+                    steuersatz=steuer, hersteller=hersteller_zu(z.get("hersteller")), gewicht_kg=gewicht)
                 artikel_id = artikel.pk
                 nummern.add(nummer)
                 if hnr:

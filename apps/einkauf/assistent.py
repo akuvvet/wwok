@@ -10,10 +10,10 @@ from .preislisten import PreislistenFehler, tabelle, text, zahl
 VORSCHLAEGE = {
     "bestellnummer": ("bestellnummer", "best.-nr", "best.nr", "bestellnr", "artikelnummer", "artikel-nr", "art.-nr", "artnr", "sku",
                       "lieferantenartikelnummer", "item"),
-    "herstellernummer": ("herstellernummer", "hersteller-nr", "herstellernr", "hersteller artikelnummer", "mpn", "part number",
+    "herstellernummer": ("herstellernummer", "hersteller-nr", "herstellernr", "hersteller artikelnummer", "msku", "mpn", "part number",
                          "partnumber", "pn"),
     "ean": ("ean", "ean-code", "gtin", "barcode"),
-    "bezeichnung": ("bezeichnung", "artikelbezeichnung", "beschreibung", "name", "titel", "produktname"),
+    "bezeichnung": ("bezeichnung", "artikelbezeichnung", "beschreibung", "name", "titel", "title", "produktname"),
     "hersteller": ("hersteller", "marke", "brand", "manufacturer"),
     "kategorie": ("kategorie", "warengruppe", "category", "gruppe"),
     "ek": ("ek", "ek-preis", "ek netto", "einkaufspreis", "nettopreis", "netto", "händlerpreis", "haendlerpreis", "preis", "price"),
@@ -97,6 +97,8 @@ def spalten_raten(namen: list) -> dict:
                 ergebnis[feld] = treffer
                 belegt.add(treffer)
                 break
+    if "bestellnummer" not in ergebnis and "herstellernummer" in ergebnis:  # Liste kennt nur die Herstellernummer
+        ergebnis["bestellnummer"] = ergebnis["herstellernummer"]
     return ergebnis
 
 
