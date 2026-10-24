@@ -46,6 +46,8 @@ class Zahlungsbedingung(Zeitstempel):
 
 
 class Steuersatz(Zeitstempel):
+    nummer = models.PositiveSmallIntegerField("ID", unique=True, null=True, blank=True)
+    gueltig_ab = models.DateField("gültig ab", null=True, blank=True)
     bezeichnung = models.CharField("Bezeichnung", max_length=50, unique=True)
     prozent = models.DecimalField("Prozent", max_digits=5, decimal_places=2)
 
