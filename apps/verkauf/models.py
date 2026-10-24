@@ -67,7 +67,7 @@ class Nummernkreis(models.Model):
 class Beleg(Zeitstempel):
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="belege")
     art = models.CharField("Belegart", max_length=2, choices=Belegart.choices)
-    nummer = models.CharField("Belegnummer", max_length=20, blank=True, db_index=True)
+    nummer = models.CharField("Belegnummer", max_length=20, null=True, blank=True, default=None)
     kunde = models.ForeignKey(Kunde, on_delete=models.PROTECT, related_name="belege")
     ansprechpartner = models.ForeignKey(Ansprechpartner, on_delete=models.SET_NULL, null=True, blank=True)
     belegdatum = models.DateField("Belegdatum", default=timezone.localdate)
@@ -88,8 +88,8 @@ class Beleg(Zeitstempel):
         verbose_name = "Beleg"
         verbose_name_plural = "Belege"
         ordering = ["-belegdatum", "-id"]
-        constraints = [models.UniqueConstraint(
-            fields=["mandant", "art", "nummer"], condition=~models.Q(nummer=""), name="belegnummer_eindeutig")]
+        # Entwürfe haben keine Nummer (NULL) und zählen nicht als Duplikat
+        constraints = [models.UniqueConstraint(fields=["mandant", "art", "nummer"], name="belegnummer_eindeutig")]
 
     def __str__(self):
         return f"{self.get_art_display()} {self.nummer or '(Entwurf)'}"
@@ -113,6 +113,7 @@ class Beleg(Zeitstempel):
             for feld in ("kunde_id", "belegdatum", "versandkosten", "summe_netto", "summe_brutto", "art", "nummer"):
                 if getattr(vorher, feld) != getattr(self, feld):
                     raise BelegGesperrt(f"{self}: Feld '{feld}' ist nach Abschluss gesperrt.")
+        self.nummer = self.nummer or None
         if not self.pk and not self.nummer and self.art not in GESPERRT_NACH_ABSCHLUSS:
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
         super().save(*args, **kwargs)

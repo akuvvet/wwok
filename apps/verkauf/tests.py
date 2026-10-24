@@ -42,7 +42,7 @@ class VerkaufTest(TestCase):
 
     def test_rechnung_wird_beim_abschluss_nummeriert_und_gesperrt(self):
         b = self.beleg()
-        self.assertEqual(b.nummer, "")
+        self.assertIsNone(b.nummer)
         with self.assertRaises(ValueError):
             b.abschliessen()
         Position.objects.create(beleg=b, bezeichnung="Dienst", einzelpreis=Decimal("100"))
