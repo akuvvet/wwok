@@ -82,5 +82,18 @@ class VerkaufTest(TestCase):
         self.assertEqual(self.client.get(reverse("verkauf:api_artikel") + "?q=Ma&kunde=%d" % self.kunde.pk)
                          .json()["treffer"][0]["preis"], "8.00")
 
+    def test_artikelsuche_mehrere_woerter_beliebige_reihenfolge(self):
+        user = get_user_model().objects.create_user("s", password="x" * 14)
+        self.client.force_login(user)
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+        Artikel.objects.create(nummer="A2", bezeichnung="Netzteil 500W", herstellernummer="AZZA-500",
+                               steuersatz=self.art.steuersatz)
+        url = reverse("verkauf:api_artikel")
+        for q in ("netz azza", "azza netz", "NETZ 500"):
+            self.assertEqual([t["nummer"] for t in self.client.get(url, {"q": q}).json()["treffer"]], ["A2"], q)
+        self.assertEqual(self.client.get(url, {"q": "netz maus"}).json()["treffer"], [])
+
     def test_login_pflicht(self):
         self.assertEqual(self.client.get(reverse("verkauf:start")).status_code, 302)

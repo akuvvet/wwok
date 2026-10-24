@@ -230,9 +230,12 @@ def api_artikel(request):
     kunde = Kunde.objects.filter(pk=request.GET.get("kunde")).first()
     if len(q) < 2:
         return JsonResponse({"treffer": []})
-    artikel = Artikel.objects.filter(nicht_aktiv=False).filter(
-        Q(nummer__istartswith=q) | Q(bezeichnung__icontains=q) | Q(herstellernummer__istartswith=q)
-    ).select_related("steuersatz")[:15]
+    artikel = Artikel.objects.filter(nicht_aktiv=False)
+    for wort in q.split():  # jedes Wort muss irgendwo vorkommen, Reihenfolge egal
+        artikel = artikel.filter(
+            Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
+            | Q(bezeichnung_erweitert__icontains=wort) | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+    artikel = artikel.select_related("steuersatz")[:20]
     treffer = []
     for a in artikel:
         letzte = None

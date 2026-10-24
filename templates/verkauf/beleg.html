@@ -28,8 +28,8 @@
     <div><label>Typ</label>
       <select name="typ"><option>A</option><option>P</option><option>L</option><option>G</option></select></div>
     <div><label>Artikel (Nr. oder Name)</label>
-      <input name="artikel" id="artikel" list="artikelliste" size="22" autofocus></div>
-    <datalist id="artikelliste"></datalist>
+      <div style="position:relative"><input name="artikel" id="artikel" size="30" autofocus>
+        <div id="trefferliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:520px;max-height:320px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
     <div><label>Bezeichnung (nur bei freier Position)</label><input name="bezeichnung" id="bezeichnung" size="26"></div>
     <div><label>Menge</label><input name="menge" value="1" size="5"></div>
     <div><label>Preis netto</label><input name="preis" id="preis" size="9"></div>
@@ -84,29 +84,48 @@
 {% if not beleg.gesperrt %}
 <script>
   (function () {
-    var feld = document.getElementById('artikel'), liste = document.getElementById('artikelliste');
+    var feld = document.getElementById('artikel'), box = document.getElementById('trefferliste');
     var preis = document.getElementById('preis'), info = document.getElementById('letzterpreis');
-    var treffer = {}, timer;
+    var typ = document.querySelector('select[name=typ]');
+    var liste = [], aktiv = -1, timer, anfrage = 0;
+    function zeige() {
+      box.innerHTML = '';
+      liste.forEach(function (t, i) {
+        var d = document.createElement('div');
+        d.style.cssText = 'padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--rand);' + (i === aktiv ? 'background:var(--grund)' : '');
+        d.textContent = t.nummer + ' – ' + t.bezeichnung + (t.preis ? '  (' + t.preis + ' €)' : '');
+        d.addEventListener('mousedown', function (e) { e.preventDefault(); waehle(i); });
+        box.appendChild(d);
+      });
+      box.style.display = liste.length ? 'block' : 'none';
+    }
+    function waehle(i) {
+      var t = liste[i]; if (!t) return;
+      feld.value = t.nummer; preis.value = t.preis; typ.value = t.typ;
+      info.textContent = t.bezeichnung + (t.letzter ? ' · letzter Preis dieses Kunden: ' + t.letzter.preis + ' € am ' + t.letzter.datum : '');
+      liste = []; aktiv = -1; zeige();
+      document.querySelector('input[name=menge]').focus(); document.querySelector('input[name=menge]').select();
+    }
     function suche() {
-      var q = feld.value.trim();
-      if (treffer[q]) { uebernehmen(treffer[q]); return; }
-      if (q.length < 2) return;
+      var q = feld.value.trim(), nr = ++anfrage;
+      if (q.length < 2) { liste = []; zeige(); return; }
       fetch("{% url 'verkauf:api_artikel' %}?kunde={{ beleg.kunde.pk }}&q=" + encodeURIComponent(q), {credentials: 'same-origin'})
         .then(function (r) { return r.json(); }).then(function (d) {
-          liste.innerHTML = '';
-          d.treffer.forEach(function (t) {
-            treffer[t.nummer] = t;
-            var o = document.createElement('option'); o.value = t.nummer; o.label = t.bezeichnung; liste.appendChild(o);
-          });
-          if (treffer[q]) uebernehmen(treffer[q]);
+          if (nr !== anfrage) return;
+          liste = d.treffer; aktiv = liste.length ? 0 : -1;
+          liste.forEach(function (t, i) { if (t.nummer.toLowerCase() === q.toLowerCase()) aktiv = i; });  // genaue Artikelnummer zuerst
+          zeige();
         });
     }
-    function uebernehmen(t) {
-      if (!preis.value) preis.value = t.preis;
-      info.textContent = t.bezeichnung + (t.letzter ? ' · letzter Preis dieses Kunden: ' + t.letzter.preis + ' € am ' + t.letzter.datum : '');
-    }
     feld.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(suche, 200); });
-    feld.addEventListener('change', suche);
+    feld.addEventListener('keydown', function (e) {
+      if (!liste.length) return;
+      if (e.key === 'ArrowDown') { aktiv = Math.min(aktiv + 1, liste.length - 1); zeige(); e.preventDefault(); }
+      else if (e.key === 'ArrowUp') { aktiv = Math.max(aktiv - 1, 0); zeige(); e.preventDefault(); }
+      else if (e.key === 'Enter' && aktiv >= 0) { waehle(aktiv); e.preventDefault(); }
+      else if (e.key === 'Escape') { liste = []; zeige(); e.stopPropagation(); }
+    });
+    feld.addEventListener('blur', function () { setTimeout(function () { box.style.display = 'none'; }, 150); });
   })();
 </script>
 {% endif %}
