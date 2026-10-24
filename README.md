@@ -9,7 +9,7 @@ Anforderungen: siehe [`docs/pflichtenheft.md`](docs/pflichtenheft.md).
 
 | Bereich | Wahl |
 | --- | --- |
-| Sprache | Python 3.12+ |
+| Sprache | Python 3.10+ |
 | Framework | Django 5.1 |
 | Datenbank | MySQL / MariaDB (lokal geht auch SQLite) |
 | Server | Strato V-Server mit Plesk, Subdomain `erp.okaycomputer.de` |
