@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block titel %}Artikelpreise importieren – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:preislisten' %}" data-escape style="display:none">zurück</a>
+
+{% if schritt == 1 %}
+<div class="karte">
+  <h1>Artikelpreise importieren (EK / VK)</h1>
+  <p style="opacity:.8">Aktualisiert die Preise vorhandener Artikel aus einer Excel- oder CSV-Datei: <strong>Durchschnitts-EK</strong> und die Verkaufspreise <strong>VK1–VK3</strong>.
+    Die Zeilen werden über Artikelnummer, Herstellernummer oder EAN zugeordnet. Vor der Übernahme siehst du, was sich ändert.</p>
+  <form method="post" enctype="multipart/form-data" class="zeile">{% csrf_token %}
+    <input type="hidden" name="aktion" value="datei">
+    <div><label>Datei (XLSX, XLS, CSV, TXT)</label><input type="file" name="datei" required></div>
+    <button type="submit">Weiter</button>
+  </form>
+</div>
+
+{% else %}
+<div class="karte">
+  <h1>Artikelpreise zuordnen – {{ dateiname }}</h1>
+  <div class="scroll" style="max-height:200px;margin-bottom:12px"><table>
+    <thead><tr>{% for n in namen %}<th>{{ n }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for z in beispiele %}<tr>{% for c in z %}<td>{{ c }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table></div>
+  <form method="post">{% csrf_token %}
+    <input type="hidden" name="token" value="{{ token }}">
+    <div class="raster">
+      <div><label>Artikel erkennen über</label><select name="schluessel_art">{% for w, n in schluessel.items %}<option value="{{ w }}" {% if schluessel_art == w %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+      <div><label>Spalte mit diesem Schlüssel</label><select name="schluessel_spalte">{% for n in namen %}<option value="{{ n }}" {% if auswahl.schluessel_spalte == n %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+      {% for feld, titel in preisfelder.items %}
+      <div><label>{{ titel }}</label><select name="sp_{{ feld }}"><option value="">– nicht ändern –</option>
+        {% for n in namen %}<option value="{{ n }}" {% if feld == 'ek' and auswahl.ek == n or feld == 'vk1' and auswahl.vk1 == n or feld == 'vk2' and auswahl.vk2 == n or feld == 'vk3' and auswahl.vk3 == n %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+      {% endfor %}
+      <div><label>Erste Zeile ist eine Kopfzeile</label><select name="kopfzeile"><option value="1" {% if profil.kopfzeile %}selected{% endif %}>ja</option><option value="0" {% if not profil.kopfzeile %}selected{% endif %}>nein</option></select></div>
+      <div><label>Dezimaltrennzeichen</label><select name="dezimaltrennzeichen"><option value="," {% if profil.dezimaltrennzeichen == ',' %}selected{% endif %}>Komma</option><option value="." {% if profil.dezimaltrennzeichen == '.' %}selected{% endif %}>Punkt</option></select></div>
+      {% if profil.dateityp == 'csv' %}<div><label>Trennzeichen</label><input name="trennzeichen" value="{{ profil.trennzeichen }}" size="3"></div>
+      <div><label>Zeichensatz</label><select name="zeichensatz"><option value="utf-8" {% if profil.zeichensatz == 'utf-8' %}selected{% endif %}>UTF-8</option><option value="cp1252" {% if profil.zeichensatz == 'cp1252' %}selected{% endif %}>ANSI (Windows)</option></select></div>{% endif %}
+    </div>
+    <p style="margin-top:12px"><label style="display:flex;gap:8px;align-items:center;opacity:1"><input type="checkbox" name="brutto" value="1" {% if brutto %}checked{% endif %}> Die Verkaufspreise in der Datei sind Bruttopreise (werden mit dem Steuersatz des Artikels auf netto umgerechnet; der EK bleibt netto)</label></p>
+    <p class="zeile"><button type="submit" name="aktion" value="vorschau" class="leise">Vorschau der Änderungen</button>
+      {% if ergebnis and not angewendet %}<button type="submit" name="aktion" value="anwenden" onclick="return confirm('{{ ergebnis.geaendert }} Artikel wirklich aktualisieren?')">{{ ergebnis.geaendert }} Änderungen übernehmen</button>{% endif %}</p>
+  </form>
+</div>
+
+{% if ergebnis %}
+<div class="karte">
+  <h2>{% if angewendet %}Ergebnis{% else %}Vorschau{% endif %}</h2>
+  <div class="raster">
+    <div>gelesen<br><strong>{{ ergebnis.gelesen }}</strong></div>
+    <div>{% if angewendet %}geändert{% else %}würden geändert{% endif %}<br><strong>{{ ergebnis.geaendert }}</strong></div>
+    <div>unverändert<br><strong>{{ ergebnis.unveraendert }}</strong></div>
+    <div>Artikel nicht gefunden<br><strong {% if ergebnis.nicht_gefunden %}style="color:var(--warn)"{% endif %}>{{ ergebnis.nicht_gefunden }}</strong></div>
+    <div>Fehler<br><strong {% if ergebnis.fehler %}style="color:var(--warn)"{% endif %}>{{ ergebnis.fehler }}</strong></div>
+  </div>
+  <div class="scroll" style="margin-top:12px"><table>
+    <thead><tr><th>Zeile</th><th>Schlüssel</th><th>Artikel</th><th>Änderung / Grund</th></tr></thead>
+    <tbody>{% for z in ergebnis.zeilen %}<tr><td>{{ z.zeile }}</td><td>{{ z.schluessel }}</td><td>{{ z.artikel }}</td><td>{% if z.aenderungen %}{{ z.aenderungen }}{% else %}{{ z.grund }}{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="4">Keine Änderungen.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if ergebnis.zeilen|length >= 200 %}<p style="opacity:.7">Es werden die ersten 200 Zeilen angezeigt.</p>{% endif %}
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

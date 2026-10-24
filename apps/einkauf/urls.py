@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import views, views_assistent
 
 app_name = "einkauf"
 
@@ -31,7 +31,10 @@ urlpatterns = [
     path("rechnungen/<int:rechnung_id>/bezahlt/", views.rechnung_bezahlt, name="rechnung_bezahlt"),
     path("rechnungen/<int:rechnung_id>/zahlung-storno/", views.rechnung_zahlung_storno, name="rechnung_zahlung_storno"),
     path("preislisten/", views.preislisten_liste, name="preislisten"),
+    path("preislisten/neu/", views_assistent.assistent_ansicht, name="preislisten_neu"),
     path("preislisten/<int:profil_id>/", views.preisliste, name="preisliste"),
+    path("preislisten/<int:profil_id>/zuordnung/", views_assistent.assistent_ansicht, name="preislisten_zuordnung"),
+    path("artikelpreise/", views_assistent.artikelpreise, name="artikelpreise"),
     path("preislisten/import/<int:import_id>/", views.preislistenimport, name="preislistenimport"),
     path("rma/", views.rma_liste, name="rma_liste"),
     path("rma/neu/", views.rma_neu, name="rma_neu"),

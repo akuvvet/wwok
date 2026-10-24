@@ -465,6 +465,13 @@ def preisliste(request, profil_id):
     from .models import Preislistenprofil
     profil = get_object_or_404(Preislistenprofil.objects.select_related("lieferant"), pk=profil_id)
     kontext = {"profil": profil, "importe": profil.importe.all()[:10], "vorschau": None, "token": ""}
+    if request.method == "GET" and request.GET.get("token"):
+        from .views_assistent import tmp_lesen
+        try:
+            inhalt, name = tmp_lesen(request.GET["token"])
+            kontext.update(vorschau=preislisten.vorschau(profil, inhalt), token=request.GET["token"], dateiname=name)
+        except preislisten.PreislistenFehler as fehler:
+            messages.error(request, str(fehler))
     if request.method == "POST":
         aktion = request.POST.get("aktion")
         try:

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block titel %}Preisliste einrichten – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:preislisten' %}" data-escape style="display:none">zurück</a>
+
+{% if schritt == 1 %}
+<div class="karte">
+  <h1>{% if vorhanden %}Spaltenzuordnung ändern – {{ vorhanden.lieferant.name1 }}{% else %}Neue Preisliste einrichten{% endif %}</h1>
+  <p style="opacity:.8"><strong>Schritt 1 von 2:</strong> Lade eine Beispieldatei des Lieferanten hoch (CSV, TXT, Excel oder XML). Das Format wird automatisch erkannt;
+    im nächsten Schritt ordnest du die Spalten zu.</p>
+  <form method="post" enctype="multipart/form-data">{% csrf_token %}
+    <input type="hidden" name="aktion" value="datei">
+    <div class="raster">
+      {% if not vorhanden %}
+      <div><label>Lieferant</label><select name="lieferant" required>{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.nummer }} – {{ l.name1 }}</option>{% endfor %}</select></div>
+      <div><label>Bezeichnung der Preisliste</label><input name="name" placeholder="z. B. Hauptpreisliste"></div>
+      {% endif %}
+      <div><label>Datei</label><input type="file" name="datei" required></div>
+    </div>
+    <p><button type="submit">Weiter zur Spaltenzuordnung</button></p>
+  </form>
+</div>
+
+{% else %}
+<div class="karte">
+  <h1>{{ lieferant.name1 }} – Spalten zuordnen</h1>
+  <p style="opacity:.8"><strong>Schritt 2 von 2:</strong> {{ dateiname }} · erkanntes Format: {{ profil.get_dateityp_display }}{% if profil.dateityp == 'csv' %}, Trennzeichen „{{ profil.trennzeichen }}“, {{ profil.zeichensatz }}{% endif %}.
+    Wähle für jedes Feld die passende Spalte. Pflicht sind <strong>Bestellnummer</strong> und <strong>EK</strong>.</p>
+
+  <div class="scroll" style="max-height:230px;margin-bottom:12px"><table>
+    <thead><tr>{% for n in namen %}<th>{{ n }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for z in beispiele %}<tr>{% for c in z %}<td>{{ c }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table></div>
+
+  <form method="post">{% csrf_token %}
+    <input type="hidden" name="token" value="{{ token }}">
+    {% if vorhanden %}<input type="hidden" name="lieferant" value="{{ lieferant.pk }}">{% else %}<input type="hidden" name="lieferant" value="{{ lieferant.pk }}">{% endif %}
+    <div class="raster">
+      <div><label>Bezeichnung der Preisliste</label><input name="name" value="{{ name }}"></div>
+      <div><label>Erste Zeile ist eine Kopfzeile</label><select name="kopfzeile"><option value="1" {% if profil.kopfzeile %}selected{% endif %}>ja</option><option value="0" {% if not profil.kopfzeile %}selected{% endif %}>nein</option></select></div>
+      <div><label>Dezimaltrennzeichen der Preise</label><select name="dezimaltrennzeichen"><option value="," {% if profil.dezimaltrennzeichen == ',' %}selected{% endif %}>Komma (12,50)</option><option value="." {% if profil.dezimaltrennzeichen == '.' %}selected{% endif %}>Punkt (12.50)</option></select></div>
+      {% if profil.dateityp == 'csv' %}
+      <div><label>Trennzeichen</label><input name="trennzeichen" value="{{ profil.trennzeichen }}" size="3"></div>
+      <div><label>Zeichensatz</label><select name="zeichensatz"><option value="utf-8" {% if profil.zeichensatz == 'utf-8' %}selected{% endif %}>UTF-8</option><option value="cp1252" {% if profil.zeichensatz == 'cp1252' %}selected{% endif %}>ANSI (Windows)</option></select></div>
+      {% elif profil.dateityp == 'xml' %}
+      <div><label>XML-Element je Artikel</label><input name="xml_satz" value="{{ profil.xml_satz }}"></div>
+      {% endif %}
+    </div>
+    <h2 style="margin-top:16px">Zuordnung</h2>
+    <div class="raster">
+      {% include "einkauf/assistent_felder.html" %}
+    </div>
+    <p style="margin-top:12px"><label style="display:flex;gap:8px;align-items:center;opacity:1"><input type="checkbox" name="neue_artikel" value="1" {% if neue_artikel %}checked{% endif %}>
+      Unbekannte Artikel als Lieferantenprodukt (Typ P) anlegen – sonst werden nur Preise und Bestände vorhandener Artikel aktualisiert</label></p>
+    <p class="zeile">
+      <button type="submit" name="aktion" value="speichern">Profil speichern &amp; Vorschau</button>
+      <button type="submit" name="aktion" value="aktualisieren" class="leise">Ansicht mit diesen Einstellungen aktualisieren</button>
+    </p>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

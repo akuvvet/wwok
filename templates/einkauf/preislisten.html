@@ -4,8 +4,11 @@
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
   <h1>Preislisten der Lieferanten</h1>
-  <p style="opacity:.8">Je Lieferanten-Preisliste gibt es ein Importprofil (Format, Spaltenzuordnung, Quelle). Profile legst du unter
-    <a href="/verwaltung/einkauf/preislistenprofil/">Verwaltung → Preislistenprofile</a> an; danach kannst du hier Dateien einlesen oder Abrufe auslösen.</p>
+  <p style="opacity:.8">Je Lieferanten-Preisliste gibt es ein Importprofil (Format, Spaltenzuordnung, Quelle). Mit „Neue Preisliste einrichten“ lädst du eine Beispieldatei hoch und ordnest die Spalten zu. Danach liest du jede neue Datei
+    dieses Lieferanten mit einem Klick ein. Abrufe per FTP/SFTP/URL und Zeitpläne richtest du unter
+    <a href="/verwaltung/einkauf/preislistenprofil/">Verwaltung → Preislistenprofile</a> ein.</p>
+  <p class="zeile"><a class="knopf" href="{% url 'einkauf:preislisten_neu' %}">+ Neue Preisliste einrichten</a>
+    <a class="knopf leise" href="{% url 'einkauf:artikelpreise' %}">Artikelpreise (EK/VK) aus Excel importieren</a></p>
   <table>
     <tr><th>Profil</th><th>Lieferant</th><th>Quelle</th><th>Format</th><th>Zeitplan</th><th>letzter Import</th></tr>
     {% for p in profile %}

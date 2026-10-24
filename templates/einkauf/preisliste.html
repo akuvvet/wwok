@@ -5,7 +5,8 @@
 <div class="karte">
   <h1>{{ profil.lieferant.name1 }} – {{ profil.name }}</h1>
   <p>{{ profil.get_quelle_display }} · {{ profil.get_dateityp_display }}{% if profil.dateityp == 'csv' %} · Trennzeichen „{{ profil.trennzeichen }}“, {{ profil.zeichensatz }}{% endif %}
-    · <a href="/verwaltung/einkauf/preislistenprofil/{{ profil.pk }}/change/">Profil bearbeiten</a></p>
+    · <a href="{% url 'einkauf:preislisten_zuordnung' profil.pk %}">Spaltenzuordnung ändern</a>
+    · <a href="/verwaltung/einkauf/preislistenprofil/{{ profil.pk }}/change/">alle Einstellungen</a></p>
   {% if not vorschau %}
   <form method="post" enctype="multipart/form-data" class="zeile">{% csrf_token %}
     <input type="hidden" name="aktion" value="vorschau">
