@@ -20,13 +20,14 @@
   .scroll { max-height:62vh; overflow:auto; border:1px solid var(--rand); border-radius:6px; }
   .scroll thead th { position:sticky; top:0; background:var(--karte); z-index:1; box-shadow:0 1px 0 var(--rand); }
   [hidden] { display:none !important; }
-  dialog.modal { border:1px solid var(--rand); border-radius:10px; padding:0; width:min(940px,96vw); max-height:92vh; background:var(--karte); color:var(--text); }
+  dialog.modal { border:1px solid var(--rand); border-radius:10px; padding:0; width:min(940px,96vw); height:min(640px,92vh); overflow:hidden; margin:auto; background:var(--karte); color:var(--text); }
   dialog.modal::backdrop { background:rgba(0,0,0,.5); }
-  .modal-form { display:flex; flex-direction:column; max-height:92vh; }
+  .modal-form { display:flex; flex-direction:column; height:100%; }
+  .modal-kopf, .modal-form .tabs, .modal-fuss { flex:none; }
   .modal-kopf { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--rand); }
   .modal-kopf h2 { margin:0; font-size:17px; }
   .modal-form .tabs { padding:8px 16px 0; margin-bottom:0; flex-wrap:wrap; }
-  .modal-tab { padding:14px 16px; overflow:auto; flex:1 1 auto; min-height:260px; }
+  .modal-tab { padding:14px 16px; overflow-y:auto; overflow-x:hidden; flex:1 1 0; min-height:0; }
   .modal-fuss { display:flex; gap:8px; justify-content:flex-end; align-items:center; padding:10px 16px; border-top:1px solid var(--rand); }
   .mraster { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px 14px; }
   .mfeld { display:flex; flex-direction:column; gap:2px; }
