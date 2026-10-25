@@ -63,6 +63,8 @@ def start(request):
         request.session["mandant_id"] = mandant.pk
         return redirect("verkauf:start")
     mandant = mandant_oder_none(request)
+    if mandant:
+        Beleg.leere_entwuerfe_entfernen(mandant)
     q = request.GET.get("q", "").strip()
     treffer = None
     if mandant and q:
@@ -92,6 +94,7 @@ def kunde_detail(request, kunde_id):
 
     from apps.finanzen import services as fin
     kunde = get_object_or_404(Kunde, pk=kunde_id)
+    Beleg.leere_entwuerfe_entfernen(request.mandant, kunde)
     belege = Beleg.objects.filter(kunde=kunde, mandant=request.mandant).select_related("kunde", "zahlungsbedingung", "vorgaenger")
     art = request.GET.get("art", "")
     if art == "offen":

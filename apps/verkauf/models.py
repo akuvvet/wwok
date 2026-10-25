@@ -62,6 +62,20 @@ class Nummernkreis(models.Model):
             kreis.save(update_fields=["letzte_nummer"])
         return f"{art}{jahr}-{kreis.letzte_nummer:05d}"
 
+    @classmethod
+    def freigeben(cls, mandant: Mandant, art: str, nummer: str):
+        """Gibt die zuletzt vergebene Nummer wieder frei (nur wenn sie noch die letzte ist), damit keine Lücke entsteht."""
+        try:
+            jahr, zaehler = nummer[len(art):].split("-")
+            jahr, zaehler = int(jahr), int(zaehler)
+        except ValueError:
+            return
+        with transaction.atomic():
+            kreis = cls.objects.select_for_update().filter(mandant=mandant, art=art, jahr=jahr).first()
+            if kreis and kreis.letzte_nummer == zaehler:
+                kreis.letzte_nummer -= 1
+                kreis.save(update_fields=["letzte_nummer"])
+
     def __str__(self):
         return f"{self.mandant} {self.art} {self.jahr}: {self.letzte_nummer}"
 
@@ -153,6 +167,26 @@ class Beleg(Zeitstempel):
         if not self.pk and not self.nummer and self.art not in GESPERRT_NACH_ABSCHLUSS:
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
         super().save(*args, **kwargs)
+
+    @classmethod
+    def leere_entwuerfe_entfernen(cls, mandant, kunde=None, minuten=2):
+        """Belege ohne Position werden nicht aufbewahrt: leere, nicht abgeschlossene Entwürfe, die älter als ein paar Minuten
+        sind und an denen nichts hängt, werden gelöscht; ihre Nummer wird wieder frei, wenn sie die letzte vergebene war."""
+        grenze = timezone.now() - timedelta(minutes=minuten)
+        kandidaten = cls.objects.filter(mandant=mandant, abgeschlossen=False, angelegt_am__lt=grenze, positionen__isnull=True)
+        if kunde is not None:
+            kandidaten = kandidaten.filter(kunde=kunde)
+        anzahl = 0
+        for b in kandidaten.order_by("-id"):
+            if b.folgebelege.exists() or b.rechnungen.exists() or b.mails.exists() or b.zahlungen.exists() \
+                    or b.lagerbewegungen.exists():
+                continue
+            nummer, art = b.nummer, b.art
+            b.delete()
+            if nummer:
+                Nummernkreis.freigeben(mandant, art, nummer)
+            anzahl += 1
+        return anzahl
 
     def positionen_nummerieren(self):
         """Positionsnummern lückenlos 1, 2, 3 …; Unterpositionen einer Gruppe tragen die Nummer ihrer Gruppe."""

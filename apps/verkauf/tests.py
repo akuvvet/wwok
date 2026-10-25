@@ -351,3 +351,28 @@ class DruckSperreTest(TestCase):
         self.assertNotEqual(r.get("Content-Type"), "application/pdf")
         self.assertEqual(self.client.get(reverse("verkauf:beleg_pdf", args=[angebot.pk])).status_code, 200)  # Angebot immer druckbar
         self.assertContains(self.client.get(reverse("verkauf:beleg", args=[ls.pk])), "Druck nicht möglich")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class LeereEntwuerfeTest(TestCase):
+    def test_leere_entwuerfe_verschwinden_und_nummer_wird_frei(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        k = Kunde.objects.create(nummer="1", name1="K")
+        leer = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=k)
+        frisch = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=k)
+        mit = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        Position.objects.create(beleg=mit, bezeichnung="X", menge=1, einzelpreis=Decimal("1"))
+        alt = timezone.now() - timedelta(minutes=10)
+        Beleg.objects.filter(pk__in=[leer.pk, mit.pk]).update(angelegt_am=alt)
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        self.client.get(reverse("verkauf:kunde", args=[k.pk]))
+        self.assertFalse(Beleg.objects.filter(pk=leer.pk).exists())
+        self.assertTrue(Beleg.objects.filter(pk=frisch.pk).exists())   # zu neu: wird eventuell gerade bearbeitet
+        self.assertTrue(Beleg.objects.filter(pk=mit.pk).exists())      # hat eine Position
+        neu = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=k)
+        self.assertEqual(neu.nummer.rsplit("-", 1)[1], "00003")        # 00001 leer entfernt, 00002 frisch, 00003 neu
