@@ -26,6 +26,17 @@ def bucht_bestand(beleg) -> bool:
     return True
 
 
+def offene_lieferscheine(beleg):
+    """Lieferscheine in der Belegkette einer Rechnung, die noch nicht abgeschlossen (= nicht abgebucht) sind."""
+    liste = list(beleg.lieferscheine.filter(abgeschlossen=False)) if beleg.pk else []
+    vorher = beleg.vorgaenger
+    while vorher is not None:
+        if vorher.art == Belegart.LIEFERSCHEIN and not vorher.abgeschlossen:
+            liste.append(vorher)
+        vorher = vorher.vorgaenger
+    return liste
+
+
 @transaction.atomic
 def buche_beleg(beleg, benutzer=None) -> int:
     """Bucht die Lagerartikel des Belegs ab (einmal je Beleg). Rückgabe: Zahl der Bewegungen."""

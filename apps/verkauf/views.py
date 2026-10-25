@@ -397,6 +397,7 @@ def beleg_teillieferung(request, beleg_id):
 
 @mit_mandant
 @require_POST
+@sperr_schutz
 def beleg_kopieren(request, beleg_id):
     """Beleg als beliebige Belegart kopieren (z. B. Angebot → Rechnung); der Ursprungsbeleg wird auf Wunsch abgeschlossen."""
     beleg = beleg_holen(request, beleg_id)

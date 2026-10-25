@@ -201,6 +201,8 @@ class GruppenTest(TestCase):
         self.client.post(reverse("verkauf:gruppenpreis", args=[self.beleg.pk, kopf.pk]), {"preis": ""})
         kopf.refresh_from_db()
         self.assertEqual(kopf.einzelpreis, Decimal("260.00"))  # Summe der Unterpositionen: 100 + 4 × 40
+        Beleg.objects.filter(pk=self.beleg.pk).update(abgeschlossen=True)  # Lieferschein ist abgebucht
+        self.beleg.refresh_from_db()
         re = self.beleg.folgebeleg_erzeugen()
         neu_kopf = re.positionen.get(gruppe__isnull=True)
         self.assertEqual(re.positionen.filter(gruppe=neu_kopf).count(), 2)
@@ -307,3 +309,23 @@ class TeillieferungTest(TestCase):
         self.re.positionen.filter(artikel=self.a).update(menge=9)
         r = self.client.post(reverse("verkauf:beleg_abschliessen", args=[self.re.pk]), follow=True)
         self.assertNotContains(r, "Ja, Teillieferung")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class RechnungOhneLieferscheinTest(TestCase):
+    def test_rechnung_aus_offenem_lieferschein_nicht_moeglich(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        a = Artikel.objects.create(nummer="A1", bezeichnung="Maus", steuersatz=st, vk1=Decimal("10"))
+        k = Kunde.objects.create(nummer="1", name1="K")
+        ls = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=k)
+        Position.objects.create(beleg=ls, artikel=a, bezeichnung="Maus", menge=1, einzelpreis=Decimal("10"))
+        with self.assertRaisesMessage(ValueError, "Lieferschein erst abschließen"):
+            ls.folgebeleg_erzeugen()
+        with self.assertRaisesMessage(ValueError, "Lieferschein erst abschließen"):
+            ls.kopieren_als("RE")
+        # Rechnung, die mit offenem Lieferschein verknüpft wurde (Altbestand), lässt sich nicht abschließen
+        re = Beleg.objects.create(mandant=m, art=Belegart.RECHNUNG, kunde=k, vorgaenger=ls)
+        Position.objects.create(beleg=re, artikel=a, bezeichnung="Maus", menge=1, einzelpreis=Decimal("10"))
+        with self.assertRaisesMessage(ValueError, "Erst den Lieferschein"):
+            re.abschliessen()

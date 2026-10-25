@@ -199,6 +199,12 @@ class Beleg(Zeitstempel):
             return
         if not self.positionen.exists():
             raise ValueError("Beleg ohne Positionen kann nicht abgeschlossen werden.")
+        if self.art == Belegart.RECHNUNG:  # Die Ware muss über den Lieferschein abgebucht sein, sonst bliebe der Bestand falsch
+            from apps.lager.services import offene_lieferscheine
+            offen = offene_lieferscheine(self)
+            if offen:
+                raise ValueError("Erst den Lieferschein " + ", ".join(l.nummer or "(Entwurf)" for l in offen) +
+                                 " abschließen (bucht das Lager ab), dann die Rechnung.")
         self.berechne()
         if not self.nummer:
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
@@ -217,6 +223,8 @@ class Beleg(Zeitstempel):
         art = self.folgeart
         if not art:
             raise ValueError("Für diese Belegart gibt es keinen Folgebeleg.")
+        if self.art == Belegart.LIEFERSCHEIN and not self.abgeschlossen:
+            raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
         self.positionen_pruefen()
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
@@ -262,6 +270,8 @@ class Beleg(Zeitstempel):
         Optional wird der Ursprungsbeleg danach abgeschlossen (erledigt)."""
         if art not in Belegart.values or art == Belegart.GUTSCHRIFT:
             raise ValueError("Diese Belegart kann nicht als Kopie angelegt werden.")
+        if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abgeschlossen:
+            raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
         self.positionen_pruefen()
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
