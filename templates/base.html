@@ -102,10 +102,10 @@
   {% if user.is_authenticated %}<nav class="menue">
     {% with bereich=request.resolver_match.namespace %}
     <a class="knopf {% if bereich != 'verkauf' %}leise{% endif %}" href="{% url 'verkauf:start' %}">Verkauf</a>
-    <a class="knopf {% if bereich != 'lager' %}leise{% endif %}" href="{% url 'lager:uebersicht' %}">Lager</a>
-    <a class="knopf {% if bereich != 'finanzen' %}leise{% endif %}" href="{% url 'finanzen:offene_posten' %}">Finanzen</a>
     <a class="knopf {% if bereich != 'einkauf' %}leise{% endif %}" href="{% url 'einkauf:bestellungen' %}">Einkauf</a>
+    <a class="knopf {% if bereich != 'lager' %}leise{% endif %}" href="{% url 'lager:uebersicht' %}">Artikel</a>
     <a class="knopf {% if bereich != 'werkstatt' %}leise{% endif %}" href="{% url 'werkstatt:liste' %}">Werkstatt</a>
+    <a class="knopf {% if bereich != 'finanzen' %}leise{% endif %}" href="{% url 'finanzen:offene_posten' %}">Finanzen</a>
     {% endwith %}
   </nav>{% endif %}
   <span class="rechts">
