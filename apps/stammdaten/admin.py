@@ -85,7 +85,7 @@ class GruppenKomponenteInline(admin.TabularInline):
     model = m.GruppenKomponente
     fk_name = "gruppe"
     extra = 0
-    autocomplete_fields = []
+    autocomplete_fields = ["komponente"]
     verbose_name_plural = "Komponenten (nur bei Typ G)"
 
 
