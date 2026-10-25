@@ -206,3 +206,18 @@ class GruppenTest(TestCase):
         self.assertEqual(re.positionen.filter(gruppe=neu_kopf).count(), 2)
         self.assertEqual(re.summe_netto, Decimal("260.00"))
         self.assertContains(self.client.get(reverse("verkauf:beleg", args=[re.pk])), "Angebot Netzwerk")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class PositionsnummerTest(TestCase):
+    def test_nummern_ruecken_nach_loeschen_auf(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        k = Kunde.objects.create(nummer="1", name1="K")
+        b = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        ps = [Position.objects.create(beleg=b, bezeichnung=f"P{i}", menge=1, einzelpreis=Decimal("1")) for i in range(3)]
+        kopf = Position.objects.create(beleg=b, typ="G", bezeichnung="PC", menge=1, einzelpreis=Decimal("5"))
+        Position.objects.create(beleg=b, gruppe=kopf, bezeichnung="Teil", menge=1, einzelpreis=Decimal("5"))
+        ps[0].delete()
+        ps[1].delete()
+        b.berechne()
+        self.assertEqual([(p.bezeichnung, p.pos) for p in b.positionen.all()], [("P2", 1), ("PC", 2), ("Teil", 2)])

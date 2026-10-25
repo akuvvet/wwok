@@ -154,10 +154,28 @@ class Beleg(Zeitstempel):
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
         super().save(*args, **kwargs)
 
+    def positionen_nummerieren(self):
+        """Positionsnummern lückenlos 1, 2, 3 …; Unterpositionen einer Gruppe tragen die Nummer ihrer Gruppe."""
+        alle = list(Position.objects.filter(beleg=self).order_by("pos", "id"))
+        nummer = {}
+        kopfnr = 0
+        for p in alle:
+            if not p.gruppe_id:
+                kopfnr += 1
+                nummer[p.pk] = kopfnr
+        for p in alle:
+            if p.gruppe_id:
+                nummer[p.pk] = nummer.get(p.gruppe_id, kopfnr)
+        # Reihenfolge: Gruppe, dann ihre Unterpositionen (nach id)
+        for p in alle:
+            if p.pos != nummer[p.pk]:
+                Position.objects.filter(pk=p.pk).update(pos=nummer[p.pk])
+
     def berechne(self):
         """Summen aus Positionen; Versandkosten laufen mit dem höchsten Steuersatz der Positionen."""
         if self.gesperrt:
             raise BelegGesperrt(f"{self} ist gesperrt.")
+        self.positionen_nummerieren()
         netto = Decimal("0")
         saetze = {}
         for p in self.positionen.all():
