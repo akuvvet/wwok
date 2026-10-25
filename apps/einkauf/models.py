@@ -288,6 +288,10 @@ class Preislistenprofil(Zeitstempel):
     neue_artikel = models.BooleanField(
         "alle Artikel der Liste in die Preislistentabelle übernehmen", default=True,
         help_text="Sonst werden nur Zeilen übernommen, die zu einem eigenen Artikel passen (Herstellernummer oder EAN).")
+    entfernen_veraltete = models.BooleanField(
+        "Artikel entfernen, die nicht mehr in der Liste stehen", default=True,
+        help_text="Nur für vollständige Preislisten einschalten. Als Schutz vor unvollständigen Downloads wird nichts gelöscht, "
+                  "wenn die neue Liste weniger als die Hälfte der bisherigen Artikel enthält.")
     letzter_lauf = models.DateTimeField(null=True, blank=True, editable=False)
     laeuft_seit = models.DateTimeField(null=True, blank=True, editable=False,
                                        help_text="Gesetzt, solange ein Import läuft (verhindert Doppelläufe)")
@@ -329,6 +333,7 @@ class Preislistenimport(models.Model):
     geaendert = models.PositiveIntegerField(default=0)
     unveraendert = models.PositiveIntegerField(default=0)
     uebersprungen = models.PositiveIntegerField(default=0)
+    geloescht = models.PositiveIntegerField("entfernt (nicht mehr gelistet)", default=0)
     fehler = models.PositiveIntegerField(default=0)
     fehlerzeilen = models.JSONField(default=list, blank=True)
     meldung = models.CharField(max_length=300, blank=True)

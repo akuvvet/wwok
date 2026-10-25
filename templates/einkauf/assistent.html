@@ -52,6 +52,8 @@
     </div>
     <p style="margin-top:12px"><label style="display:flex;gap:8px;align-items:center;opacity:1"><input type="checkbox" name="neue_artikel" value="1" {% if neue_artikel %}checked{% endif %}>
       Unbekannte Artikel als Lieferantenprodukt (Typ P) anlegen – sonst werden nur Preise und Bestände vorhandener Artikel aktualisiert</label></p>
+    <p><label style="display:flex;gap:8px;align-items:center;opacity:1"><input type="checkbox" name="entfernen_veraltete" value="1" {% if entfernen_veraltete %}checked{% endif %}>
+      Artikel entfernen, die nicht mehr in der Liste stehen (nur für vollständige Preislisten)</label></p>
     <p class="zeile">
       <button type="submit" name="aktion" value="speichern">Profil speichern &amp; Vorschau</button>
       <button type="submit" name="aktion" value="aktualisieren" class="leise">Ansicht mit diesen Einstellungen aktualisieren</button>

@@ -72,6 +72,7 @@ def assistent_ansicht(request, profil_id=None):
                          "dezimaltrennzeichen": profil.dezimaltrennzeichen, "kopfzeile": profil.kopfzeile,
                          "erste_datenzeile": 2 if profil.kopfzeile else 1, "xml_satz": profil.xml_satz,
                          "neue_artikel": request.POST.get("neue_artikel") == "1",
+                         "entfernen_veraltete": request.POST.get("entfernen_veraltete") == "1",
                          **{f"sp_{f}": v for f, v in zuordnung_.items()}}
                 if vorhanden:
                     for k, v in werte.items():
@@ -103,7 +104,8 @@ def zuordnung(request, kontext, profil, inhalt, token, dateiname, erkannt, name,
             auswahl = assistent.spalten_raten(namen)
     kontext.update(schritt=2, profil=profil, namen=namen, beispiele=beispiele, token=token, dateiname=dateiname, auswahl=auswahl,
                    name=name or (vorhanden.name if vorhanden else ""), erkannt=erkannt,
-                   lieferant=profil.lieferant, neue_artikel=vorhanden.neue_artikel if vorhanden else True)
+                   lieferant=profil.lieferant, neue_artikel=vorhanden.neue_artikel if vorhanden else True,
+                   entfernen_veraltete=vorhanden.entfernen_veraltete if vorhanden else True)
     return render(request, "einkauf/assistent.html", kontext)
 
 

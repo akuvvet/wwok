@@ -16,7 +16,7 @@ from django.utils import timezone
 
 from apps.stammdaten.models import Artikel, ArtikelLieferant, Preislistenartikel
 
-from .models import Dateityp, Preislistenimport, Preislistenprofil, Quelle
+from .models import BestellPosition, Dateityp, Preislistenimport, Preislistenprofil, Quelle
 
 FELDER = ("bestellnummer", "herstellernummer", "ean", "bezeichnung", "hersteller", "kategorie", "ek",
           "bestand", "lieferzeit", "gewicht")
@@ -191,7 +191,13 @@ def vorschau(profil, inhalt: bytes, anzahl: int = 15) -> dict:
         else:
             ergebnis = "wird übersprungen (kein eigener Artikel)"
         zeilen_vorschau.append({"nr": nr, "daten": z, "ek": ek, "artikel": artikel, "ergebnis": ergebnis})
-    return {"gesamt": len(zeilen), "zeilen": zeilen_vorschau}
+    veraltet = 0
+    if profil.entfernen_veraltete and profil.lieferant_id:
+        in_datei = {z.get("bestellnummer", "").strip() for _, z in zeilen}
+        veraltet = Preislistenartikel.objects.filter(lieferant=profil.lieferant).exclude(bestellnummer__in=in_datei).count() \
+            if len(in_datei) < 5000 else sum(1 for bn in Preislistenartikel.objects.filter(lieferant=profil.lieferant)
+                                             .values_list("bestellnummer", flat=True) if bn not in in_datei)
+    return {"gesamt": len(zeilen), "zeilen": zeilen_vorschau, "veraltet": veraltet}
 
 
 SPERRE_STUNDEN = 3  # ein abgestürzter Lauf blockiert das Profil nicht länger als so lange
@@ -222,6 +228,20 @@ def importieren(profil, inhalt: bytes, dateiname: str = "", benutzer=None) -> Pr
         sperre_freigeben(profil)
 
 
+def entfernen(lieferant, bestellnummern: list, ids: list) -> int:
+    """Entfernt Preislistenzeilen, die der Lieferant nicht mehr führt, samt dem daran mitgeführten Lieferantenpreis am eigenen
+    Artikel. Belegpositionen und Bestellungen, die darauf verweisen, behalten Text und Preis (nur der Verweis wird gelöst).
+    Direkt in der Datenbank gelöscht, damit nicht je Zeile ein Protokolleintrag entsteht."""
+    from apps.verkauf.models import Position
+    for i in range(0, len(ids), 1000):
+        block = ids[i:i + 1000]
+        Position.objects.filter(preisliste_artikel_id__in=block).update(preisliste_artikel=None)
+        BestellPosition.objects.filter(preisliste_artikel_id__in=block).update(preisliste_artikel=None)
+        ArtikelLieferant.objects.filter(lieferant=lieferant, bestellnummer__in=bestellnummern[i:i + 1000])._raw_delete(using="default")
+        Preislistenartikel.objects.filter(pk__in=block)._raw_delete(using="default")
+    return len(ids)
+
+
 def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislistenimport:
     protokoll = Preislistenimport(profil=profil, dateiname=dateiname[:200], gelesen=len(zeilen), benutzer=benutzer)
     fehler, jetzt, lieferant = [], timezone.now(), profil.lieferant
@@ -239,6 +259,8 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
             nach_ean.setdefault(ean, artikel_id)
     lieferantenpreise = {al.bestellnummer: al for al in ArtikelLieferant.objects.filter(lieferant=lieferant)}
 
+    bisher = len(vorhanden)  # Anzahl vor dem Import, Grundlage für den Schutz beim Entfernen
+    gesehen = set()  # alle Bestellnummern der Datei – auch fehlerhafte Zeilen, damit nichts versehentlich verschwindet
     neue, geaenderte = {}, {}  # Bestellnummer -> Preislistenartikel (noch nicht bzw. neu zu schreiben)
     al_neu, al_geaendert = [], []
 
@@ -263,6 +285,7 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
             bestellnr = z.get("bestellnummer", "").strip()[:100]
             if not bestellnr:
                 raise ValueError("Bestellnummer fehlt.")
+            gesehen.add(bestellnr)
             ek = zahl(z.get("ek", ""), profil.dezimaltrennzeichen).quantize(Decimal("0.0001"))
             if ek < 0:
                 raise ValueError("EK ist negativ.")
@@ -338,9 +361,17 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
             if len(fehler) < 200:
                 fehler.append({"zeile": nr, "grund": str(grund), "daten": z})
     schreiben()
+    hinweis = ""
+    if profil.entfernen_veraltete:
+        veraltet = [bn for bn, alt in vorhanden.items() if alt["id"] is not None and bn not in gesehen]
+        if veraltet and bisher >= 100 and len(gesehen) < bisher * 0.5:
+            hinweis = (f" – ACHTUNG: {len(veraltet)} nicht mehr gelistete Artikel wurden NICHT entfernt, weil die Liste nur "
+                       f"{len(gesehen)} von bisher {bisher} Artikeln enthält (unvollständiger Download?)")
+        elif veraltet:
+            protokoll.geloescht = entfernen(lieferant, veraltet, [vorhanden[bn]["id"] for bn in veraltet])
     protokoll.fehlerzeilen = fehler
     protokoll.meldung = f"{protokoll.neu} neu, {protokoll.geaendert} geändert, {protokoll.unveraendert} unverändert, " \
-                        f"{protokoll.uebersprungen} übersprungen, {protokoll.fehler} Fehler"
+                        f"{protokoll.uebersprungen} übersprungen, {protokoll.geloescht} entfernt, {protokoll.fehler} Fehler{hinweis}"[:300]
     protokoll.save()
     Preislistenprofil.objects.filter(pk=profil.pk).update(letzter_lauf=jetzt)
     profil.letzter_lauf = jetzt

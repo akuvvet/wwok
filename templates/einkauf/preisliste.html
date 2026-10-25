@@ -20,7 +20,8 @@
 {% if vorschau %}
 <div class="karte">
   <h2>Vorschau: {{ vorschau.gesamt }} Zeilen in {{ dateiname }}</h2>
-  <p style="opacity:.8">Es wurde noch nichts gespeichert. Prüfe die Zuordnung der ersten Zeilen.</p>
+  <p style="opacity:.8">Es wurde noch nichts gespeichert. Prüfe die Zuordnung der ersten Zeilen.
+    {% if vorschau.veraltet %}<br><strong>{{ vorschau.veraltet }} bisherige Artikel stehen nicht mehr in der Liste und werden beim Import entfernt.</strong>{% endif %}</p>
   <div class="scroll"><table>
     <thead><tr><th>Zeile</th><th>Bestell-Nr.</th><th>Herst.-Nr.</th><th>EAN</th><th>Bezeichnung</th><th class="zahl">EK</th><th>Bestand</th><th>Ergebnis</th></tr></thead>
     <tbody>{% for z in vorschau.zeilen %}
