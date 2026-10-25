@@ -91,9 +91,9 @@ class SammelrechnungUndLoeschenTest(TestCase):
         ab = Beleg.objects.create(mandant=self.m, art=Belegart.AUFTRAG, kunde=self.kunde)
         Position.objects.create(beleg=ab, artikel=self.a, bezeichnung="Maus", einzelpreis=Decimal("10"))
         ab.folgebeleg_erzeugen()
-        self.assertIn("Folgebelege", ab.loeschhindernis())
+        self.assertIsNone(ab.loeschhindernis())  # Urbeleg darf nach dem Übernehmen gelöscht werden
         self.client.post(reverse("verkauf:beleg_loeschen", args=[ab.pk]))
-        self.assertTrue(Beleg.objects.filter(pk=ab.pk).exists())
+        self.assertFalse(Beleg.objects.filter(pk=ab.pk).exists())
 
         entwurf = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde)
         self.assertIsNone(entwurf.loeschhindernis())  # nicht nummerierter Rechnungsentwurf

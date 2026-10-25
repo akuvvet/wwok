@@ -123,12 +123,13 @@ class Beleg(Zeitstempel):
 
     def loeschhindernis(self):
         """Grund, warum der Beleg nicht gelöscht werden darf (None = löschbar).
-        Löschbar sind Angebote, Kundenbestellungen (Aufträge) und noch nicht nummerierte Rechnungs-/Gutschriftentwürfe."""
+        Löschbar sind Angebote, Kundenbestellungen (Aufträge, auch nach dem Übernehmen in einen Folgebeleg) und noch nicht
+        nummerierte Rechnungs-/Gutschriftentwürfe."""
         if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG) and not (
                 self.art in GESPERRT_NACH_ABSCHLUSS and not self.abgeschlossen and not self.nummer):
             return f"{self.get_art_display()} kann nicht gelöscht werden – Korrektur nur per Storno/Gutschrift."
-        if self.folgebelege.exists() or self.rechnungen.exists():
-            return "Es gibt Folgebelege (z. B. Lieferschein oder Rechnung) – bitte zuerst diese entfernen."
+        if self.rechnungen.exists():  # nur bei Lieferscheinen möglich; Angebote/Aufträge dürfen nach dem Übernehmen gelöscht werden
+            return "Der Beleg wird in einer Rechnung abgerechnet – bitte zuerst diese entfernen."
         if self.mails.exists():
             return "Der Beleg wurde per E-Mail versendet; der Versandnachweis muss erhalten bleiben."
         if self.zahlungen.exists():

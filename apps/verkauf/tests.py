@@ -397,3 +397,23 @@ class LieferscheinNurAusAuftragTest(TestCase):
         auftrag = angebot.folgebeleg_erzeugen()
         self.assertEqual(auftrag.art, Belegart.AUFTRAG)
         self.assertEqual(auftrag.folgebeleg_erzeugen().art, Belegart.LIEFERSCHEIN)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class UrbelegLoeschenTest(TestCase):
+    def test_angebot_und_auftrag_nach_uebernahme_loeschbar(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        k = Kunde.objects.create(nummer="1", name1="K")
+        angebot = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        Position.objects.create(beleg=angebot, bezeichnung="X", menge=1, einzelpreis=Decimal("1"))
+        auftrag = angebot.folgebeleg_erzeugen()
+        self.assertIsNone(angebot.loeschhindernis())
+        angebot.delete()
+        auftrag.refresh_from_db()
+        self.assertIsNone(auftrag.vorgaenger)
+        self.assertEqual(auftrag.positionen.count(), 1)
+        ls = auftrag.folgebeleg_erzeugen()
+        self.assertIsNone(auftrag.loeschhindernis())
+        auftrag.delete()
+        ls.refresh_from_db()
+        self.assertEqual(ls.positionen.count(), 1)
