@@ -66,7 +66,8 @@
   .aktionen form { margin:0; }
   .aktionen .symbol { width:38px; height:38px; }
   .aktionen .symbol svg { width:20px; height:20px; }
-  .menue-mehr { position:relative; } .menue-mehr summary { list-style:none; cursor:pointer; }
+  .menue-mehr { position:relative; } .menue-mehr summary { list-style:none; cursor:pointer; } .menue-mehr summary::-webkit-details-marker { display:none; }
+  .menue-mehr[open] summary::after { opacity:0; }  /* Tooltip nicht über dem geöffneten Menü */
   .menue-mehr .mehr { position:absolute; z-index:10; right:0; top:110%; min-width:260px; background:var(--karte); border:1px solid var(--rand);
     border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:6px; box-shadow:0 4px 14px rgba(0,0,0,.18); }
   .menue-mehr .mehr button { width:100%; text-align:left; }
@@ -130,6 +131,15 @@
     if (document.querySelector('dialog[open]')) return;  // Escape schließt nur den Dialog
     var ziel = document.querySelector('[data-escape]');
     if (e.key === 'Escape' && ziel) { window.location = ziel.getAttribute('href'); }
+  });
+</script>
+<script>
+  // Aufgeklappte Menüs (Mehr …) schließen, sobald man woanders klickt oder Escape drückt
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('details.menue-mehr[open]').forEach(function (d) { if (!d.contains(e.target)) d.removeAttribute('open'); });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') document.querySelectorAll('details.menue-mehr[open]').forEach(function (d) { d.removeAttribute('open'); });
   });
 </script>
 <script>
