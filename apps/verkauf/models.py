@@ -536,6 +536,25 @@ class Position(Zeitstempel):
         return self.preisliste_artikel.nummer if self.preisliste_artikel_id else ""
 
     @property
+    def ek_stueck(self):
+        """EK netto je Einheit der Position (Gruppen: Summe ihrer Unterpositionen je Gruppeneinheit); None = unbekannt."""
+        if self.typ == "G" and not self.gruppe_id and self.pk:
+            teile = list(self.unterpositionen.select_related("artikel", "preisliste_artikel"))
+            if teile:
+                summe = Decimal("0")
+                for t in teile:
+                    e = t.ek_stueck
+                    if e is None:
+                        return None
+                    summe += e * t.menge
+                return (summe / self.menge) if self.menge else None
+        if self.preisliste_artikel_id:
+            return self.preisliste_artikel.ek
+        if self.artikel_id and self.artikel.typ in ("A", "G"):
+            return self.artikel.ek_errechnet
+        return None
+
+    @property
     def netto_gesamt(self) -> Decimal:
         if self.gruppe_id:  # Unterartikel einer Gruppe: der Preis steht an der Gruppenposition
             return Decimal("0.00")

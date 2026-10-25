@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load l10n %}
 {% block titel %}{{ beleg }} – wwok{% endblock %}
 {% block inhalt %}
 <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}" data-escape style="display:none">zurück</a>
@@ -19,7 +20,8 @@
     {% if beleg.gesperrt %}<p style="margin:6px 0 0;opacity:.75">Korrektur nur per Storno/Gutschrift. Versandart und Zahlungsbedingung bleiben änderbar.</p>{% endif %}
   </div>
   <div class="summe">
-    {% if beleg.ek_marge_code %}<div style="opacity:.55;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.5px" title="EK und Marge (intern)">{{ beleg.ek_marge_code }}</div>{% endif %}
+    {% if beleg.ek_marge_code %}<div style="opacity:.55;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.5px" title="EK und Marge (intern)">{{ beleg.ek_marge_code }}</div>
+    <div id="ekzeile" style="opacity:.55;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.5px;min-height:15px" title="EK und Marge der markierten Position (intern)"></div>{% endif %}
     <div style="opacity:.7">Brutto</div>
     <div class="betrag">{{ beleg.summe_brutto }} €</div>
     <div style="opacity:.7">netto {{ beleg.summe_netto }} €</div>
@@ -62,7 +64,7 @@
   <table>
     <tr><th>Pos.</th><th>Artikel / Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">Preis</th><th class="zahl">Rabatt</th><th class="zahl">Netto</th><th></th></tr>
     {% for p in positionen %}
-    <tr{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}>
+    <tr data-ekstk="{% with ek=p.ek_stueck %}{% if ek is not None %}{{ ek|unlocalize }}{% endif %}{% endwith %}" data-preis="{{ p.einzelpreis|unlocalize }}" data-sub="{{ p.gruppe_id|default_if_none:'' }}"{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}>
       <td>{{ p.pos }}</td>
       <td>
         {% if p.gruppe_id %}<span style="padding-left:18px">↳ </span>{% endif %}
@@ -161,14 +163,37 @@
 
 {% block skript %}
 <script>
+  // EK + Marge der markierten (in Bearbeitung befindlichen) Position, unter dem Gesamtcode
+  (function () {
+    var ziel = document.getElementById('ekzeile'); if (!ziel) return;
+    function zahl(t) { var z = parseFloat(String(t || '').replace(',', '.')); return isNaN(z) ? 0 : z; }
+    function text(ekStueck, menge, vk) {
+      var luecke = ekStueck === '' || ekStueck === null || ekStueck === undefined, ek = luecke ? 0 : zahl(ekStueck) * menge;
+      var marge = vk ? (vk - ek) / vk * 100 : 0;
+      return (ek.toFixed(2) + marge.toFixed(2)).replace(/\./g, ',') + (luecke ? '*' : '');
+    }
+    window.ekZeigen = function (ekStueck, menge, vk) { ziel.textContent = text(ekStueck, menge, vk); };
+    function zeile(tr) {
+      var m = tr.querySelector('input[name=menge]'), p = tr.querySelector('input[name=preis]'), r = tr.querySelector('input[name=rabatt]');
+      var menge = zahl(m ? m.value : tr.cells[2].textContent), preis = p ? zahl(p.value) : zahl(tr.dataset.preis);
+      var rabatt = r ? zahl(r.value) : 0;
+      window.ekZeigen(tr.dataset.ekstk, menge, menge * preis * (100 - rabatt) / 100);
+    }
+    function markieren(e) { var tr = e.target.closest && e.target.closest('tr[data-ekstk]'); if (tr) zeile(tr); }
+    document.addEventListener('focusin', markieren);
+    document.addEventListener('click', markieren);
+    document.addEventListener('input', markieren);
+    document.addEventListener('toggle', function (e) { if (e.target.open) markieren(e); }, true);
+  })();
+</script>
+<script>
   // Beleg kopieren: bei einem Angebot wird gefragt, ob der Urbeleg danach abgeschlossen (erledigt) werden soll
   document.querySelectorAll('form.kopieren').forEach(function (f) {
     f.addEventListener('submit', function () {
       if (f.dataset.art !== 'AN') return;
       var art = f.querySelector('select').selectedOptions[0].text;
       f.querySelector('[name=urbeleg_abschliessen]').value =
-        confirm('Angebot nach dem Kopieren als ' + art + ' abschließen (erledigt)?
-OK = Angebot abschließen, Abbrechen = Angebot offen lassen') ? '1' : '0';
+        confirm('Angebot nach dem Kopieren als ' + art + ' abschließen (erledigt)?\nOK = Angebot abschließen, Abbrechen = Angebot offen lassen') ? '1' : '0';
     });
   });
 </script>
@@ -192,7 +217,14 @@ OK = Angebot abschließen, Abbrechen = Angebot offen lassen') ? '1' : '0';
     var feld = document.getElementById('artikel'), box = document.getElementById('trefferliste');
     var preis = document.getElementById('preis'), info = document.getElementById('letzterpreis');
     var typ = document.querySelector('select[name=typ]');
-    var liste = [], aktiv = -1, timer, anfrage = 0;
+    var liste = [], aktiv = -1, timer, anfrage = 0, aktuellerEk = null;
+    function zahl(t) { var z = parseFloat(String(t || '').replace(',', '.')); return isNaN(z) ? 0 : z; }
+    function ekErfassung() {  // EK + Marge des Artikels in der Erfassungszeile, laufend mit Menge, Preis und Rabatt
+      if (aktuellerEk === null || !window.ekZeigen) return;
+      var f = document.getElementById('positionsform'), menge = zahl(f.menge.value);
+      window.ekZeigen(aktuellerEk, menge, menge * zahl(f.preis.value) * (100 - zahl(f.rabatt.value)) / 100);
+    }
+    ['menge', 'preis', 'rabatt'].forEach(function (n) { document.getElementById('positionsform')[n].addEventListener('input', ekErfassung); });
     function zeige() {
       box.innerHTML = '';
       liste.forEach(function (t, i) {
@@ -207,6 +239,7 @@ OK = Angebot abschließen, Abbrechen = Angebot offen lassen') ? '1' : '0';
     function waehle(i) {
       var t = liste[i]; if (!t) return;
       feld.value = t.nummer; preis.value = t.preis; typ.value = t.typ; document.getElementById('pl').value = t.pl || '';
+      aktuellerEk = t.ek === undefined ? '' : t.ek; ekErfassung();
       info.textContent = t.bezeichnung + (t.letzter ? ' · letzter Preis dieses Kunden: ' + t.letzter.preis + ' € am ' + t.letzter.datum : '');
       liste = []; aktiv = -1; zeige();
       document.querySelector('#positionsform input[name=menge]').focus(); document.querySelector('#positionsform input[name=menge]').select();
