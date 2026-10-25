@@ -462,7 +462,11 @@ def beleg_pdf_ansicht(request, beleg_id):
     if hindernis:
         messages.error(request, hindernis)
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
-    antwort = HttpResponse(beleg_pdf(beleg), content_type="application/pdf")
+    from .zugferd import beleg_pdf_mit_xml
+    pdf, hinweis = beleg_pdf_mit_xml(beleg)
+    if hinweis:
+        messages.warning(request, hinweis)
+    antwort = HttpResponse(pdf, content_type="application/pdf")
     antwort["Content-Disposition"] = f'inline; filename="{beleg.nummer or "entwurf"}.pdf"'
     return antwort
 
@@ -477,6 +481,11 @@ def beleg_mail(request, beleg_id):
         messages.error(request, "Erst abschließen und nummerieren, dann versenden.")
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
     an, betreff, text = mail_vorschlag(beleg)
+    if request.method != "POST" and beleg.art in ("RE", "GS"):
+        from .zugferd import beleg_pdf_mit_xml
+        hinweis = beleg_pdf_mit_xml(beleg)[1]
+        if hinweis:
+            messages.warning(request, hinweis)
     if request.method == "POST":
         an, betreff, text = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
         try:

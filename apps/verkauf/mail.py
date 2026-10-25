@@ -124,4 +124,6 @@ def beleg_senden(beleg, an: str, betreff: str, text: str, benutzer=None) -> Mail
         raise MailFehler("Entwürfe ohne Belegnummer können nicht versendet werden.")
     if not beleg.positionen.exists():
         raise MailFehler("Ein Beleg ohne Position kann nicht versendet werden.")
-    return senden(beleg, an, betreff, text, beleg_pdf(beleg), f"{beleg.nummer}.pdf", benutzer)
+    from .zugferd import beleg_pdf_mit_xml  # abgeschlossene Rechnungen/Gutschriften gehen als ZUGFeRD-PDF raus
+    pdf, _ = beleg_pdf_mit_xml(beleg)
+    return senden(beleg, an, betreff, text, pdf, f"{beleg.nummer}.pdf", benutzer)
