@@ -29,7 +29,8 @@
   {% if not beleg.abgeschlossen %}
   <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" onsubmit="return confirm('Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}')">{% csrf_token %}<button type="submit">Abschließen &amp; Nummer vergeben</button></form>
   {% endif %}
-  <a class="knopf leise" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank" onclick="setTimeout(function(){location.href='{% url 'verkauf:kunde' beleg.kunde_id %}'},600)">PDF</a>
+  {% if druckhindernis %}<a class="knopf leise" href="#" onclick="alert('{{ druckhindernis|escapejs }}');return false" title="Druck nicht möglich">PDF</a>
+  {% else %}<a class="knopf leise" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank" onclick="setTimeout(function(){location.href='{% url 'verkauf:kunde' beleg.kunde_id %}'},600)">PDF</a>{% endif %}
   {% if beleg.nummer %}<a class="knopf leise" href="{% url 'verkauf:beleg_mail' beleg.pk %}">E-Mail{% if beleg.mails.exists %} (versendet){% endif %}</a>{% endif %}
   {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'AB' and beleg.nummer %}<a class="knopf leise" href="{% url 'finanzen:beleg' beleg.pk %}">Zahlungen</a>{% endif %}
   {% if beleg.esd_vergaben.exists or esd_positionen %}<a class="knopf leise" href="{% url 'esd:beleg' beleg.pk %}">ESD-Keys</a>{% endif %}

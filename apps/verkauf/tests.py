@@ -329,3 +329,25 @@ class RechnungOhneLieferscheinTest(TestCase):
         Position.objects.create(beleg=re, artikel=a, bezeichnung="Maus", menge=1, einzelpreis=Decimal("10"))
         with self.assertRaisesMessage(ValueError, "Erst den Lieferschein"):
             re.abschliessen()
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class DruckSperreTest(TestCase):
+    def test_pdf_von_lieferschein_ohne_bestand_gesperrt(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        a = Artikel.objects.create(nummer="A1", bezeichnung="Maus", steuersatz=st, vk1=Decimal("10"))
+        k = Kunde.objects.create(nummer="1", name1="K")
+        ls = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=k)
+        Position.objects.create(beleg=ls, artikel=a, bezeichnung="Maus", menge=1, einzelpreis=Decimal("10"))
+        angebot = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        Position.objects.create(beleg=angebot, artikel=a, bezeichnung="Maus", menge=1, einzelpreis=Decimal("10"))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        r = self.client.get(reverse("verkauf:beleg_pdf", args=[ls.pk]), follow=True)
+        self.assertContains(r, "Lagerbestand reicht nicht")
+        self.assertNotEqual(r.get("Content-Type"), "application/pdf")
+        self.assertEqual(self.client.get(reverse("verkauf:beleg_pdf", args=[angebot.pk])).status_code, 200)  # Angebot immer druckbar
+        self.assertContains(self.client.get(reverse("verkauf:beleg", args=[ls.pk])), "Druck nicht möglich")

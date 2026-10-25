@@ -37,6 +37,38 @@ def offene_lieferscheine(beleg):
     return liste
 
 
+def fehlbestand(beleg) -> list:
+    """Texte zu Lagerartikeln, deren Bestand für Lieferschein/Rechnung nicht reicht (leer = alles lieferbar)."""
+    if not bucht_bestand(beleg):
+        return []
+    mengen = defaultdict(Decimal)
+    artikel = {}
+    for p in beleg.positionen.select_related("artikel"):
+        if p.artikel_id and p.artikel.typ == LAGERFUEHREND:
+            mengen[p.artikel_id] += p.menge
+            artikel[p.artikel_id] = p.artikel
+    knapp = []
+    for artikel_id, menge in mengen.items():
+        vorhanden = bestand(beleg.mandant, artikel[artikel_id])
+        if vorhanden < menge:
+            knapp.append(f"{artikel[artikel_id].nummer} {artikel[artikel_id].bezeichnung[:40]} (benötigt {menge:f}, vorhanden {vorhanden:f})")
+    return knapp
+
+
+def druckhindernis(beleg) -> str:
+    """Grund, warum ein Lieferschein/eine Rechnung (noch) nicht gedruckt oder versendet werden darf; leer = erlaubt."""
+    if beleg.art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) or beleg.abgeschlossen:
+        return ""
+    if beleg.art == Belegart.RECHNUNG:
+        offen = offene_lieferscheine(beleg)
+        if offen:
+            return "Erst den Lieferschein " + ", ".join(l.nummer or "(Entwurf)" for l in offen) + " abschließen (bucht das Lager ab)."
+    knapp = fehlbestand(beleg)
+    if knapp:
+        return "Lagerbestand reicht nicht für " + beleg.get_art_display() + ": " + "; ".join(knapp) + ". Druck nicht möglich."
+    return ""
+
+
 @transaction.atomic
 def buche_beleg(beleg, benutzer=None) -> int:
     """Bucht die Lagerartikel des Belegs ab (einmal je Beleg). Rückgabe: Zahl der Bewegungen."""
@@ -48,11 +80,7 @@ def buche_beleg(beleg, benutzer=None) -> int:
         if p.artikel_id and p.artikel.typ == LAGERFUEHREND:
             mengen[p.artikel_id] += p.menge
             artikel[p.artikel_id] = p.artikel
-    knapp = []  # Lieferschein/Rechnung nur mit ausreichendem Lagerbestand: sonst würde er unter 0 fallen
-    for artikel_id, menge in mengen.items():
-        vorhanden = bestand(beleg.mandant, artikel[artikel_id])
-        if vorhanden < menge:
-            knapp.append(f"{artikel[artikel_id].nummer} {artikel[artikel_id].bezeichnung[:40]} (benötigt {menge:f}, vorhanden {vorhanden:f})")
+    knapp = fehlbestand(beleg)  # Lieferschein/Rechnung nur mit ausreichendem Lagerbestand: sonst würde er unter 0 fallen
     if knapp:
         raise BestandReichtNicht("Lagerbestand reicht nicht für " + beleg.get_art_display() + ": " + "; ".join(knapp) +
                                  ". Erst Wareneingang buchen oder die Menge ändern.")

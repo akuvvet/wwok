@@ -165,6 +165,7 @@ def beleg_neu(request, kunde_id):
 
 @mit_mandant
 def beleg_detail(request, beleg_id):
+    from apps.lager.services import druckhindernis
     from apps.lager.models import bestand, reserviert
     beleg = beleg_holen(request, beleg_id)
     positionen = list(beleg.positionen.select_related("artikel", "preisliste_artikel__lieferant"))
@@ -185,6 +186,7 @@ def beleg_detail(request, beleg_id):
         "kredit_warnung": kredit_warnung, "kunde_offen": offen, "kreditlimit": limit,
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),
         "beleg": beleg, "positionen": positionen, "loeschbar": beleg.loeschhindernis() is None,
+        "druckhindernis": druckhindernis(beleg),
         "gruppen": [p for p in positionen if p.typ == "G" and not p.gruppe_id],
         "arten": Belegart.choices,
         "zahlungsbedingungen": Zahlungsbedingung.objects.all(),
@@ -454,7 +456,12 @@ def beleg_gutschrift(request, beleg_id):
 
 @mit_mandant
 def beleg_pdf_ansicht(request, beleg_id):
+    from apps.lager.services import druckhindernis
     beleg = beleg_holen(request, beleg_id)
+    hindernis = druckhindernis(beleg)
+    if hindernis:
+        messages.error(request, hindernis)
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
     antwort = HttpResponse(beleg_pdf(beleg), content_type="application/pdf")
     antwort["Content-Disposition"] = f'inline; filename="{beleg.nummer or "entwurf"}.pdf"'
     return antwort
