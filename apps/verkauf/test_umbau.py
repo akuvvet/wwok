@@ -82,6 +82,17 @@ class UmbauTest(TestCase):
         self.client.post(reverse("verkauf:position_neu", args=[b.pk]), {"pl": self.gehaeuse.pk, "menge": "1", "preis": "99,90"})
         self.assertEqual(b.positionen.get().einzelpreis, Decimal("99.90"))
 
+    def test_preislistenartikel_in_gruppe(self):
+        b = self.beleg()
+        url = reverse("verkauf:position_neu", args=[b.pk])
+        self.client.post(url, {"typ": "G", "bezeichnung": "Paket", "menge": "1"})
+        kopf = b.positionen.get()
+        self.client.post(url, {"pl": self.gehaeuse.pk, "menge": "1", "preis": "99,90", "gruppe": str(kopf.pk)})
+        teil = b.positionen.get(gruppe=kopf)
+        self.assertEqual((teil.typ, teil.preisliste_artikel), ("P", self.gehaeuse))
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("99.90"))  # Gruppenpreis = Summe der Teile
+
     # ---- Lieferantenbestellung -------------------------------------------------------------------------
     def test_bestellung_suche_und_preislistenposition_wird_beim_wareneingang_zum_artikel(self):
         b = einkauf.bestellung_anlegen(self.m, self.api)

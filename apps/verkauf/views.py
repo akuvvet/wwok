@@ -254,8 +254,9 @@ def position_neu(request, beleg_id):
     if request.POST.get("pl"):  # Artikel aus der Lieferantenpreisliste (Typ P): ohne eigene Artikelanlage verkaufbar
         from apps.stammdaten.models import Steuersatz
         from apps.stammdaten.preise import preislistenpreis
-        if request.POST.get("gruppe"):
-            raise ValueError("Preislistenartikel können nicht in eine Gruppe aufgenommen werden.")
+        gruppe_pl = None
+        if request.POST.get("gruppe"):  # Preislistenartikel als Unterposition einer Gruppe
+            gruppe_pl = get_object_or_404(Position, pk=request.POST["gruppe"], beleg=beleg, typ="G", gruppe__isnull=True)
         eintrag = get_object_or_404(Preislistenartikel.objects.select_related("lieferant"), pk=request.POST["pl"])
         preis = dezimal(request.POST.get("preis"))
         if preis is None:
@@ -264,7 +265,7 @@ def position_neu(request, beleg_id):
             raise ValueError("Für Preislistenartikel ist noch kein Aufschlag hinterlegt (Verwaltung → Globale Preisvorgabe) – bitte den Preis eintragen.")
         standard = Steuersatz.objects.filter(nummer=1).first()
         Position.objects.create(
-            beleg=beleg, typ="P", preisliste_artikel=eintrag, bezeichnung=(request.POST.get("bezeichnung", "").strip() or eintrag.bezeichnung)[:255],
+            beleg=beleg, gruppe=gruppe_pl, typ="P", preisliste_artikel=eintrag, bezeichnung=(request.POST.get("bezeichnung", "").strip() or eintrag.bezeichnung)[:255],
             menge=menge, einzelpreis=preis, rabatt_prozent=rabatt, steuer_prozent=standard.prozent if standard else Decimal("19"))
         beleg.berechne()
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
