@@ -19,6 +19,7 @@
     {% if beleg.gesperrt %}<p style="margin:6px 0 0;opacity:.75">Korrektur nur per Storno/Gutschrift. Versandart und Zahlungsbedingung bleiben änderbar.</p>{% endif %}
   </div>
   <div class="summe">
+    {% if beleg.ek_marge_code %}<div style="opacity:.55;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.5px" title="EK und Marge (intern)">{{ beleg.ek_marge_code }}</div>{% endif %}
     <div style="opacity:.7">Brutto</div>
     <div class="betrag">{{ beleg.summe_brutto }} €</div>
     <div style="opacity:.7">netto {{ beleg.summe_netto }} €</div>

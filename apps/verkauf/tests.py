@@ -461,3 +461,19 @@ class GruppenSummeTest(TestCase):
         b.berechne()
         kopf.refresh_from_db()
         self.assertEqual(kopf.einzelpreis, Decimal("300"))         # fest eingetragener Preis bleibt
+
+
+class EkMargeCodeTest(TestCase):
+    def test_code_aus_ek_und_marge(self):
+        from apps.stammdaten.models import ArtikelLieferant, Lieferant
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        k = Kunde.objects.create(nummer="1", name1="K")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        a = Artikel.objects.create(nummer="A1", bezeichnung="Maus", steuersatz=st, durchschnitts_ek=Decimal("40"))
+        b = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        Position.objects.create(beleg=b, artikel=a, bezeichnung="Maus", menge=10, einzelpreis=Decimal("50"))
+        self.assertEqual(b.ek_marge_code, "400,0020,00")   # EK 400,00 · Marge (500 − 400) / 500
+        Position.objects.create(beleg=b, bezeichnung="Service", menge=1, einzelpreis=Decimal("100"))
+        self.assertTrue(b.ek_marge_code.endswith("*"))     # Position ohne EK
+        ls = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=k)
+        self.assertEqual(ls.ek_marge_code, "")

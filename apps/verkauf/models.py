@@ -189,6 +189,49 @@ class Beleg(Zeitstempel):
             anzahl += 1
         return anzahl
 
+    def ek_und_marge(self):
+        """(EK netto, Marge in % vom Netto-VK, unvollständig) für die interne Anzeige; None bei Belegarten ohne Anzeige.
+        EK je Position: Lagerartikel/Gruppen über Wareneingang bzw. günstigste Preisliste, Preislistenartikel mit ihrem EK;
+        Gruppen zählen über ihre Unterpositionen. Leistungen und freie Positionen haben keinen EK (unvollständig = True)."""
+        if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG, Belegart.RECHNUNG):
+            return None
+        ek, vk, luecke = Decimal("0"), Decimal("0"), False
+        positionen = list(self.positionen.select_related("artikel", "preisliste_artikel"))
+        teile = {}
+        for p in positionen:
+            if p.gruppe_id:
+                teile.setdefault(p.gruppe_id, []).append(p)
+
+        def einzel_ek(p):
+            if p.preisliste_artikel_id:
+                return p.preisliste_artikel.ek
+            if p.artikel_id and p.artikel.typ in ("A", "G"):
+                return p.artikel.ek_errechnet
+            return None
+
+        for p in positionen:
+            if p.gruppe_id:
+                continue
+            vk += p.netto_gesamt
+            quellen = teile.get(p.pk) or [p]
+            for q in quellen:
+                wert = einzel_ek(q)
+                if wert is None:
+                    luecke = True
+                else:
+                    ek += wert * q.menge
+        marge = ((vk - ek) / vk * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if vk else Decimal("0")
+        return ek.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), marge, luecke
+
+    @property
+    def ek_marge_code(self) -> str:
+        """EK und Marge hintereinander ohne Trennzeichen (z. B. 400,50 und 15,25 → 400,5015,25): für den Verkäufer lesbar, für Dritte nicht."""
+        daten = self.ek_und_marge()
+        if daten is None:
+            return ""
+        ek, marge, luecke = daten
+        return f"{ek:.2f}{marge:.2f}".replace(".", ",") + ("*" if luecke else "")
+
     def gruppenpreise_aktualisieren(self):
         """Der Preis einer Gruppe (Typ G) ist die Summe ihrer Unterpositionen, solange er nicht von Hand festgelegt wurde."""
         for kopf in Position.objects.filter(beleg=self, typ="G", gruppe__isnull=True, preis_fest=False):
