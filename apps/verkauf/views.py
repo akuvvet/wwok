@@ -74,8 +74,13 @@ def start(request):
         treffer = Kunde.objects.filter(filt, anonymisiert=False)[:100]
         if len(treffer) == 1:
             return redirect("verkauf:kunde", kunde_id=treffer[0].pk)
+    offene = None
+    if mandant and treffer is None:  # ohne Suche: die offenen (nicht abgeschlossenen) Belege zum Weiterbearbeiten
+        offene = list(Beleg.objects.filter(mandant=mandant, abgeschlossen=False).select_related("kunde")
+                      .order_by("-belegdatum", "-id")[:100])
     return render(request, "verkauf/start.html", {
-        "mandant": mandant, "mandanten": Mandant.objects.filter(aktiv=True), "q": q, "treffer": treffer})
+        "mandant": mandant, "mandanten": Mandant.objects.filter(aktiv=True), "q": q, "treffer": treffer,
+        "offene": offene})
 
 
 @mit_mandant

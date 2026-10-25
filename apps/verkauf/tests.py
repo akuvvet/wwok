@@ -221,3 +221,20 @@ class PositionsnummerTest(TestCase):
         ps[1].delete()
         b.berechne()
         self.assertEqual([(p.bezeichnung, p.pos) for p in b.positionen.all()], [("P2", 1), ("PC", 2), ("Teil", 2)])
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class StartOffeneTest(TestCase):
+    def test_start_zeigt_offene_belege(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        k = Kunde.objects.create(nummer="1", name1="Offenkunde")
+        Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=Kunde.objects.create(nummer="2", name1="Fertigkunde"),
+                             abgeschlossen=True)
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        r = self.client.get(reverse("verkauf:start"))
+        self.assertContains(r, "Offenkunde")
+        self.assertNotContains(r, "Fertigkunde")
