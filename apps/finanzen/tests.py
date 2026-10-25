@@ -93,7 +93,7 @@ class FinanzenTest(TestCase):
         self.assertEqual(self.client.get(reverse("finanzen:mahnung_pdf", args=[m.pk]))["Content-Type"], "application/pdf")
         self.assertContains(self.client.get(reverse("finanzen:kontoauszug", args=[self.kunde.pk])), "Saldo")
         self.assertContains(self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk])), "Offene Posten")
-        self.assertContains(self.client.get(reverse("verkauf:beleg", args=[b.pk])), "Zahlungen</a>")
+        self.assertContains(self.client.get(reverse("verkauf:beleg", args=[b.pk])), 'aria-label="Zahlungen"')
         self.assertContains(self.client.get(reverse("finanzen:mahnung_mail", args=[m.pk])), "Zahlungserinnerung")
 
 
