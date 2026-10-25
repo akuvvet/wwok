@@ -520,3 +520,25 @@ class FesterGruppenpreisErhoehenTest(TestCase):
         self.client.post(url, {"typ": "A", "artikel": "A2", "menge": "2", "gruppe": str(kopf.pk)})
         kopf.refresh_from_db()
         self.assertEqual(kopf.einzelpreis, Decimal("370.00"))   # + 2 × 60
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class FesterGruppenpreisLoeschenTest(TestCase):
+    def test_loeschen_senkt_festen_preis(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        k = Kunde.objects.create(nummer="1", name1="K")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        Artikel.objects.create(nummer="A1", bezeichnung="Gehäuse", steuersatz=st, vk1=Decimal("100"))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        beleg = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        url = reverse("verkauf:position_neu", args=[beleg.pk])
+        self.client.post(url, {"typ": "G", "bezeichnung": "Paket", "menge": "1", "preis": "150"})
+        kopf = beleg.positionen.get()
+        self.client.post(url, {"typ": "A", "artikel": "A1", "menge": "1", "gruppe": str(kopf.pk)})
+        teil = beleg.positionen.get(gruppe=kopf)
+        self.client.post(reverse("verkauf:position_loeschen", args=[beleg.pk, teil.pk]))
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("150.00"))   # zurück auf die Pauschale

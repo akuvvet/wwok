@@ -378,7 +378,10 @@ def position_aendern(request, beleg_id, position_id):
 @sperr_schutz
 def position_loeschen(request, beleg_id, position_id):
     beleg = beleg_holen(request, beleg_id)
-    get_object_or_404(Position, pk=position_id, beleg=beleg).delete()
+    p = get_object_or_404(Position, pk=position_id, beleg=beleg)
+    if p.gruppe_id:  # Unterposition einer Gruppe mit festem Preis: der Preis sinkt um ihren Betrag
+        gruppenpreis_erhoehen(p.gruppe, -(p.menge * p.einzelpreis))
+    p.delete()
     beleg.berechne()
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
