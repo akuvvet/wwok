@@ -238,3 +238,31 @@ class StartOffeneTest(TestCase):
         r = self.client.get(reverse("verkauf:start"))
         self.assertContains(r, "Offenkunde")
         self.assertNotContains(r, "Fertigkunde")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class BelegKopierenTest(TestCase):
+    def setUp(self):
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        self.k = Kunde.objects.create(nummer="1", name1="K")
+        self.b = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.k)
+        Position.objects.create(beleg=self.b, bezeichnung="X", menge=2, einzelpreis=Decimal("5"))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+
+    def test_angebot_als_rechnung_kopieren_und_urbeleg_abschliessen(self):
+        r = self.client.post(reverse("verkauf:beleg_kopieren", args=[self.b.pk]), {"art": "RE", "urbeleg_abschliessen": "1"})
+        neu = Beleg.objects.get(art=Belegart.RECHNUNG)
+        self.assertRedirects(r, reverse("verkauf:beleg", args=[neu.pk]))
+        self.assertEqual(neu.positionen.count(), 1)
+        self.assertEqual(neu.vorgaenger, self.b)
+        self.b.refresh_from_db()
+        self.assertTrue(self.b.abgeschlossen)
+
+    def test_urbeleg_bleibt_offen_und_gleiche_art_moeglich(self):
+        self.client.post(reverse("verkauf:beleg_kopieren", args=[self.b.pk]), {"art": "AN", "urbeleg_abschliessen": "0"})
+        self.assertEqual(Beleg.objects.filter(art=Belegart.ANGEBOT).count(), 2)
+        self.b.refresh_from_db()
+        self.assertFalse(self.b.abgeschlossen)

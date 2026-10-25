@@ -185,6 +185,7 @@ def beleg_detail(request, beleg_id):
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),
         "beleg": beleg, "positionen": positionen, "loeschbar": beleg.loeschhindernis() is None,
         "gruppen": [p for p in positionen if p.typ == "G" and not p.gruppe_id],
+        "arten": Belegart.choices,
         "zahlungsbedingungen": Zahlungsbedingung.objects.all(),
         "ansprechpartner": beleg.kunde.ansprechpartner.all()})
 
@@ -371,6 +372,16 @@ def beleg_abschliessen(request, beleg_id):
 def beleg_folgebeleg(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
     neu = beleg.folgebeleg_erzeugen()
+    return redirect("verkauf:beleg", beleg_id=neu.pk)
+
+
+@mit_mandant
+@require_POST
+def beleg_kopieren(request, beleg_id):
+    """Beleg als beliebige Belegart kopieren (z. B. Angebot → Rechnung); der Ursprungsbeleg wird auf Wunsch abgeschlossen."""
+    beleg = beleg_holen(request, beleg_id)
+    neu = beleg.kopieren_als(request.POST.get("art", ""), urbeleg_abschliessen=request.POST.get("urbeleg_abschliessen") == "1")
+    messages.success(request, f"{beleg.get_art_display()} als {neu.get_art_display()} kopiert.")
     return redirect("verkauf:beleg", beleg_id=neu.pk)
 
 

@@ -29,15 +29,18 @@
   {% if not beleg.abgeschlossen %}
   <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" onsubmit="return confirm('Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}')">{% csrf_token %}<button type="submit">Abschließen &amp; Nummer vergeben</button></form>
   {% endif %}
-  {% if beleg.folgeart %}
-  <form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">Als {{ beleg.folgeart_name }} übernehmen</button></form>
-  {% endif %}
   <a class="knopf leise" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank" onclick="setTimeout(function(){location.href='{% url 'verkauf:kunde' beleg.kunde_id %}'},600)">PDF</a>
   {% if beleg.nummer %}<a class="knopf leise" href="{% url 'verkauf:beleg_mail' beleg.pk %}">E-Mail{% if beleg.mails.exists %} (versendet){% endif %}</a>{% endif %}
   {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'AB' and beleg.nummer %}<a class="knopf leise" href="{% url 'finanzen:beleg' beleg.pk %}">Zahlungen</a>{% endif %}
   {% if beleg.esd_vergaben.exists or esd_positionen %}<a class="knopf leise" href="{% url 'esd:beleg' beleg.pk %}">ESD-Keys</a>{% endif %}
   <details class="menue-mehr"><summary class="knopf leise">Weitere Aktionen ▾</summary>
     <div class="mehr">
+      {% if beleg.folgeart %}<form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">Als {{ beleg.folgeart_name }} übernehmen</button></form>{% endif %}
+      <form method="post" action="{% url 'verkauf:beleg_kopieren' beleg.pk %}" class="kopieren" data-art="{{ beleg.art }}">{% csrf_token %}
+        <input type="hidden" name="urbeleg_abschliessen" value="0">
+        <select name="art" aria-label="Kopieren als">{% for wert, name in arten %}{% if wert != 'GS' %}<option value="{{ wert }}" {% if wert == beleg.folgeart %}selected{% endif %}>{{ name }}</option>{% endif %}{% endfor %}</select>
+        <button class="leise" type="submit">Kopieren als …</button>
+      </form>
       {% if beleg.art == 'AN' or beleg.art == 'AB' %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'LS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'werkstatt:reklamation' beleg.pk %}">Gerät reklamiert → Werkstatt</a>{% endif %}
       {% if beleg.art == 'GS' and beleg.abgeschlossen %}<form method="post" action="{% url 'lager:retoure' beleg.pk %}" onsubmit="return confirm('Ware dieser Gutschrift ins Lager zurückbuchen?')">{% csrf_token %}<button class="leise" type="submit">Ware ins Lager zurückbuchen</button></form>{% endif %}
@@ -155,6 +158,18 @@
 {% endblock %}
 
 {% block skript %}
+<script>
+  // Beleg kopieren: bei einem Angebot wird gefragt, ob der Urbeleg danach abgeschlossen (erledigt) werden soll
+  document.querySelectorAll('form.kopieren').forEach(function (f) {
+    f.addEventListener('submit', function () {
+      if (f.dataset.art !== 'AN') return;
+      var art = f.querySelector('select').selectedOptions[0].text;
+      f.querySelector('[name=urbeleg_abschliessen]').value =
+        confirm('Angebot nach dem Kopieren als ' + art + ' abschließen (erledigt)?
+OK = Angebot abschließen, Abbrechen = Angebot offen lassen') ? '1' : '0';
+    });
+  });
+</script>
 <script>
   (function () {
     var tabs = document.querySelectorAll('.tab'), speichern = document.getElementById('speichern');

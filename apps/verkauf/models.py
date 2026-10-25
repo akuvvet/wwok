@@ -233,6 +233,28 @@ class Beleg(Zeitstempel):
 
 
     @transaction.atomic
+    def kopieren_als(self, art, urbeleg_abschliessen=False) -> "Beleg":
+        """Beliebigen Beleg als neuen Entwurf der gewünschten Belegart kopieren (Gutschrift nur über Storno).
+        Optional wird der Ursprungsbeleg danach abgeschlossen (erledigt)."""
+        if art not in Belegart.values or art == Belegart.GUTSCHRIFT:
+            raise ValueError("Diese Belegart kann nicht als Kopie angelegt werden.")
+        self.positionen_pruefen()
+        neu = Beleg.objects.create(
+            mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
+            zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
+            versandanschrift=self.versandanschrift, versandart=self.versandart,
+            versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
+            referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
+            bemerkung=self.bemerkung, vorgaenger=self if art != self.art else None)
+        kopiere_positionen(self, neu)
+        if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG:
+            neu.lieferscheine.add(self)
+        neu.berechne()
+        if urbeleg_abschliessen and not self.abgeschlossen:
+            self.abschliessen()
+        return neu
+
+    @transaction.atomic
     def gutschrift_erzeugen(self) -> "Beleg":
         """Storno/Gutschrift zu einer abgeschlossenen Rechnung (Positionen unverändert, Belegart Gutschrift)."""
         if self.art != Belegart.RECHNUNG or not self.abgeschlossen:
