@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block titel %}Lieferanten – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Lieferanten</h1>
+  <form method="get" class="zeile">
+    <div><label>Suche</label><input name="q" value="{{ q }}" placeholder="Name, Kurzname, Ort, Nummer" autofocus></div>
+    <button type="submit" class="leise">Suchen</button>
+    <a class="knopf" data-modal="{% url 'stammdaten:lieferant_neu' %}" href="{% url 'einkauf:lieferanten' %}">+ Neuer Lieferant</a>
+  </form>
+  <div class="scroll" style="margin-top:10px"><table>
+    <thead><tr><th>Nr.</th><th>Kurz</th><th>Name</th><th>Ort</th><th>Telefon</th><th>E-Mail</th><th></th></tr></thead>
+    <tbody>
+    {% for l in lieferanten %}<tr><td>{{ l.nummer }}</td><td>{{ l.kurzname }}</td><td>{{ l.name1 }} {{ l.name2 }}</td><td>{{ l.plz }} {{ l.ort }}</td><td>{{ l.telefon }}</td><td>{{ l.email }}</td>
+      <td><a class="symbol" data-tip="Bearbeiten" aria-label="Bearbeiten" data-modal="{% url 'stammdaten:lieferant_bearbeiten' l.pk %}" href="/verwaltung/stammdaten/lieferant/{{ l.pk }}/change/">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a></td></tr>
+    {% empty %}<tr><td colspan="7">Keine Lieferanten.</td></tr>{% endfor %}
+    </tbody></table></div>
+</div>
+{% endblock %}

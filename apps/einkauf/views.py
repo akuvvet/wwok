@@ -56,6 +56,16 @@ def schutz(ziel, *arg_namen):
 # ---- Bestellungen ---------------------------------------------------------------------------------
 
 @mit_mandant
+def lieferanten(request):
+    q = request.GET.get("q", "").strip()
+    liste = Lieferant.objects.all().order_by("name1")
+    for wort in q.split():
+        liste = liste.filter(Q(name1__icontains=wort) | Q(name2__icontains=wort) | Q(kurzname__icontains=wort)
+                             | Q(ort__icontains=wort) | Q(nummer__icontains=wort))
+    return render(request, "einkauf/lieferanten.html", {"lieferanten": liste[:300], "q": q, "bereich": "einkauf"})
+
+
+@mit_mandant
 def bestellungen(request):
     status = request.GET.get("status", "offen")
     liste = Bestellung.objects.filter(mandant=request.mandant).select_related("lieferant")

@@ -8,7 +8,7 @@
 <div class="karte kundenkopf">
   <div class="kk-titel">
     <h1>{{ kunde.nummer }} – {{ kunde.name1 }} {{ kunde.name2 }}</h1>
-    <a class="symbol links" data-tip="Kundendaten bearbeiten" aria-label="Kundendaten bearbeiten" href="/verwaltung/stammdaten/kunde/{{ kunde.pk }}/change/">
+    <a class="symbol links" data-tip="Kundendaten bearbeiten" aria-label="Kundendaten bearbeiten" data-modal="{% url 'stammdaten:kunde_bearbeiten' kunde.pk %}" href="/verwaltung/stammdaten/kunde/{{ kunde.pk }}/change/">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a>
   </div>
   <div class="kk-raster">

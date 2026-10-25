@@ -12,6 +12,7 @@
     <a class="knopf leise" href="{% url 'einkauf:preislisten' %}">Preislisten &amp; EK-Import</a>
     <a class="knopf leise" href="{% url 'einkauf:preislistenartikel' %}">Preislistenartikel suchen</a>
     <a class="knopf leise" href="{% url 'einkauf:rma_liste' %}">RMA</a>
+    <a class="knopf leise" href="{% url 'einkauf:lieferanten' %}">Lieferanten</a>
   </p>
   <form method="post" action="{% url 'einkauf:bestellung_neu' %}" class="zeile">{% csrf_token %}
     <div><label>Neue Bestellung bei</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.nummer }} – {{ l.name1 }}</option>{% endfor %}</select></div>

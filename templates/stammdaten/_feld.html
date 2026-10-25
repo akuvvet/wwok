@@ -1,0 +1,7 @@
+{% comment %}Ein Formularfeld mit Beschriftung und Fehlern (Variable: f){% endcomment %}
+<div class="mfeld{% if f.errors %} fehler{% endif %}{% if f.field.widget.input_type == 'checkbox' %} haken{% endif %}">
+  {% if f.field.widget.input_type == 'checkbox' %}<label class="haken-zeile">{{ f }} {{ f.label }}</label>
+  {% else %}<label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}{% endif %}
+  {% if f.help_text %}<small>{{ f.help_text }}</small>{% endif %}
+  {% for e in f.errors %}<span class="fehlertext">{{ e }}</span>{% endfor %}
+</div>

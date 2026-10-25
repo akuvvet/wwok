@@ -1,0 +1,42 @@
+<form method="post" action="{{ aktion }}" class="modal-form" novalidate>{% csrf_token %}
+  <header class="modal-kopf">
+    <h2>{{ titel }}</h2>
+    <button type="button" class="symbol" data-tip="Schließen" aria-label="Schließen" data-schliessen>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.7a1 1 0 0 0-1.4 0L12 10.6 7.1 5.7a1 1 0 0 0-1.4 1.4l4.9 4.9-4.9 4.9a1 1 0 1 0 1.4 1.4l4.9-4.9 4.9 4.9a1 1 0 0 0 1.4-1.4L13.4 12l4.9-4.9a1 1 0 0 0 0-1.4z"/></svg></button>
+  </header>
+  <div class="tabs" role="tablist">
+    {% for t in tabs %}<button type="button" class="tab{% if forloop.first %} aktiv{% endif %}{% if t.fehler %} mit-fehler{% endif %}" data-modaltab="{{ t.id }}">{{ t.titel }}{% if t.formset %} <span class="zaehler">{{ t.formset.initial_form_count }}</span>{% endif %}</button>{% endfor %}
+  </div>
+  {% if warnung %}<div class="warnung" style="margin:10px 0 0">{{ warnung }}
+    <label style="display:flex;gap:8px;align-items:center;opacity:1;margin-top:6px"><input type="checkbox" name="trotzdem" value="1"> Trotzdem anlegen</label></div>{% endif %}
+  {% if form.non_field_errors %}<div class="warnung" style="margin:10px 0 0">{{ form.non_field_errors }}</div>{% endif %}
+
+  {% for t in tabs %}
+  <section class="modal-tab" data-modalinhalt="{{ t.id }}" {% if not forloop.first %}hidden{% endif %}>
+    {% if t.form %}
+      <div class="mraster">{% for name in t.felder %}{% for f in t.form %}{% if f.name == name %}{% include "stammdaten/_feld.html" %}{% endif %}{% endfor %}{% endfor %}</div>
+    {% elif t.formset %}
+      {{ t.formset.management_form }}
+      {% for e in t.formset.non_form_errors %}<div class="fehlertext">{{ e }}</div>{% endfor %}
+      {% for fo in t.formset %}
+      <fieldset class="zeilenblock{% if not fo.instance.pk and not fo.errors and not fo.has_changed and forloop.counter0 >= t.formset.initial_form_count|add:1 %} zusatz{% endif %}"
+                {% if not fo.instance.pk and not fo.errors and not fo.has_changed and forloop.counter0 >= t.formset.initial_form_count|add:1 %}hidden{% endif %}>
+        {% for h in fo.hidden_fields %}{{ h }}{% endfor %}
+        <div class="mraster">{% for f in fo.visible_fields %}{% if f.name != 'DELETE' %}{% include "stammdaten/_feld.html" %}{% endif %}{% endfor %}</div>
+        {% if fo.instance.pk %}<div class="mfeld haken">{% for f in fo.visible_fields %}{% if f.name == 'DELETE' %}<label class="haken-zeile gefahr-text">{{ f }} diesen Eintrag löschen</label>{% endif %}{% endfor %}</div>{% endif %}
+      </fieldset>
+      {% endfor %}
+      <button type="button" class="leise" data-zeile-mehr>+ weitere Zeile</button>
+    {% else %}
+      <p style="opacity:.8;margin-top:0">Gilt nur für den Mandanten <strong>{{ mandant.kurzname }}</strong>.</p>
+      <div class="mraster">{% for f in t.extra %}{% include "stammdaten/_feld.html" %}{% endfor %}</div>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  <footer class="modal-fuss">
+    <span class="modal-hinweis" hidden></span>
+    <button type="button" class="leise" data-schliessen>Abbrechen</button>
+    <button type="submit">Speichern</button>
+  </footer>
+</form>

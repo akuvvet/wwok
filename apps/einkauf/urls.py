@@ -17,6 +17,7 @@ urlpatterns = [
     path("bestellung/<int:bestellung_id>/pdf/", views.bestellung_pdf_ansicht, name="bestellung_pdf"),
     path("bestellung/<int:bestellung_id>/mail/", views.bestellung_mail, name="bestellung_mail"),
     path("aus-beleg/<int:beleg_id>/", views.bestellung_aus_beleg, name="aus_beleg"),
+    path("lieferanten/", views.lieferanten, name="lieferanten"),
     path("vorschlag/", views.vorschlag, name="vorschlag"),
     path("wareneingang/", views.wareneingaenge, name="wareneingaenge"),
     path("wareneingang/neu/", views.wareneingang_neu, name="wareneingang_neu"),

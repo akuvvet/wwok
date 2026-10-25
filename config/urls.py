@@ -18,6 +18,7 @@ urlpatterns = [
     path("einkauf/", include("apps.einkauf.urls")),
     path("esd/", include("apps.esd.urls")),
     path("shop/", include("apps.shop.urls")),
+    path("stammdaten/", include("apps.stammdaten.urls")),
     path("", RedirectView.as_view(pattern_name="verkauf:start", permanent=False)),
 ]
 

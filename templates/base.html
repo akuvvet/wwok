@@ -20,6 +20,24 @@
   .scroll { max-height:62vh; overflow:auto; border:1px solid var(--rand); border-radius:6px; }
   .scroll thead th { position:sticky; top:0; background:var(--karte); z-index:1; box-shadow:0 1px 0 var(--rand); }
   [hidden] { display:none !important; }
+  dialog.modal { border:1px solid var(--rand); border-radius:10px; padding:0; width:min(940px,96vw); max-height:92vh; background:var(--karte); color:var(--text); }
+  dialog.modal::backdrop { background:rgba(0,0,0,.5); }
+  .modal-form { display:flex; flex-direction:column; max-height:92vh; }
+  .modal-kopf { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--rand); }
+  .modal-kopf h2 { margin:0; font-size:17px; }
+  .modal-form .tabs { padding:8px 16px 0; margin-bottom:0; flex-wrap:wrap; }
+  .modal-tab { padding:14px 16px; overflow:auto; flex:1 1 auto; min-height:260px; }
+  .modal-fuss { display:flex; gap:8px; justify-content:flex-end; align-items:center; padding:10px 16px; border-top:1px solid var(--rand); }
+  .mraster { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px 14px; }
+  .mfeld { display:flex; flex-direction:column; gap:2px; }
+  .mfeld input:not([type=checkbox]), .mfeld select, .mfeld textarea { width:100%; }
+  .mfeld small { opacity:.65; font-size:12px; }
+  .mfeld.fehler input, .mfeld.fehler select, .mfeld.fehler textarea { border-color:var(--warn); }
+  .fehlertext { color:var(--warn); font-size:12px; display:block; }
+  .tab.mit-fehler { color:var(--warn); }
+  .zeilenblock { border:1px dashed var(--rand); border-radius:8px; padding:10px; margin:0 0 10px; }
+  .haken-zeile { display:flex; gap:6px; align-items:center; opacity:1; margin:0; }
+  .gefahr-text { color:var(--warn); }
   .knopf.klein { padding:1px 9px; font-size:13px; line-height:1.4; }
   .symbol { position:relative; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; flex:none;
     border:1px solid var(--akzent); border-radius:6px; color:var(--akzent); text-decoration:none; }
@@ -104,9 +122,56 @@
 <script>
   // Escape schließt die Maske und führt zur übergeordneten Seite
   document.addEventListener('keydown', function (e) {
+    if (document.querySelector('dialog[open]')) return;  // Escape schließt nur den Dialog
     var ziel = document.querySelector('[data-escape]');
     if (e.key === 'Escape' && ziel) { window.location = ziel.getAttribute('href'); }
   });
+</script>
+<script>
+  // Dialog mit Registerkarten: Elemente mit data-modal="URL" laden ihr Formular in einen Dialog und speichern per fetch
+  (function () {
+    var dlg = document.createElement('dialog'); dlg.className = 'modal'; document.body.appendChild(dlg);
+    function schliessen() { dlg.close(); dlg.innerHTML = ''; }
+    function zeigeTab(name) {
+      dlg.querySelectorAll('[data-modaltab]').forEach(function (b) { b.classList.toggle('aktiv', b.dataset.modaltab === name); });
+      dlg.querySelectorAll('[data-modalinhalt]').forEach(function (s) { s.hidden = s.dataset.modalinhalt !== name; });
+    }
+    function bereit() {
+      dlg.querySelectorAll('[data-modaltab]').forEach(function (b) { b.addEventListener('click', function () { zeigeTab(b.dataset.modaltab); }); });
+      dlg.querySelectorAll('[data-schliessen]').forEach(function (b) { b.addEventListener('click', schliessen); });
+      dlg.querySelectorAll('[data-zeile-mehr]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var abschnitt = b.closest('section'), naechste = abschnitt.querySelector('fieldset[hidden]');
+          if (naechste) { naechste.hidden = false; var feld = naechste.querySelector('input:not([type=hidden]),select'); if (feld) feld.focus(); }
+          if (!abschnitt.querySelector('fieldset[hidden]')) b.hidden = true;
+        });
+      });
+      var fehler = dlg.querySelector('[data-modaltab].mit-fehler'); if (fehler) zeigeTab(fehler.dataset.modaltab);
+      var formular = dlg.querySelector('form'); if (!formular) return;
+      formular.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var knopf = formular.querySelector('button[type=submit]'); knopf.disabled = true;
+        try {
+          var r = await fetch(formular.action, {method: 'POST', body: new FormData(formular), credentials: 'same-origin', headers: {'X-Requested-With': 'fetch'}});
+          if ((r.headers.get('content-type') || '').indexOf('json') >= 0) {
+            var d = await r.json();
+            if (d.ok) { if (d.ziel && d.ziel !== location.pathname) { location.href = d.ziel; } else { location.reload(); } return; }
+          }
+          dlg.innerHTML = await r.text(); bereit();
+        } catch (fehlermeldung) { alert('Speichern nicht möglich: ' + fehlermeldung); knopf.disabled = false; }
+      });
+    }
+    async function oeffnen(url) {
+      dlg.innerHTML = '<p style="padding:20px">Lade …</p>'; if (!dlg.open) dlg.showModal();
+      var r = await fetch(url, {credentials: 'same-origin', headers: {'X-Requested-With': 'fetch'}});
+      dlg.innerHTML = await r.text(); bereit();
+    }
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest('[data-modal]'); if (!a) return;
+      e.preventDefault(); oeffnen(a.dataset.modal);
+    });
+    dlg.addEventListener('click', function (e) { if (e.target === dlg) schliessen(); });
+  })();
 </script>
 {% block skript %}{% endblock %}
 </body>

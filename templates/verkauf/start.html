@@ -21,7 +21,7 @@
     <div><label for="q">Name, Nummer oder Ort (<code>*</code> = alle, <code>Mül*</code> = beginnt mit)</label>
       <input id="q" name="q" value="{{ q }}" autofocus size="40"></div>
     <button type="submit">Suchen</button>
-    <a class="knopf leise" href="/verwaltung/stammdaten/kunde/add/">Neukunde anlegen</a>
+    <a class="knopf leise" data-modal="{% url 'stammdaten:kunde_neu' %}" href="/verwaltung/stammdaten/kunde/add/">Neukunde anlegen</a>
     <a class="knopf leise" href="{% url 'shop:uebersicht' %}">Shops &amp; Online-Bestellungen</a>
   </form>
   {% if treffer is not None %}
