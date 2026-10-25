@@ -197,7 +197,7 @@ class GruppenTest(TestCase):
         self.post(artikel="RAM", menge="4", gruppe=str(kopf.pk))
         self.assertEqual(self.beleg.positionen.filter(gruppe=kopf).count(), 2)
         self.beleg.refresh_from_db()
-        self.assertEqual(self.beleg.summe_netto, Decimal("500.00"))
+        self.assertEqual(self.beleg.summe_netto, Decimal("760.00"))  # 500 Pauschale + später hinzugefügte Teile (100 + 4 × 40)
         self.client.post(reverse("verkauf:gruppenpreis", args=[self.beleg.pk, kopf.pk]), {"preis": ""})
         kopf.refresh_from_db()
         self.assertEqual(kopf.einzelpreis, Decimal("260.00"))  # Summe der Unterpositionen: 100 + 4 × 40
@@ -496,3 +496,27 @@ class KreditlimitAngebotTest(TestCase):
             b.berechne()
             r = self.client.get(reverse("verkauf:beleg", args=[b.pk]))
             self.assertEqual(r.context["kredit_warnung"], erwartet, art)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class FesterGruppenpreisErhoehenTest(TestCase):
+    def test_spaeter_hinzugefuegte_teile_erhoehen_festen_preis(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        k = Kunde.objects.create(nummer="1", name1="K")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        a = Artikel.objects.create(nummer="A1", bezeichnung="Gehäuse", steuersatz=st, vk1=Decimal("100"))
+        b2 = Artikel.objects.create(nummer="A2", bezeichnung="SSD", steuersatz=st, vk1=Decimal("60"))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        beleg = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        url = reverse("verkauf:position_neu", args=[beleg.pk])
+        self.client.post(url, {"typ": "G", "bezeichnung": "Paket", "menge": "1", "preis": "150"})  # Pauschalpreis
+        kopf = beleg.positionen.get()
+        self.client.post(url, {"typ": "A", "artikel": "A1", "menge": "1", "gruppe": str(kopf.pk)})
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("250.00"))   # 150 Pauschale + 100 neu
+        self.client.post(url, {"typ": "A", "artikel": "A2", "menge": "2", "gruppe": str(kopf.pk)})
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("370.00"))   # + 2 × 60

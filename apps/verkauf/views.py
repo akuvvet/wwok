@@ -239,6 +239,15 @@ def beleg_kopf(request, beleg_id):
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
+def gruppenpreis_erhoehen(gruppe, betrag):
+    """Hat die Gruppe einen von Hand festgelegten Preis, erhöht eine später hinzugefügte Unterposition diesen Preis um ihren Betrag
+    (ohne festen Preis rechnet berechne() ohnehin die Summe)."""
+    if gruppe.preis_fest and gruppe.menge:
+        neu = (gruppe.einzelpreis + betrag / gruppe.menge).quantize(Decimal("0.01"))
+        Position.objects.filter(pk=gruppe.pk).update(einzelpreis=neu)
+        gruppe.einzelpreis = neu
+
+
 @mit_mandant
 @require_POST
 @sperr_schutz
@@ -264,9 +273,11 @@ def position_neu(request, beleg_id):
         if preis is None:
             raise ValueError("Für Preislistenartikel ist noch kein Aufschlag hinterlegt (Verwaltung → Globale Preisvorgabe) – bitte den Preis eintragen.")
         standard = Steuersatz.objects.filter(nummer=1).first()
-        Position.objects.create(
+        neue_teil = Position.objects.create(
             beleg=beleg, gruppe=gruppe_pl, typ="P", preisliste_artikel=eintrag, bezeichnung=(request.POST.get("bezeichnung", "").strip() or eintrag.bezeichnung)[:255],
             menge=menge, einzelpreis=preis, rabatt_prozent=rabatt, steuer_prozent=standard.prozent if standard else Decimal("19"))
+        if gruppe_pl:
+            gruppenpreis_erhoehen(gruppe_pl, menge * preis)
         beleg.berechne()
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
     gruppe = None
@@ -301,6 +312,7 @@ def position_neu(request, beleg_id):
                 preis = vorschlag_preis(artikel, beleg.kunde) or Decimal("0")
             Position.objects.create(beleg=beleg, gruppe=gruppe, typ=artikel.typ, artikel=artikel, bezeichnung=bezeichnung,
                                     menge=menge, einzelpreis=preis, steuer_prozent=steuer)
+            gruppenpreis_erhoehen(gruppe, menge * preis)
         else:
             Position.objects.create(beleg=beleg, typ="G", bezeichnung=bezeichnung, menge=menge,
                                     einzelpreis=preis if preis is not None else Decimal("0"), rabatt_prozent=rabatt,
