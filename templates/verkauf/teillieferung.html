@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block titel %}Teillieferung – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Lagerbestand reicht nicht für den ganzen {{ beleg.get_art_display }}</h1>
+  <p class="warnung">{{ meldung }}</p>
+  <p>Soll eine <strong>Teillieferung</strong> erfolgen? Die lieferbaren Positionen werden als eigener {{ beleg.get_art_display }} abgeschlossen und gedruckt,
+     die übrigen bleiben unverändert im bisherigen {{ beleg.get_art_display }} (Entwurf) offen. Versandkosten laufen mit der Teillieferung.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Pos.</th><th>Bezeichnung</th><th class="zahl">Menge</th><th>Ergebnis</th></tr></thead>
+    <tbody>
+    {% for p in lieferbar %}<tr><td>{{ p.pos }}</td><td>{{ p.bezeichnung }}</td><td class="zahl">{{ p.menge|floatformat:"-3" }}</td><td style="color:var(--ok)">wird geliefert</td></tr>{% endfor %}
+    {% for p in knapp %}<tr><td>{{ p.pos }}</td><td>{{ p.bezeichnung }}</td><td class="zahl">{{ p.menge|floatformat:"-3" }}</td><td style="color:var(--warn)">bleibt offen (Bestand reicht nicht)</td></tr>{% endfor %}
+    </tbody></table></div>
+  <form method="post" action="{% url 'verkauf:beleg_teillieferung' beleg.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <button type="submit">Ja, Teillieferung abschließen</button>
+    <a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Nein, nichts abschließen</a>
+  </form>
+</div>
+{% endblock %}

@@ -10,6 +10,7 @@ from django.views.decorators.http import require_POST
 from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
+from apps.lager.models import BestandReichtNicht
 from .models import Beleg, BelegGesperrt, Belegart, Position
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
@@ -361,7 +362,16 @@ def position_loeschen(request, beleg_id, position_id):
 @sperr_schutz
 def beleg_abschliessen(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
-    beleg.abschliessen()
+    try:
+        beleg.abschliessen()
+    except BestandReichtNicht as fehler:
+        from apps.lager.services import teilung
+        beleg = beleg_holen(request, beleg_id)  # Zustand vor dem abgebrochenen Abschluss
+        lieferbar, knapp = teilung(beleg)
+        if lieferbar and knapp:  # Teillieferung anbieten
+            return render(request, "verkauf/teillieferung.html", {
+                "beleg": beleg, "lieferbar": lieferbar, "knapp": knapp, "meldung": str(fehler)})
+        raise
     messages.success(request, f"{beleg} abgeschlossen.")
     return redirect("verkauf:kunde", kunde_id=beleg.kunde_id)
 
@@ -373,6 +383,16 @@ def beleg_folgebeleg(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
     neu = beleg.folgebeleg_erzeugen()
     return redirect("verkauf:beleg", beleg_id=neu.pk)
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+def beleg_teillieferung(request, beleg_id):
+    beleg = beleg_holen(request, beleg_id)
+    neu = beleg.teillieferung_abschliessen()
+    messages.success(request, f"Teillieferung {neu} abgeschlossen. Die übrigen Positionen bleiben im {beleg.get_art_display()}-Entwurf offen.")
+    return redirect("verkauf:kunde", kunde_id=beleg.kunde_id)
 
 
 @mit_mandant

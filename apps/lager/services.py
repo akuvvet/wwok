@@ -52,6 +52,32 @@ def buche_beleg(beleg, benutzer=None) -> int:
     return len(mengen)
 
 
+def teilung(beleg):
+    """Teilt die Hauptpositionen eines Belegs nach Lagerbestand: (lieferbar, knapp), je eine Liste von Positionen.
+    Eine Gruppe zählt als Einheit (alle ihre Lagerartikel müssen reichen); Artikel in mehreren Positionen teilen sich den Bestand."""
+    positionen = list(beleg.positionen.select_related("artikel").order_by("pos", "id"))
+    unter = defaultdict(list)
+    for p in positionen:
+        if p.gruppe_id:
+            unter[p.gruppe_id].append(p)
+    rest, lieferbar, knapp = {}, [], []
+    for p in positionen:
+        if p.gruppe_id:
+            continue
+        bedarf = defaultdict(Decimal)
+        for q in [p] + unter.get(p.pk, []):
+            if q.artikel_id and q.artikel.typ == LAGERFUEHREND:
+                bedarf[q.artikel_id] += q.menge
+                rest.setdefault(q.artikel_id, bestand(beleg.mandant, q.artikel))
+        if all(rest[a] >= m for a, m in bedarf.items()):
+            for a, m in bedarf.items():
+                rest[a] -= m
+            lieferbar.append(p)
+        else:
+            knapp.append(p)
+    return lieferbar, knapp
+
+
 @transaction.atomic
 def buche_manuell(mandant, artikel, art, menge, bemerkung="", benutzer=None):
     if art in (Bewegungsart.EIGENVERBRAUCH, Bewegungsart.VERKAUF):

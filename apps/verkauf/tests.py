@@ -266,3 +266,44 @@ class BelegKopierenTest(TestCase):
         self.assertEqual(Beleg.objects.filter(art=Belegart.ANGEBOT).count(), 2)
         self.b.refresh_from_db()
         self.assertFalse(self.b.abgeschlossen)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class TeillieferungTest(TestCase):
+    def setUp(self):
+        from apps.lager.models import Bewegungsart
+        from apps.lager.services import buche_manuell
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.a = Artikel.objects.create(nummer="A1", bezeichnung="Maus", steuersatz=st, vk1=Decimal("10"))
+        self.b = Artikel.objects.create(nummer="A2", bezeichnung="Tastatur", steuersatz=st, vk1=Decimal("20"))
+        buche_manuell(self.m, self.a, Bewegungsart.WARENEINGANG, Decimal("5"))
+        k = Kunde.objects.create(nummer="1", name1="K")
+        self.re = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=k, versandkosten=Decimal("5"))
+        Position.objects.create(beleg=self.re, artikel=self.a, bezeichnung="Maus", menge=2, einzelpreis=Decimal("10"))
+        Position.objects.create(beleg=self.re, artikel=self.b, bezeichnung="Tastatur", menge=1, einzelpreis=Decimal("20"))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+
+    def test_abschluss_bietet_teillieferung_an(self):
+        r = self.client.post(reverse("verkauf:beleg_abschliessen", args=[self.re.pk]))
+        self.assertContains(r, "Teillieferung")
+        self.re.refresh_from_db()
+        self.assertFalse(self.re.abgeschlossen)
+
+    def test_teillieferung_trennt_positionen(self):
+        self.client.post(reverse("verkauf:beleg_teillieferung", args=[self.re.pk]))
+        self.re.refresh_from_db()
+        self.assertFalse(self.re.abgeschlossen)
+        self.assertEqual([p.bezeichnung for p in self.re.positionen.all()], ["Tastatur"])
+        fertig = Beleg.objects.get(art=Belegart.RECHNUNG, abgeschlossen=True)
+        self.assertEqual([p.bezeichnung for p in fertig.positionen.all()], ["Maus"])
+        self.assertEqual(fertig.versandkosten, Decimal("5"))
+        self.assertEqual(self.re.versandkosten, Decimal("0"))
+
+    def test_nichts_lieferbar_keine_teillieferung(self):
+        self.re.positionen.filter(artikel=self.a).update(menge=9)
+        r = self.client.post(reverse("verkauf:beleg_abschliessen", args=[self.re.pk]), follow=True)
+        self.assertNotContains(r, "Ja, Teillieferung")

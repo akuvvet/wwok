@@ -233,6 +233,30 @@ class Beleg(Zeitstempel):
 
 
     @transaction.atomic
+    def teillieferung_abschliessen(self) -> "Beleg":
+        """Positionen mit ausreichendem Bestand wandern in einen neuen Beleg derselben Art, der abgeschlossen wird;
+        der Rest bleibt unverändert als Entwurf in diesem Beleg. Versandkosten laufen mit der Teillieferung."""
+        from apps.lager.services import teilung
+        lieferbar, knapp = teilung(self)
+        if not lieferbar or not knapp:
+            raise ValueError("Eine Teillieferung ist nur möglich, wenn ein Teil der Positionen lieferbar ist und ein Teil nicht.")
+        neu = Beleg.objects.create(
+            mandant=self.mandant, art=self.art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
+            zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
+            versandanschrift=self.versandanschrift, versandart=self.versandart,
+            versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
+            referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
+            bemerkung=self.bemerkung, vorgaenger=self.vorgaenger)
+        ids = [p.pk for p in lieferbar]
+        Position.objects.filter(models.Q(pk__in=ids) | models.Q(gruppe_id__in=ids)).update(beleg=neu)
+        Beleg.objects.filter(pk=self.pk).update(versandkosten=0, verpackung=0, versicherung=0)
+        self.versandkosten = self.verpackung = self.versicherung = Decimal("0")
+        self.berechne()
+        neu.berechne()
+        neu.abschliessen()
+        return neu
+
+    @transaction.atomic
     def kopieren_als(self, art, urbeleg_abschliessen=False) -> "Beleg":
         """Beliebigen Beleg als neuen Entwurf der gewünschten Belegart kopieren (Gutschrift nur über Storno).
         Optional wird der Ursprungsbeleg danach abgeschlossen (erledigt)."""
