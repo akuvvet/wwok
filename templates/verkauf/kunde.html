@@ -12,12 +12,14 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a>
   </div>
   <div class="kk-raster">
+    <div>
     <div class="kk-zeile">
       <span>{{ kunde.strasse }}<br>{{ kunde.plz }} {{ kunde.ort }}</span>
       <a class="symbol" data-tip="Karte" aria-label="Karte" href="https://www.google.com/maps/search/?api=1&query={{ kunde.strasse|urlencode }}+{{ kunde.plz }}+{{ kunde.ort|urlencode }}" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></a>
     </div>
-    <div>Tel. {{ kunde.telefon|default:"–" }}<br>{{ kunde.email|default:"–" }}</div>
+    <div style="margin-top:4px">Tel. {{ kunde.telefon|default:"–" }}<br>{{ kunde.email|default:"–" }}</div>
+    </div>
     <div>Preisstufe VK{{ kunde.preisstufe }}<br>Zahlung: {{ kunde.zahlungsbedingung|default:"–" }}
       {% if kreditlimit %}<br>Kreditlimit {{ kreditlimit }} €{% endif %}
       <div class="kk-zeile">Offene Posten: <a href="{% url 'finanzen:offene_posten' %}?kunde={{ kunde.pk }}">{{ offen }} €</a>
