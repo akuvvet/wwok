@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block titel %}wwok{% endblock %}</title>
 <style>
-  :root { --text:#1b1f24; --grund:#f4f5f7; --karte:#fff; --rand:#d5d9df; --akzent:#0b5cad; --warn:#b42318; --ok:#067647; }
+  :root { --text:#1b1f24; --grund:#f4f5f7; --karte:#fff; --rand:#d5d9df; --akzent:#0b5cad; --warn:#b42318; --ok:#067647; --feld:#fff; --feldrand:#9aa3af; }
   @media (prefers-color-scheme: dark) {
-    :root { --text:#e6e8eb; --grund:#14171b; --karte:#1d2126; --rand:#343a42; --akzent:#6aa9ec; --warn:#f97066; --ok:#47cd89; }
+    :root { --text:#e6e8eb; --grund:#14171b; --karte:#1d2126; --rand:#343a42; --akzent:#6aa9ec; --warn:#f97066; --ok:#47cd89; --feld:#323a44; --feldrand:#6b7686; }
   }
   * { box-sizing: border-box; }
   body { margin:0; font:15px/1.4 system-ui, sans-serif; color:var(--text); background:var(--grund); }
@@ -84,6 +84,8 @@
   table { width:100%; border-collapse:collapse; } th,td { padding:6px 8px; border-bottom:1px solid var(--rand); text-align:left; vertical-align:top; }
   td.zahl, th.zahl { text-align:right; font-variant-numeric:tabular-nums; }
   input, select, textarea, button { font:inherit; color:inherit; background:var(--karte); border:1px solid var(--rand); border-radius:6px; padding:6px 8px; }
+  input:not([type=checkbox]):not([type=radio]), select, textarea { background:var(--feld); border-color:var(--feldrand); }
+  input:focus, select:focus, textarea:focus { outline:2px solid var(--akzent); outline-offset:0; }
   button, .knopf { background:var(--akzent); color:#fff; border-color:var(--akzent); cursor:pointer; text-decoration:none; display:inline-block; }
   button.leise, .knopf.leise { background:transparent; color:var(--akzent); }
   button.gefahr { background:transparent; color:var(--warn); border-color:var(--warn); }
