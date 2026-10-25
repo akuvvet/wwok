@@ -438,3 +438,26 @@ class ArtikelSucheTypTest(TestCase):
         self.assertEqual(nummern(q="*", typ="G"), ["G1"])
         self.assertEqual(nummern(q="*", typ="L"), ["L1"])
         self.assertEqual(nummern(q="*", typ="A"), ["A1"])
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class GruppenSummeTest(TestCase):
+    def test_gruppenpreis_summiert_unterpositionen_automatisch(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        k = Kunde.objects.create(nummer="1", name1="K")
+        b = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        kopf = Position.objects.create(beleg=b, typ="G", bezeichnung="NAS Paket", menge=1, einzelpreis=Decimal("0"))
+        Position.objects.create(beleg=b, gruppe=kopf, bezeichnung="Gehäuse", menge=1, einzelpreis=Decimal("371.84"))
+        teil = Position.objects.create(beleg=b, gruppe=kopf, bezeichnung="HDD", menge=2, einzelpreis=Decimal("273.58"))
+        b.berechne()
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("919.00"))      # 371,84 + 2 × 273,58
+        self.assertEqual(b.summe_netto, Decimal("919.00"))
+        teil.delete()
+        b.berechne()
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("371.84"))      # folgt den Unterpositionen
+        Position.objects.filter(pk=kopf.pk).update(einzelpreis=Decimal("300"), preis_fest=True)
+        b.berechne()
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("300"))         # fest eingetragener Preis bleibt

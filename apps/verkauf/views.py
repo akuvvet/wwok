@@ -283,7 +283,7 @@ def position_neu(request, beleg_id):
         komponenten = list(artikel.komponenten.select_related("komponente__steuersatz"))
         kopf = Position.objects.create(beleg=beleg, typ="G", artikel=artikel, bezeichnung=bezeichnung, menge=menge,
                                        einzelpreis=preis if preis is not None else Decimal("0"), rabatt_prozent=rabatt,
-                                       steuer_prozent=steuer)
+                                       steuer_prozent=steuer, preis_fest=preis is not None)
         summe = Decimal("0")
         for k in komponenten:
             einzel = vorschlag_preis(k.komponente, beleg.kunde) or Decimal("0")
@@ -303,7 +303,7 @@ def position_neu(request, beleg_id):
         else:
             Position.objects.create(beleg=beleg, typ="G", bezeichnung=bezeichnung, menge=menge,
                                     einzelpreis=preis if preis is not None else Decimal("0"), rabatt_prozent=rabatt,
-                                    steuer_prozent=steuer)
+                                    steuer_prozent=steuer, preis_fest=preis is not None)
     else:
         if preis is None:
             preis = vorschlag_preis(artikel, beleg.kunde) if artikel else None
@@ -324,6 +324,7 @@ def gruppenpreis(request, beleg_id, position_id):
     beleg = beleg_holen(request, beleg_id)
     kopf = get_object_or_404(Position, pk=position_id, beleg=beleg, typ="G", gruppe__isnull=True)
     preis = dezimal(request.POST.get("preis"))
+    kopf.preis_fest = preis is not None  # leer = wieder die Summe der Unterpositionen (wird in berechne() gesetzt)
     if preis is None:
         summe = sum((u.menge * u.einzelpreis for u in kopf.unterpositionen.all()), Decimal("0"))
         preis = (summe / kopf.menge) if kopf.menge else Decimal("0")
@@ -346,7 +347,10 @@ def position_aendern(request, beleg_id, position_id):
     p.menge = menge
     p.zusatztext = request.POST.get("zusatztext", "")
     if not p.gruppe_id:
-        p.einzelpreis = dezimal(request.POST.get("preis"), p.einzelpreis)
+        neuer_preis = dezimal(request.POST.get("preis"), p.einzelpreis)
+        if p.typ == "G" and neuer_preis != p.einzelpreis:
+            p.preis_fest = True  # von Hand geänderter Gruppenpreis bleibt stehen
+        p.einzelpreis = neuer_preis
         rabatt = dezimal(request.POST.get("rabatt"), Decimal("0"))
         if not 0 <= rabatt <= 100:
             raise ValueError("Der Rabatt muss zwischen 0 und 100 % liegen.")

@@ -189,6 +189,17 @@ class Beleg(Zeitstempel):
             anzahl += 1
         return anzahl
 
+    def gruppenpreise_aktualisieren(self):
+        """Der Preis einer Gruppe (Typ G) ist die Summe ihrer Unterpositionen, solange er nicht von Hand festgelegt wurde."""
+        for kopf in Position.objects.filter(beleg=self, typ="G", gruppe__isnull=True, preis_fest=False):
+            teile = list(kopf.unterpositionen.all())
+            if not teile:
+                continue
+            summe = sum((u.menge * u.einzelpreis for u in teile), Decimal("0"))
+            preis = (summe / kopf.menge).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if kopf.menge else Decimal("0")
+            if preis != kopf.einzelpreis:
+                Position.objects.filter(pk=kopf.pk).update(einzelpreis=preis)
+
     def positionen_nummerieren(self):
         """Positionsnummern lückenlos 1, 2, 3 …; Unterpositionen einer Gruppe tragen die Nummer ihrer Gruppe."""
         alle = list(Position.objects.filter(beleg=self).order_by("pos", "id"))
@@ -211,6 +222,7 @@ class Beleg(Zeitstempel):
         if self.gesperrt:
             raise BelegGesperrt(f"{self} ist gesperrt.")
         self.positionen_nummerieren()
+        self.gruppenpreise_aktualisieren()
         netto = Decimal("0")
         saetze = {}
         for p in self.positionen.all():
@@ -415,7 +427,7 @@ def kopiere_positionen(quelle, ziel):
             beleg=ziel, gruppe=neu.get(p.gruppe_id), typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung,
             preisliste_artikel=p.preisliste_artikel, menge=p.menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent,
             steuer_prozent=p.steuer_prozent, zusatztext=p.zusatztext, lieferschein=lieferschein or p.lieferschein,
-            quellposition=p)
+            quellposition=p, preis_fest=p.preis_fest)
 
 
 @transaction.atomic
@@ -464,6 +476,8 @@ class Position(Zeitstempel):
     menge = models.DecimalField("Menge", max_digits=10, decimal_places=3, default=Decimal("1"))
     einzelpreis = models.DecimalField("Einzelpreis netto", max_digits=12, decimal_places=2)
     rabatt_prozent = models.DecimalField("Rabatt %", max_digits=5, decimal_places=2, default=Decimal("0"))
+    preis_fest = models.BooleanField("Gruppenpreis fest", default=False,
+                                     help_text="Nur bei Gruppen (Typ G): ein von Hand eingetragener Preis wird nicht aus den Unterpositionen berechnet.")
     steuer_prozent = models.DecimalField("Steuer %", max_digits=5, decimal_places=2, default=Decimal("19"))
 
     class Meta:
