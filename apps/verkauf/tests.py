@@ -417,3 +417,24 @@ class UrbelegLoeschenTest(TestCase):
         auftrag.delete()
         ls.refresh_from_db()
         self.assertEqual(ls.positionen.count(), 1)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class ArtikelSucheTypTest(TestCase):
+    def test_typ_filter_und_stern(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        Artikel.objects.create(nummer="A1", bezeichnung="NAS Gehäuse", steuersatz=st, vk1=Decimal("100"))
+        Artikel.objects.create(nummer="G1", typ="G", bezeichnung="NAS Komplettpaket", steuersatz=st)
+        Artikel.objects.create(nummer="L1", typ="L", bezeichnung="Einrichtung", steuersatz=st, vk1=Decimal("50"))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        url = reverse("verkauf:api_artikel")
+        nummern = lambda **p: sorted(t["nummer"] for t in self.client.get(url, p).json()["treffer"])
+        self.assertEqual(nummern(q="nas", typ="G"), ["G1"])
+        self.assertEqual(nummern(q="nas", typ="A"), ["A1"])
+        self.assertEqual(nummern(q="*", typ="G"), ["G1"])
+        self.assertEqual(nummern(q="*", typ="L"), ["L1"])
+        self.assertEqual(nummern(q="*", typ="A"), ["A1"])

@@ -212,8 +212,8 @@ OK = Angebot abschließen, Abbrechen = Angebot offen lassen') ? '1' : '0';
     }
     function suche() {
       var q = feld.value.trim(), nr = ++anfrage;
-      if (q.length < 2) { liste = []; zeige(); return; }
-      fetch("{% url 'verkauf:api_artikel' %}?kunde={{ beleg.kunde.pk }}&q=" + encodeURIComponent(q), {credentials: 'same-origin'})
+      if (q.length < 2 && q !== '*') { liste = []; zeige(); return; }
+      fetch("{% url 'verkauf:api_artikel' %}?kunde={{ beleg.kunde.pk }}&typ=" + encodeURIComponent(typ.value) + "&q=" + encodeURIComponent(q), {credentials: 'same-origin'})
         .then(function (r) { return r.json(); }).then(function (d) {
           if (nr !== anfrage) return;
           liste = d.treffer; aktiv = liste.length ? 0 : -1;
@@ -221,6 +221,7 @@ OK = Angebot abschließen, Abbrechen = Angebot offen lassen') ? '1' : '0';
           zeige();
         });
     }
+    typ.addEventListener('change', function () { if (feld.value.trim()) { suche(); } feld.focus(); });
     feld.addEventListener('input', function () { document.getElementById('pl').value = ''; clearTimeout(timer); timer = setTimeout(suche, 200); });
     feld.addEventListener('keydown', function (e) {
       if (!liste.length) return;

@@ -515,18 +515,28 @@ def api_artikel(request):
     """Artikelsuche für die Positionserfassung: Preis nach Preisstufe, letzter Preis des Kunden."""
     q = request.GET.get("q", "").strip()
     kunde = Kunde.objects.filter(pk=request.GET.get("kunde")).first()
-    if len(q) < 2:
+    typ = request.GET.get("typ", "A")
+    alle = q == "*"  # Stern = alle Artikel des gewählten Typs
+    if len(q) < 2 and not alle:
         return JsonResponse({"treffer": []})
     artikel = Artikel.objects.filter(nicht_aktiv=False)
+    if typ in ("L", "G"):
+        artikel = artikel.filter(typ=typ)
+    elif typ == "P":
+        artikel = artikel.none()
+    else:
+        artikel = artikel.filter(typ="A")
     pl = Preislistenartikel.objects.filter(artikel__isnull=True).select_related("lieferant")  # verknüpfte stehen schon als eigener Artikel da
-    for wort in q.split():  # jedes Wort muss irgendwo vorkommen, Reihenfolge egal
+    if typ in ("L", "G"):
+        pl = pl.none()
+    for wort in ([] if alle else q.split()):  # jedes Wort muss irgendwo vorkommen, Reihenfolge egal
         artikel = artikel.filter(
             Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
             | Q(bezeichnung_erweitert__icontains=wort) | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
         pl = pl.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
                        | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))
-    artikel = artikel.select_related("steuersatz")[:20]
-    preisliste = list(pl.order_by("bezeichnung")[:15])
+    artikel = artikel.select_related("steuersatz").order_by("nummer")[:(60 if alle else 20)]
+    preisliste = list(pl.order_by("bezeichnung")[:(60 if alle else 15)])
     treffer = []
     for a in artikel:
         letzte = None
