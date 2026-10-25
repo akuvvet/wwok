@@ -94,13 +94,18 @@ class ArtikelAdmin(admin.ModelAdmin):
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "online", "nicht_aktiv"]
     list_filter = ["typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
     search_fields = ["nummer", "bezeichnung", "herstellernummer", "ean"]
-    readonly_fields = ["durchschnitts_ek", "angelegt_am", "geaendert_am", "geaendert_von"]
+    readonly_fields = ["durchschnitts_ek", "ek_anzeige", "angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [ArtikelMandantInline, ArtikelLieferantInline, GruppenKomponenteInline, ArtikelBildInline]
+
+    @admin.display(description="EK netto (errechnet)")
+    def ek_anzeige(self, obj):
+        ek, quelle = m._ek_quelle(obj) if obj.pk else (None, "")
+        return f"{ek:.2f} € ({quelle})".replace(".", ",") if ek is not None else "–"
     fieldsets = [
         ("Grunddaten", {"fields": [("nummer", "typ"), "bezeichnung", "bezeichnung_erweitert", "kategorie",
                                    ("hersteller", "herstellernummer", "ean"), ("garantie_monate", "nicht_aktiv"), "esd_key"]}),
         ("Maße", {"fields": [("laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg")]}),
-        ("Preise", {"fields": ["steuersatz", "durchschnitts_ek", ("vk1", "aufschlag_vk1"),
+        ("Preise", {"fields": ["steuersatz", "ek_anzeige", ("vk1", "aufschlag_vk1"),
                                ("vk2", "aufschlag_vk2"), ("vk3", "aufschlag_vk3")]}),
         ("Online", {"fields": ["online", "kurzbeschreibung", "keywords", "meta_titel",
                                "meta_description", "meta_keywords"]}),

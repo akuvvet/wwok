@@ -89,3 +89,24 @@ class PreiseImBelegTest(TestCase):
         Kundenpreis.objects.create(kunde=kunde, artikel=a, preis=Decimal("12"))
         api = self.client.get(reverse("verkauf:api_artikel"), {"q": "Maus", "kunde": kunde.pk}).json()["treffer"][0]
         self.assertEqual((api["preis"], api["sonderpreis"]), ("12.00", True))
+
+
+class EkErrechnetTest(TestCase):
+    def setUp(self):
+        from apps.stammdaten.models import ArtikelLieferant, GruppenKomponente, Lieferant
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.a = Artikel.objects.create(nummer="A1", bezeichnung="CPU", steuersatz=st)
+        self.b = Artikel.objects.create(nummer="A2", bezeichnung="RAM", steuersatz=st, durchschnitts_ek=Decimal("50"))
+        l = Lieferant.objects.create(nummer="L1", name1="API")
+        ArtikelLieferant.objects.create(artikel=self.a, lieferant=l, bestellnummer="x", ek=Decimal("100"))
+        ArtikelLieferant.objects.create(artikel=self.b, lieferant=l, bestellnummer="y", ek=Decimal("40"))
+        self.g = Artikel.objects.create(nummer="G1", typ="G", bezeichnung="PC", steuersatz=st)
+        GruppenKomponente.objects.create(gruppe=self.g, komponente=self.a, menge=1)
+        GruppenKomponente.objects.create(gruppe=self.g, komponente=self.b, menge=2)
+
+    def test_wareneingang_vor_preisliste(self):
+        self.assertEqual(self.a.ek_errechnet, Decimal("100"))   # nur Preisliste
+        self.assertEqual(self.b.ek_errechnet, Decimal("50"))    # Wareneingang hat Vorrang
+
+    def test_gruppe_summe(self):
+        self.assertEqual(self.g.ek_errechnet, Decimal("200"))

@@ -34,8 +34,9 @@ def stufenpreis(artikel, stufe: int):
     if fest is not None:
         return fest
     prozent = aufschlag(artikel, stufe)
-    if prozent is not None and artikel.durchschnitts_ek:
-        return (artikel.durchschnitts_ek * (Decimal("100") + prozent) / 100).quantize(CENT, rounding=ROUND_HALF_UP)
+    ek = artikel.ek_errechnet
+    if prozent is not None and ek:
+        return (ek * (Decimal("100") + prozent) / 100).quantize(CENT, rounding=ROUND_HALF_UP)
     return None
 
 

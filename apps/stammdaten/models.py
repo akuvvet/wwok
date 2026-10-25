@@ -343,6 +343,10 @@ class Artikel(Zeitstempel):
     steuersatz = models.ForeignKey(Steuersatz, on_delete=models.PROTECT)
     # Preise (netto). Leer = aus Aufschlag berechnet.
     durchschnitts_ek = models.DecimalField("Durchschnitts-EK", null=True, blank=True, editable=False, **EK_GELD)
+    @property
+    def ek_errechnet(self):
+        return _ek_quelle(self)[0]
+
     vk1 = models.DecimalField("VK1 netto", null=True, blank=True, **GELD)
     vk2 = models.DecimalField("VK2 netto", null=True, blank=True, **GELD)
     vk3 = models.DecimalField("VK3 netto", null=True, blank=True, **GELD)
@@ -416,6 +420,29 @@ class ArtikelLieferant(Zeitstempel):
 
     def __str__(self):
         return f"{self.lieferant.name1}: {self.bestellnummer}"
+
+
+def _ek_quelle(artikel):
+    """(EK, Quelle): Wareneingang (Durchschnitts-EK) hat Vorrang, sonst günstigster EK aus den Lieferantenpreislisten;
+    bei Gruppenartikeln (Typ G) die Summe der Komponenten."""
+    if artikel.typ == Artikeltyp.G and artikel.pk:
+        summe, quellen = Decimal("0"), set()
+        for k in artikel.komponenten.select_related("komponente"):
+            ek, quelle = _ek_quelle(k.komponente)
+            if ek is None:
+                return None, ""
+            summe += ek * k.menge
+            quellen.add(quelle)
+        if not quellen:
+            return None, ""
+        return summe, "Summe der Komponenten"
+    if artikel.durchschnitts_ek:
+        return artikel.durchschnitts_ek, "Wareneingang"
+    if artikel.pk:
+        al = artikel.lieferanten.filter(ek__gt=0).order_by("ek").select_related("lieferant").first()
+        if al:
+            return al.ek, f"Preisliste {al.lieferant.name1}"
+    return None, ""
 
 
 class GruppenKomponente(Zeitstempel):
