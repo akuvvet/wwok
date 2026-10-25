@@ -46,7 +46,7 @@
   button.symbol { padding:0; background:transparent; cursor:pointer; }
   .symbol.voll { background:var(--akzent); color:#fff; }
   .symbol.voll:hover, .symbol.voll:focus-visible { filter:brightness(1.12); }
-  .zeile .symbol.voll { width:40px; height:34px; }  /* auf Höhe der Eingabefelder in Erfassungszeilen */
+  .zeile .symbol.voll { width:40px; height:34px; margin-left:auto; }  /* auf Höhe der Eingabefelder in Erfassungszeilen */
   .symbol:hover, .symbol:focus-visible { background:var(--akzent); color:#fff; }
   .symbol::after { content:attr(data-tip); position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%); white-space:nowrap;
     background:var(--text); color:var(--karte); font-size:12px; padding:3px 8px; border-radius:5px; opacity:0; pointer-events:none; transition:opacity .12s; z-index:20; }
