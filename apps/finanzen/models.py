@@ -166,3 +166,27 @@ class Kassenbuch(models.Model):
 
     def __str__(self):
         return f"Kasse {self.nummer}: {self.text}"
+
+
+class Lastschrift(models.Model):
+    """Eine eingezogene Rechnung in einer SEPA-Lastschriftdatei (pain.008). Bei Rücklastschrift wird sie aufgehoben."""
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="lastschriften")
+    beleg = models.ForeignKey("verkauf.Beleg", on_delete=models.PROTECT, related_name="lastschriften")
+    betrag = models.DecimalField("Betrag brutto", max_digits=12, decimal_places=2)
+    einzugsdatum = models.DateField("Einzugsdatum")
+    mandatsreferenz = models.CharField("Mandatsreferenz", max_length=35)
+    sequenz = models.CharField("Sequenz", max_length=4, choices=[("FRST", "Erst"), ("RCUR", "Folge")])
+    datei = models.CharField("Nachrichten-ID der Datei", max_length=35)
+    erstellt_am = models.DateTimeField(default=timezone.now)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    aufgehoben = models.BooleanField("aufgehoben (z. B. Rücklastschrift)", default=False)
+    aufgehoben_grund = models.CharField("Grund", max_length=300, blank=True)
+
+    class Meta:
+        verbose_name = "Lastschrift"
+        verbose_name_plural = "Lastschriften"
+        ordering = ["-erstellt_am", "-id"]
+
+    def __str__(self):
+        return f"{self.beleg.nummer}: {self.betrag} € am {self.einzugsdatum}"

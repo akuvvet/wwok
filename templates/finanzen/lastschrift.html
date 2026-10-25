@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block titel %}Lastschrift-Einzug – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Lastschrift-Einzug {{ request.mandant }}</h1>
+  <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a></p>
+  {% if glaeubiger_fehlt %}<div class="warnung">Für {{ request.mandant }} fehlen IBAN oder Gläubiger-ID (Verwaltung → Mandanten). Ohne sie kann keine Datei erzeugt werden.</div>{% endif %}
+  <p style="opacity:.85">Wähle die offenen Rechnungen, die per <strong>SEPA-Basis-Lastschrift</strong> eingezogen werden sollen. Der Kunde braucht ein Mandat
+     (IBAN, Mandatsreferenz und Mandatsdatum unter Kunde → Steuer &amp; Bank). Die Datei lädst du bei der Bank bzw. in StarMoney hoch.
+     Der Kunde muss vorab informiert werden (Betrag, Fälligkeit und Mandatsreferenz).
+     Die Zahlung buchst du später über den Bankabgleich.</p>
+  <form method="post" action="{% url 'finanzen:lastschrift_export' %}">{% csrf_token %}
+    <div class="scroll"><table>
+      <thead><tr><th></th><th>Rechnung</th><th>Kunde</th><th>Datum</th><th class="zahl">offen</th><th>Mandat</th></tr></thead>
+      <tbody>
+      {% for z in zeilen %}<tr>
+        <td>{% if not z.fehlt and not z.gezogen %}<input type="checkbox" name="auswahl" value="{{ z.beleg.pk }}">{% endif %}</td>
+        <td><a href="{% url 'finanzen:beleg' z.beleg.pk %}">{{ z.beleg.nummer }}</a></td>
+        <td>{{ z.beleg.kunde.name1 }}</td><td>{{ z.beleg.belegdatum|date:"d.m.Y" }}</td><td class="zahl"><strong>{{ z.offen }}</strong></td>
+        <td>{% if z.gezogen %}<span class="marke">bereits eingezogen</span>{% elif z.fehlt %}<span style="color:var(--warn)">fehlt: {{ z.fehlt }}</span>{% else %}{{ z.beleg.kunde.sepa_mandatsreferenz }}{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="6">Keine offenen Rechnungen.</td></tr>{% endfor %}
+      </tbody></table></div>
+    <p class="zeile" style="margin-top:10px">
+      <span><label>Einzugsdatum (mindestens morgen)</label><input type="date" name="einzug" value="{{ einzug }}" required></span>
+      <button type="submit">Lastschriftdatei (pain.008) erzeugen</button></p>
+  </form>
+</div>
+{% if historie %}
+<div class="karte">
+  <h2>Bisherige Einzüge</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Rechnung</th><th>Kunde</th><th class="zahl">Betrag</th><th>Einzug</th><th>Sequenz</th><th>Status</th></tr></thead>
+    <tbody>{% for h in historie %}<tr><td>{{ h.beleg.nummer }}</td><td>{{ h.beleg.kunde.name1 }}</td><td class="zahl">{{ h.betrag }}</td><td>{{ h.einzugsdatum|date:"d.m.Y" }}</td><td>{{ h.get_sequenz_display }}</td>
+      <td>{% if h.aufgehoben %}aufgehoben: {{ h.aufgehoben_grund }}{% else %}
+        <form method="post" action="{% url 'finanzen:lastschrift_aufheben' h.pk %}" class="zeile" style="gap:4px">{% csrf_token %}
+          <input name="grund" placeholder="Grund zum Aufheben" size="22"><button class="leise" type="submit">Aufheben</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% endif %}
+{% endblock %}

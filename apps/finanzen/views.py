@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
@@ -15,7 +15,8 @@ from . import bank as bankmodul
 from . import datev as datevmodul
 from . import services
 from .mahntext import text_fuer
-from .models import Mahnung, Zahlart
+from . import lastschrift as lastschriftmodul
+from .models import Lastschrift, Mahnung, Zahlart
 from .pdf import mahnung_pdf
 
 
@@ -232,3 +233,57 @@ def datev_export(request):
         antwort["Content-Disposition"] = f'attachment; filename="EXTF_Buchungsstapel_{request.mandant.kurzname}_{von:%Y%m%d}_{bis:%Y%m%d}.csv"'
         return antwort
     return render(request, "finanzen/datev.html", {"von": heute.replace(day=1).isoformat(), "bis": heute.isoformat()})
+
+
+@mit_mandant
+def lastschrift(request):
+    """Offene Rechnungen zum Einzug per SEPA-Basis-Lastschrift auswählen."""
+    gezogen = set(Lastschrift.objects.filter(mandant=request.mandant, aufgehoben=False).values_list("beleg_id", flat=True))
+    zeilen = []
+    for z in services.offene_rechnungen(request.mandant):
+        z["fehlt"] = lastschriftmodul.mandat_fehlt(z["beleg"].kunde)
+        z["gezogen"] = z["beleg"].pk in gezogen
+        zeilen.append(z)
+    morgen = date.today() + timedelta(days=1)
+    return render(request, "finanzen/lastschrift.html", {
+        "zeilen": zeilen, "einzug": morgen.isoformat(),
+        "historie": Lastschrift.objects.filter(mandant=request.mandant).select_related("beleg__kunde")[:50],
+        "glaeubiger_fehlt": not request.mandant.glaeubiger_id or not request.mandant.iban})
+
+
+@mit_mandant
+@require_POST
+def lastschrift_export(request):
+    from apps.einkauf.sepa import SepaFehler
+    belege = Beleg.objects.filter(pk__in=request.POST.getlist("auswahl"), mandant=request.mandant,
+                                  art=Belegart.RECHNUNG, abgeschlossen=True).select_related("kunde")
+    try:
+        einzug = datum(request.POST.get("einzug"))
+        bereits = set(Lastschrift.objects.filter(beleg__in=belege, aufgehoben=False).values_list("beleg__nummer", flat=True))
+        if bereits:
+            raise ValueError("Schon eingezogen: " + ", ".join(sorted(bereits)))
+        zeilen = [(b, services.offen(b), lastschriftmodul.sequenz(b.kunde, request.mandant)) for b in belege]
+        daten, msg_id = lastschriftmodul.erzeuge(request.mandant, zeilen, einzug)
+    except (SepaFehler, ValueError) as fehler:
+        messages.error(request, str(fehler))
+        return redirect("finanzen:lastschrift")
+    for b, betrag, seq in zeilen:
+        Lastschrift.objects.create(mandant=request.mandant, beleg=b, betrag=betrag, einzugsdatum=einzug,
+                                   mandatsreferenz=b.kunde.sepa_mandatsreferenz, sequenz=seq, datei=msg_id,
+                                   benutzer=request.user)
+    antwort = HttpResponse(daten, content_type="application/xml")
+    antwort["Content-Disposition"] = f'attachment; filename="Lastschrift_{request.mandant.kurzname}_{einzug:%Y%m%d}.xml"'
+    return antwort
+
+
+@mit_mandant
+@require_POST
+def lastschrift_aufheben(request, ls_id):
+    ls = get_object_or_404(Lastschrift, pk=ls_id, mandant=request.mandant)
+    grund = request.POST.get("grund", "").strip()
+    if not grund:
+        messages.error(request, "Bitte einen Grund angeben (z. B. Rücklastschrift, Datei nicht eingereicht).")
+    else:
+        Lastschrift.objects.filter(pk=ls.pk).update(aufgehoben=True, aufgehoben_grund=grund)
+        messages.success(request, f"Lastschrift {ls.beleg.nummer} aufgehoben – die Rechnung kann erneut eingezogen werden.")
+    return redirect("finanzen:lastschrift")
