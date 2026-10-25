@@ -188,7 +188,7 @@ def beleg_detail(request, beleg_id):
     md = beleg.kunde.mandantendaten.filter(mandant=beleg.mandant).first()
     limit = md.kreditlimit if md else None
     offen = kunde_offen(beleg.mandant, beleg.kunde)
-    kredit_warnung = bool(limit) and not beleg.abgeschlossen and offen + beleg.summe_brutto > limit
+    kredit_warnung = bool(limit) and beleg.art != "AN" and not beleg.abgeschlossen and offen + beleg.summe_brutto > limit  # Angebote binden nicht
     return render(request, "verkauf/beleg.html", {
         "kredit_warnung": kredit_warnung, "kunde_offen": offen, "kreditlimit": limit,
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),

@@ -477,3 +477,22 @@ class EkMargeCodeTest(TestCase):
         self.assertTrue(b.ek_marge_code.endswith("*"))     # Position ohne EK
         ls = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=k)
         self.assertEqual(ls.ek_marge_code, "")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class KreditlimitAngebotTest(TestCase):
+    def test_angebot_ohne_kreditwarnung(self):
+        from apps.stammdaten.models import KundeMandant
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        k = Kunde.objects.create(nummer="1", name1="K")
+        KundeMandant.objects.create(kunde=k, mandant=m, kreditlimit=Decimal("10"))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        for art, erwartet in ((Belegart.ANGEBOT, False), (Belegart.AUFTRAG, True)):
+            b = Beleg.objects.create(mandant=m, art=art, kunde=k)
+            Position.objects.create(beleg=b, bezeichnung="X", menge=1, einzelpreis=Decimal("100"))
+            b.berechne()
+            r = self.client.get(reverse("verkauf:beleg", args=[b.pk]))
+            self.assertEqual(r.context["kredit_warnung"], erwartet, art)
