@@ -362,7 +362,7 @@ def beleg_abschliessen(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
     beleg.abschliessen()
     messages.success(request, f"{beleg} abgeschlossen.")
-    return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    return redirect("verkauf:kunde", kunde_id=beleg.kunde_id)
 
 
 @mit_mandant
@@ -443,7 +443,7 @@ def beleg_mail(request, beleg_id):
         try:
             versand = beleg_senden(beleg, an, betreff, text, benutzer=request.user)
             messages.success(request, f"{beleg} an {versand.an} versendet.")
-            return redirect("verkauf:beleg", beleg_id=beleg.pk)
+            return redirect("verkauf:kunde", kunde_id=beleg.kunde_id)
         except MailFehler as fehler:
             messages.error(request, str(fehler))
     return render(request, "verkauf/mail.html", {
