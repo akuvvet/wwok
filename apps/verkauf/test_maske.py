@@ -79,7 +79,8 @@ class MaskeTest(TestCase):
         services.zahlung_buchen(alt, Decimal("19"), heute, "ue")
         gs = alt.gutschrift_erzeugen()
         for i in range(30):  # mehr als eine Seite
-            Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.kunde)
+            Position.objects.create(beleg=Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.kunde),
+                                    bezeichnung="X", einzelpreis=Decimal("1"))
         url = reverse("verkauf:kunde", args=[self.kunde.pk])
         r = self.client.get(url)
         self.assertEqual(len(r.context["zeilen"]), 25)

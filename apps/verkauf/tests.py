@@ -230,7 +230,8 @@ class StartOffeneTest(TestCase):
     def test_start_zeigt_offene_belege(self):
         m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
         k = Kunde.objects.create(nummer="1", name1="Offenkunde")
-        Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        Position.objects.create(beleg=Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k), bezeichnung="X",
+                                einzelpreis=Decimal("1"))
         Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=Kunde.objects.create(nummer="2", name1="Fertigkunde"),
                              abgeschlossen=True)
         self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
@@ -376,3 +377,23 @@ class LeereEntwuerfeTest(TestCase):
         self.assertTrue(Beleg.objects.filter(pk=mit.pk).exists())      # hat eine Position
         neu = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=k)
         self.assertEqual(neu.nummer.rsplit("-", 1)[1], "00003")        # 00001 leer entfernt, 00002 frisch, 00003 neu
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class LieferscheinNurAusAuftragTest(TestCase):
+    def test_lieferschein_nicht_direkt_anlegbar(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        k = Kunde.objects.create(nummer="1", name1="K")
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        self.client.post(reverse("verkauf:beleg_neu", args=[k.pk]), {"art": "LS"})
+        self.assertFalse(Beleg.objects.filter(art=Belegart.LIEFERSCHEIN).exists())
+        angebot = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
+        Position.objects.create(beleg=angebot, bezeichnung="X", menge=1, einzelpreis=Decimal("1"))
+        with self.assertRaisesMessage(ValueError, "nur aus einem Auftrag"):
+            angebot.kopieren_als("LS")
+        auftrag = angebot.folgebeleg_erzeugen()
+        self.assertEqual(auftrag.art, Belegart.AUFTRAG)
+        self.assertEqual(auftrag.folgebeleg_erzeugen().art, Belegart.LIEFERSCHEIN)

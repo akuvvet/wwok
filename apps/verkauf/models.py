@@ -304,6 +304,8 @@ class Beleg(Zeitstempel):
         Optional wird der Ursprungsbeleg danach abgeschlossen (erledigt)."""
         if art not in Belegart.values or art == Belegart.GUTSCHRIFT:
             raise ValueError("Diese Belegart kann nicht als Kopie angelegt werden.")
+        if art == Belegart.LIEFERSCHEIN and self.art != Belegart.AUFTRAG:
+            raise ValueError("Ein Lieferschein entsteht nur aus einem Auftrag.")
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
         self.positionen_pruefen()

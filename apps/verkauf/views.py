@@ -79,7 +79,7 @@ def start(request):
             return redirect("verkauf:kunde", kunde_id=treffer[0].pk)
     offene = None
     if mandant and treffer is None:  # ohne Suche: die offenen (nicht abgeschlossenen) Belege zum Weiterbearbeiten
-        offene = list(Beleg.objects.filter(mandant=mandant, abgeschlossen=False).select_related("kunde")
+        offene = list(Beleg.objects.filter(mandant=mandant, abgeschlossen=False, positionen__isnull=False).distinct().select_related("kunde")
                       .order_by("-belegdatum", "-id")[:100])
     return render(request, "verkauf/start.html", {
         "mandant": mandant, "mandanten": Mandant.objects.filter(aktiv=True), "q": q, "treffer": treffer,
@@ -95,7 +95,7 @@ def kunde_detail(request, kunde_id):
     from apps.finanzen import services as fin
     kunde = get_object_or_404(Kunde, pk=kunde_id)
     Beleg.leere_entwuerfe_entfernen(request.mandant, kunde)
-    belege = Beleg.objects.filter(kunde=kunde, mandant=request.mandant).select_related("kunde", "zahlungsbedingung", "vorgaenger")
+    belege = Beleg.objects.filter(kunde=kunde, mandant=request.mandant, positionen__isnull=False).distinct()         .select_related("kunde", "zahlungsbedingung", "vorgaenger")  # Belege ohne Position gelten nicht als gespeichert
     art = request.GET.get("art", "")
     if art == "offen":
         belege = belege.filter(abgeschlossen=False)
@@ -156,6 +156,10 @@ def beleg_neu(request, kunde_id):
         raise Http404
     if kunde.gesperrt:
         messages.error(request, "Kunde ist gesperrt – kein neuer Beleg.")
+        return redirect("verkauf:kunde", kunde_id=kunde.pk)
+    if art == Belegart.LIEFERSCHEIN:
+        messages.error(request, "Ein Lieferschein entsteht aus einem Auftrag: erst den Auftrag erfassen, "
+                                "dann dort „Als Lieferschein übernehmen“.")
         return redirect("verkauf:kunde", kunde_id=kunde.pk)
     beleg = Beleg.objects.create(
         mandant=request.mandant, art=art, kunde=kunde,
