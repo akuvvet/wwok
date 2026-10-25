@@ -5,18 +5,23 @@
 {% if kunde.gesperrt %}<div class="warnung">Kunde ist gesperrt – keine neuen Belege.</div>{% endif %}
 {% if limit_ueberschritten %}<div class="warnung">Kreditlimit überschritten: offen {{ offen }} € bei Limit {{ kreditlimit }} €.</div>{% endif %}
 {% if kunde.hinweis %}<div class="warnung">{{ kunde.hinweis|linebreaksbr }}</div>{% endif %}
-<div class="karte">
-  <h1>{{ kunde.nummer }} – {{ kunde.name1 }} {{ kunde.name2 }}</h1>
-  <div class="raster">
-    <div>{{ kunde.strasse }}<br>{{ kunde.plz }} {{ kunde.ort }}</div>
+<div class="karte kundenkopf">
+  <div class="kk-titel">
+    <h1>{{ kunde.nummer }} – {{ kunde.name1 }} {{ kunde.name2 }}</h1>
+    <a class="knopf leise klein" href="/verwaltung/stammdaten/kunde/{{ kunde.pk }}/change/">Kundendaten bearbeiten</a>
+  </div>
+  <div class="kk-raster">
+    <div class="kk-zeile">
+      <span>{{ kunde.strasse }}<br>{{ kunde.plz }} {{ kunde.ort }}</span>
+      <a class="knopf leise klein" href="https://www.google.com/maps/search/?api=1&query={{ kunde.strasse|urlencode }}+{{ kunde.plz }}+{{ kunde.ort|urlencode }}" target="_blank" rel="noopener">Karte</a>
+    </div>
     <div>Tel. {{ kunde.telefon|default:"–" }}<br>{{ kunde.email|default:"–" }}</div>
     <div>Preisstufe VK{{ kunde.preisstufe }}<br>Zahlung: {{ kunde.zahlungsbedingung|default:"–" }}
-      {% if kreditlimit %}<br>Kreditlimit {{ kreditlimit }} €{% endif %}<br>Offene Posten: <a href="{% url 'finanzen:offene_posten' %}?kunde={{ kunde.pk }}">{{ offen }} €</a></div>
-    <div>{% for a in ansprechpartner %}{{ a }}{% if a.hauptkontakt %} ★{% endif %}<br>{% endfor %}</div>
+      {% if kreditlimit %}<br>Kreditlimit {{ kreditlimit }} €{% endif %}
+      <div class="kk-zeile">Offene Posten: <a href="{% url 'finanzen:offene_posten' %}?kunde={{ kunde.pk }}">{{ offen }} €</a>
+        <a class="knopf leise klein" href="{% url 'finanzen:kontoauszug' kunde.pk %}">Kontoauszug</a></div></div>
+    {% if ansprechpartner %}<div>{% for a in ansprechpartner %}{{ a }}{% if a.hauptkontakt %} ★{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
   </div>
-  <p><a href="/verwaltung/stammdaten/kunde/{{ kunde.pk }}/change/">Kundendaten bearbeiten</a>
-     · <a href="{% url 'finanzen:kontoauszug' kunde.pk %}">Kontoauszug</a>
-     · <a href="https://www.google.com/maps/search/?api=1&query={{ kunde.strasse|urlencode }}+{{ kunde.plz }}+{{ kunde.ort|urlencode }}" target="_blank" rel="noopener">Karte</a></p>
 </div>
 
 {% if not kunde.gesperrt %}
