@@ -57,6 +57,10 @@ def fehlbestand(beleg) -> list:
 
 def druckhindernis(beleg) -> str:
     """Grund, warum ein Lieferschein/eine Rechnung (noch) nicht gedruckt oder versendet werden darf; leer = erlaubt."""
+    if beleg.art in (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) and not beleg.abgeschlossen:
+        hinweis = beleg.p_hinweis
+        if hinweis:
+            return hinweis
     if beleg.art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) or beleg.abgeschlossen:
         return ""
     if beleg.art == Belegart.RECHNUNG:

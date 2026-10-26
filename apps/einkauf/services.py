@@ -195,6 +195,9 @@ def artikel_aus_preisliste(eintrag):
         defaults={"artikel": artikel, "ek": eintrag.ek, "bestand": eintrag.bestand, "lieferzeit_tage": eintrag.lieferzeit_tage,
                   "preisliste": eintrag.preisliste, "aktualisiert_am": eintrag.aktualisiert_am})
     BestellPosition.objects.filter(preisliste_artikel=eintrag, artikel__isnull=True).update(artikel=artikel)
+    umstellen = Position.objects.filter(preisliste_artikel=eintrag, artikel__isnull=True).exclude(
+        beleg__art__in=("RE", "GS"), beleg__abgeschlossen=True)  # Verkaufspositionen (außer abgeschlossene Rechnungen) werden zu A
+    umstellen.update(artikel=artikel, typ="A", preisliste_artikel=None)
     return artikel
 
 

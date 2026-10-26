@@ -138,6 +138,23 @@ class Beleg(Zeitstempel):
             return "Zum Beleg gibt es Lagerbuchungen."
         return None
 
+    def p_positionen(self):
+        """Positionen mit Preislistenartikel (Typ P) ohne eigenen Artikel: in Auftrag, Lieferschein und Rechnung gelten sie nur als Angebot."""
+        return self.positionen.filter(preisliste_artikel__isnull=False, artikel__isnull=True)
+
+    @property
+    def p_hinweis(self) -> str:
+        """Text, solange Auftrag/Lieferschein/Rechnung noch Preislistenartikel (P) enthält; leer = in Ordnung."""
+        if self.art not in (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) or self.gesperrt:
+            return ""
+        if self.art != Belegart.AUFTRAG and self.abgeschlossen:
+            return ""
+        if self.p_positionen().exists():
+            return (f"{self.get_art_display()} enthält Preislistenartikel (P): diese Positionen gelten nur als Angebot. "
+                    "Drucken, Abschließen und Versenden geht erst, wenn alle Positionen eigene Artikel (A) sind – "
+                    "nach dem Wareneingang werden sie automatisch umgestellt.")
+        return ""
+
     def positionen_pruefen(self):
         """Ein Beleg ohne Position darf nicht abgeschlossen, versendet oder weitergeführt werden."""
         if not self.positionen.exists():
@@ -289,6 +306,9 @@ class Beleg(Zeitstempel):
             return
         if not self.positionen.exists():
             raise ValueError("Beleg ohne Positionen kann nicht abgeschlossen werden.")
+        if self.art in (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) and self.p_positionen().exists():
+            raise ValueError(f"{self.get_art_display()} enthält Preislistenartikel (P) – nur als Angebot möglich. "
+                             "Erst Wareneingang buchen, dann sind es eigene Artikel (A).")
         if self.art == Belegart.RECHNUNG:  # Die Ware muss über den Lieferschein abgebucht sein, sonst bliebe der Bestand falsch
             from apps.lager.services import offene_lieferscheine
             offen = offene_lieferscheine(self)

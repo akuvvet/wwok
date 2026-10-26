@@ -73,9 +73,19 @@ class UmbauTest(TestCase):
         self.assertNotIn("API", text)  # beim Kunden erscheint der Lieferant nicht
         auftrag = b.folgebeleg_erzeugen()
         self.assertEqual(auftrag.positionen.get().preisliste_artikel, self.netzteil)
+        self.assertIn("Preislistenartikel", auftrag.p_hinweis)
+        self.assertEqual(self.client.get(reverse("verkauf:beleg_pdf", args=[auftrag.pk]), follow=True).get("Content-Type"), "text/html; charset=utf-8")
+        with self.assertRaisesMessage(ValueError, "nur als Angebot"):
+            auftrag.abschliessen()   # P-Positionen: nicht druckbar, nicht abschließbar
         ls = auftrag.folgebeleg_erzeugen()
-        ls.abschliessen()  # Preislistenartikel haben keinen Lagerbestand und blockieren den Lieferschein nicht
-        self.assertTrue(ls.abgeschlossen)
+        with self.assertRaisesMessage(ValueError, "nur als Angebot"):
+            ls.abschliessen()
+        # nach dem Wareneingang wird die Position automatisch zum eigenen Artikel (A)
+        from apps.einkauf import services as einkauf_services
+        a = einkauf_services.artikel_aus_preisliste(self.netzteil)
+        position = auftrag.positionen.get()
+        self.assertEqual((position.typ, position.artikel, position.preisliste_artikel), ("A", a, None))
+        self.assertEqual(auftrag.p_hinweis, "")
 
     def test_preis_von_hand_ueberschreibt_vorschlag(self):
         b = self.beleg()
