@@ -46,6 +46,14 @@ class UrlAbrufTest(TestCase):
             preislisten.abrufen(p)
         self.assertEqual(m.call_args.args[0].full_url, URL)
 
+    def test_adresse_mit_schluessel_aus_env(self):
+        p = self.profil(adresse="", benutzer="")
+        geheim = "https://data.kosatec.de/26463/abc123/preisliste.csv"
+        with mock.patch.dict("os.environ", {p.url_variable: geheim}),                 mock.patch("urllib.request.urlopen", return_value=AntwortAttrappe(b"x")) as m:
+            p.clean()  # Formularprüfung akzeptiert die Adresse aus der .env
+            name, _ = preislisten.abrufen(p)
+        self.assertEqual((m.call_args.args[0].full_url, name), (geheim, "preisliste.csv"))
+
     def test_klare_fehlermeldungen(self):
         p = self.profil()
         with self.assertRaisesMessage(preislisten.PreislistenFehler, p.passwort_variable):  # Passwort fehlt

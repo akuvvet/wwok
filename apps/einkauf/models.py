@@ -309,8 +309,17 @@ class Preislistenprofil(Zeitstempel):
         return f"PREISLISTE_PW_{self.pk}"
 
     @property
+    def url_variable(self) -> str:
+        return f"PREISLISTE_URL_{self.pk}"
+
+    @property
     def url_adresse(self) -> str:
-        """Die Adresse steht im Feld 'Adresse'; eine versehentlich im Feld 'Datei auf dem Server' eingetragene URL wird mit genutzt."""
+        """Enthält die Adresse einen Zugangsschlüssel, steht sie in der .env (PREISLISTE_URL_<ID>) und hat Vorrang.
+        Sonst steht sie im Feld 'Adresse'; eine versehentlich im Feld 'Datei auf dem Server' eingetragene URL wird mit genutzt."""
+        import os
+        aus_env = os.environ.get(self.url_variable, "").strip() if self.pk else ""
+        if aus_env:
+            return aus_env
         adresse = (self.adresse or "").strip()
         return adresse if adresse else (self.pfad or "").strip()
 
