@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block titel %}Günstigster EK – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:preislisten' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Günstigsten EK in die Artikel übernehmen</h1>
+  <p style="opacity:.85">Zu jeder Herstellernummer gewinnt der Lieferant mit dem niedrigsten EK netto (aus allen Preislisten).
+     Dieser EK wird bei den eigenen Artikeln (A) eingetragen. Artikel mit gebuchtem Wareneingang behalten ihren Durchschnitts-EK.</p>
+  <p>Artikel mit Lieferantenpreis: <strong>{{ e.artikel }}</strong> · zu ändern: <strong>{{ e.aenderungen|length }}</strong> ·
+     schon richtig: {{ e.unveraendert }} · mit Wareneingang (bleiben): {{ e.uebersprungen }}</p>
+  {% if e.aenderungen %}
+  <form method="post" onsubmit="return confirm('{{ e.aenderungen|length }} Artikel mit dem günstigsten EK aktualisieren?')">{% csrf_token %}
+    <button type="submit">Jetzt übernehmen</button></form>
+  <div class="scroll" style="margin-top:12px"><table>
+    <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">bisher</th><th class="zahl">neu (günstigster)</th><th>Lieferant</th></tr></thead>
+    <tbody>{% for z in beispiele %}<tr><td>{{ z.artikel.nummer }}</td><td>{{ z.artikel.bezeichnung }}</td>
+      <td class="zahl">{{ z.alt|default_if_none:"–" }}</td><td class="zahl"><strong>{{ z.neu }}</strong></td><td>{{ z.lieferant }}</td></tr>{% endfor %}</tbody></table></div>
+  {% if e.aenderungen|length > 100 %}<p style="opacity:.7">Angezeigt sind die ersten 100 von {{ e.aenderungen|length }}.</p>{% endif %}
+  {% else %}<p>Alles aktuell – keine Änderung nötig.</p>{% endif %}
+</div>
+{% endblock %}

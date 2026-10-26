@@ -571,3 +571,15 @@ def preislistenimport(request, import_id):
     from .models import Preislistenimport
     protokoll = get_object_or_404(Preislistenimport.objects.select_related("profil", "profil__lieferant"), pk=import_id)
     return render(request, "einkauf/preislistenimport.html", {"p": protokoll})
+
+
+@mit_mandant
+def bestpreise_ansicht(request):
+    """Günstigsten Lieferanten-EK je Herstellernummer in die A-Artikel übernehmen: erst Vorschau, dann anwenden."""
+    from . import bestpreis
+    if request.method == "POST":
+        ergebnis = bestpreis.bestpreise(anwenden=True)
+        messages.success(request, f"{len(ergebnis['aenderungen'])} Artikel mit dem günstigsten Lieferanten-EK aktualisiert.")
+        return redirect("einkauf:bestpreise")
+    ergebnis = bestpreis.bestpreise()
+    return render(request, "einkauf/bestpreise.html", {"e": ergebnis, "beispiele": ergebnis["aenderungen"][:100]})

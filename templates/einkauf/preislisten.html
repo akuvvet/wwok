@@ -9,7 +9,8 @@
     <a href="/verwaltung/einkauf/preislistenprofil/">Verwaltung → Preislistenprofile</a> ein.</p>
   <p class="zeile"><a class="knopf" href="{% url 'einkauf:preislisten_neu' %}">+ Neue Preisliste einrichten</a>
     <a class="knopf leise" href="{% url 'einkauf:preislistenartikel' %}">Preislistenartikel ansehen</a>
-    <a class="knopf leise" href="{% url 'einkauf:artikelpreise' %}">Artikelpreise (EK/VK) aus Excel importieren</a></p>
+    <a class="knopf leise" href="{% url 'einkauf:artikelpreise' %}">Artikelpreise (EK/VK) aus Excel importieren</a>
+    <a class="knopf leise" href="{% url 'einkauf:bestpreise' %}">Günstigsten EK in Artikel übernehmen</a></p>
   <table>
     <tr><th>Profil</th><th>Lieferant</th><th>Quelle</th><th>Format</th><th>Zeitplan</th><th>letzter Import</th></tr>
     {% for p in profile %}
