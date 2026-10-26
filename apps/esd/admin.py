@@ -6,8 +6,9 @@ from .models import ESDKey, ESDVergabe
 @admin.register(ESDKey)
 class ESDKeyAdmin(admin.ModelAdmin):
     list_display = ["artikel", "key", "mandant", "max_vergaben", "vergeben", "status"]
-    list_filter = ["mandant", "status", "artikel"]
-    search_fields = ["key", "artikel__nummer"]
+    list_filter = ["mandant", "status"]
+    search_fields = ["key", "artikel__nummer", "artikel__bezeichnung"]
+    autocomplete_fields = ["artikel"]  # Suchfeld statt Liste mit allen Artikeln
 
 
 @admin.register(ESDVergabe)
