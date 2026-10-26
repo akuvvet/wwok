@@ -100,7 +100,7 @@ def tabelle(profil, inhalt: bytes) -> list:
     """Zeilen als Listen (CSV, Excel)."""
     if profil.dateityp == Dateityp.CSV:
         try:
-            text = inhalt.decode(profil.zeichensatz)
+            text = inhalt.decode(profil.zeichensatz).lstrip("﻿")  # Byte-Order-Mark am Dateianfang ignorieren
         except UnicodeDecodeError:
             raise PreislistenFehler(f"Die Datei lässt sich nicht als {profil.zeichensatz} lesen (Zeichensatz im Profil prüfen).")
         trenner = "\t" if profil.trennzeichen in ("\\t", "tab", "TAB") else (profil.trennzeichen or ";")

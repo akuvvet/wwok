@@ -31,6 +31,20 @@ class AssistentTest(TestCase):
         s["mandant_id"] = self.m.pk
         s.save()
 
+    def test_kosatec_liste_mit_bom_und_kuerzeln(self):
+        kopf = "artnr;herstnr;artname;hersteller;hersturl;ean;hek;vkbrutto;verfuegbar;menge;eta;indate;gewicht;eol;kat1"
+        zeilen = [
+            '382;58005;"LX-6200 (Edu Bundle. Bulk 10)";LANCOM;;4044144580055;3423,84;4217,99;A;6;2026-10-28;1993-10-11;0;0;Netzwerk',
+            '30470;GS108GE;"Netgear GS108GE";NETGEAR;;0606449025187;19,99;24,62;V;200;;2003-10-29;0,795;0;Netzwerk']
+        kosatec = ("\ufeff" + "\n".join([kopf] + zeilen) + "\n").encode("utf-8")
+        erkannt = assistent.format_erkennen("preisliste.csv", kosatec)
+        p = assistent.muster_profil(self.lf, erkannt)
+        namen, bsp = assistent.spalten_und_beispiele(p, kosatec)
+        self.assertEqual(namen[0], "artnr")  # kein BOM im Spaltennamen
+        vorschlag = assistent.spalten_raten(namen)
+        self.assertEqual((vorschlag["herstellernummer"], vorschlag["bezeichnung"], vorschlag["ek"], vorschlag["bestand"]),
+                         ("herstnr", "artname", "hek", "menge"))  # Bestand = Stückzahl, nicht der Status A/V/B
+
     def test_format_und_spalten_erkennen(self):
         erkannt = assistent.format_erkennen("liste.csv", CSV_ANSI)
         self.assertEqual((erkannt["dateityp"], erkannt["zeichensatz"], erkannt["trennzeichen"]), ("csv", "cp1252", ";"))
