@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -33,14 +34,31 @@ def uebersicht(request):
     ids = software_kategorien()
     kandidaten = []
     if q:  # nur Artikel der Kategorie Software anbieten
-        qs = Artikel.objects.filter(nicht_aktiv=False, typ="A")
-        if ids is not None:
-            qs = qs.filter(kategorie_id__in=ids)
-        for wort in q.split():
-            qs = qs.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
-                           | Q(hersteller__name__icontains=wort))
-        kandidaten = list(qs.select_related("kategorie").order_by("nummer")[:50])
+        kandidaten = list(kandidaten_suchen(q)[:50])
     return render(request, "esd/uebersicht.html", {"zeilen": zeilen, "q": q, "kandidaten": kandidaten, "software_vorhanden": ids is not None})
+
+
+def kandidaten_suchen(q):
+    """Software-Artikel (Typ A) zu einer Suche mit beliebigen Wörtern; '*' = alle."""
+    ids = software_kategorien()
+    qs = Artikel.objects.filter(nicht_aktiv=False, typ="A")
+    if ids is not None:
+        qs = qs.filter(kategorie_id__in=ids)
+    for wort in ([] if q == "*" else q.split()):
+        qs = qs.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
+                       | Q(hersteller__name__icontains=wort))
+    return qs.select_related("kategorie").order_by("nummer")
+
+
+@mit_mandant
+def suche(request):
+    """Suchfeld mit Vorschlagsliste für 'Keys hinzufügen'."""
+    q = request.GET.get("q", "").strip()
+    if len(q) < 2 and q != "*":
+        return JsonResponse({"treffer": []})
+    return JsonResponse({"treffer": [
+        {"pk": a.pk, "nummer": a.nummer, "bezeichnung": a.bezeichnung, "kategorie": a.kategorie.name if a.kategorie else "",
+         "esd_key": a.esd_key} for a in kandidaten_suchen(q)[:40]]})
 
 
 @mit_mandant

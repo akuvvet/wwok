@@ -1,5 +1,45 @@
 {% extends "base.html" %}
 {% block titel %}ESD-Keys – wwok{% endblock %}
+{% block skript %}
+<script>
+  // Artikelsuche mit Vorschlagsliste: Auswahl (Klick oder Enter) öffnet die Key-Verwaltung des Artikels
+  (function () {
+    var feld = document.getElementById('q'), box = document.getElementById('esdliste'), form = document.getElementById('esdwahl');
+    var liste = [], aktiv = -1, timer, nr = 0;
+    function zeige() {
+      box.innerHTML = '';
+      liste.forEach(function (t, i) {
+        var d = document.createElement('div');
+        d.style.cssText = 'padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--rand);' + (i === aktiv ? 'background:var(--grund)' : '');
+        d.textContent = t.nummer + ' – ' + t.bezeichnung + (t.kategorie ? '  · ' + t.kategorie : '') + (t.esd_key ? '  · Keys vorhanden' : '');
+        d.addEventListener('mousedown', function (e) { e.preventDefault(); waehle(i); });
+        box.appendChild(d);
+      });
+      box.style.display = liste.length ? 'block' : 'none';
+    }
+    function waehle(i) {
+      var t = liste[i]; if (!t) return;
+      form.action = '/esd/artikel/' + t.pk + '/aktivieren/'; form.submit();
+    }
+    function suche() {
+      var q = feld.value.trim(), n = ++nr;
+      if (q.length < 2 && q !== '*') { liste = []; zeige(); return; }
+      fetch("{% url 'esd:suche' %}?q=" + encodeURIComponent(q), {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {
+        if (n !== nr) return; liste = d.treffer; aktiv = liste.length ? 0 : -1; zeige();
+      });
+    }
+    feld.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(suche, 200); });
+    feld.addEventListener('keydown', function (e) {
+      if (!liste.length) return;
+      if (e.key === 'ArrowDown') { aktiv = Math.min(aktiv + 1, liste.length - 1); zeige(); e.preventDefault(); }
+      else if (e.key === 'ArrowUp') { aktiv = Math.max(aktiv - 1, 0); zeige(); e.preventDefault(); }
+      else if (e.key === 'Enter' && aktiv >= 0) { waehle(aktiv); e.preventDefault(); }
+      else if (e.key === 'Escape') { liste = []; zeige(); e.stopPropagation(); }
+    });
+    feld.addEventListener('blur', function () { setTimeout(function () { box.style.display = 'none'; }, 150); });
+  })();
+</script>
+{% endblock %}
 {% block inhalt %}
 <a href="{% url 'lager:uebersicht' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
@@ -7,9 +47,12 @@
   <p style="opacity:.8">Artikel werden im Artikelstamm mit „ESD-Key-Artikel“ gekennzeichnet. Beim Abschluss von Lieferschein oder Rechnung wird automatisch ein Key aus dem Bestand des Mandanten zugeordnet.</p>
   <form method="get" class="zeile">
     <div><label for="q">Keys hinzufügen: Software-Artikel suchen{% if not software_vorhanden %} (Kategorie „Software“ nicht gefunden – es werden alle Artikel angeboten){% endif %}</label>
-      <input id="q" name="q" value="{{ q }}" size="40" placeholder="z. B. windows 11 pro"></div>
-    <button type="submit">Suchen</button>
+      <div style="position:relative"><input id="q" name="q" value="{{ q }}" size="40" placeholder="z. B. windows 11 pro – oder * für alle" autocomplete="off" autofocus>
+        <div id="esdliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:480px;max-height:320px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
+    <button type="submit" class="symbol voll" style="margin-left:0" data-tip="Suchen" aria-label="Suchen">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></button>
   </form>
+  <form id="esdwahl" method="post" style="display:none">{% csrf_token %}</form>
   {% if q %}
   <table style="margin:12px 0">
     <tr><th>Artikel</th><th>Bezeichnung</th><th>Kategorie</th><th></th></tr>

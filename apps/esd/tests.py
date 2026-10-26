@@ -128,3 +128,24 @@ class ESDTest(TestCase):
         self.client.post(reverse("esd:key_status", args=[key.pk]))
         key.refresh_from_db()
         self.assertEqual(key.status, KeyStatus.GESPERRT)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class EsdSucheTest(TestCase):
+    def test_suchfeld_liefert_nur_software(self):
+        from apps.kern.models import Mandant
+        from apps.stammdaten.models import Artikel, Kategorie, Steuersatz
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        sw = Kategorie.objects.create(name="Software")
+        hw = Kategorie.objects.create(name="Hardware")
+        Artikel.objects.create(nummer="S1", bezeichnung="Windows 11 Pro", steuersatz=st, kategorie=sw)
+        Artikel.objects.create(nummer="H1", bezeichnung="Windows Tastatur", steuersatz=st, kategorie=hw)
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        url = reverse("esd:suche")
+        self.assertEqual([t["nummer"] for t in self.client.get(url, {"q": "windows"}).json()["treffer"]], ["S1"])
+        self.assertEqual([t["nummer"] for t in self.client.get(url, {"q": "*"}).json()["treffer"]], ["S1"])
+        self.assertEqual(self.client.get(url, {"q": "w"}).json()["treffer"], [])
