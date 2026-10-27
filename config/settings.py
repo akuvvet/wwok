@@ -139,6 +139,14 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = "DENY"
 
+# Fehler (500) mit Traceback ins Journal des Dienstes schreiben (journalctl -u wwok)
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "loggers": {"django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False}},
+}
+
 SESSION_COOKIE_AGE = 60 * 60 * 10  # 10 Stunden = ein Arbeitstag
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 

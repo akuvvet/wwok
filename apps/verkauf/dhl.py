@@ -91,8 +91,8 @@ def _anfrage(zugangsdaten, methode, pfad, daten=None):
         except Exception:
             inhalt = {}
         raise DhlFehler(f"DHL meldet {fehler.code}: {meldungen(inhalt) or fehler.reason}")
-    except (urllib.error.URLError, TimeoutError) as fehler:
-        raise DhlFehler(f"DHL nicht erreichbar: {fehler}")
+    except (urllib.error.URLError, OSError, ValueError) as fehler:  # u. a. Zeitüberschreitung, TLS, ungültige Antwort
+        raise DhlFehler(f"DHL nicht erreichbar oder unlesbare Antwort: {fehler}")
 
 
 def meldungen(antwort: dict) -> str:
