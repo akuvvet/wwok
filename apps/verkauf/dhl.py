@@ -103,9 +103,12 @@ def meldungen(antwort: dict) -> str:
         s = item.get("sstatus") or {}
         if s.get("title") and s.get("statusCode", 200) >= 300:
             texte.append(f"{s['title']} {s.get('detail', '')}".strip())
-    st = antwort.get("status") or {}
-    if st.get("detail") and not texte:
-        texte.append(st["detail"])
+    if not texte:
+        st = antwort.get("status")
+        st = st if isinstance(st, dict) else antwort  # bei Fehlern wie 401 liegen title/detail oben
+        for feld in ("title", "detail"):
+            if isinstance(st.get(feld), str) and st[feld]:
+                texte.append(st[feld])
     return "; ".join(t for t in texte if t)
 
 

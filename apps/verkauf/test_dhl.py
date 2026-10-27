@@ -67,6 +67,13 @@ class DhlTest(TestCase):
             dhl.stornieren(self.v)
         self.assertEqual(m.call_args.args[0].method, "DELETE")
 
+    def test_fehler_401_ohne_absturz(self):
+        fehler = urllib.error.HTTPError("u", 401, "Unauthorized", {}, None)
+        fehler.read = lambda: json.dumps({"status": 401, "title": "Unauthorized", "detail": "Invalid credentials"}).encode()
+        with mock.patch.dict("os.environ", ENV), mock.patch("urllib.request.urlopen", side_effect=fehler):
+            with self.assertRaisesMessage(dhl.DhlFehler, "DHL meldet 401: Unauthorized; Invalid credentials"):
+                dhl.label_erzeugen(self.v)
+
     def test_fehlermeldung_von_dhl(self):
         fehler = urllib.error.HTTPError("u", 400, "Bad", {}, None)
         fehler.read = lambda: json.dumps({"items": [{"validationMessages": [{"property": "consignee.postalCode",
