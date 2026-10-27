@@ -30,9 +30,27 @@ class NachlieferscheinTest(TestCase):
         self.assertEqual(nl.zahlungsbedingung.bezeichnung, "Betrag dankend erhalten")
         self.assertEqual((nl.versandkosten, nl.positionen.count(), nl.vorgaenger), (0, 1, re))
         self.assertIn("RE2026-00001", nl.bemerkung)
-        nl.abschliessen()  # bucht keinen Bestand (mit der Rechnung schon abgebucht)
-        self.assertTrue(nl.abgeschlossen)
-        self.assertFalse(nl.lagerbewegung_set.exists() if hasattr(nl, "lagerbewegung_set") else False)
+        # Ohne Antwort wird nicht gedruckt; Abschluss fragt erst nach
+        from apps.lager.services import druckhindernis
+        self.assertIn("abgebucht", druckhindernis(nl))
+
+    def test_abbuchen_nur_bei_ersatz(self):
+        from apps.lager.models import BestandReichtNicht, Bewegungsart, Lagerbewegung
+        from apps.lager.services import buche_manuell
+        re = self.rechnung(True)
+        nein = re.kopieren_als(Belegart.NACHLIEFERSCHEIN)
+        nein.nl_lager_abbuchen = False
+        nein.abschliessen()
+        self.assertFalse(Lagerbewegung.objects.filter(beleg=nein).exists())
+        ja = re.kopieren_als(Belegart.NACHLIEFERSCHEIN)
+        ja.nl_lager_abbuchen = True
+        Beleg.objects.filter(pk=ja.pk).update(nl_lager_abbuchen=True)
+        with self.assertRaises(BestandReichtNicht):  # kein Bestand → keine Abbuchung unter 0
+            ja.abschliessen()
+        buche_manuell(self.m, self.maus, Bewegungsart.WARENEINGANG, Decimal("3"), "Test")
+        ja = Beleg.objects.get(pk=ja.pk)  # Zustand nach dem abgebrochenen Abschluss
+        ja.abschliessen()
+        self.assertEqual(Lagerbewegung.objects.filter(beleg=ja, art=Bewegungsart.VERKAUF).count(), 1)
 
     def test_nur_aus_abgeschlossener_rechnung(self):
         with self.assertRaises(ValueError):

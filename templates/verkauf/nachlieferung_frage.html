@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titel %}Nachlieferschein – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Nachlieferschein {{ beleg.nummer }}: Ware vom Lager abbuchen?</h1>
+  <p>Ist die Ware schon mit der Rechnung bzw. dem Lieferschein abgebucht (bloße Nachlieferung), ist keine Abbuchung nötig.
+     Wird die Ware <strong>ersetzt, weil sie defekt war</strong>, muss sie vom Lager abgebucht werden – der Bestand wird dann geprüft.</p>
+  <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <button type="submit" name="lager" value="1">Ja, abbuchen (Ersatz für defekte Ware)</button>
+    <button type="submit" name="lager" value="0" class="leise">Nein, nicht abbuchen</button>
+    <a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Abbrechen</a>
+  </form>
+</div>
+{% endblock %}

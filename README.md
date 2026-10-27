@@ -949,4 +949,4 @@ Vor jedem Commit ausführen; bei Fehlern nicht deployen.
 
 ### Nachlieferschein
 
-Zu einer abgeschlossenen Rechnung: **Mehr → Kopieren als → Nachlieferschein**. Eigener Nummernkreis `NL<Jahr>-<Nr.>` (sofort vergeben), Zahlungsbedingung „Betrag dankend erhalten“ (wird bei Bedarf angelegt), keine Versandkosten, kein Lagerabgang (die Ware ist mit der Rechnung bzw. dem Lieferschein schon abgebucht). Nicht über „Neuer Beleg“ anlegbar.
+Zu einer abgeschlossenen Rechnung: **Mehr → Kopieren als → Nachlieferschein**. Eigener Nummernkreis `NL<Jahr>-<Nr.>` (sofort vergeben), Zahlungsbedingung „Betrag dankend erhalten“ (wird bei Bedarf angelegt), keine Versandkosten, beim Abschließen wird gefragt, ob die Ware vom Lager abgebucht wird: **ja** bei Ersatz für defekte Ware (Bestand wird geprüft, nie unter 0), **nein** bei bloßer Nachlieferung (schon mit Rechnung/Lieferschein abgebucht). Bis zur Antwort ist kein Druck möglich. Nicht über „Neuer Beleg“ anlegbar.

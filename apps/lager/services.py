@@ -14,6 +14,8 @@ def bucht_bestand(beleg) -> bool:
     """Lieferschein bucht immer ab; eine Rechnung nur, wenn kein Lieferschein in der Belegkette liegt."""
     if beleg.art == Belegart.LIEFERSCHEIN:
         return True
+    if beleg.art == Belegart.NACHLIEFERSCHEIN:  # nur bei Ersatzlieferung (z. B. defektes Gerät), sonst ist die Ware schon abgebucht
+        return beleg.nl_lager_abbuchen is True
     if beleg.art != Belegart.RECHNUNG:
         return False
     if beleg.pk and beleg.lieferscheine.exists():  # Sammelrechnung aus Lieferscheinen: schon abgebucht
@@ -61,7 +63,9 @@ def druckhindernis(beleg) -> str:
         hinweis = beleg.p_hinweis
         if hinweis:
             return hinweis
-    if beleg.art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) or beleg.abgeschlossen:
+    if beleg.art == Belegart.NACHLIEFERSCHEIN and not beleg.abgeschlossen and beleg.nl_lager_abbuchen is None:
+        return "Nachlieferschein erst abschließen (Speichern-Symbol): dabei wird gefragt, ob die Ware vom Lager abgebucht wird."
+    if beleg.art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.NACHLIEFERSCHEIN) or beleg.abgeschlossen:
         return ""
     if beleg.art == Belegart.RECHNUNG:
         offen = offene_lieferscheine(beleg)

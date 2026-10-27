@@ -394,6 +394,13 @@ def position_loeschen(request, beleg_id, position_id):
 @sperr_schutz
 def beleg_abschliessen(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
+    if beleg.art == Belegart.NACHLIEFERSCHEIN and not beleg.abgeschlossen:
+        antwort = request.POST.get("lager")
+        if antwort in ("1", "0"):
+            beleg.nl_lager_abbuchen = antwort == "1"
+            Beleg.objects.filter(pk=beleg.pk).update(nl_lager_abbuchen=beleg.nl_lager_abbuchen)
+        elif beleg.nl_lager_abbuchen is None:  # nachfragen: Ersatz für defekte Ware (abbuchen) oder bloße Nachlieferung?
+            return render(request, "verkauf/nachlieferung_frage.html", {"beleg": beleg})
     try:
         beleg.abschliessen()
     except BestandReichtNicht as fehler:

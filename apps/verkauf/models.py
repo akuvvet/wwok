@@ -104,6 +104,9 @@ class Beleg(Zeitstempel):
     lieferscheine = models.ManyToManyField("self", symmetrical=False, blank=True, related_name="rechnungen",
                                            help_text="Bei Sammelrechnungen: alle Lieferscheine, die abgerechnet werden")
     abgeschlossen = models.BooleanField("abgeschlossen", default=False, editable=False)
+    nl_lager_abbuchen = models.BooleanField(
+        "Nachlieferschein: Ware vom Lager abbuchen", null=True, blank=True, editable=False,
+        help_text="Leer = noch nicht beantwortet. Ja bei Ersatzlieferung (z. B. defektes Gerät), nein bei bloßer Nachlieferung.")
     summe_netto = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
     summe_steuer = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
     summe_brutto = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
@@ -365,7 +368,7 @@ class Beleg(Zeitstempel):
             versandanschrift=self.versandanschrift, versandart=self.versandart,
             versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
-            bemerkung=self.bemerkung, vorgaenger=self.vorgaenger)
+            bemerkung=self.bemerkung, vorgaenger=self.vorgaenger, nl_lager_abbuchen=self.nl_lager_abbuchen)
         ids = [p.pk for p in lieferbar]
         Position.objects.filter(models.Q(pk__in=ids) | models.Q(gruppe_id__in=ids)).update(beleg=neu)
         Beleg.objects.filter(pk=self.pk).update(versandkosten=0, verpackung=0, versicherung=0)
