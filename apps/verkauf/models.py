@@ -711,6 +711,8 @@ class Versand(Zeitstempel):
     gewicht_kg = models.DecimalField("Gewicht (kg)", max_digits=7, decimal_places=2, null=True, blank=True)
     versendet_am = models.DateField("Versanddatum", default=timezone.localdate)
     mail_gesendet = models.DateTimeField("Versand-Mail gesendet", null=True, blank=True, editable=False)
+    dhl_erzeugt = models.BooleanField("Label über die DHL-Schnittstelle erzeugt", default=False, editable=False)
+    label = models.BinaryField("DHL-Label (PDF)", null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = "Versand"

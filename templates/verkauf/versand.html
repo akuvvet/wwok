@@ -9,7 +9,11 @@
     <div><label for="gw">Gewicht (kg)</label><input id="gw" name="gewicht" size="6" inputmode="decimal"></div>
     <button type="submit">Versand speichern</button>
   </form>
-  <p style="opacity:.8">Die Sendungsnummer stammt aus der DHL-Online-Frankierung (Geschäftskundenportal). Der Paketaufkleber hier ist ein interner Aufkleber mit Empfänger und Barcode.</p>
+  <form method="post" class="zeile" style="margin-top:8px">{% csrf_token %}<input type="hidden" name="aktion" value="dhl">
+    <div><label for="gw2">Gewicht (kg)</label><input id="gw2" name="gewicht" size="6" inputmode="decimal" value="1"></div>
+    <button type="submit">DHL-Label automatisch erzeugen</button>
+  </form>
+  <p style="opacity:.8">„DHL-Label automatisch erzeugen“ holt Label und Sendungsnummer direkt von DHL (Zugangsdaten in der .env). Alternativ die Sendungsnummer aus der DHL-Online-Frankierung eintragen – der Aufkleber ist dann ein interner mit Empfänger und Barcode.</p>
 </div>
 {% if versendungen %}
 <div class="karte">
@@ -22,7 +26,7 @@
       <td>{% if v.tracking_url %}<a href="{{ v.tracking_url }}" target="_blank" rel="noopener">Sendung verfolgen</a>{% endif %}</td>
       <td>{% if v.mail_gesendet %}gesendet {{ v.mail_gesendet|date:"d.m. H:i" }}{% else %}–{% endif %}</td>
       <td><form method="post" class="zeile" style="gap:4px">{% csrf_token %}<input type="hidden" name="versand" value="{{ v.pk }}">
-        <a class="knopf leise" target="_blank" href="{% url 'verkauf:versand_aufkleber' beleg.pk v.pk %}">Aufkleber (PDF)</a>
+        <a class="knopf leise" target="_blank" href="{% url 'verkauf:versand_aufkleber' beleg.pk v.pk %}">{% if v.dhl_erzeugt %}DHL-Label (PDF){% else %}Aufkleber (PDF){% endif %}</a>
         <input name="an" value="{{ mailadresse }}" size="24" aria-label="Mail an">
         <button name="aktion" value="mail" class="leise" type="submit">Versand-Mail</button>
         <button name="aktion" value="loeschen" class="gefahr" type="submit" onclick="return confirm('Versandeintrag löschen?')">Löschen</button></form></td>

@@ -678,6 +678,16 @@ def beleg_versand(request, beleg_id):
             Versand.objects.create(beleg=beleg, sendungsnummer=request.POST.get("sendungsnummer", "").replace(" ", "")[:40],
                                    gewicht_kg=gewicht)
             messages.success(request, "Versand gespeichert.")
+        elif aktion == "dhl":
+            from . import dhl
+            gewicht = dezimal(request.POST.get("gewicht"), None)
+            v = Versand.objects.create(beleg=beleg, gewicht_kg=gewicht)
+            try:
+                dhl.label_erzeugen(v)
+                messages.success(request, f"DHL-Label erzeugt, Sendungsnummer {v.sendungsnummer}.")
+            except dhl.DhlFehler as fehler:
+                v.delete()
+                messages.error(request, str(fehler))
         else:
             v = get_object_or_404(Versand, pk=request.POST.get("versand"), beleg=beleg)
             if aktion == "mail":
@@ -688,6 +698,13 @@ def beleg_versand(request, beleg_id):
                 except MailFehler as fehler:
                     messages.error(request, str(fehler))
             elif aktion == "loeschen":
+                if v.dhl_erzeugt:
+                    from . import dhl
+                    try:
+                        dhl.stornieren(v)
+                    except dhl.DhlFehler as fehler:
+                        messages.error(request, str(fehler))
+                        return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
                 v.delete()
         return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
     ap = beleg.ansprechpartner
@@ -701,6 +718,7 @@ def versand_aufkleber(request, beleg_id, versand_id):
     from . import versand as vs
     beleg = beleg_holen(request, beleg_id)
     v = get_object_or_404(Versand, pk=versand_id, beleg=beleg)
-    antwort = HttpResponse(vs.aufkleber_pdf(v), content_type="application/pdf")
+    pdf = bytes(v.label) if v.label else vs.aufkleber_pdf(v)  # amtliches DHL-Label, sonst interner Aufkleber
+    antwort = HttpResponse(pdf, content_type="application/pdf")
     antwort["Content-Disposition"] = f'inline; filename="paketaufkleber_{beleg.nummer or beleg.pk}.pdf"'
     return antwort
