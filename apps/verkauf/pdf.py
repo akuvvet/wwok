@@ -123,6 +123,9 @@ def beleg_pdf(beleg) -> bytes:
         inhalt += [absatz("Lieferanschrift:", fett), absatz(beleg.versandanschrift, normal), Spacer(1, 3 * mm)]
     if beleg.versandart:
         inhalt += [absatz(f"Versandart: {beleg.versandart}", normal)]
+    if beleg.art == Belegart.PROFORMA:
+        inhalt += [Spacer(1, 3 * mm), absatz("Diese Proforma-Rechnung ist keine Rechnung im Sinne des Umsatzsteuergesetzes. "
+                                             "Sie dient der Vorabinformation bzw. der Zahlung im Voraus; die Rechnung folgt mit der Lieferung.", fett)]
     if beleg.zahlungstext and beleg.art != Belegart.LIEFERSCHEIN:
         inhalt += [Spacer(1, 3 * mm), absatz(beleg.zahlungstext, normal)]
     if beleg.schlusstext:

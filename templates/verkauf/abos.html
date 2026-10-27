@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titel %}Wiederkehrende Rechnungen – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:start' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Wiederkehrende Rechnungen · Mandant {{ request.mandant }}</h1>
+  <p style="opacity:.85">Zum Termin legt das System (täglicher Lauf) einen <strong>Rechnungsentwurf</strong> an. Der Entwurf wird von Hand geprüft und abgeschlossen.
+     Neu einrichten: eine abgeschlossene Rechnung öffnen → Mehr → „Wiederkehrend einrichten“. Positionen ändern: Verwaltung → Wiederkehrende Rechnungen.</p>
+  {% if abos %}
+  <div class="scroll"><table>
+    <thead><tr><th>Bezeichnung</th><th>Kunde</th><th>Rhythmus</th><th class="zahl">netto</th><th>nächste Rechnung</th><th>Ende</th><th>Status</th><th></th></tr></thead>
+    <tbody>{% for a in abos %}<tr>
+      <td>{{ a.bezeichnung }}</td><td>{{ a.kunde.name1 }}</td><td>{{ a.get_monate_display }}</td><td class="zahl">{{ a.netto|floatformat:2 }}</td>
+      <td>{{ a.naechster_termin|date:"d.m.Y" }}</td><td>{{ a.ende|date:"d.m.Y"|default:"–" }}</td>
+      <td>{% if a.aktiv %}aktiv{% else %}pausiert/beendet{% endif %}</td>
+      <td><form method="post" action="{% url 'verkauf:abo_aktion' a.pk %}" class="zeile" style="gap:4px">{% csrf_token %}
+        <button name="aktion" value="jetzt" class="leise" type="submit">Entwurf jetzt</button>
+        <button name="aktion" value="pause" class="leise" type="submit">{% if a.aktiv %}Pausieren{% else %}Aktivieren{% endif %}</button>
+        <button name="aktion" value="loeschen" class="gefahr" type="submit" onclick="return confirm('Wiederkehrende Rechnung löschen?')">Löschen</button></form></td>
+    </tr>{% endfor %}</tbody></table></div>
+  {% else %}<p>Noch keine wiederkehrende Rechnung eingerichtet.</p>{% endif %}
+</div>
+{% endblock %}

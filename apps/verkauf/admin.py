@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Beleg, MailVersand, Mailvorlage, Nummernkreis, Position
+from .models import Abo, AboPosition, Beleg, MailVersand, Mailvorlage, Nummernkreis, Position
 
 
 class PositionInline(admin.TabularInline):
@@ -61,3 +61,18 @@ class MailVersandAdmin(admin.ModelAdmin):
 class NummernkreisAdmin(admin.ModelAdmin):
     list_display = ["mandant", "art", "jahr", "letzte_nummer"]
     list_filter = ["mandant"]
+
+
+class AboPositionInline(admin.TabularInline):
+    model = AboPosition
+    extra = 1
+    autocomplete_fields = ["artikel"]
+
+
+@admin.register(Abo)
+class AboAdmin(admin.ModelAdmin):
+    list_display = ["bezeichnung", "kunde", "mandant", "monate", "naechster_termin", "ende", "aktiv", "letzter_lauf"]
+    list_filter = ["mandant", "aktiv", "monate"]
+    search_fields = ["bezeichnung", "kunde__name1"]
+    autocomplete_fields = ["kunde"]
+    inlines = [AboPositionInline]

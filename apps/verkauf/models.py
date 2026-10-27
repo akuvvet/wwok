@@ -4,7 +4,8 @@ Verkauf: Belege (Angebot -> Auftrag -> Lieferschein -> Rechnung, Gutschrift) - P
 Belege und Nummernkreise sind pro Mandant getrennt. Abgeschlossene Rechnungen und
 Gutschriften sind gesperrt (GoBD); Korrektur nur per Storno/Gutschrift.
 """
-from datetime import timedelta
+import calendar
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
@@ -27,6 +28,7 @@ class Belegart(models.TextChoices):
     LIEFERSCHEIN = "LS", "Lieferschein"
     RECHNUNG = "RE", "Rechnung"
     NACHLIEFERSCHEIN = "NL", "Nachlieferschein"
+    PROFORMA = "PF", "Proforma-Rechnung"
     GUTSCHRIFT = "GS", "Gutschrift"
 
 
@@ -129,7 +131,7 @@ class Beleg(Zeitstempel):
         """Grund, warum der Beleg nicht gelöscht werden darf (None = löschbar).
         Löschbar sind Angebote, Kundenbestellungen (Aufträge, auch nach dem Übernehmen in einen Folgebeleg) und noch nicht
         nummerierte Rechnungs-/Gutschriftentwürfe."""
-        if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG) and not (
+        if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG, Belegart.PROFORMA) and not (
                 self.art in GESPERRT_NACH_ABSCHLUSS and not self.abgeschlossen and not self.nummer):
             return f"{self.get_art_display()} kann nicht gelöscht werden – Korrektur nur per Storno/Gutschrift."
         if self.rechnungen.exists():  # nur bei Lieferscheinen möglich; Angebote/Aufträge dürfen nach dem Übernehmen gelöscht werden
@@ -214,7 +216,7 @@ class Beleg(Zeitstempel):
         """(EK netto, Marge in % vom Netto-VK, unvollständig) für die interne Anzeige; None bei Belegarten ohne Anzeige.
         EK je Position: Lagerartikel/Gruppen über Wareneingang bzw. günstigste Preisliste, Preislistenartikel mit ihrem EK;
         Gruppen zählen über ihre Unterpositionen. Leistungen und freie Positionen haben keinen EK (unvollständig = True)."""
-        if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG, Belegart.RECHNUNG):
+        if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG, Belegart.RECHNUNG, Belegart.PROFORMA):
             return None
         ek, vk, luecke = Decimal("0"), Decimal("0"), False
         positionen = list(self.positionen.select_related("artikel", "preisliste_artikel"))
@@ -610,3 +612,88 @@ class Position(Zeitstempel):
         if self.beleg.gesperrt:
             raise BelegGesperrt(f"{self.beleg} ist gesperrt.")
         super().delete(*args, **kwargs)
+
+
+def monate_addieren(tag: date, monate: int) -> date:
+    """Datum um ganze Monate verschieben; der Tag wird bei kurzen Monaten auf den Monatsletzten gekürzt."""
+    index = tag.year * 12 + tag.month - 1 + monate
+    jahr, monat = divmod(index, 12)
+    return date(jahr, monat + 1, min(tag.day, calendar.monthrange(jahr, monat + 1)[1]))
+
+
+class Abo(Zeitstempel):
+    """Wiederkehrende Rechnung (Wartungsvertrag, Hosting, Miete …): erzeugt zum Termin einen Rechnungsentwurf."""
+
+    INTERVALLE = [(1, "monatlich"), (3, "vierteljährlich"), (6, "halbjährlich"), (12, "jährlich")]
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="abos")
+    kunde = models.ForeignKey(Kunde, on_delete=models.PROTECT, related_name="abos")
+    bezeichnung = models.CharField("Bezeichnung", max_length=100, help_text="z. B. Wartungsvertrag 2026")
+    monate = models.PositiveSmallIntegerField("Rhythmus", choices=INTERVALLE, default=1)
+    naechster_termin = models.DateField("nächste Rechnung am")
+    ende = models.DateField("Ende (optional)", null=True, blank=True)
+    aktiv = models.BooleanField(default=True)
+    zahlungsbedingung = models.ForeignKey(Zahlungsbedingung, on_delete=models.PROTECT, null=True, blank=True)
+    vortext = models.TextField("Text vor den Positionen", blank=True)
+    schlusstext = models.TextField("Text nach den Positionen", blank=True)
+    letzter_lauf = models.DateField(null=True, blank=True, editable=False)
+    letzte_rechnung = models.ForeignKey("Beleg", on_delete=models.SET_NULL, null=True, blank=True, editable=False, related_name="+")
+
+    class Meta:
+        verbose_name = "Wiederkehrende Rechnung"
+        verbose_name_plural = "Wiederkehrende Rechnungen"
+        ordering = ["naechster_termin", "kunde"]
+
+    def __str__(self):
+        return f"{self.bezeichnung} – {self.kunde.name1} ({self.get_monate_display()})"
+
+    @property
+    def netto(self):
+        return sum((p.menge * p.einzelpreis * (1 - p.rabatt_prozent / 100) for p in self.positionen.all()), Decimal("0"))
+
+    @transaction.atomic
+    def rechnung_erzeugen(self, heute=None) -> "Beleg":
+        """Legt den Rechnungsentwurf an (nummeriert und abgeschlossen wird von Hand), rückt den Termin weiter."""
+        from apps.verkauf.views import adresse_text
+        from apps.stammdaten.models import Anschriftart
+        heute = heute or timezone.localdate()
+        if not self.positionen.exists():
+            raise ValueError(f"{self}: keine Positionen hinterlegt.")
+        beleg = Beleg.objects.create(
+            mandant=self.mandant, art=Belegart.RECHNUNG, kunde=self.kunde, belegdatum=heute,
+            ansprechpartner=self.kunde.ansprechpartner.filter(hauptkontakt=True).first(),
+            zahlungsbedingung=self.zahlungsbedingung or self.kunde.zahlungsbedingung,
+            rechnungsanschrift=adresse_text(self.kunde, Anschriftart.RECHNUNG),
+            versandanschrift=adresse_text(self.kunde, Anschriftart.VERSAND),
+            vortext=self.vortext, schlusstext=self.schlusstext, bemerkung=f"Wiederkehrende Rechnung: {self.bezeichnung}")
+        for p in self.positionen.all():
+            Position.objects.create(
+                beleg=beleg, typ=("A" if p.artikel_id else "L"), artikel=p.artikel, bezeichnung=p.bezeichnung, menge=p.menge,
+                einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent)
+        beleg.berechne()
+        self.letzter_lauf, self.letzte_rechnung = heute, beleg
+        self.naechster_termin = monate_addieren(self.naechster_termin, self.monate)
+        if self.ende and self.naechster_termin > self.ende:
+            self.aktiv = False
+        self.save()
+        return beleg
+
+
+class AboPosition(models.Model):
+    abo = models.ForeignKey(Abo, on_delete=models.CASCADE, related_name="positionen")
+    artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT, null=True, blank=True)
+    bezeichnung = models.CharField("Bezeichnung", max_length=255)
+    menge = models.DecimalField("Menge", max_digits=10, decimal_places=3, default=Decimal("1"))
+    einzelpreis = models.DecimalField("Einzelpreis netto", max_digits=12, decimal_places=2)
+    rabatt_prozent = models.DecimalField("Rabatt %", max_digits=5, decimal_places=2, default=Decimal("0"))
+    steuer_prozent = models.DecimalField("Steuer %", max_digits=5, decimal_places=2, default=Decimal("19"))
+
+    class Meta:
+        verbose_name = "Position"
+        verbose_name_plural = "Positionen"
+        ordering = ["id"]
+
+
+def faellige_abos(heute=None):
+    heute = heute or timezone.localdate()
+    return Abo.objects.filter(aktiv=True, naechster_termin__lte=heute).select_related("kunde", "mandant")

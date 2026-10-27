@@ -11,7 +11,7 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import Beleg, BelegGesperrt, Belegart, Position
+from .models import Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Position
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
 from .pdf import beleg_pdf
@@ -611,3 +611,56 @@ def api_artikel(request):
                         "preis": str(preis) if preis is not None else "", "letzter": None, "pl": e.pk, "ek": str(e.ek), "lieferant": e.lieferant.kurz,
                         "lieferant_bestand": e.bestand})
     return JsonResponse({"treffer": treffer})
+
+
+@mit_mandant
+def abos(request):
+    """Wiederkehrende Rechnungen des Mandanten."""
+    liste = Abo.objects.filter(mandant=request.mandant).select_related("kunde").prefetch_related("positionen")
+    return render(request, "verkauf/abos.html", {"abos": liste})
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+def abo_aus_rechnung(request, beleg_id):
+    """Aus einer Rechnung einen wiederkehrenden Auftrag machen: Positionen werden übernommen, die erste Folgerechnung ist am Starttermin."""
+    from datetime import date
+    beleg = beleg_holen(request, beleg_id)
+    if beleg.art != Belegart.RECHNUNG:
+        raise ValueError("Wiederkehrend einrichten geht nur aus einer Rechnung.")
+    monate = int(request.POST.get("monate", "1"))
+    try:
+        start = date.fromisoformat(request.POST.get("start", ""))
+    except ValueError:
+        raise ValueError("Bitte ein gültiges Startdatum angeben.")
+    abo = Abo.objects.create(
+        mandant=beleg.mandant, kunde=beleg.kunde, bezeichnung=(request.POST.get("bezeichnung") or f"nach {beleg.nummer or 'Rechnung'}")[:100],
+        monate=monate, naechster_termin=start, zahlungsbedingung=beleg.zahlungsbedingung, vortext=beleg.vortext, schlusstext=beleg.schlusstext)
+    for p in beleg.positionen.filter(gruppe__isnull=True).order_by("pos", "id"):
+        AboPosition.objects.create(abo=abo, artikel=p.artikel, bezeichnung=p.bezeichnung, menge=p.menge, einzelpreis=p.einzelpreis,
+                                   rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent)
+    messages.success(request, f"Wiederkehrende Rechnung „{abo.bezeichnung}“ angelegt: nächste Rechnung am {abo.naechster_termin:%d.%m.%Y}.")
+    return redirect("verkauf:abos")
+
+
+@mit_mandant
+@require_POST
+def abo_aktion(request, abo_id):
+    abo = get_object_or_404(Abo, pk=abo_id, mandant=request.mandant)
+    aktion = request.POST.get("aktion")
+    if aktion == "jetzt":
+        try:
+            beleg = abo.rechnung_erzeugen()
+        except ValueError as fehler:
+            messages.error(request, str(fehler))
+            return redirect("verkauf:abos")
+        messages.success(request, f"Rechnungsentwurf für {abo.kunde.name1} angelegt.")
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    if aktion == "pause":
+        abo.aktiv = not abo.aktiv
+        abo.save(update_fields=["aktiv"])
+    elif aktion == "loeschen":
+        abo.delete()
+        messages.success(request, "Wiederkehrende Rechnung gelöscht (bereits erzeugte Rechnungen bleiben).")
+    return redirect("verkauf:abos")

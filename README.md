@@ -950,3 +950,9 @@ Vor jedem Commit ausführen; bei Fehlern nicht deployen.
 ### Nachlieferschein
 
 Zu einer abgeschlossenen Rechnung: **Mehr → Kopieren als → Nachlieferschein**. Eigener Nummernkreis `NL<Jahr>-<Nr.>` (sofort vergeben), Zahlungsbedingung „Betrag dankend erhalten“ (wird bei Bedarf angelegt), keine Versandkosten, beim Abschließen wird gefragt, ob die Ware vom Lager abgebucht wird: **ja** bei Ersatz für defekte Ware (Bestand wird geprüft, nie unter 0), **nein** bei bloßer Nachlieferung (schon mit Rechnung/Lieferschein abgebucht). Bis zur Antwort ist kein Druck möglich. Nicht über „Neuer Beleg“ anlegbar.
+
+### Proforma-Rechnung, wiederkehrende Rechnungen, XRechnung
+
+- **Proforma-Rechnung:** Belegart `PF` mit eigenem Nummernkreis, entsteht wie jede Kopie (Mehr → Kopieren als …) oder über „Neuer Beleg“. Kein Lagerabgang, keine offenen Posten; das PDF trägt den Hinweis „keine Rechnung im Sinne des UStG“. Die echte Rechnung entsteht per „Kopieren als Rechnung“.
+- **Wiederkehrende Rechnungen:** In einer abgeschlossenen Rechnung Mehr → „Wiederkehrend einrichten“ (Rhythmus + nächstes Datum). Liste, Pausieren, „Entwurf jetzt“: Verkauf → Symbol „Wiederkehrende Rechnungen“; Positionen ändern in der Verwaltung. Der Befehl `wiederkehrende_rechnungen` (täglich per Cron, Zeile `30 5 * * *` in `/etc/cron.d/wwok`) legt zum Termin einen **Entwurf** an, der von Hand geprüft und abgeschlossen wird.
+- **XRechnung:** Bei abgeschlossener Rechnung/Gutschrift Mehr → „XRechnung (XML) herunterladen“. Pflicht: Leitweg-ID am Kunden (Kunde bearbeiten → Steuer & Bank) sowie Telefon und E-Mail des Mandanten.
