@@ -26,6 +26,7 @@ class Belegart(models.TextChoices):
     AUFTRAG = "AB", "Auftrag"
     LIEFERSCHEIN = "LS", "Lieferschein"
     RECHNUNG = "RE", "Rechnung"
+    NACHLIEFERSCHEIN = "NL", "Nachlieferschein"
     GUTSCHRIFT = "GS", "Gutschrift"
 
 
@@ -382,16 +383,22 @@ class Beleg(Zeitstempel):
             raise ValueError("Diese Belegart kann nicht als Kopie angelegt werden.")
         if art == Belegart.LIEFERSCHEIN and self.art != Belegart.AUFTRAG:
             raise ValueError("Ein Lieferschein entsteht nur aus einem Auftrag.")
+        if art == Belegart.NACHLIEFERSCHEIN and (self.art != Belegart.RECHNUNG or not self.abgeschlossen):
+            raise ValueError("Ein Nachlieferschein entsteht nur aus einer abgeschlossenen Rechnung.")
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
         self.positionen_pruefen()
+        nachlieferung = art == Belegart.NACHLIEFERSCHEIN
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
-            zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
+            zahlungsbedingung=zahlungsbedingung_bezahlt() if nachlieferung else self.zahlungsbedingung,
+            rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
-            versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
+            versandkosten=0 if nachlieferung else self.versandkosten, verpackung=0 if nachlieferung else self.verpackung,
+            versicherung=0 if nachlieferung else self.versicherung,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
-            bemerkung=self.bemerkung, vorgaenger=self if art != self.art else None)
+            bemerkung=f"Nachlieferung zu Rechnung {self.nummer}" if nachlieferung else self.bemerkung,
+            vorgaenger=self if art != self.art else None)
         kopiere_positionen(self, neu)
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG:
             neu.lieferscheine.add(self)
@@ -478,6 +485,14 @@ class MailVersand(models.Model):
 
     def __str__(self):
         return f"{self.beleg or self.bezug} → {self.an} ({'ok' if self.erfolgreich else 'Fehler'})"
+
+
+def zahlungsbedingung_bezahlt():
+    """Zahlungsbedingung für Nachlieferscheine: die Ware ist mit der Rechnung bezahlt (oder wird es)."""
+    from apps.stammdaten.models import Zahlungsbedingung
+    zb, _ = Zahlungsbedingung.objects.get_or_create(
+        bezeichnung="Betrag dankend erhalten", defaults={"druck_text": "Betrag dankend erhalten", "tage_netto": 0})
+    return zb
 
 
 def kopiere_positionen(quelle, ziel):

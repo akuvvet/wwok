@@ -33,7 +33,7 @@
 <div class="karte">
   <h2>Neuen Beleg anlegen</h2>
   <form method="post" action="{% url 'verkauf:beleg_neu' kunde.pk %}" class="zeile">{% csrf_token %}
-    {% for wert, name in arten %}{% if wert != 'LS' %}<button name="art" value="{{ wert }}" type="submit" {% if wert != "AN" and wert != "AB" and wert != "RE" %}class="leise"{% endif %}>{{ name }}</button>{% endif %}{% endfor %}
+    {% for wert, name in arten %}{% if wert != 'LS' and wert != 'NL' %}<button name="art" value="{{ wert }}" type="submit" {% if wert != "AN" and wert != "AB" and wert != "RE" %}class="leise"{% endif %}>{{ name }}</button>{% endif %}{% endfor %}
   </form>
 </div>
 {% endif %}

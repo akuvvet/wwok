@@ -157,6 +157,9 @@ def beleg_neu(request, kunde_id):
     if kunde.gesperrt:
         messages.error(request, "Kunde ist gesperrt – kein neuer Beleg.")
         return redirect("verkauf:kunde", kunde_id=kunde.pk)
+    if art == Belegart.NACHLIEFERSCHEIN:
+        messages.error(request, "Ein Nachlieferschein entsteht aus einer abgeschlossenen Rechnung: dort unter „Mehr“ → „Kopieren als Nachlieferschein“.")
+        return redirect("verkauf:kunde", kunde_id=kunde.pk)
     if art == Belegart.LIEFERSCHEIN:
         messages.error(request, "Ein Lieferschein entsteht aus einem Auftrag: erst den Auftrag erfassen, "
                                 "dann dort „Als Lieferschein übernehmen“.")

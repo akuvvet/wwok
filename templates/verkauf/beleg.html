@@ -43,7 +43,7 @@
       {% if beleg.folgeart %}<form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">Als {{ beleg.folgeart_name }} übernehmen</button></form>{% endif %}
       <form method="post" action="{% url 'verkauf:beleg_kopieren' beleg.pk %}" class="kopieren" data-art="{{ beleg.art }}">{% csrf_token %}
         <input type="hidden" name="urbeleg_abschliessen" value="0">
-        <select name="art" aria-label="Kopieren als">{% for wert, name in arten %}{% if wert != 'GS' and wert != 'LS' or wert == 'LS' and beleg.art == 'AB' %}<option value="{{ wert }}" {% if wert == beleg.folgeart %}selected{% endif %}>{{ name }}</option>{% endif %}{% endfor %}</select>
+        <select name="art" aria-label="Kopieren als">{% for wert, name in arten %}{% if wert != 'GS' and wert != 'LS' and wert != 'NL' or wert == 'LS' and beleg.art == 'AB' or wert == 'NL' and beleg.art == 'RE' and beleg.abgeschlossen %}<option value="{{ wert }}" {% if wert == beleg.folgeart %}selected{% endif %}>{{ name }}</option>{% endif %}{% endfor %}</select>
         <button class="leise" type="submit">Kopieren als …</button>
       </form>
       {% if beleg.art == 'AN' or beleg.art == 'AB' %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}

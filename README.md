@@ -946,3 +946,7 @@ Vor jedem Commit ausführen; bei Fehlern nicht deployen.
 | Preislisten-Abruf: 401 | Schlüssel in `.env` muss `PREISLISTE_PW_<Nummer des Profils>` heißen, nicht mit Platzhalter `<ID>` |
 | Preislisten-Abruf: „unknown url type“ | Adresse im Profil vollständig mit `https://` oder `ftp://` eintragen |
 | `venv/bin/python: command not found` auf dem Server | der Pfad ist `../venv/bin/python` relativ zu `app/` |
+
+### Nachlieferschein
+
+Zu einer abgeschlossenen Rechnung: **Mehr → Kopieren als → Nachlieferschein**. Eigener Nummernkreis `NL<Jahr>-<Nr.>` (sofort vergeben), Zahlungsbedingung „Betrag dankend erhalten“ (wird bei Bedarf angelegt), keine Versandkosten, kein Lagerabgang (die Ware ist mit der Rechnung bzw. dem Lieferschein schon abgebucht). Nicht über „Neuer Beleg“ anlegbar.

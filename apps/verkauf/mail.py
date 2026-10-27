@@ -18,7 +18,7 @@ STANDARD_TEXT = (
 )
 ARTIKEL = {Belegart.ANGEBOT: "unser Angebot", Belegart.AUFTRAG: "die Auftragsbestätigung",
            Belegart.LIEFERSCHEIN: "den Lieferschein", Belegart.RECHNUNG: "die Rechnung",
-           Belegart.GUTSCHRIFT: "die Gutschrift"}
+           Belegart.GUTSCHRIFT: "die Gutschrift", Belegart.NACHLIEFERSCHEIN: "den Nachlieferschein"}
 
 
 class MailFehler(Exception):
