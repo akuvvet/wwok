@@ -173,6 +173,8 @@ class Kunde(Partner):
     preisstufe = models.PositiveSmallIntegerField("Preisstufe", choices=Preisstufe.choices,
                                                   default=Preisstufe.VK1)
     erstkontakt = models.DateField("Erstkontakt", auto_now_add=True)
+    leitweg_id = models.CharField("Leitweg-ID (XRechnung)", max_length=46, blank=True,
+                                  help_text="Nur für Behörden/öffentliche Auftraggeber: Pflichtangabe der XRechnung.")
     # SEPA-Lastschriftmandat
     sepa_mandatsreferenz = models.CharField("SEPA-Mandatsreferenz", max_length=35, blank=True)
     sepa_mandat_datum = models.DateField("SEPA-Mandat Datum", null=True, blank=True)

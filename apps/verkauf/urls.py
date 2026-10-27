@@ -22,6 +22,7 @@ urlpatterns = [
     path("beleg/<int:beleg_id>/folgebeleg/", views.beleg_folgebeleg, name="beleg_folgebeleg"),
     path("beleg/<int:beleg_id>/gutschrift/", views.beleg_gutschrift, name="beleg_gutschrift"),
     path("beleg/<int:beleg_id>/pdf/", views.beleg_pdf_ansicht, name="beleg_pdf"),
+    path("beleg/<int:beleg_id>/xrechnung/", views.beleg_xrechnung, name="beleg_xrechnung"),
     path("beleg/<int:beleg_id>/mail/", views.beleg_mail, name="beleg_mail"),
     path("api/artikel/", views.api_artikel, name="api_artikel"),
 ]

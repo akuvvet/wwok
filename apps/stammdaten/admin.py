@@ -39,7 +39,7 @@ class KundeAdmin(admin.ModelAdmin):
         ("Einstufung", {"fields": [("kundenart", "preisstufe"), "zahlungsbedingung", "gesperrt"]}),
         ("Hinweis", {"fields": ["hinweis"]}),
         ("Steuer und Bank", {"fields": [("ust_id", "ust_id_geprueft_am"), ("kontoinhaber", "bank"),
-                                        ("iban", "bic"), ("sepa_mandatsreferenz", "sepa_mandat_datum")]}),
+                                        ("iban", "bic"), ("sepa_mandatsreferenz", "sepa_mandat_datum"), "leitweg_id"]}),
         ("Automatisch", {"fields": [("erstkontakt", "angelegt_am"), ("geaendert_am", "geaendert_von")]}),
     ]
 

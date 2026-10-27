@@ -23,7 +23,7 @@ PARTNER_BANK = ["ust_id", "ust_id_geprueft_am", "kontoinhaber", "bank", "iban", 
 KUNDE_TABS = [
     ("grund", "Grunddaten", ["nummer"] + PARTNER_ADRESSE),
     ("einstufung", "Einstufung & Hinweis", ["kundenart", "preisstufe", "zahlungsbedingung", "gesperrt", "hinweis"]),
-    ("bank", "Steuer & Bank", PARTNER_BANK + ["sepa_mandatsreferenz", "sepa_mandat_datum"]),
+    ("bank", "Steuer & Bank", PARTNER_BANK + ["sepa_mandatsreferenz", "sepa_mandat_datum", "leitweg_id"]),
 ]
 
 

@@ -15,6 +15,7 @@ NS = {
     "udt": "urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100",
 }
 LEITLINIE = "urn:cen.eu:en16931:2017"
+LEITLINIE_XRECHNUNG = "urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0"
 CENT = Decimal("0.01")
 
 
@@ -34,8 +35,9 @@ def _kategorie(prozent) -> str:
     return "S" if Decimal(prozent) > 0 else "Z"
 
 
-def xml_erzeugen(beleg) -> bytes:
-    """CII-XML (EN 16931) zu einer abgeschlossenen Rechnung oder Gutschrift."""
+def xml_erzeugen(beleg, xrechnung=False) -> bytes:
+    """CII-XML (EN 16931) zu einer abgeschlossenen Rechnung oder Gutschrift; mit xrechnung=True nach dem deutschen
+    Standard XRechnung (für Behörden): Leitweg-ID (am Kunden) und Verkäuferkontakt sind dann Pflicht."""
     if beleg.art not in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT) or not beleg.abgeschlossen or not beleg.nummer:
         raise ERechnungAusgangFehler("Eine E-Rechnung gibt es nur zu abgeschlossenen Rechnungen und Gutschriften.")
     m, k = beleg.mandant, beleg.kunde
@@ -45,6 +47,11 @@ def xml_erzeugen(beleg) -> bytes:
         raise ERechnungAusgangFehler(f"Mandant {m.kurzname}: Anschrift unvollständig (Verwaltung → Mandanten).")
     if not (k.strasse and k.plz and k.ort):
         raise ERechnungAusgangFehler(f"Kunde {k.name1}: Anschrift unvollständig (Straße, PLZ, Ort).")
+    if xrechnung:
+        if not k.leitweg_id.strip():
+            raise ERechnungAusgangFehler(f"XRechnung: Die Leitweg-ID fehlt – bitte beim Kunden {k.name1} eintragen (Kunde bearbeiten → Steuer & Bank).")
+        if not (m.telefon and m.email):
+            raise ERechnungAusgangFehler(f"XRechnung: Mandant {m.kurzname} braucht Telefon und E-Mail (Verwaltung → Mandanten).")
     lastschrift = bool(beleg.zahlungsbedingung and beleg.zahlungsbedingung.lastschrift)
     if lastschrift and not (k.iban and k.sepa_mandatsreferenz):
         raise ERechnungAusgangFehler(f"Kunde {k.name1}: Lastschrift ohne IBAN oder Mandatsreferenz.")
@@ -65,7 +72,7 @@ def xml_erzeugen(beleg) -> bytes:
 
     wurzel = ET.Element(q("rsm", "CrossIndustryInvoice"))
     kontext = kind(wurzel, "rsm", "ExchangedDocumentContext")
-    kind(kind(kontext, "ram", "GuidelineSpecifiedDocumentContextParameter"), "ram", "ID", LEITLINIE)
+    kind(kind(kontext, "ram", "GuidelineSpecifiedDocumentContextParameter"), "ram", "ID", LEITLINIE_XRECHNUNG if xrechnung else LEITLINIE)
     dokument = kind(wurzel, "rsm", "ExchangedDocument")
     kind(dokument, "ram", "ID", beleg.nummer)
     kind(dokument, "ram", "TypeCode", "380" if beleg.art == Belegart.RECHNUNG else "381")
@@ -103,7 +110,7 @@ def xml_erzeugen(beleg) -> bytes:
         saetze[nebensatz] = saetze.get(nebensatz, Decimal("0")) + nebenkosten
 
     vereinbarung = kind(handel, "ram", "ApplicableHeaderTradeAgreement")
-    kind(vereinbarung, "ram", "BuyerReference", beleg.referenz or k.nummer)
+    kind(vereinbarung, "ram", "BuyerReference", k.leitweg_id.strip() if xrechnung else (beleg.referenz or k.nummer))
     verkaeufer = kind(vereinbarung, "ram", "SellerTradeParty")
     kind(verkaeufer, "ram", "Name", m.firmenname)
     if m.telefon or m.email:

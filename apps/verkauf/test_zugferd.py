@@ -67,3 +67,20 @@ class ZugferdTest(TestCase):
         b = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.k)
         Position.objects.create(beleg=b, bezeichnung="X", menge=1, einzelpreis=Decimal("1"))
         self.assertEqual(beleg_pdf_mit_xml(b)[1], "")
+
+    def test_xrechnung_braucht_leitweg_id_und_kontakt(self):
+        b = self.rechnung()
+        with self.assertRaisesMessage(ERechnungAusgangFehler, "Leitweg-ID"):
+            xml_erzeugen(b, xrechnung=True)
+        self.k.leitweg_id = "04011000-12345-67"
+        self.k.save()
+        b = Beleg.objects.get(pk=b.pk)
+        with self.assertRaisesMessage(ERechnungAusgangFehler, "Telefon"):
+            xml_erzeugen(b, xrechnung=True)
+        self.m.telefon = "0212 123456"
+        self.m.save()
+        b = Beleg.objects.get(pk=b.pk)
+        xml = xml_erzeugen(b, xrechnung=True)
+        self.assertIn(b"xrechnung_3.0", xml)
+        self.assertIn(b"04011000-12345-67", xml)
+        self.assertEqual(erechnung.lese("x.xml", xml)["nummer"], b.nummer)  # wieder einlesbar

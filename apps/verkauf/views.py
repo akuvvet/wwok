@@ -492,6 +492,21 @@ def beleg_gutschrift(request, beleg_id):
 
 
 @mit_mandant
+def beleg_xrechnung(request, beleg_id):
+    """Reine XRechnung (XML, Standard für Behörden) zu einer abgeschlossenen Rechnung/Gutschrift."""
+    from .zugferd import ERechnungAusgangFehler, xml_erzeugen
+    beleg = beleg_holen(request, beleg_id)
+    try:
+        xml = xml_erzeugen(beleg, xrechnung=True)
+    except ERechnungAusgangFehler as fehler:
+        messages.error(request, str(fehler))
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    antwort = HttpResponse(xml, content_type="application/xml")
+    antwort["Content-Disposition"] = f'attachment; filename="{beleg.nummer}_xrechnung.xml"'
+    return antwort
+
+
+@mit_mandant
 def beleg_pdf_ansicht(request, beleg_id):
     from apps.lager.services import druckhindernis
     beleg = beleg_holen(request, beleg_id)
