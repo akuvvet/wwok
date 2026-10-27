@@ -101,3 +101,20 @@ class BestpreisTest(TestCase):
         a.refresh_from_db()
         b.refresh_from_db()
         self.assertEqual((a.durchschnitts_ek, b.durchschnitts_ek), (Decimal("22.50"), Decimal("50")))
+
+
+class BestpreisLinkTest(TestCase):
+    def test_seite_und_links_vorhanden(self):
+        from django.contrib.auth import get_user_model
+        from django.test import override_settings
+        from django.urls import reverse
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        with override_settings(SECURE_SSL_REDIRECT=False):
+            self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+            s = self.client.session
+            s["mandant_id"] = m.pk
+            s.save()
+            url = reverse("einkauf:bestpreise")
+            for seite in (reverse("einkauf:preislisten"), reverse("einkauf:bestellungen")):
+                self.assertContains(self.client.get(seite), url)
+            self.assertContains(self.client.get(url), "Günstigsten EK in die Artikel übernehmen")
