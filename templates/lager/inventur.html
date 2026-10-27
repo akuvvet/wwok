@@ -3,7 +3,7 @@
 {% block inhalt %}
 <a href="{% url 'lager:uebersicht' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>Inventur {{ request.mandant }}</h1>
+  <h1>Inventur · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile">
     <div><label>Hauptkategorie</label><select name="kategorie"><option value="">alle</option>
       {% for k in kategorien %}<option value="{{ k.pk }}" {% if kategorie == k.pk|stringformat:"s" %}selected{% endif %}>{{ k.name }}</option>{% endfor %}</select></div>

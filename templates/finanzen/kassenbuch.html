@@ -2,7 +2,7 @@
 {% block titel %}Kassenbuch – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Kassenbuch {{ request.mandant }}</h1>
+  <h1>Kassenbuch · Mandant {{ request.mandant }}</h1>
   <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a> · Kassenstand: <strong style="font-size:18px">{{ stand }} €</strong></p>
   <form method="post" class="zeile">{% csrf_token %}
     <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>

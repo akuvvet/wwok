@@ -2,7 +2,7 @@
 {% block titel %}Bankabgleich – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Zahlungsabgleich {{ request.mandant }}</h1>
+  <h1>Zahlungsabgleich · Mandant {{ request.mandant }}</h1>
   <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a></p>
   <form method="post" enctype="multipart/form-data" class="zeile">{% csrf_token %}
     <div><label for="datei">Kontoauszug (CSV oder CAMT.053-XML)</label><input id="datei" type="file" name="datei" accept=".csv,.xml,.txt"></div>

@@ -43,7 +43,7 @@
 {% block inhalt %}
 <a href="{% url 'lager:uebersicht' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>ESD-Keys {{ request.mandant }}</h1>
+  <h1>ESD-Keys · Mandant {{ request.mandant }}</h1>
   <p style="opacity:.8">Artikel werden im Artikelstamm mit „ESD-Key-Artikel“ gekennzeichnet. Beim Abschluss von Lieferschein oder Rechnung wird automatisch ein Key aus dem Bestand des Mandanten zugeordnet.</p>
   <form method="get" class="zeile">
     <div><label for="q">Keys hinzufügen: Software-Artikel suchen{% if not software_vorhanden %} (Kategorie „Software“ nicht gefunden – es werden alle Artikel angeboten){% endif %}</label>

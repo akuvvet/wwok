@@ -3,7 +3,7 @@
 {% block inhalt %}
 <a href="{% url 'lager:uebersicht' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>Seriennummer suchen {{ request.mandant }}</h1>
+  <h1>Seriennummer suchen · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile">
     <div><label for="q">Seriennummer (Teil genügt)</label><input id="q" name="q" value="{{ q }}" autofocus size="30"></div>
     <button type="submit">Suchen</button>

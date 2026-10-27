@@ -2,7 +2,7 @@
 {% block titel %}Mahnwesen – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Mahnwesen {{ request.mandant }}</h1>
+  <h1>Mahnwesen · Mandant {{ request.mandant }}</h1>
   <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a></p>
   <h2>Fällige Mahnungen</h2>
   <form method="post" action="{% url 'finanzen:mahnungen_erstellen' %}">{% csrf_token %}

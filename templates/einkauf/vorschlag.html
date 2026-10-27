@@ -3,7 +3,7 @@
 {% block inhalt %}
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>Bestellvorschlag {{ request.mandant }}</h1>
+  <h1>Bestellvorschlag · Mandant {{ request.mandant }}</h1>
   <p style="opacity:.8">Artikel unter Mindestbestand (verfügbar + bereits bestellt). Ohne festen Mindestbestand gilt eine Monatsreichweite aus den Verkäufen der letzten 90 Tage. Bestellt wird beim günstigsten Lieferanten laut Preisliste.</p>
   <form method="post">{% csrf_token %}
   <table>

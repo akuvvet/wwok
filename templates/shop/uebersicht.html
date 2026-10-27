@@ -2,7 +2,7 @@
 {% block titel %}Shops – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Shops {{ request.mandant }}</h1>
+  <h1>Shops · Mandant {{ request.mandant }}</h1>
   <p style="opacity:.8">Shops legst du unter <a href="/verwaltung/shop/shop/">Verwaltung → Shops</a> an. Online-Artikel (Häkchen „online“) werden mit verfügbarem Bestand und Preis an den Shop gemeldet; Bestellungen kommen als Auftrag ins System.</p>
   {% for s in shops %}
   <div class="karte" style="background:var(--grund)">

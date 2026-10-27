@@ -2,7 +2,7 @@
 {% block titel %}Lager – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Lager {{ request.mandant }}</h1>
+  <h1>Lager · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile">
     <div><label for="q">Artikel suchen (mehrere Wörter, beliebige Reihenfolge)</label>
       <input id="q" name="q" value="{{ q }}" size="34" autofocus></div>

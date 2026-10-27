@@ -2,7 +2,7 @@
 {% block titel %}Werkstatt – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Werkstatt {{ request.mandant }}</h1>
+  <h1>Werkstatt · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile">
     <div><label for="q">Suche (Auftrag, Gerät, Seriennummer, Kunde)</label><input id="q" name="q" value="{{ q }}" size="34" autofocus></div>
     <div><label>Status</label><select name="status"><option value="offen" {% if status == 'offen' %}selected{% endif %}>offene</option>

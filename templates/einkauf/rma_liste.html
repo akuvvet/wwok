@@ -3,7 +3,7 @@
 {% block inhalt %}
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>RMA / Rücksendungen {{ request.mandant }}</h1>
+  <h1>RMA / Rücksendungen · Mandant {{ request.mandant }}</h1>
   <form method="post" action="{% url 'einkauf:rma_neu' %}" class="zeile">{% csrf_token %}
     <div><label>Lieferant</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.name1 }}</option>{% endfor %}</select></div>
     <div><label>Artikelnr.</label><input name="artikel" size="12"></div>

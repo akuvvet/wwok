@@ -2,18 +2,10 @@
 {% block titel %}Einkauf – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Lieferantenbestellungen {{ request.mandant }}</h1>
+  <h1>Lieferantenbestellungen · Mandant {{ request.mandant }}</h1>
   <p class="zeile">
     <a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">Offene</a>
     <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a>
-    <a class="knopf leise" href="{% url 'einkauf:vorschlag' %}">Bestellvorschlag</a>
-    <a class="knopf leise" href="{% url 'einkauf:wareneingaenge' %}">Wareneingänge</a>
-    <a class="knopf leise" href="{% url 'einkauf:rechnungen' %}">Lieferantenrechnungen</a>
-    <a class="knopf leise" href="{% url 'einkauf:preislisten' %}">Preislisten &amp; EK-Import</a>
-    <a class="knopf leise" href="{% url 'einkauf:preislistenartikel' %}">Preislistenartikel suchen</a>
-    <a class="knopf leise" href="{% url 'einkauf:bestpreise' %}">Günstigster EK</a>
-    <a class="knopf leise" href="{% url 'einkauf:rma_liste' %}">RMA</a>
-    <a class="knopf leise" href="{% url 'einkauf:lieferanten' %}">Lieferanten</a>
   </p>
   <form method="post" action="{% url 'einkauf:bestellung_neu' %}" class="zeile">{% csrf_token %}
     <div><label>Neue Bestellung bei</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.nummer }} – {{ l.name1 }}</option>{% endfor %}</select></div>

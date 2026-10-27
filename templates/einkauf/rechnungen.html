@@ -3,7 +3,7 @@
 {% block inhalt %}
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>Lieferantenrechnungen {{ request.mandant }}</h1>
+  <h1>Lieferantenrechnungen · Mandant {{ request.mandant }}</h1>
   <p class="zeile"><a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">Nicht bezahlt</a>
     <a class="knopf {% if status != 'bezahlt' %}leise{% endif %}" href="?status=bezahlt">Bezahlt</a>
     <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a></p>

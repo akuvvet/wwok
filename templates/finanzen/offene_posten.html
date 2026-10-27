@@ -2,15 +2,10 @@
 {% block titel %}Offene Posten – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Offene Posten {{ request.mandant }}{% if kunde %} – {{ kunde.name1 }}{% endif %}</h1>
+  <h1>Offene Posten · Mandant {{ request.mandant }}{% if kunde %} – {{ kunde.name1 }}{% endif %}</h1>
   <p class="zeile">
     <a class="knopf {% if nur %}leise{% endif %}" href="?{% if kunde %}kunde={{ kunde.pk }}{% endif %}">Alle</a>
     <a class="knopf {% if nur != 'ueberfaellig' %}leise{% endif %}" href="?nur=ueberfaellig{% if kunde %}&kunde={{ kunde.pk }}{% endif %}">Überfällige</a>
-    <a class="knopf leise" href="{% url 'finanzen:mahnwesen' %}">Mahnwesen</a>
-    <a class="knopf leise" href="{% url 'finanzen:bank' %}">Bankabgleich</a>
-    <a class="knopf leise" href="{% url 'finanzen:kassenbuch' %}">Kassenbuch</a>
-    <a class="knopf leise" href="{% url 'finanzen:lastschrift' %}">Lastschrift-Einzug</a>
-    <a class="knopf leise" href="{% url 'finanzen:datev' %}">DATEV-Export</a>
     {% if kunde %}<a class="knopf leise" href="{% url 'finanzen:kontoauszug' kunde.pk %}">Kontoauszug</a>{% endif %}
   </p>
   <p>Offen gesamt: <strong>{{ summe }} €</strong> · davon überfällig: <strong style="color:var(--warn)">{{ ueberfaellig }} €</strong></p>
