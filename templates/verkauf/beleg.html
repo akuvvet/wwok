@@ -46,6 +46,7 @@
         <select name="art" aria-label="Kopieren als">{% for wert, name in arten %}{% if wert != 'GS' and wert != 'LS' and wert != 'NL' or wert == 'LS' and beleg.art == 'AB' or wert == 'NL' and beleg.art == 'RE' and beleg.abgeschlossen %}<option value="{{ wert }}" {% if wert == beleg.folgeart %}selected{% endif %}>{{ name }}</option>{% endif %}{% endfor %}</select>
         <button class="leise" type="submit">Kopieren als …</button>
       </form>
+      {% if beleg.art == 'LS' or beleg.art == 'RE' or beleg.art == 'NL' %}<a class="knopf leise" href="{% url 'verkauf:beleg_versand' beleg.pk %}">Versand (Paket)</a>{% endif %}
       {% if beleg.art == 'AN' or beleg.art == 'AB' %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'LS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'werkstatt:reklamation' beleg.pk %}">Gerät reklamiert → Werkstatt</a>{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'GS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'verkauf:beleg_xrechnung' beleg.pk %}">XRechnung (XML) herunterladen</a>{% endif %}

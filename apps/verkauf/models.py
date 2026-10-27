@@ -697,3 +697,29 @@ class AboPosition(models.Model):
 def faellige_abos(heute=None):
     heute = heute or timezone.localdate()
     return Abo.objects.filter(aktiv=True, naechster_termin__lte=heute).select_related("kunde", "mandant")
+
+
+class Versand(Zeitstempel):
+    """Paket zu einem Beleg (Lieferschein, Rechnung, Nachlieferschein): Sendungsnummer, Paketaufkleber, Versand-Mail."""
+
+    DIENSTE = [("dhl", "DHL Paket")]
+    TRACKING = {"dhl": "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode={nr}"}
+
+    beleg = models.ForeignKey(Beleg, on_delete=models.CASCADE, related_name="versendungen")
+    dienst = models.CharField("Versanddienstleister", max_length=10, choices=DIENSTE, default="dhl")
+    sendungsnummer = models.CharField("Sendungsnummer", max_length=40, blank=True)
+    gewicht_kg = models.DecimalField("Gewicht (kg)", max_digits=7, decimal_places=2, null=True, blank=True)
+    versendet_am = models.DateField("Versanddatum", default=timezone.localdate)
+    mail_gesendet = models.DateTimeField("Versand-Mail gesendet", null=True, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "Versand"
+        verbose_name_plural = "Versendungen"
+        ordering = ["-versendet_am", "-id"]
+
+    def __str__(self):
+        return f"{self.get_dienst_display()} {self.sendungsnummer or '(ohne Nummer)'}"
+
+    @property
+    def tracking_url(self) -> str:
+        return self.TRACKING[self.dienst].format(nr=self.sendungsnummer) if self.sendungsnummer else ""

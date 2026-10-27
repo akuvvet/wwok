@@ -3,7 +3,7 @@ from decimal import Decimal
 from io import StringIO
 
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.kern.models import Mandant
 from apps.stammdaten.models import Artikel, Kunde, Steuersatz
@@ -48,3 +48,30 @@ class AboProformaTest(TestCase):
         abo.save()
         abo.rechnung_erzeugen(date(2027, 4, 1))
         self.assertFalse(abo.aktiv)  # Ende erreicht
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class VersandTest(TestCase):
+    def test_versand_aufkleber_und_tracking(self):
+        from decimal import Decimal as D
+        from django.contrib.auth import get_user_model
+        from django.urls import reverse
+        from .models import Versand
+        from .versand import aufkleber_pdf, versandmail_text
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer", strasse="Weg 1", plz="42651", ort="Solingen")
+        kunde = Kunde.objects.create(nummer="1", name1="Kunde GmbH", strasse="Str. 2", plz="10115", ort="Berlin")
+        ls = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=kunde)
+        v = Versand.objects.create(beleg=ls, sendungsnummer="00340434161094042557", gewicht_kg=D("1.5"))
+        self.assertTrue(aufkleber_pdf(v).startswith(b"%PDF"))
+        self.assertIn("00340434161094042557", v.tracking_url)
+        betreff, text = versandmail_text(v)
+        self.assertIn(v.tracking_url, text)
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        self.assertContains(self.client.get(reverse("verkauf:beleg_versand", args=[ls.pk])), "Sendung verfolgen")
+        r = self.client.post(reverse("verkauf:beleg_versand", args=[ls.pk]), {"aktion": "neu", "sendungsnummer": "123 456", "gewicht": "2,5"})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(ls.versendungen.count(), 2)
+        self.assertEqual(self.client.get(reverse("verkauf:versand_aufkleber", args=[ls.pk, v.pk]))["Content-Type"], "application/pdf")

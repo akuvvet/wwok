@@ -11,7 +11,7 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Position
+from .models import Abo, AboPosition, Versand, Beleg, BelegGesperrt, Belegart, Position
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
 from .pdf import beleg_pdf
@@ -664,3 +664,43 @@ def abo_aktion(request, abo_id):
         abo.delete()
         messages.success(request, "Wiederkehrende Rechnung gelöscht (bereits erzeugte Rechnungen bleiben).")
     return redirect("verkauf:abos")
+
+
+@mit_mandant
+def beleg_versand(request, beleg_id):
+    """Versand zu einem Beleg: Sendungsnummer erfassen, Paketaufkleber drucken, Versand-Mail an den Kunden."""
+    from . import versand as vs
+    beleg = beleg_holen(request, beleg_id)
+    if request.method == "POST":
+        aktion = request.POST.get("aktion")
+        if aktion == "neu":
+            gewicht = dezimal(request.POST.get("gewicht"), None)
+            Versand.objects.create(beleg=beleg, sendungsnummer=request.POST.get("sendungsnummer", "").replace(" ", "")[:40],
+                                   gewicht_kg=gewicht)
+            messages.success(request, "Versand gespeichert.")
+        else:
+            v = get_object_or_404(Versand, pk=request.POST.get("versand"), beleg=beleg)
+            if aktion == "mail":
+                an = request.POST.get("an", "")
+                try:
+                    vs.versandmail_senden(v, an, request.user)
+                    messages.success(request, f"Versand-Mail an {an} gesendet.")
+                except MailFehler as fehler:
+                    messages.error(request, str(fehler))
+            elif aktion == "loeschen":
+                v.delete()
+        return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
+    ap = beleg.ansprechpartner
+    return render(request, "verkauf/versand.html", {
+        "beleg": beleg, "versendungen": beleg.versendungen.all(),
+        "mailadresse": (ap.email if ap and ap.email else beleg.kunde.email) or ""})
+
+
+@mit_mandant
+def versand_aufkleber(request, beleg_id, versand_id):
+    from . import versand as vs
+    beleg = beleg_holen(request, beleg_id)
+    v = get_object_or_404(Versand, pk=versand_id, beleg=beleg)
+    antwort = HttpResponse(vs.aufkleber_pdf(v), content_type="application/pdf")
+    antwort["Content-Disposition"] = f'inline; filename="paketaufkleber_{beleg.nummer or beleg.pk}.pdf"'
+    return antwort

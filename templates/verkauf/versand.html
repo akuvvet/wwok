@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block titel %}Versand – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Versand · {{ beleg.get_art_display }} {{ beleg.nummer }} · {{ beleg.kunde.name1 }}</h1>
+  <form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="aktion" value="neu">
+    <div><label for="sn">Sendungsnummer (DHL)</label><input id="sn" name="sendungsnummer" size="26" autofocus placeholder="Paketnummer / JJD…"></div>
+    <div><label for="gw">Gewicht (kg)</label><input id="gw" name="gewicht" size="6" inputmode="decimal"></div>
+    <button type="submit">Versand speichern</button>
+  </form>
+  <p style="opacity:.8">Die Sendungsnummer stammt aus der DHL-Online-Frankierung (Geschäftskundenportal). Der Paketaufkleber hier ist ein interner Aufkleber mit Empfänger und Barcode.</p>
+</div>
+{% if versendungen %}
+<div class="karte">
+  <h2>Versendungen</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Datum</th><th>Dienst</th><th>Sendungsnummer</th><th class="zahl">kg</th><th>Verfolgung</th><th>Mail</th><th></th></tr></thead>
+    <tbody>{% for v in versendungen %}<tr>
+      <td>{{ v.versendet_am|date:"d.m.Y" }}</td><td>{{ v.get_dienst_display }}</td><td>{{ v.sendungsnummer|default:"–" }}</td>
+      <td class="zahl">{{ v.gewicht_kg|default_if_none:"–" }}</td>
+      <td>{% if v.tracking_url %}<a href="{{ v.tracking_url }}" target="_blank" rel="noopener">Sendung verfolgen</a>{% endif %}</td>
+      <td>{% if v.mail_gesendet %}gesendet {{ v.mail_gesendet|date:"d.m. H:i" }}{% else %}–{% endif %}</td>
+      <td><form method="post" class="zeile" style="gap:4px">{% csrf_token %}<input type="hidden" name="versand" value="{{ v.pk }}">
+        <a class="knopf leise" target="_blank" href="{% url 'verkauf:versand_aufkleber' beleg.pk v.pk %}">Aufkleber (PDF)</a>
+        <input name="an" value="{{ mailadresse }}" size="24" aria-label="Mail an">
+        <button name="aktion" value="mail" class="leise" type="submit">Versand-Mail</button>
+        <button name="aktion" value="loeschen" class="gefahr" type="submit" onclick="return confirm('Versandeintrag löschen?')">Löschen</button></form></td>
+    </tr>{% endfor %}</tbody></table></div>
+</div>
+{% endif %}
+{% endblock %}
