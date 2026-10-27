@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import (BestellPosition, Bestellung, Lieferantenrechnung, Preislistenimport, Preislistenprofil, Rma,
+from .models import (BestellPosition, Bestellung, Bestpreisplan, Lieferantenrechnung, Preislistenimport, Preislistenprofil, Rma,
                      Wareneingang, WareneingangPosition)
 
 
@@ -67,4 +67,18 @@ class PreislistenimportAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Bestpreisplan)
+class BestpreisplanAdmin(admin.ModelAdmin):
+    """Ein einziger Datensatz: wann der günstigste Lieferanten-EK in die Artikel (A) übernommen wird."""
+    list_display = ["__str__", "uhrzeit", "wochentag", "letzter_lauf", "letzte_meldung"]
+    readonly_fields = ["letzter_lauf", "letzte_meldung"]
+    fields = ["rhythmus", "uhrzeit", "wochentag", "letzter_lauf", "letzte_meldung"]
+
+    def has_add_permission(self, request):
+        return not Bestpreisplan.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
         return False

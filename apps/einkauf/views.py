@@ -15,7 +15,7 @@ from apps.verkauf.views import mit_mandant
 from apps.werkstatt.models import Reparatur
 
 from . import erechnung, sepa, services
-from .models import (BestellPosition, BestellStatus, Bestellung, Lieferantenrechnung, Rma, RmaStatus, RechnungStatus,
+from .models import (BestellPosition, BestellStatus, Bestellung, Bestpreisplan, Lieferantenrechnung, Rma, RmaStatus, RechnungStatus,
                      Wareneingang, WareneingangPosition)
 from .pdf import bestellung_pdf
 
@@ -582,4 +582,5 @@ def bestpreise_ansicht(request):
         messages.success(request, f"{len(ergebnis['aenderungen'])} Artikel mit dem günstigsten Lieferanten-EK aktualisiert.")
         return redirect("einkauf:bestpreise")
     ergebnis = bestpreis.bestpreise()
-    return render(request, "einkauf/bestpreise.html", {"e": ergebnis, "beispiele": ergebnis["aenderungen"][:100]})
+    return render(request, "einkauf/bestpreise.html", {"e": ergebnis, "beispiele": ergebnis["aenderungen"][:100],
+                                                       "plan": Bestpreisplan.holen()})

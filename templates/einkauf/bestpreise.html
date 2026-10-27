@@ -8,6 +8,10 @@
      Dieser EK wird bei den eigenen Artikeln (A) eingetragen. Artikel mit gebuchtem Wareneingang behalten ihren Durchschnitts-EK.</p>
   <p>Artikel mit Lieferantenpreis: <strong>{{ e.artikel }}</strong> · zu ändern: <strong>{{ e.aenderungen|length }}</strong> ·
      schon richtig: {{ e.unveraendert }} · mit Wareneingang (bleiben): {{ e.uebersprungen }}</p>
+  <p style="opacity:.85"><strong>Zeitplan:</strong> {{ plan.get_rhythmus_display }}{% if plan.rhythmus == 'taeglich' or plan.rhythmus == 'woechentlich' %}
+     ({% if plan.rhythmus == 'woechentlich' %}{{ plan.get_wochentag_display }}, {% endif %}{{ plan.uhrzeit|time:"H:i" }} Uhr){% endif %}
+     {% if plan.letzter_lauf %}· letzter Lauf {{ plan.letzter_lauf|date:"d.m.Y H:i" }}: {{ plan.letzte_meldung }}{% endif %}
+     {% if user.is_superuser or user.is_staff %}· <a href="{% url 'admin:einkauf_bestpreisplan_changelist' %}">Zeitplan ändern (Verwaltung)</a>{% endif %}</p>
   {% if e.aenderungen %}
   <form method="post" onsubmit="return confirm('{{ e.aenderungen|length }} Artikel mit dem günstigsten EK aktualisieren?')">{% csrf_token %}
     <button type="submit">Jetzt übernehmen</button></form>

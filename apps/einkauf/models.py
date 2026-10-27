@@ -2,6 +2,7 @@
 Einkauf (Pflichtenheft Abschnitt 6): Lieferantenbestellung, Wareneingang, Lieferantenrechnung,
 Rücksendung/RMA. Alles pro Mandant getrennt.
 """
+import datetime
 from decimal import Decimal
 
 from django.conf import settings
@@ -352,3 +353,50 @@ class Preislistenimport(models.Model):
         verbose_name = "Preislistenimport"
         verbose_name_plural = "Preislistenimporte"
         ordering = ["-zeitpunkt"]
+
+
+class BestpreisRhythmus(models.TextChoices):
+    AUS = "aus", "nur manuell (aus)"
+    NACH_LAUF = "nach_lauf", "nach jedem Preislisten-Abruf"
+    TAEGLICH = "taeglich", "täglich zur Uhrzeit"
+    WOECHENTLICH = "woechentlich", "wöchentlich am Wochentag zur Uhrzeit"
+
+
+class Bestpreisplan(Zeitstempel):
+    """Einstellung (nur ein Datensatz): wann der günstigste Lieferanten-EK je Herstellernummer in die A-Artikel übernommen wird."""
+
+    rhythmus = models.CharField("Übernahme", max_length=12, choices=BestpreisRhythmus.choices, default=BestpreisRhythmus.AUS)
+    uhrzeit = models.TimeField("Uhrzeit", default=datetime.time(3, 0), help_text="Gilt für täglich und wöchentlich (Serverzeit Europe/Berlin).")
+    wochentag = models.PositiveSmallIntegerField(
+        "Wochentag", default=0, choices=[(0, "Montag"), (1, "Dienstag"), (2, "Mittwoch"), (3, "Donnerstag"), (4, "Freitag"),
+                                        (5, "Samstag"), (6, "Sonntag")], help_text="Nur für wöchentlich.")
+    letzter_lauf = models.DateTimeField(null=True, blank=True, editable=False)
+    letzte_meldung = models.CharField(max_length=200, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "Zeitplan: Günstigster EK in Artikel übernehmen"
+        verbose_name_plural = "Zeitplan: Günstigster EK in Artikel übernehmen"
+
+    def __str__(self):
+        return f"Günstigster EK: {self.get_rhythmus_display()}"
+
+    @classmethod
+    def holen(cls):
+        return cls.objects.first() or cls.objects.create()
+
+    def faellig(self, jetzt=None, preislisten_importiert=False) -> bool:
+        """Täglich/wöchentlich: fällig, wenn der letzte Plantermin seit dem letzten Lauf verstrichen ist."""
+        jetzt = timezone.localtime(jetzt or timezone.now())
+        if self.rhythmus == BestpreisRhythmus.NACH_LAUF:
+            return preislisten_importiert
+        if self.rhythmus not in (BestpreisRhythmus.TAEGLICH, BestpreisRhythmus.WOECHENTLICH):
+            return False
+        termin = jetzt.replace(hour=self.uhrzeit.hour, minute=self.uhrzeit.minute, second=0, microsecond=0)
+        if self.rhythmus == BestpreisRhythmus.TAEGLICH:
+            if termin > jetzt:
+                termin -= datetime.timedelta(days=1)
+        else:
+            termin -= datetime.timedelta(days=(jetzt.weekday() - self.wochentag) % 7)
+            if termin > jetzt:
+                termin -= datetime.timedelta(days=7)
+        return self.letzter_lauf is None or self.letzter_lauf < termin

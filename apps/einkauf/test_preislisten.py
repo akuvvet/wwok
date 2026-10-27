@@ -153,3 +153,25 @@ class PreislistenMaskeTest(TestCase):
         self.assertContains(seite, "Tastatur Cherry")
         self.assertContains(seite, "Techdata")
         self.assertNotContains(seite, "Maus Logitech")
+
+
+class BestpreisplanTest(TestCase):
+    def test_faelligkeit(self):
+        import datetime as dt
+        from django.utils import timezone
+        from apps.einkauf.models import Bestpreisplan
+        plan = Bestpreisplan.holen()
+        jetzt = timezone.make_aware(dt.datetime(2026, 10, 28, 12, 0))  # Mittwoch
+        self.assertFalse(plan.faellig(jetzt))  # aus
+        plan.rhythmus, plan.uhrzeit = "taeglich", dt.time(3, 0)
+        self.assertTrue(plan.faellig(jetzt))  # nie gelaufen
+        plan.letzter_lauf = timezone.make_aware(dt.datetime(2026, 10, 28, 3, 5))
+        self.assertFalse(plan.faellig(jetzt))  # heute schon gelaufen
+        self.assertTrue(plan.faellig(timezone.make_aware(dt.datetime(2026, 10, 29, 3, 1))))  # nächster Tag
+        plan.rhythmus, plan.wochentag = "woechentlich", 0  # montags
+        plan.letzter_lauf = timezone.make_aware(dt.datetime(2026, 10, 26, 3, 5))  # Montag gelaufen
+        self.assertFalse(plan.faellig(jetzt))
+        self.assertTrue(plan.faellig(timezone.make_aware(dt.datetime(2026, 11, 2, 3, 1))))
+        plan.rhythmus = "nach_lauf"
+        self.assertFalse(plan.faellig(jetzt))
+        self.assertTrue(plan.faellig(jetzt, preislisten_importiert=True))

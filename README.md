@@ -799,6 +799,8 @@ Datei `/etc/cron.d/wwok`:
 
 Beide Befehle laufen nur, wenn Shops bzw. Preislisten-Profile mit Zeitplan eingerichtet sind.
 
+Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Lieferanten-EK in die A-Artikel, sofern es der Zeitplan verlangt: Verwaltung → „Zeitplan: Günstigster EK in Artikel übernehmen“ (aus / nach jedem Preislisten-Abruf / täglich zur Uhrzeit / wöchentlich mit Wochentag und Uhrzeit). Der stündliche Cron-Aufruf genügt dafür.
+
 ## 14. Weiterarbeiten mit Claude
 
 - Das Repo `akuvvet/wwok` kann in einer Claude-Sitzung (Code-Bereich) verbunden werden. Lesen, Ändern und Testen funktioniert.

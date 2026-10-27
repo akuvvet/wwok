@@ -26,3 +26,18 @@ def bestpreise(anwenden=False):
             z["artikel"].durchschnitts_ek = z["neu"]
         Artikel.objects.bulk_update([z["artikel"] for z in aenderungen], ["durchschnitts_ek"], batch_size=500)
     return {"artikel": len(best), "aenderungen": aenderungen, "unveraendert": unveraendert, "uebersprungen": uebersprungen}
+
+
+def geplanter_lauf(preislisten_importiert=False, jetzt=None):
+    """Führt die Übernahme aus, wenn der Zeitplan (Verwaltung → Zeitplan) es verlangt. Gibt die Meldung oder None zurück."""
+    from django.utils import timezone
+    from .models import Bestpreisplan
+    plan = Bestpreisplan.holen()
+    if not plan.faellig(jetzt, preislisten_importiert):
+        return None
+    ergebnis = bestpreise(anwenden=True)
+    plan.letzter_lauf = jetzt or timezone.now()
+    plan.letzte_meldung = (f"{len(ergebnis['aenderungen'])} Artikel aktualisiert, {ergebnis['unveraendert']} unverändert, "
+                           f"{ergebnis['uebersprungen']} mit Wareneingang übersprungen")
+    plan.save(update_fields=["letzter_lauf", "letzte_meldung", "geaendert_am"])
+    return plan.letzte_meldung
