@@ -380,6 +380,6 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
 
 def faellige_profile(jetzt=None):
     jetzt = jetzt or timezone.now()
-    for p in Preislistenprofil.objects.filter(aktiv=True, intervall_stunden__gt=0).exclude(quelle=Quelle.UPLOAD):
-        if p.letzter_lauf is None or (jetzt - p.letzter_lauf).total_seconds() >= p.intervall_stunden * 3600:
+    for p in Preislistenprofil.objects.filter(aktiv=True).exclude(quelle=Quelle.UPLOAD):
+        if p.faellig(jetzt):
             yield p

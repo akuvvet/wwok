@@ -44,11 +44,11 @@ class RmaAdmin(admin.ModelAdmin):
 
 @admin.register(Preislistenprofil)
 class PreislistenprofilAdmin(admin.ModelAdmin):
-    list_display = ["name", "lieferant", "quelle", "dateityp", "intervall_stunden", "aktiv", "letzter_lauf"]
+    list_display = ["name", "lieferant", "quelle", "dateityp", "zeitplan", "abruf_uhrzeit", "intervall_stunden", "aktiv", "letzter_lauf"]
     list_filter = ["quelle", "dateityp", "aktiv"]
     fieldsets = [
         ("Preisliste", {"fields": ["lieferant", "name", "aktiv", "neue_artikel", "entfernen_veraltete"]}),
-        ("Quelle und Zeitplan", {"fields": ["quelle", "adresse", "port", "pfad", "benutzer", "intervall_stunden"],
+        ("Quelle und Zeitplan", {"fields": ["quelle", "adresse", "port", "pfad", "benutzer", "zeitplan", "abruf_uhrzeit", "abruf_wochentag", "intervall_stunden"],
                                  "description": "Download-Adresse: die vollständige URL (https://…) ins Feld „Adresse“, Benutzer = z. B. Kundennummer. FTP/SFTP: Server in „Adresse“, Dateipfad in „Pfad“. Das Passwort steht nicht hier, sondern in der .env als PREISLISTE_PW_<ID des Profils>."}),
         ("Dateiformat", {"fields": ["dateityp", "zeichensatz", ("trennzeichen", "textbegrenzer"), "dezimaltrennzeichen",
                                     ("kopfzeile", "erste_datenzeile"), "xml_satz"]}),

@@ -266,8 +266,16 @@ class Preislistenprofil(Zeitstempel):
     port = models.PositiveIntegerField(null=True, blank=True)
     pfad = models.CharField("Datei auf dem Server", max_length=300, blank=True)
     benutzer = models.CharField("Benutzer", max_length=100, blank=True)
+    zeitplan = models.CharField(
+        "Abruf", max_length=12, default="intervall",
+        choices=[("intervall", "alle … Stunden (siehe unten; 0 = nur manuell)"), ("taeglich", "täglich zur Uhrzeit"),
+                 ("woechentlich", "wöchentlich am Wochentag zur Uhrzeit")])
     intervall_stunden = models.PositiveIntegerField(
         "automatisch abrufen alle … Stunden", default=0, help_text="0 = nur manuell. Läuft über den Befehl preislisten_abrufen.")
+    abruf_uhrzeit = models.TimeField("Uhrzeit (täglich/wöchentlich)", default=datetime.time(2, 0), help_text="Serverzeit Europe/Berlin.")
+    abruf_wochentag = models.PositiveSmallIntegerField(
+        "Wochentag (wöchentlich)", default=0, choices=[(0, "Montag"), (1, "Dienstag"), (2, "Mittwoch"), (3, "Donnerstag"),
+                                                      (4, "Freitag"), (5, "Samstag"), (6, "Sonntag")])
     dateityp = models.CharField(max_length=4, choices=Dateityp.choices, default=Dateityp.CSV)
     zeichensatz = models.CharField(max_length=10, default="utf-8", choices=[("utf-8", "UTF-8"), ("cp1252", "ANSI (Windows-1252)")])
     trennzeichen = models.CharField(max_length=3, default=";", help_text="Für Tabulator: \t")
@@ -304,6 +312,24 @@ class Preislistenprofil(Zeitstempel):
 
     def __str__(self):
         return f"{self.lieferant.name1}: {self.name}"
+
+    def faellig(self, jetzt=None) -> bool:
+        """Ist der Abruf nach Zeitplan fällig? (Upload-Profile und inaktive nie.)"""
+        if not self.aktiv or self.quelle == Quelle.UPLOAD:
+            return False
+        jetzt = timezone.localtime(jetzt or timezone.now())
+        if self.zeitplan == "intervall":
+            if self.intervall_stunden <= 0:
+                return False
+            return self.letzter_lauf is None or (jetzt - self.letzter_lauf).total_seconds() >= self.intervall_stunden * 3600
+        termin = jetzt.replace(hour=self.abruf_uhrzeit.hour, minute=self.abruf_uhrzeit.minute, second=0, microsecond=0)
+        if self.zeitplan == "woechentlich":
+            termin -= datetime.timedelta(days=(jetzt.weekday() - self.abruf_wochentag) % 7)
+            if termin > jetzt:
+                termin -= datetime.timedelta(days=7)
+        elif termin > jetzt:
+            termin -= datetime.timedelta(days=1)
+        return self.letzter_lauf is None or self.letzter_lauf < termin
 
     @property
     def passwort_variable(self) -> str:

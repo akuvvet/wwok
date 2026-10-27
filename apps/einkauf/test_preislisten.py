@@ -175,3 +175,14 @@ class BestpreisplanTest(TestCase):
         plan.rhythmus = "nach_lauf"
         self.assertFalse(plan.faellig(jetzt))
         self.assertTrue(plan.faellig(jetzt, preislisten_importiert=True))
+
+    def test_taeglicher_abruf_um_zwei_uhr(self):
+        import datetime as dt
+        lf = Lieferant.objects.create(nummer="9", name1="Lief")
+        p = profil(lf, name="URL", quelle="url", adresse="https://x.test/a.csv", zeitplan="taeglich", abruf_uhrzeit=dt.time(2, 0))
+        f = lambda *a: timezone.make_aware(dt.datetime(*a))
+        self.assertTrue(p.faellig(f(2026, 10, 28, 1, 0)))  # nie gelaufen
+        p.letzter_lauf = f(2026, 10, 28, 2, 7)
+        self.assertFalse(p.faellig(f(2026, 10, 28, 14, 0)))  # heute schon gelaufen
+        self.assertFalse(p.faellig(f(2026, 10, 29, 1, 59)))  # vor dem nächsten Termin
+        self.assertTrue(p.faellig(f(2026, 10, 29, 2, 7)))

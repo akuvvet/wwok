@@ -113,3 +113,27 @@ class SammelrechnungUndLoeschenTest(TestCase):
             leer.abschliessen()
         with self.assertRaises(MailFehler):
             beleg_senden(leer, "x@example.test", "s", "t")
+
+
+class TeillieferungSammelrechnungTest(TestCase):
+    def test_teillieferung_und_nachlieferung_in_einer_rechnung(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        kunde = Kunde.objects.create(nummer="1", name1="Kunde GmbH")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        maus = Artikel.objects.create(nummer="A1", bezeichnung="Maus", steuersatz=st, vk1=Decimal("10"))
+        tast = Artikel.objects.create(nummer="A2", bezeichnung="Tastatur", steuersatz=st, vk1=Decimal("30"))
+        buche_manuell(m, maus, Bewegungsart.WARENEINGANG, Decimal("5"))
+        ls = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=kunde, versandkosten=Decimal("5"))
+        Position.objects.create(beleg=ls, artikel=maus, bezeichnung="Maus", menge=Decimal("2"), einzelpreis=Decimal("10"))
+        Position.objects.create(beleg=ls, artikel=tast, bezeichnung="Tastatur", menge=Decimal("1"), einzelpreis=Decimal("30"))
+        teil = ls.teillieferung_abschliessen()  # Maus geliefert, Tastatur bleibt offen
+        self.assertTrue(teil.abgeschlossen)
+        ls.refresh_from_db()
+        self.assertEqual((ls.abgeschlossen, ls.positionen.count()), (False, 1))
+        buche_manuell(m, tast, Bewegungsart.WARENEINGANG, Decimal("1"))
+        ls.abschliessen()  # Nachlieferung
+        self.assertTrue(teil.abrechenbar and ls.abrechenbar)
+        r = rechnung_aus_lieferscheinen([teil, ls])
+        self.assertEqual((r.positionen.count(), r.summe_netto), (2, Decimal("55.00")))  # 20 + 30 + 5 Versand (nur einmal)
+        r.abschliessen()
+        self.assertEqual((bestand(m, maus), bestand(m, tast)), (Decimal("3"), Decimal("0")))
