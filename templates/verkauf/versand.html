@@ -38,21 +38,36 @@
     DHL Paket wird mit mindestens 1 kg angemeldet; Kleinpaket/Warenpost geht nur bis 1 kg und nur innerhalb Deutschlands.<br>
     „DHL-Label automatisch erzeugen“ holt Label und Sendungsnummer direkt von DHL. Alternativ die Sendungsnummer aus der DHL-Online-Frankierung eintragen – der Aufkleber ist dann ein interner mit Empfänger und Barcode.</p>
 </div>
+<div class="karte">
+  <h2>Deutsche Post – Brief</h2>
+  {% if briefprodukte %}
+  <form method="post" class="zeile" onsubmit="var s=this.briefprodukt; if(!confirm('Briefmarke ' + s.options[s.selectedIndex].text + ' aus der Portokasse kaufen?')) return false; this.querySelector('button').disabled=true;">{% csrf_token %}
+    <input type="hidden" name="aktion" value="brief">
+    <div><label for="bp">Produkt</label><select id="bp" name="briefprodukt">
+      {% for p in briefprodukte %}<option value="{{ p.pk }}" {% if p == briefprodukt %}selected{% endif %}>{{ p }} · bis {{ p.max_gewicht_g }} g{% if p.masse %} · {{ p.masse }}{% endif %}</option>{% endfor %}</select></div>
+    <button type="submit">Briefmarke kaufen &amp; Etikett drucken</button>
+  </form>
+  <p style="opacity:.8">Die INTERNETMARKE wird aus der Portokasse bezahlt und als Etikett für DYMO 99014 (101 × 54 mm) mit Absender und Empfänger geliefert – nur Inland.
+    {% if gewicht and not briefprodukt %}<span style="color:var(--warn)">Die Sendung ({{ gewicht }} kg) ist für einen Brief zu schwer.</span>{% endif %}
+    Nicht genutzte Marken über „Erstatten“ zurückgeben. Porto und Produkte: Verwaltung → Briefprodukte.</p>
+  {% else %}<p>Keine Briefprodukte eingerichtet (Verwaltung → Briefprodukte).</p>{% endif %}
+</div>
 {% if versendungen %}
 <div class="karte">
   <h2>Versendungen</h2>
   <div class="scroll"><table>
     <thead><tr><th>Datum</th><th>Dienst</th><th>Sendungsnummer</th><th class="zahl">kg</th><th>Verfolgung</th><th>Mail</th><th></th></tr></thead>
     <tbody>{% for v in versendungen %}<tr>
-      <td>{{ v.versendet_am|date:"d.m.Y" }}</td><td>{{ v.get_produkt_display }}</td><td>{{ v.sendungsnummer|default:"–" }}</td>
+      <td>{{ v.versendet_am|date:"d.m.Y" }}</td><td>{{ v.bezeichnung }}{% if v.porto %} · {{ v.porto }} €{% endif %}{% if v.erstattung_beantragt %}<br><small>Erstattung beantragt {{ v.erstattung_beantragt|date:"d.m.Y" }}</small>{% endif %}{% if v.kauf_status %}<br><strong style="color:var(--warn)">{{ v.get_kauf_status_display }}</strong>{% endif %}</td><td>{{ v.sendungsnummer|default:"–" }}</td>
       <td class="zahl">{{ v.gewicht_kg|default_if_none:"–" }}</td>
       <td>{% if v.tracking_url %}<a href="{{ v.tracking_url }}" target="_blank" rel="noopener">Sendung verfolgen</a>{% endif %}</td>
       <td>{% if v.mail_gesendet %}gesendet {{ v.mail_gesendet|date:"d.m. H:i" }}{% else %}–{% endif %}</td>
       <td><form method="post" class="zeile" style="gap:4px">{% csrf_token %}<input type="hidden" name="versand" value="{{ v.pk }}">
-        <a class="knopf leise" target="_blank" href="{% url 'verkauf:versand_aufkleber' beleg.pk v.pk %}">{% if v.dhl_erzeugt %}DHL-Label (PDF){% else %}Aufkleber (PDF){% endif %}</a>
+        <a class="knopf leise" target="_blank" href="{% url 'verkauf:versand_aufkleber' beleg.pk v.pk %}">{% if v.dienst == 'dp' %}Etikett (PDF){% elif v.dhl_erzeugt %}DHL-Label (PDF){% else %}Aufkleber (PDF){% endif %}</a>
         <input name="an" value="{{ mailadresse }}" size="24" aria-label="Mail an">
         <button name="aktion" value="mail" class="leise" type="submit">Versand-Mail</button>
-        <button name="aktion" value="loeschen" class="gefahr" type="submit" onclick="return confirm('Versandeintrag löschen?')">Löschen</button></form></td>
+        {% if v.dienst == 'dp' and v.shop_order_id %}{% if not v.erstattung_beantragt %}<button name="aktion" value="erstatten" class="gefahr" type="submit" onclick="return confirm('Briefmarke erstatten lassen? Sie darf danach nicht mehr verwendet werden.')">Erstatten</button>{% endif %}
+        {% else %}<button name="aktion" value="loeschen" class="gefahr" type="submit" onclick="return confirm('Versandeintrag löschen?')">Löschen</button>{% endif %}</form></td>
     </tr>{% endfor %}</tbody></table></div>
 </div>
 {% endif %}

@@ -1,17 +1,20 @@
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import Abo, AboPosition, Versand, Versandart, Wiedervorlage, Beleg, BelegGesperrt, Belegart, Position
+from .models import Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Position, Versand, Versandart, Wiedervorlage
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
 from .pdf import beleg_pdf
@@ -748,6 +751,42 @@ def beleg_versand(request, beleg_id):
             except dhl.DhlFehler as fehler:
                 v.delete()
                 messages.error(request, str(fehler))
+        elif aktion == "brief":
+            from . import internetmarke as im
+            bp = Briefprodukt.objects.filter(pk=request.POST.get("briefprodukt") or None, aktiv=True).first()
+            if bp is None:
+                messages.error(request, "Bitte ein Briefprodukt wählen.")
+                return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
+            # Kauf vorab als „läuft“ eintragen – unter Sperre des Belegs, damit zwei Anfragen (Doppelklick, zweiter Tab,
+            # Neuladen) nie zwei Marken kaufen
+            kurz_zuvor = timezone.now() - timedelta(seconds=60)
+            with transaction.atomic():
+                Beleg.objects.select_for_update().get(pk=beleg.pk)
+                offen = beleg.versendungen.filter(dienst="dp").filter(
+                    Q(kauf_status__in=[Versand.LAEUFT, Versand.UNKLAR])
+                    | Q(angelegt_am__gte=kurz_zuvor, erstattung_beantragt__isnull=True)).first()
+                if offen is None:
+                    v = Versand.objects.create(beleg=beleg, dienst="dp", briefprodukt=bp, porto=bp.preis,
+                                               gewicht_kg=gewicht_roh, kauf_status=Versand.LAEUFT)
+            if offen is not None:
+                messages.error(request, {
+                    Versand.UNKLAR: "Ein früherer Briefmarkenkauf zu diesem Beleg ist unklar – bitte in der Portokasse prüfen "
+                                    "und den Eintrag „Kauf unklar“ danach löschen (bzw. die Marke nutzen).",
+                    Versand.LAEUFT: "Für diesen Beleg läuft gerade ein Briefmarkenkauf – bitte kurz warten und neu laden.",
+                }.get(offen.kauf_status, "Für diesen Beleg wurde gerade eine Briefmarke gekauft – Doppelklick? "
+                                         "Bitte eine Minute warten, wenn wirklich eine zweite Marke nötig ist."))
+                return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
+            try:
+                im.marke_kaufen(v)
+                messages.success(request, f"Briefmarke gekauft ({bp}). Etikett: „Etikett (PDF)“.")
+            except im.PostFehler as fehler:
+                if v.shop_order_id and not v.kauf_status:  # Marke ist gekauft, nur das Etikett fehlt noch
+                    messages.warning(request, f"Briefmarke gekauft, Etikett noch nicht geladen: {fehler}. Bitte „Etikett (PDF)“ erneut öffnen.")
+                elif v.kauf_status == Versand.UNKLAR:
+                    messages.error(request, str(fehler))
+                else:  # abgelehnt bzw. vor dem Kauf gescheitert: nichts bezahlt
+                    v.delete()
+                    messages.error(request, str(fehler))
         else:
             v = get_object_or_404(Versand, pk=request.POST.get("versand"), beleg=beleg)
             if aktion == "mail":
@@ -757,7 +796,23 @@ def beleg_versand(request, beleg_id):
                     messages.success(request, f"Versand-Mail an {an} gesendet.")
                 except MailFehler as fehler:
                     messages.error(request, str(fehler))
+            elif aktion == "erstatten" and v.dienst == "dp":
+                from . import internetmarke as im
+                if v.erstattung_beantragt:
+                    messages.info(request, "Die Erstattung ist bereits beantragt.")
+                else:
+                    try:
+                        im.erstatten(v)
+                        messages.success(request, "Erstattung beantragt – die Post bucht das Porto in die Portokasse zurück.")
+                    except im.PostFehler as fehler:
+                        messages.error(request, str(fehler))
             elif aktion == "loeschen":
+                if v.dienst == "dp" and v.shop_order_id and not v.erstattung_beantragt:
+                    messages.error(request, "Eine gekaufte Briefmarke wird nicht gelöscht – bitte „Erstatten“ wählen.")
+                    return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
+                if v.dienst == "dp" and v.shop_order_id:
+                    messages.error(request, "Gekaufte Briefmarken bleiben zur Nachweisführung gespeichert.")
+                    return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
                 if v.dhl_erzeugt:
                     from . import dhl
                     try:
@@ -778,7 +833,9 @@ def beleg_versand(request, beleg_id):
         "beleg": beleg, "versendungen": beleg.versendungen.all(),
         "mailadresse": (ap.email if ap and ap.email else beleg.kunde.email) or "",
         "gewicht": gewicht if gewicht > 0 else None, "ohne_gewicht": ohne_gewicht, "inland": inland,
-        "produkte": Versand.PRODUKTE, "produkt": Versand.produkt_vorschlag(gewicht, inland, not ohne_gewicht)})
+        "produkte": Versand.PRODUKTE, "produkt": Versand.produkt_vorschlag(gewicht, inland, not ohne_gewicht),
+        "briefprodukte": Briefprodukt.objects.filter(aktiv=True),
+        "briefprodukt": Briefprodukt.vorschlag(gewicht, not ohne_gewicht)})
 
 
 @mit_mandant
@@ -786,7 +843,14 @@ def versand_aufkleber(request, beleg_id, versand_id):
     from . import versand as vs
     beleg = beleg_holen(request, beleg_id)
     v = get_object_or_404(Versand, pk=versand_id, beleg=beleg)
-    pdf = bytes(v.label) if v.label else vs.aufkleber_pdf(v)  # amtliches DHL-Label, sonst interner Aufkleber
+    if not v.label and v.dienst == "dp":  # Briefmarke gekauft, Etikett noch nicht geladen
+        from . import internetmarke as im
+        try:
+            im.etikett_laden(v)
+        except im.PostFehler as fehler:
+            messages.error(request, f"Etikett der Briefmarke nicht abrufbar: {fehler}")
+            return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
+    pdf = bytes(v.label) if v.label else vs.aufkleber_pdf(v)  # amtliches DHL-/Post-Etikett, sonst interner Aufkleber
     antwort = HttpResponse(pdf, content_type="application/pdf")
     antwort["Content-Disposition"] = f'inline; filename="paketaufkleber_{beleg.nummer or beleg.pk}.pdf"'
     return antwort

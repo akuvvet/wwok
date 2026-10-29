@@ -1,6 +1,7 @@
 from django.contrib import admin
 
-from .models import Abo, AboPosition, Beleg, MailVersand, Mailvorlage, Nummernkreis, Position, Versandart, Wiedervorlage
+from .models import (Abo, AboPosition, Beleg, Briefprodukt, MailVersand, Mailvorlage, Nummernkreis, Position, Versandart,
+                     Wiedervorlage)
 
 
 class PositionInline(admin.TabularInline):
@@ -85,3 +86,11 @@ class VersandartAdmin(admin.ModelAdmin):
 class WiedervorlageAdmin(admin.ModelAdmin):
     list_display = ["faellig", "kunde", "text", "erledigt", "mandant"]
     list_filter = ["mandant", "erledigt"]
+
+
+@admin.register(Briefprodukt)
+class BriefproduktAdmin(admin.ModelAdmin):
+    """Porto der Deutschen Post (INTERNETMARKE); bei einer Portoerhöhung den Preis hier anpassen."""
+
+    list_display = ["name", "preis", "max_gewicht_g", "masse", "produktcode", "aktiv"]
+    list_editable = ["preis", "aktiv"]

@@ -177,6 +177,8 @@ class Beleg(Zeitstempel):
             return "Zum Beleg gibt es Zahlungen (Anzahlung) – bitte zuerst stornieren."
         if self.lagerbewegungen.exists():
             return "Zum Beleg gibt es Lagerbuchungen."
+        if self.versendungen.filter(dienst="dp").exists():
+            return "Zum Beleg wurde eine Briefmarke gekauft – der Nachweis muss erhalten bleiben."
         return None
 
     def p_positionen(self):
@@ -238,7 +240,7 @@ class Beleg(Zeitstempel):
         anzahl = 0
         for b in kandidaten.order_by("-id"):
             if b.folgebelege.exists() or b.rechnungen.exists() or b.mails.exists() or b.zahlungen.exists() \
-                    or b.lagerbewegungen.exists():
+                    or b.lagerbewegungen.exists() or b.versendungen.exists():
                 continue
             nummer, art = b.nummer, b.art
             b.delete()
@@ -823,10 +825,42 @@ def faellige_abos(heute=None):
         models.Q(ende__isnull=True) | models.Q(ende__gte=models.F("naechster_termin"))).select_related("kunde", "mandant")
 
 
-class Versand(Zeitstempel):
-    """Paket zu einem Beleg (Lieferschein, Rechnung, Nachlieferschein): Sendungsnummer, Paketaufkleber, Versand-Mail."""
+class Briefprodukt(models.Model):
+    """Brief-Produkt der Deutschen Post für die INTERNETMARKE (Produktcode aus der Produkt-/Preisliste, Porto in Euro).
+    Bei einer Portoerhöhung hier den Preis anpassen – die Post lehnt sonst den Kauf ab."""
 
-    DIENSTE = [("dhl", "DHL Paket")]
+    name = models.CharField("Bezeichnung", max_length=60)
+    produktcode = models.PositiveIntegerField("Produktcode (INTERNETMARKE)", unique=True)
+    preis = models.DecimalField("Porto (€)", max_digits=6, decimal_places=2)
+    max_gewicht_g = models.PositiveIntegerField("Höchstgewicht (g)")
+    masse = models.CharField("Maße", max_length=80, blank=True, help_text="nur zur Anzeige, z. B. bis 23,5 × 12,5 × 0,5 cm")
+    aktiv = models.BooleanField("aktiv", default=True)
+
+    class Meta:
+        verbose_name = "Briefprodukt (Deutsche Post)"
+        verbose_name_plural = "Briefprodukte (Deutsche Post)"
+        ordering = ["max_gewicht_g"]
+
+    def __str__(self):
+        return f"{self.name} ({self.preis:.2f} €)".replace(f"{self.preis:.2f}", f"{self.preis:.2f}".replace(".", ","))
+
+    @classmethod
+    def vorschlag(cls, gewicht_kg, vollstaendig=True):
+        """Kleinstes aktives Produkt, das das Gewicht trägt; ohne verlässliches Gewicht das kleinste."""
+        produkte = list(cls.objects.filter(aktiv=True))
+        if vollstaendig and gewicht_kg:
+            for p in produkte:
+                if gewicht_kg * 1000 <= p.max_gewicht_g:
+                    return p
+            return None
+        return produkte[0] if produkte else None
+
+
+class Versand(Zeitstempel):
+    """Sendung zu einem Beleg (Lieferschein, Rechnung, Nachlieferschein): DHL-Paket oder Brief der Deutschen Post
+    (INTERNETMARKE), mit Etikett und Versand-Mail."""
+
+    DIENSTE = [("dhl", "DHL Paket"), ("dp", "Deutsche Post Brief")]
     TRACKING = {"dhl": "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode={nr}"}
     PAKET, KLEINPAKET = "paket", "kleinpaket"
     PRODUKTE = [(PAKET, "DHL Paket (ab 1 kg)"), (KLEINPAKET, "DHL Kleinpaket / Warenpost (bis 1 kg)")]
@@ -842,6 +876,15 @@ class Versand(Zeitstempel):
     mail_gesendet = models.DateTimeField("Versand-Mail gesendet", null=True, blank=True, editable=False)
     dhl_erzeugt = models.BooleanField("Label über die DHL-Schnittstelle erzeugt", default=False, editable=False)
     label = models.BinaryField("DHL-Label (PDF)", null=True, blank=True, editable=False)
+    # Brief (INTERNETMARKE): gekauftes Produkt, Porto und Bestellnummer der Post (für Erstattung und erneuten Abruf)
+    briefprodukt = models.ForeignKey(Briefprodukt, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    porto = models.DecimalField("Porto (€)", max_digits=6, decimal_places=2, null=True, blank=True, editable=False)
+    shop_order_id = models.CharField("Bestellnummer INTERNETMARKE", max_length=20, blank=True, editable=False)
+    label_link = models.URLField("Link zum Etikett", max_length=500, blank=True, editable=False)
+    erstattung_beantragt = models.DateTimeField("Erstattung beantragt", null=True, blank=True, editable=False)
+    LAEUFT, UNKLAR = "laeuft", "unklar"
+    kauf_status = models.CharField("Kaufstatus", max_length=8, blank=True, editable=False,
+                                   choices=[(LAEUFT, "Kauf läuft"), (UNKLAR, "Kauf unklar – Portokasse prüfen")])
 
     class Meta:
         verbose_name = "Versand"
@@ -852,8 +895,15 @@ class Versand(Zeitstempel):
         return f"{self.get_dienst_display()} {self.sendungsnummer or '(ohne Nummer)'}"
 
     @property
+    def bezeichnung(self) -> str:
+        if self.dienst == "dp":
+            return self.briefprodukt.name if self.briefprodukt else "Brief"
+        return self.get_produkt_display()
+
+    @property
     def tracking_url(self) -> str:
-        return self.TRACKING[self.dienst].format(nr=self.sendungsnummer) if self.sendungsnummer else ""
+        vorlage = self.TRACKING.get(self.dienst)
+        return vorlage.format(nr=self.sendungsnummer) if vorlage and self.sendungsnummer else ""
 
     @classmethod
     def produkt_vorschlag(cls, gewicht, inland=True, vollstaendig=True) -> str:
