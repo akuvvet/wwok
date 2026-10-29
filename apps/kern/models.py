@@ -49,6 +49,8 @@ class Mandant(Zeitstempel):
     bic = models.CharField("BIC", max_length=11, blank=True)
     glaeubiger_id = models.CharField("Gläubiger-ID (SEPA)", max_length=35, blank=True)
     aktiv = models.BooleanField("aktiv", default=True)
+    logo = models.ImageField("Logo", upload_to="logos/", blank=True,
+                             help_text="PNG oder JPG, am besten quer und mit transparentem oder weißem Hintergrund (max. 2 MB). Erscheint oben rechts auf Belegen.")
     # E-Mail-Versand (das Passwort steht nicht hier, sondern in der .env als SMTP_PASSWORD_<KURZNAME>)
     smtp_host = models.CharField("SMTP-Server", max_length=100, blank=True)
     smtp_port = models.PositiveIntegerField("SMTP-Port", default=587)

@@ -5,9 +5,10 @@ from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .models import Belegart
 
@@ -58,7 +59,15 @@ def beleg_pdf(beleg) -> bytes:
     puffer = BytesIO()
     doc = SimpleDocTemplate(puffer, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm,
                             topMargin=15 * mm, bottomMargin=28 * mm, title=str(beleg), author=m.firmenname)
-    inhalt = [absatz(f"{m.firmenname} · {m.strasse} · {m.plz} {m.ort}", klein), Spacer(1, 4 * mm)]
+    inhalt = []
+    if m.logo:
+        try:  # Logo oben rechts; fehlt die Datei, wird der Beleg trotzdem erzeugt
+            ImageReader(m.logo.path)  # liest die Datei jetzt, damit ein fehlendes Bild hier und nicht beim Aufbau scheitert
+            logo = Image(m.logo.path, width=60 * mm, height=22 * mm, kind="proportional", hAlign="RIGHT")
+            inhalt += [logo, Spacer(1, 3 * mm)]
+        except Exception:
+            pass
+    inhalt += [absatz(f"{m.firmenname} · {m.strasse} · {m.plz} {m.ort}", klein), Spacer(1, 4 * mm)]
 
     k = beleg.kunde
     anschrift = beleg.rechnungsanschrift or "\n".join(
