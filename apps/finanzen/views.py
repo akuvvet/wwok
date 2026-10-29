@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Kunde
@@ -22,10 +23,19 @@ from .pdf import mahnung_pdf
 
 
 def betrag(text):
+    """Betrag mit Komma oder Punkt; mehrdeutige Schreibweisen wie 1.234 und mehr als zwei Nachkommastellen werden abgelehnt."""
+    t = (text or "").strip()
+    if "," not in t and t.count(".") == 1 and len(t.split(".")[1]) == 3:
+        raise ValueError(f"Betrag '{text}' ist mehrdeutig – bitte mit Komma schreiben, z. B. 1234,00.")
     try:
-        return Decimal((text or "").strip().replace(".", "").replace(",", ".") if "," in (text or "") else (text or "").strip())
+        wert = Decimal(t.replace(".", "").replace(",", ".") if "," in t else t)
     except InvalidOperation:
         raise ValueError(f"Ungültiger Betrag: {text}")
+    if not wert.is_finite() or abs(wert) >= Decimal("1000000000"):
+        raise ValueError(f"Ungültiger Betrag: {text}")
+    if wert != wert.quantize(Decimal("0.01")):
+        raise ValueError(f"Der Betrag darf höchstens zwei Nachkommastellen haben: {text}")
+    return wert
 
 
 def datum(text):
@@ -37,7 +47,8 @@ def datum(text):
 
 @mit_mandant
 def offene_posten(request):
-    kunde = Kunde.objects.filter(pk=request.GET.get("kunde") or None).first()
+    kunde_id = request.GET.get("kunde", "")
+    kunde = Kunde.objects.filter(pk=kunde_id if kunde_id.isdigit() else None).first()
     zeilen = services.offene_rechnungen(request.mandant, kunde)
     if request.GET.get("nur") == "ueberfaellig":
         zeilen = [z for z in zeilen if z["ueberfaellig"] > 0]
@@ -105,7 +116,12 @@ def mahnwesen(request):
 def mahnungen_erstellen(request):
     angelegt = 0
     for eintrag in request.POST.getlist("auswahl"):  # "<beleg_id>:<stufe>"
-        beleg_id, stufe = eintrag.split(":")
+        try:
+            beleg_id, stufe = eintrag.split(":")
+            beleg_id, stufe = int(beleg_id), int(stufe)
+        except ValueError:
+            messages.error(request, "Ungültige Auswahl für die Mahnung.")
+            continue
         beleg = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
         try:
             services.mahnung_erstellen(beleg, int(stufe), request.user)
@@ -209,6 +225,8 @@ def kassenbuch(request):
             summe = betrag(request.POST.get("betrag"))
             if summe <= 0:
                 raise ValueError("Betrag muss positiv sein.")
+            if request.POST.get("art") == "A" and summe > services.kassenstand(request.mandant):
+                raise ValueError("Die Ausgabe übersteigt den Kassenstand – die Kasse darf nicht ins Minus laufen.")
             services.kasse_buchen(request.mandant, request.POST.get("art"), summe, request.POST.get("text", "").strip() or "Kassenbuchung",
                                   datum(request.POST.get("datum")), None, request.user)
             messages.success(request, "Gebucht.")
@@ -287,6 +305,8 @@ def lastschrift_aufheben(request, ls_id):
     if not grund:
         messages.error(request, "Bitte einen Grund angeben (z. B. Rücklastschrift, Datei nicht eingereicht).")
     else:
-        Lastschrift.objects.filter(pk=ls.pk).update(aufgehoben=True, aufgehoben_grund=grund)
+        ls.aufgehoben, ls.aufgehoben_grund = True, grund[:300]
+        ls.aufgehoben_von, ls.aufgehoben_am = request.user, timezone.now()
+        ls.save()
         messages.success(request, f"Lastschrift {ls.beleg.nummer} aufgehoben – die Rechnung kann erneut eingezogen werden.")
     return redirect("finanzen:lastschrift")

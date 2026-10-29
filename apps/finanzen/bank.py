@@ -33,12 +33,17 @@ class ImportFehler(Exception):
 
 def zahl(text) -> Decimal:
     t = str(text).strip().replace(" ", "")
+    if "," not in t and t.count(".") == 1 and len(t.split(".")[1]) == 3 and t.lstrip("+-").split(".")[0] != "0":
+        raise ImportFehler(f"Betrag mehrdeutig (Tausenderpunkt oder Dezimalpunkt?): {text}")
     if "," in t:
         t = t.replace(".", "").replace(",", ".")
     try:
-        return Decimal(t)
+        wert = Decimal(t)
     except InvalidOperation:
         raise ImportFehler(f"Betrag nicht lesbar: {text}")
+    if not wert.is_finite():
+        raise ImportFehler(f"Betrag nicht lesbar: {text}")
+    return wert
 
 
 def tag(text) -> date:
@@ -136,8 +141,12 @@ def importiere(mandant, dateiname: str, inhalt: bytes, benutzer=None) -> dict:
     """Liest eine Bankdatei ein; Dubletten werden übersprungen, Eingänge automatisch zugeordnet."""
     umsaetze = lese_camt(inhalt) if dateiname.lower().endswith(".xml") else lese_csv(inhalt)
     ergebnis = {"gelesen": len(umsaetze), "neu": 0, "doppelt": 0, "automatisch": 0}
+    gleiche = {}
     for u in umsaetze:
         summe = pruefsumme(mandant, u)
+        nr = gleiche[summe] = gleiche.get(summe, -1) + 1  # zwei identische Umsätze in einer Datei sind echte Doppelbuchungen
+        if nr:
+            summe = hashlib.sha256(f"{summe}|{nr}".encode()).hexdigest()
         if Bankumsatz.objects.filter(mandant=mandant, pruefsumme=summe).exists():
             ergebnis["doppelt"] += 1
             continue

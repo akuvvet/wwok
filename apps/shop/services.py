@@ -168,7 +168,7 @@ def bestellungen_abrufen(shop, client=None) -> dict:
                     ergebnis["bekannt"] += 1
                 else:
                     ergebnis["neu"] += 1
-            except (ValueError, KeyError) as fehler:
+            except Exception as fehler:  # eine fehlerhafte Bestellung darf den ganzen Abruf nicht abbrechen
                 ergebnis["fehler"].append(f"{b.get('orderNumber', '?')}: {fehler}")
         if len(daten) < 50:
             break

@@ -19,9 +19,12 @@ def zahl(text, standard=None):
     if not text:
         return standard
     try:
-        return Decimal(text)
+        wert = Decimal(text)
     except InvalidOperation:
         raise ValueError(f"Ungültige Zahl: {text}")
+    if not wert.is_finite():
+        raise ValueError(f"Ungültige Zahl: {text}")
+    return wert
 
 
 def holen(request, reparatur_id):
@@ -47,7 +50,8 @@ def liste(request):
 
 @mit_mandant
 def annahme(request):
-    kunde = Kunde.objects.filter(pk=request.GET.get("kunde") or None).first()
+    kunde_id = request.GET.get("kunde", "")
+    kunde = Kunde.objects.filter(pk=kunde_id if kunde_id.isdigit() else None).first()
     if request.method == "POST":
         kunde = Kunde.objects.filter(nummer=request.POST.get("kundennummer", "").strip()).first()
         if kunde is None:
@@ -156,7 +160,7 @@ def garantie_buchen(request, reparatur_id):
 def notiz(request, reparatur_id):
     reparatur = holen(request, reparatur_id)
     reparatur.interne_notiz = request.POST.get("interne_notiz", "")
-    reparatur.garantie = bool(request.POST.get("garantie")) if not reparatur.rechnung_id else reparatur.garantie
+    reparatur.garantie = bool(request.POST.get("garantie")) if not (reparatur.rechnung_id or reparatur.teile_gebucht) else reparatur.garantie
     reparatur.seriennummer = request.POST.get("seriennummer", reparatur.seriennummer).strip()
     reparatur.save()
     messages.success(request, "Gespeichert.")

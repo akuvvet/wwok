@@ -182,6 +182,9 @@ class Lastschrift(models.Model):
     benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     aufgehoben = models.BooleanField("aufgehoben (z. B. Rücklastschrift)", default=False)
     aufgehoben_grund = models.CharField("Grund", max_length=300, blank=True)
+    aufgehoben_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                       related_name="+", editable=False)
+    aufgehoben_am = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = "Lastschrift"

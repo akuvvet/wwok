@@ -58,7 +58,7 @@ def faellig_am(beleg):
 def mahnfaellig_ab(beleg):
     """Belegdatum + Tage 'Mahnung fällig' der Zahlungsbedingung (ohne Bedingung: Fälligkeit)."""
     zb = beleg.zahlungsbedingung
-    return beleg.belegdatum + timedelta(days=zb.tage_mahnung) if zb else faellig_am(beleg)
+    return beleg.belegdatum + timedelta(days=max(zb.tage_mahnung, zb.tage_netto)) if zb else faellig_am(beleg)  # nie vor der Fälligkeit
 
 
 def offene_rechnungen(mandant, kunde=None):
@@ -93,6 +93,8 @@ def mahnvorschlag(mandant, heute=None):
         if z["offen"] <= 0:
             continue
         b = z["beleg"]
+        if b.lastschriften.filter(aufgehoben=False).exists():  # per Lastschrift eingezogen: keine Mahnung
+            continue
         naechste = z["mahnstufe"] + 1
         if naechste not in alle:
             continue
@@ -109,6 +111,11 @@ def mahnvorschlag(mandant, heute=None):
 @transaction.atomic
 def mahnung_erstellen(beleg, stufe_nr, benutzer=None, heute=None) -> Mahnung:
     heute = heute or timezone.localdate()
+    if beleg.art != Belegart.RECHNUNG or not beleg.abgeschlossen:
+        raise ValueError("Gemahnt werden nur abgeschlossene Rechnungen.")
+    bisher = beleg.mahnungen.aggregate(m=models.Max("stufe"))["m"] or 0
+    if stufe_nr != bisher + 1:
+        raise ValueError(f"Als Nächstes ist Mahnstufe {bisher + 1} dran, nicht {stufe_nr}.")
     stufe = stufen(beleg.mandant)[stufe_nr]
     rest = offen(beleg)
     if rest <= 0:
@@ -158,6 +165,8 @@ def zahlung_stornieren(zahlung, grund, benutzer=None, datum=None) -> Zahlung:
 @transaction.atomic
 def kasse_buchen(mandant, art, betrag, text, datum=None, beleg=None, benutzer=None) -> Kassenbuch:
     """Fortlaufend nummerierter, unveränderlicher Kassenbucheintrag."""
+    if art not in (Kassenbuch.EINNAHME, Kassenbuch.AUSGABE):
+        raise ValueError("Kassenbuchungen sind Einnahme oder Ausgabe.")
     Mandant.objects.select_for_update().get(pk=mandant.pk)  # Sperre, damit Nummern lückenlos bleiben
     letzte = Kassenbuch.objects.filter(mandant=mandant).aggregate(m=models.Max("nummer"))["m"] or 0
     return Kassenbuch.objects.create(mandant=mandant, nummer=letzte + 1, art=art, betrag=betrag, text=text,

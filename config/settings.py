@@ -35,6 +35,9 @@ def env_bool(name: str, standard: bool = False) -> bool:
 
 SECRET_KEY = env("DJANGO_SECRET_KEY", "nur-fuer-lokale-entwicklung-aendern")
 DEBUG = env_bool("DJANGO_DEBUG", False)
+if not DEBUG and SECRET_KEY == "nur-fuer-lokale-entwicklung-aendern":
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY fehlt in der .env – ohne eigenen Schlüssel startet der Betrieb nicht.")
 ALLOWED_HOSTS = [h.strip() for h in env("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 CSRF_TRUSTED_ORIGINS = [f"https://{h}" for h in ALLOWED_HOSTS if h not in ("localhost", "127.0.0.1")]
 
