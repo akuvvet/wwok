@@ -36,7 +36,8 @@ def zugang(mandant) -> dict:
 
 
 def strasse_hausnummer(text: str) -> tuple:
-    treffer = re.match(r"^(.*?)[\s,]+(\d+\s*[a-zA-Z]?(?:\s*[-/]\s*\d+\s*[a-zA-Z]?)?)$", (text or "").strip())
+    # Hausnummer am Ende, auch ohne Leerzeichen („Pfaltzstr.2“); die Straße muss auf ein Nicht-Ziffer-Zeichen enden
+    treffer = re.match(r"^(.*?[^\d\s,])[\s,]*(\d+\s*[a-zA-Z]?(?:\s*[-/]\s*\d+\s*[a-zA-Z]?)?)$", (text or "").strip())
     return (treffer.group(1).strip(), treffer.group(2).replace(" ", "")) if treffer else ((text or "").strip(), "")
 
 
@@ -53,9 +54,14 @@ def anschrift_zerlegen(text: str) -> dict:
         raise DhlFehler(f"Zeile „{zeilen[-1]}“ ist nicht von der Form „PLZ Ort“.")
     strasse, haus = strasse_hausnummer(zeilen[-2])
     namen = zeilen[:-2]
-    return {"name1": namen[0][:50], "name2": (namen[1] if len(namen) > 1 else "")[:50], "name3": (namen[2] if len(namen) > 2 else "")[:50],
-            "addressStreet": strasse[:50], "addressHouse": haus[:10], "postalCode": treffer.group(1), "city": treffer.group(2)[:40],
-            "country": ISO3.get(land, land)}
+    return ohne_leere({"name1": namen[0][:50], "name2": (namen[1] if len(namen) > 1 else "")[:50],
+                       "name3": (namen[2] if len(namen) > 2 else "")[:50], "addressStreet": strasse[:50], "addressHouse": haus[:10],
+                       "postalCode": treffer.group(1), "city": treffer.group(2)[:40], "country": ISO3.get(land, land)})
+
+
+def ohne_leere(felder: dict) -> dict:
+    """DHL lehnt leere Texte ab (Länge mindestens 1) – leere optionale Felder ganz weglassen."""
+    return {k: v for k, v in felder.items() if v not in ("", None)}
 
 
 def auftrag(versand) -> dict:
@@ -67,8 +73,8 @@ def auftrag(versand) -> dict:
     if mail:
         empfaenger["email"] = mail
     strasse, haus = strasse_hausnummer(m.strasse)
-    absender = {"name1": m.firmenname[:50], "addressStreet": strasse[:50], "addressHouse": haus[:10], "postalCode": m.plz,
-                "city": m.ort[:40], "country": ISO3.get(m.land or "DE", "DEU")}
+    absender = ohne_leere({"name1": m.firmenname[:50], "addressStreet": strasse[:50], "addressHouse": haus[:10], "postalCode": m.plz,
+                           "city": m.ort[:40], "country": ISO3.get(m.land or "DE", "DEU")})
     inland = empfaenger["country"] == "DEU"
     sendung = {"product": "V01PAK" if inland else "V53WPAK", "billingNumber": zugangsdaten["abrechnung"],
                "refNo": (beleg.nummer or str(beleg.pk))[:35], "shipper": absender, "consignee": empfaenger,

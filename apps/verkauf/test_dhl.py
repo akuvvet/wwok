@@ -45,6 +45,18 @@ class DhlTest(TestCase):
         with self.assertRaises(dhl.DhlFehler):
             dhl.anschrift_zerlegen("nur eine Zeile")
 
+    def test_hausnummer_ohne_leerzeichen_und_keine_leeren_felder(self):
+        a = dhl.anschrift_zerlegen("KOK Metallbearbeitungs GmbH\nPfaltzstr.2\n42781 Haan")
+        self.assertEqual((a["addressStreet"], a["addressHouse"]), ("Pfaltzstr.", "2"))
+        self.assertNotIn("name2", a)  # DHL lehnt leere Texte ab
+        self.assertNotIn("name3", a)
+        for strasse, erwartet in (("Hauptstraße 5a", ("Hauptstraße", "5a")), ("Am Ring 3-5", ("Am Ring", "3-5")),
+                                  ("Straße des 17. Juni 5", ("Straße des 17. Juni", "5")), ("Musterweg,12", ("Musterweg", "12")),
+                                  ("Postfach", ("Postfach", ""))):
+            self.assertEqual(dhl.strasse_hausnummer(strasse), erwartet, strasse)
+        ohne = dhl.anschrift_zerlegen("Firma\nPostfach\n10115 Berlin")
+        self.assertNotIn("addressHouse", ohne)
+
     def test_zugang_unvollstaendig(self):
         with mock.patch.dict("os.environ", {}, clear=True):
             with self.assertRaisesMessage(dhl.DhlFehler, "DHL_API_KEY_OKAY"):
