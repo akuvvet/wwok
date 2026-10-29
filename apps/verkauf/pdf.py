@@ -1,4 +1,5 @@
 """Belegdruck als PDF (DIN A4, Positionen, Summen, Zahlungstext, Firmendaten im Fuß)."""
+from decimal import Decimal
 from io import BytesIO
 from xml.sax.saxutils import escape
 
@@ -116,6 +117,13 @@ def beleg_pdf(beleg) -> bytes:
     inhalt += [tabelle, Spacer(1, 4 * mm)]
 
     summen = []
+    if beleg.rabatt_prozent:
+        roh = {}
+        for p in beleg.positionen.all():
+            roh[p.steuer_prozent] = roh.get(p.steuer_prozent, Decimal("0")) + p.netto_gesamt
+        _, rabatte = beleg.nach_rabatt(roh)
+        summen.append([f"Positionen netto", euro(sum(roh.values(), Decimal("0")))])
+        summen.append([f"Belegrabatt {zahl(beleg.rabatt_prozent)} %", "-" + euro(sum(rabatte.values(), Decimal("0")))])
     for name, wert in (("Versandkosten netto", beleg.versandkosten), ("Verpackung netto", beleg.verpackung),
                        ("Versicherung netto", beleg.versicherung)):
         if wert:

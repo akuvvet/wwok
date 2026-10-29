@@ -896,6 +896,7 @@ Diese Regeln sind mit dem Nutzer abgestimmt und im Code umgesetzt. Änderungen n
 | Abgeschlossene Rechnung/Gutschrift | gesperrt, Korrektur nur per Gutschrift |
 | Nach Abschließen, PDF oder E-Mail | die Anwendung kehrt zur Belegübersicht des Kunden zurück |
 | Beleg kopieren | jeder Beleg lässt sich als beliebige Belegart (außer Gutschrift) kopieren; beim Angebot wird gefragt, ob es danach abgeschlossen werden soll |
+| Belegrabatt | Prozent je Beleg, wirkt auf alle Positionen netto vor der Steuer (je Steuersatz auf Cent gerundet); Versand, Verpackung und Versicherung bleiben unberührt. Wird in Folgebelege, Gutschrift, PDF, ZUGFeRD und DATEV übernommen; Sammelrechnung nur bei gleichem Rabatt |
 | Menü | Verkauf, Einkauf, Artikel (früher „Lager“), Werkstatt, Finanzen |
 
 ## 19. Betrieb: Datenimporte, Zeitpläne, Geheimnisse, Tests

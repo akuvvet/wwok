@@ -40,6 +40,7 @@ def beleg_zeilen(beleg):
     netto = defaultdict(Decimal)
     for p in beleg.positionen.all():
         netto[p.steuer_prozent] += p.netto_gesamt
+    netto = defaultdict(Decimal, beleg.nach_rabatt(netto)[0])  # Belegrabatt wirkt je Steuersatz
     nebenkosten = beleg.versandkosten + beleg.verpackung + beleg.versicherung
     if nebenkosten:
         netto[max(netto, default=Decimal("19"))] += nebenkosten

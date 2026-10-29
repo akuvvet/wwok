@@ -253,6 +253,9 @@ def beleg_kopf(request, beleg_id):
         beleg.verpackung = dezimal(request.POST.get("verpackung"), Decimal("0"))
         beleg.versicherung = dezimal(request.POST.get("versicherung"), Decimal("0"))
         beleg.referenz = request.POST.get("referenz", "").strip()[:100]
+        beleg.rabatt_prozent = dezimal(request.POST.get("rabatt_prozent"), Decimal("0"))
+        if not Decimal("0") <= beleg.rabatt_prozent <= Decimal("100"):
+            raise ValueError("Der Belegrabatt muss zwischen 0 und 100 % liegen.")
         beleg.bezugnahme = request.POST.get("bezugnahme", "").strip()[:60]
         beleg.gueltig_bis = datum_oder_none(request.POST.get("gueltig_bis"))
         beleg.liefertermin = datum_oder_none(request.POST.get("liefertermin"))

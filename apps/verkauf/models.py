@@ -120,6 +120,8 @@ class Beleg(Zeitstempel):
     verpackung = models.DecimalField("Verpackung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
     versicherung = models.DecimalField("Versicherung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
     referenz = models.CharField("Ihre Referenz / Bestellnummer", max_length=100, blank=True)
+    rabatt_prozent = models.DecimalField("Belegrabatt %", max_digits=5, decimal_places=2, default=Decimal("0"),
+                                         help_text="Wirkt auf alle Positionen (netto, vor der Steuer); Versand, Verpackung und Versicherung bleiben unberührt.")
     bezugnahme = models.CharField("Bezugnahme", max_length=60, blank=True,
                                   help_text="Wie kam der Auftrag zustande? z. B. telefonisch, schriftlich, E-Mail, eBay, Shop.")
     bearbeiter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
@@ -317,12 +319,11 @@ class Beleg(Zeitstempel):
             raise BelegGesperrt(f"{self} ist gesperrt.")
         self.positionen_nummerieren()
         self.gruppenpreise_aktualisieren()
-        netto = Decimal("0")
-        saetze = {}
+        roh = {}
         for p in self.positionen.all():
-            n = p.netto_gesamt
-            netto += n
-            saetze[p.steuer_prozent] = saetze.get(p.steuer_prozent, Decimal("0")) + n
+            roh[p.steuer_prozent] = roh.get(p.steuer_prozent, Decimal("0")) + p.netto_gesamt
+        saetze, _ = self.nach_rabatt(roh)
+        netto = sum(saetze.values(), Decimal("0"))
         nebenkosten = self.versandkosten + self.verpackung + self.versicherung
         if nebenkosten:
             satz = max(saetze, default=Decimal("19"))
@@ -333,6 +334,11 @@ class Beleg(Zeitstempel):
         self.summe_brutto = self.summe_netto + steuer
         Beleg.objects.filter(pk=self.pk).update(
             summe_netto=self.summe_netto, summe_steuer=self.summe_steuer, summe_brutto=self.summe_brutto)
+
+    def nach_rabatt(self, roh: dict):
+        """Belegrabatt je Steuersatz abziehen: (Steuerbasis nach Rabatt, Rabattbetrag je Satz). Rundung je Satz auf Cent."""
+        rabatte = {satz: runden(basis * self.rabatt_prozent / 100) for satz, basis in roh.items()} if self.rabatt_prozent else {}
+        return {satz: basis - rabatte.get(satz, Decimal("0")) for satz, basis in roh.items()}, rabatte
 
     def versandart_setzen(self, name: str):
         """Versandart wählen; gehört sie zur Stammtabelle, werden Standardkosten vorbelegt (frachtfrei ab Warenwert, nur Inland)."""
@@ -392,6 +398,7 @@ class Beleg(Zeitstempel):
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
             versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
+            rabatt_prozent=self.rabatt_prozent,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=self.bemerkung, vorgaenger=self)
         kopiere_positionen(self, neu)
@@ -445,7 +452,7 @@ class Beleg(Zeitstempel):
             rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
             versandkosten=0 if nachlieferung else self.versandkosten, verpackung=0 if nachlieferung else self.verpackung,
-            versicherung=0 if nachlieferung else self.versicherung,
+            versicherung=0 if nachlieferung else self.versicherung, rabatt_prozent=self.rabatt_prozent,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=f"Nachlieferung zu Rechnung {self.nummer}" if nachlieferung else self.bemerkung,
             vorgaenger=self if art != self.art else None)
@@ -467,6 +474,7 @@ class Beleg(Zeitstempel):
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
             versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
+            rabatt_prozent=self.rabatt_prozent,
             referenz=self.referenz, bemerkung=f"Gutschrift zu Rechnung {self.nummer}", vorgaenger=self)
         kopiere_positionen(self, neu)
         neu.berechne()
@@ -570,11 +578,13 @@ def rechnung_aus_lieferscheinen(lieferscheine) -> Beleg:
             raise ValueError("Alle Lieferscheine müssen zum selben Kunden und Mandanten gehören.")
         if not ls.abrechenbar:
             raise ValueError(f"{ls} ist nicht abrechenbar (nicht abgeschlossen oder schon berechnet).")
+    if len({ls.rabatt_prozent for ls in lieferscheine}) > 1:
+        raise ValueError("Die Lieferscheine haben unterschiedlichen Belegrabatt – bitte einzeln abrechnen.")
     rechnung = Beleg.objects.create(
         mandant=erster.mandant, art=Belegart.RECHNUNG, kunde=erster.kunde, ansprechpartner=erster.ansprechpartner,
         zahlungsbedingung=erster.zahlungsbedingung or erster.kunde.zahlungsbedingung,
         rechnungsanschrift=erster.rechnungsanschrift, versandanschrift=erster.versandanschrift,
-        versandart=erster.versandart, vorgaenger=erster,
+        versandart=erster.versandart, rabatt_prozent=erster.rabatt_prozent, vorgaenger=erster,
         bemerkung="Lieferscheine: " + ", ".join(ls.nummer for ls in lieferscheine))
     for ls in lieferscheine:
         kopiere_positionen(ls, rechnung)

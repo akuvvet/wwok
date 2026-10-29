@@ -105,6 +105,8 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
         saetze[p.steuer_prozent] = saetze.get(p.steuer_prozent, Decimal("0")) + p.netto_gesamt
     nebenkosten = beleg.versandkosten + beleg.verpackung + beleg.versicherung
     summe_positionen = sum(saetze.values(), Decimal("0"))
+    saetze, rabatte = beleg.nach_rabatt(saetze)  # Belegrabatt als Nachlass je Steuersatz
+    rabatt_summe = sum(rabatte.values(), Decimal("0"))
     nebensatz = max(saetze, default=Decimal("19"))
     if nebenkosten:
         saetze[nebensatz] = saetze.get(nebensatz, Decimal("0")) + nebenkosten
@@ -171,6 +173,17 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
         kind(t, "ram", "BasisAmount", _betrag(basis))
         kind(t, "ram", "CategoryCode", _kategorie(satz))
         kind(t, "ram", "RateApplicablePercent", _betrag(satz))
+    for satz, betrag in sorted(rabatte.items()):
+        if not betrag:
+            continue
+        nachlass = kind(abrechnung, "ram", "SpecifiedTradeAllowanceCharge")
+        kind(kind(nachlass, "ram", "ChargeIndicator"), "udt", "Indicator", "false")
+        kind(nachlass, "ram", "ActualAmount", _betrag(betrag))
+        kind(nachlass, "ram", "Reason", f"Belegrabatt {_betrag(beleg.rabatt_prozent)} %")
+        t = kind(nachlass, "ram", "CategoryTradeTax")
+        kind(t, "ram", "TypeCode", "VAT")
+        kind(t, "ram", "CategoryCode", _kategorie(satz))
+        kind(t, "ram", "RateApplicablePercent", _betrag(satz))
     if nebenkosten:
         zuschlag = kind(abrechnung, "ram", "SpecifiedTradeAllowanceCharge")
         kind(kind(zuschlag, "ram", "ChargeIndicator"), "udt", "Indicator", "true")
@@ -189,11 +202,13 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
     if lastschrift:
         kind(bedingungen, "ram", "DirectDebitMandateID", k.sepa_mandatsreferenz)
 
-    netto = summe_positionen + nebenkosten
+    netto = summe_positionen - rabatt_summe + nebenkosten
     brutto = netto + steuer_summe
     summen = kind(abrechnung, "ram", "SpecifiedTradeSettlementHeaderMonetarySummation")
     kind(summen, "ram", "LineTotalAmount", _betrag(summe_positionen))
     kind(summen, "ram", "ChargeTotalAmount", _betrag(nebenkosten))
+    if rabatt_summe:
+        kind(summen, "ram", "AllowanceTotalAmount", _betrag(rabatt_summe))
     kind(summen, "ram", "TaxBasisTotalAmount", _betrag(netto))
     kind(summen, "ram", "TaxTotalAmount", _betrag(steuer_summe), currencyID="EUR")
     kind(summen, "ram", "GrandTotalAmount", _betrag(brutto))

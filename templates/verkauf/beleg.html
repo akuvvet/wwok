@@ -154,6 +154,7 @@
     <div><label>Liefertermin</label><input type="date" name="liefertermin" value="{{ beleg.liefertermin|date:'Y-m-d' }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
     {% if beleg.art == "AN" %}<div><label>Angebot gültig bis</label><input type="date" name="gueltig_bis" value="{{ beleg.gueltig_bis|date:'Y-m-d' }}" {% if beleg.gesperrt %}disabled{% endif %}></div>{% endif %}
     <div><label>Bearbeiter</label><input value="{{ beleg.bearbeiter|default:'–' }}" disabled></div>
+    <div><label>Belegrabatt % (auf alle Positionen)</label><input name="rabatt_prozent" value="{{ beleg.rabatt_prozent }}" size="6" {% if beleg.gesperrt %}disabled{% endif %}></div>
     <div><label>Versandkosten netto</label><input name="versandkosten" value="{{ beleg.versandkosten }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
     <div><label>Verpackung netto</label><input name="verpackung" value="{{ beleg.verpackung }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
     <div><label>Versicherung netto</label><input name="versicherung" value="{{ beleg.versicherung }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
