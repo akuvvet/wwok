@@ -126,6 +126,7 @@ class WareneingangPosition(models.Model):
     menge = models.DecimalField(max_digits=10, decimal_places=3)
     ek = models.DecimalField("EK netto", **EK)
     seriennummern = models.TextField("Seriennummern (eine pro Zeile)", blank=True)
+    esd_keys = models.TextField("ESD-Keys (eine pro Zeile)", blank=True)
 
     class Meta:
         verbose_name = "Wareneingangsposition"

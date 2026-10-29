@@ -1,0 +1,15 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Start</a> › <a href="{% url 'admin:esd_esdkey_changelist' %}">ESD-Keys</a> › CSV-Import</div>
+{% endblock %}
+{% block content %}
+<h1>ESD-Keys per CSV importieren</h1>
+<p>Eine Zeile je Key mit vier Spalten, getrennt durch Semikolon (Kopfzeile ist erlaubt):<br>
+<strong>Mandant; Artikelnummer; Key; Anzahl</strong> – z. B. <code>OKAY;21882;852365-25412-25875-25185;1</code></p>
+<p>„Anzahl“ ist, wie oft der Key vergeben werden darf (1 = Einzelkey). Die Artikel müssen als Typ A in der Kategorie Software angelegt sein und werden automatisch als ESD-Key-Artikel gekennzeichnet. Bei einem Fehler in einer Zeile wird nichts importiert.</p>
+{% if fehler %}<ul class="errorlist">{% for f in fehler %}<li>{{ f }}</li>{% endfor %}</ul>{% endif %}
+<form method="post" enctype="multipart/form-data">{% csrf_token %}
+  <p><input type="file" name="datei" accept=".csv,.txt" required></p>
+  <input type="submit" value="Importieren" class="default">
+</form>
+{% endblock %}

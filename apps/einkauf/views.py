@@ -338,6 +338,8 @@ def wareneingang_zeile_aendern(request, we_id, position_id):
         if pos.menge <= 0 or pos.ek < 0:
             raise ValueError("Die Menge muss größer als 0 sein und der EK darf nicht negativ sein.")
         pos.seriennummern = request.POST.get("seriennummern", "")
+        if "esd_keys" in request.POST:
+            pos.esd_keys = request.POST["esd_keys"]
         pos.save()
     return redirect("einkauf:wareneingang", we_id=we.pk)
 

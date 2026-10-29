@@ -7,7 +7,6 @@ app_name = "esd"
 urlpatterns = [
     path("", views.uebersicht, name="uebersicht"),
     path("suche/", views.suche, name="suche"),
-    path("csv/", views.csv_import, name="csv_import"),
     path("artikel/<int:artikel_id>/", views.artikel, name="artikel"),
     path("artikel/<int:artikel_id>/aktivieren/", views.aktivieren, name="aktivieren"),
     path("key/<int:key_id>/status/", views.key_status, name="key_status"),

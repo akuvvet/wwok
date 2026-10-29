@@ -18,11 +18,13 @@
     <tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">bestellt</th><th class="zahl">Menge</th><th class="zahl">EK netto</th><th>Seriennummern</th><th></th></tr>
     {% for p in positionen %}
     <tr><td>{{ p.artikel.nummer }}</td><td>{{ p.artikel.bezeichnung }}</td><td class="zahl">{% if p.bestellposition %}{{ p.bestellposition.offen|floatformat:"-3" }} offen{% endif %}</td>
-      {% if we.gebucht %}<td class="zahl">{{ p.menge|floatformat:"-3" }}</td><td class="zahl">{{ p.ek }}</td><td>{{ p.seriennummern|linebreaksbr }}</td><td></td>
+      {% if we.gebucht %}<td class="zahl">{{ p.menge|floatformat:"-3" }}</td><td class="zahl">{{ p.ek }}</td><td>{{ p.seriennummern|linebreaksbr }}{% if p.artikel.esd_key %}<small>ESD-Keys:</small><br>{{ p.esd_keys|linebreaksbr }}{% endif %}</td><td></td>
       {% else %}
       <td colspan="4"><form method="post" action="{% url 'einkauf:wareneingang_zeile' we.pk p.pk %}" class="zeile">{% csrf_token %}
         <input name="menge" value="{{ p.menge|floatformat:'-3' }}" size="5"><input name="ek" value="{{ p.ek }}" size="8">
         <textarea name="seriennummern" rows="1" cols="22">{{ p.seriennummern }}</textarea>
+        {% if p.artikel.esd_key %}<div style="flex-basis:100%"><label>ESD-Keys – für jedes Stück ein Key, einer pro Zeile ({{ p.menge|floatformat:"-3" }} erwartet)</label>
+          <textarea name="esd_keys" rows="{{ p.menge|floatformat:0|default:1 }}" style="width:100%;font-family:monospace" placeholder="XXXXX-XXXXX-XXXXX&#10;oder Volumenkey: KEY;Anzahl">{{ p.esd_keys }}</textarea></div>{% endif %}
         <button type="submit" class="leise">OK</button><button type="submit" name="aktion" value="loeschen" class="gefahr">×</button></form></td>{% endif %}
     </tr>
     {% empty %}<tr><td colspan="7">Noch nichts erfasst – Artikel scannen.</td></tr>{% endfor %}

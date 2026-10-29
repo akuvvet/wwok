@@ -7,6 +7,8 @@ from django.db.models import F, Q, Sum
 from django.utils import timezone
 
 from apps.lager.models import Bewegungsart, Lagerbewegung, bestand, reserviert
+from apps.esd.models import ESDKey
+from apps.esd.services import zeilen as esd_zeilen
 from apps.lager.services import seriennummern_einlagern, zeilen
 from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel
 from apps.verkauf.models import Belegart, Nummernkreis, Position
@@ -273,6 +275,15 @@ def wareneingang_buchen(we, benutzer=None) -> int:
         sn = zeilen(p.seriennummern)
         if sn and len(sn) != p.menge:
             raise ValueError(f"{p.artikel.nummer}: {len(sn)} Seriennummern, aber Menge {p.menge:f}.")
+        if p.artikel.esd_key:
+            keys = [k for k, _ in esd_zeilen(p.esd_keys)]
+            if len(keys) != p.menge:
+                raise ValueError(f"{p.artikel.nummer} (ESD): {len(keys)} Key(s) erfasst, aber Menge {p.menge:f} – bitte je Stück einen Key eintragen.")
+            if len(set(keys)) != len(keys):
+                raise ValueError(f"{p.artikel.nummer} (ESD): ein Key steht mehrfach in der Liste.")
+            vorhanden = ESDKey.objects.filter(mandant=we.mandant, artikel=p.artikel, key__in=keys).values_list("key", flat=True)
+            if vorhanden:
+                raise ValueError(f"{p.artikel.nummer} (ESD): Key bereits im Bestand: {', '.join(list(vorhanden)[:3])}.")
     heute = we.datum
     for p in positionen:
         a = Artikel.objects.select_for_update().get(pk=p.artikel_id)  # frisch laden: mehrere Zeilen desselben Artikels
@@ -291,6 +302,9 @@ def wareneingang_buchen(we, benutzer=None) -> int:
         a.save()
         if p.seriennummern.strip():
             seriennummern_einlagern(we.mandant, a, p.seriennummern, we.nummer)
+        if a.esd_key:
+            for key, anzahl in esd_zeilen(p.esd_keys):
+                ESDKey.objects.create(mandant=we.mandant, artikel=a, key=key, max_vergaben=anzahl or 1)
         if p.bestellposition_id:  # in der Datenbank hochzählen, damit mehrere Zeilen derselben Bestellposition nicht überschreiben
             BestellPosition.objects.filter(pk=p.bestellposition_id).update(geliefert=F("geliefert") + p.menge)
     we.gebucht = True

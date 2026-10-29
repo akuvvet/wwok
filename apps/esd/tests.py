@@ -157,7 +157,7 @@ class CsvImportTest(TestCase):
         self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
         st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
         self.a = Artikel.objects.create(nummer="21882", bezeichnung="Office", steuersatz=st)
-        self.user = get_user_model().objects.create_user("t", password="x" * 14)
+        self.user = get_user_model().objects.create_superuser("t", password="x" * 14)
         self.client.force_login(self.user)
         s = self.client.session
         s["mandant_id"] = self.m.pk
@@ -181,5 +181,38 @@ class CsvImportTest(TestCase):
     def test_kopfzeile_und_upload(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
         datei = SimpleUploadedFile("k.csv", "Mandant;Artikel;Key;Anzahl\nOKAY;21882;K-1;2\n".encode("cp1252"))
-        r = self.client.post(reverse("esd:csv_import"), {"datei": datei}, follow=True)
+        r = self.client.post(reverse("admin:esd_esdkey_csv"), {"datei": datei}, follow=True)
         self.assertContains(r, "1 Key(s) für 1 Artikel importiert")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class WareneingangEsdTest(TestCase):
+    def setUp(self):
+        from apps.einkauf import services as ek
+        from apps.stammdaten.models import Lieferant
+        self.ek = ek
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.a = Artikel.objects.create(nummer="WIN", bezeichnung="Windows", steuersatz=st, esd_key=True)
+        self.we = ek.wareneingang_anlegen(self.m, Lieferant.objects.create(nummer="L1", name1="API", kurzname="API"))
+
+    def test_esd_artikel_braucht_je_stueck_einen_key(self):
+        pos = self.ek.wareneingang_erfassen(self.we, self.a, Decimal("2"), Decimal("50"))
+        with self.assertRaises(ValueError):
+            self.ek.wareneingang_buchen(self.we)
+        pos.esd_keys = "A-1\nA-1"
+        pos.save()
+        with self.assertRaises(ValueError):  # doppelt
+            self.ek.wareneingang_buchen(self.we)
+        pos.esd_keys = "A-1\nA-2;5\n"
+        pos.save()
+        self.ek.wareneingang_buchen(self.we)
+        self.assertEqual(sorted(ESDKey.objects.values_list("key", "max_vergaben")), [("A-1", 1), ("A-2", 5)])
+
+    def test_key_schon_im_bestand_wird_abgelehnt(self):
+        ESDKey.objects.create(mandant=self.m, artikel=self.a, key="A-1")
+        pos = self.ek.wareneingang_erfassen(self.we, self.a, Decimal("1"), Decimal("50"))
+        pos.esd_keys = "A-1"
+        pos.save()
+        with self.assertRaises(ValueError):
+            self.ek.wareneingang_buchen(self.we)
