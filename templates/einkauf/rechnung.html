@@ -10,12 +10,33 @@
     <div>zu zahlen<br><strong>{{ zahlbetrag }} €</strong>{% if r.skonto_bis %}<br><small>Skonto {{ r.skonto_prozent }} % bis {{ r.skonto_bis|date:"d.m.Y" }}</small>{% endif %}</div>
     <div>Status<br>{{ r.get_status_display }}{% if r.bezahlt_am %}<br>{{ r.bezahlt_am|date:"d.m.Y" }}, {{ r.bezahlter_betrag }} €{% endif %}</div>
   </div>
-  {% if abgleich.verknuepft %}<p style="margin-top:12px">{% if abgleich.ok %}Wareneingänge netto {{ abgleich.wareneingang_netto }} € – passt zur Rechnung.{% else %}<span class="warnung" style="display:inline-block">Abweichung: Wareneingänge netto {{ abgleich.wareneingang_netto }} €, Rechnung {{ r.netto }} € (Differenz {{ abgleich.differenz }} €)</span>{% endif %}</p>{% endif %}
+  {% if abgleich.verknuepft %}<p style="margin-top:12px">
+    {% if abgleich.ok %}Wareneingänge netto {{ abgleich.wareneingang_netto }} € – passt zur Rechnung.
+    {% elif abgleich.bestaetigt %}Abweichung {{ abgleich.differenz }} € zum Wareneingang ({{ abgleich.wareneingang_netto }} €) – bewusst bestätigt, siehe Verlauf.
+    {% else %}<span class="warnung" style="display:inline-block">Abweichung: Wareneingänge netto {{ abgleich.wareneingang_netto }} €, Rechnung {{ r.netto }} € (Differenz {{ abgleich.differenz }} €).
+      Zahlung und SEPA-Export sind gesperrt, bis die Beträge korrigiert oder die Abweichung bestätigt ist.</span>{% endif %}</p>{% endif %}
+  {% if abgleich.offen and r.status != 'bezahlt' %}
+  <div class="raster" style="margin-top:8px">
+    <form method="post" action="{% url 'einkauf:rechnung_abweichung_bestaetigen' r.pk %}" class="zeile">{% csrf_token %}
+      <div><label>Bestätigen – Begründung (Pflicht)</label><input name="grund" size="40" required placeholder="z. B. Teillieferung nachgereicht, Preis abgestimmt"></div>
+      <button type="submit">Abweichung bestätigen</button>
+    </form>
+    <form method="post" action="{% url 'einkauf:rechnung_korrigieren' r.pk %}" class="zeile">{% csrf_token %}
+      <div><label>Netto</label><input name="netto" value="{{ r.netto }}" size="9"></div>
+      <div><label>Steuer</label><input name="steuer" value="{{ r.steuer }}" size="9"></div>
+      <div><label>Brutto</label><input name="brutto" value="{{ r.brutto }}" size="9"></div>
+      <button type="submit" class="leise">Beträge korrigieren</button>
+    </form>
+  </div>{% endif %}
+  <form method="post" action="{% url 'einkauf:rechnung_notiz' r.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <div><label>Notiz (kurz, max. 200 Zeichen)</label><input name="bemerkung" value="{{ r.bemerkung }}" size="50" maxlength="200"></div>
+    <button type="submit" class="leise">Notiz speichern</button>
+  </form>
   {% if r.status != 'bezahlt' %}
   <form method="post" action="{% url 'einkauf:rechnung_bezahlt' r.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
     <div><label>bezahlt am</label><input type="date" name="datum" value="{{ heute }}"></div>
     <div><label>Betrag</label><input name="betrag" value="{{ zahlbetrag }}" size="9"></div>
-    <button type="submit">Als bezahlt buchen</button>
+    <button type="submit" {% if abgleich.offen %}disabled title="Erst Abweichung klären"{% endif %}>Als bezahlt buchen</button>
   </form>
   {% else %}
   <form method="post" action="{% url 'einkauf:rechnung_zahlung_storno' r.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}

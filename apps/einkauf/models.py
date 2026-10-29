@@ -160,7 +160,10 @@ class Lieferantenrechnung(Zeitstempel):
     bezahlter_betrag = models.DecimalField(**GELD, null=True, blank=True)
     historie = models.TextField("Änderungshistorie", blank=True, help_text="Stornos der Zahlung mit Grund, Benutzer und Zeitpunkt")
     quelle = models.CharField(max_length=20, default="manuell")
-    bemerkung = models.CharField(max_length=200, blank=True)
+    bemerkung = models.CharField("Notiz", max_length=200, blank=True)
+    abweichung_bestaetigt = models.DecimalField(
+        "bestätigte Abweichung", **GELD, null=True, blank=True, editable=False,
+        help_text="Differenz zum Wareneingang, die ein Benutzer bewusst bestätigt hat; ändert sich die Differenz, gilt die Bestätigung nicht mehr.")
 
     class Meta:
         verbose_name = "Lieferantenrechnung"
@@ -196,10 +199,48 @@ class Lieferantenrechnung(Zeitstempel):
         """Netto der verknüpften Wareneingänge gegen Rechnung: Differenz > 1 Cent ist eine Abweichung."""
         wareneingaenge = list(self.wareneingaenge.all())
         if not wareneingaenge:
-            return {"verknuepft": False, "differenz": None, "ok": None}
+            return {"verknuepft": False, "differenz": None, "ok": None, "bestaetigt": False, "offen": False}
         soll = sum((w.summe_netto for w in wareneingaenge), Decimal("0"))
         differenz = self.netto - soll
-        return {"verknuepft": True, "wareneingang_netto": soll, "differenz": differenz, "ok": abs(differenz) <= Decimal("0.01")}
+        ok = abs(differenz) <= Decimal("0.01")
+        bestaetigt = not ok and self.abweichung_bestaetigt is not None and self.abweichung_bestaetigt == differenz
+        return {"verknuepft": True, "wareneingang_netto": soll, "differenz": differenz, "ok": ok,
+                "bestaetigt": bestaetigt, "offen": not ok and not bestaetigt}
+
+    def freigabe_pruefen(self):
+        """Zahlung oder SEPA-Export nur ohne offene Abweichung: erst korrigieren oder mit Begründung bestätigen."""
+        a = self.abgleich()
+        if a["offen"]:
+            raise ValueError(f"Rechnung {self.rechnungsnummer} ({self.lieferant.name1}) weicht um {a['differenz']} € vom Wareneingang ab – "
+                             "bitte erst korrigieren oder die Abweichung mit Begründung bestätigen.")
+
+    def historie_eintrag(self, text, benutzer=None):
+        zeile = f"{timezone.localtime():%d.%m.%Y %H:%M} {benutzer or '-'}: {text}"
+        self.historie = (self.historie + chr(10) + zeile).strip()
+
+    def abweichung_bestaetigen(self, grund, benutzer=None):
+        grund = (grund or "").strip()
+        a = self.abgleich()
+        if not a["verknuepft"] or a["ok"]:
+            raise ValueError("Es gibt keine Abweichung zu bestätigen.")
+        if not grund:
+            raise ValueError("Bitte eine Begründung angeben.")
+        self.abweichung_bestaetigt = a["differenz"]
+        self.historie_eintrag(f"Abweichung {a['differenz']} € zum Wareneingang bestätigt – {grund}", benutzer)
+        self.save()
+
+    def betraege_korrigieren(self, netto, steuer, brutto, benutzer=None):
+        if self.status == RechnungStatus.BEZAHLT:
+            raise ValueError("Bezahlte Rechnungen lassen sich nicht korrigieren – erst die Zahlung stornieren.")
+        if netto is None or brutto is None or steuer is None or min(netto, brutto) <= 0 or steuer < 0:
+            raise ValueError("Netto, Steuer und Brutto müssen angegeben werden (Netto und Brutto größer 0).")
+        if abs(netto + steuer - brutto) > Decimal("0.01"):
+            raise ValueError("Netto plus Steuer ergibt nicht den Bruttobetrag.")
+        self.historie_eintrag(f"Beträge korrigiert: netto {self.netto} → {netto}, steuer {self.steuer} → {steuer}, "
+                              f"brutto {self.brutto} → {brutto}", benutzer)
+        self.netto, self.steuer, self.brutto = netto, steuer, brutto
+        self.status = RechnungStatus.OFFEN  # ein exportierter Zahlungsauftrag gilt mit neuen Beträgen nicht mehr
+        self.save()
 
 
 class RmaStatus(models.TextChoices):

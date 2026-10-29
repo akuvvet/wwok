@@ -897,6 +897,7 @@ Diese Regeln sind mit dem Nutzer abgestimmt und im Code umgesetzt. Änderungen n
 | Nach Abschließen, PDF oder E-Mail | die Anwendung kehrt zur Belegübersicht des Kunden zurück |
 | Beleg kopieren | jeder Beleg lässt sich als beliebige Belegart (außer Gutschrift) kopieren; beim Angebot wird gefragt, ob es danach abgeschlossen werden soll |
 | Belegrabatt | Prozent je Beleg, wirkt auf alle Positionen netto vor der Steuer (je Steuersatz auf Cent gerundet); Versand, Verpackung und Versicherung bleiben unberührt. Wird in Folgebelege, Gutschrift, PDF, ZUGFeRD und DATEV übernommen; Sammelrechnung nur bei gleichem Rabatt |
+| Lieferantenrechnung | Weicht das Netto vom Wareneingang um mehr als 1 Cent ab, wird es gemeldet; Zahlung und SEPA-Export sind gesperrt, bis die Beträge korrigiert oder die Abweichung mit Begründung bestätigt ist (Verlauf mit Benutzer und Zeit; ändert sich die Differenz, muss neu bestätigt werden). Dazu ein Notizfeld |
 | Menü | Verkauf, Einkauf, Artikel (früher „Lager“), Werkstatt, Finanzen |
 
 ## 19. Betrieb: Datenimporte, Zeitpläne, Geheimnisse, Tests

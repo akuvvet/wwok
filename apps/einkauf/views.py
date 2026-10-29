@@ -361,6 +361,7 @@ def rechnungen(request):
         liste = liste.exclude(status=RechnungStatus.BEZAHLT)
     zeilen = [(r, r.abgleich(), r.zahlbetrag()) for r in liste[:300]]
     return render(request, "einkauf/rechnungen.html", {
+        "abweichungen": sum(1 for _, a, _ in zeilen if a["offen"]),
         "zeilen": zeilen, "status": status, "lieferanten": Lieferant.objects.filter(gesperrt=False),
         "heute": date.today().isoformat(), "summe": sum((z[2] for z in zeilen), Decimal("0"))})
 
@@ -422,7 +423,8 @@ def rechnung_detail(request, rechnung_id):
 @require_POST
 @schutz("einkauf:rechnung", "rechnung_id")
 def rechnung_bezahlt(request, rechnung_id):
-    r = get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
+    r = get_object_or_404(Lieferantenrechnung.objects.select_related("lieferant"), pk=rechnung_id, mandant=request.mandant)
+    r.freigabe_pruefen()
     r.status = RechnungStatus.BEZAHLT
     r.bezahlt_am = tag(request.POST.get("datum"))
     r.bezahlter_betrag = zahl(request.POST.get("betrag"), r.zahlbetrag(r.bezahlt_am))
@@ -443,10 +445,44 @@ def rechnung_zahlung_storno(request, rechnung_id):
 
 @mit_mandant
 @require_POST
+@schutz("einkauf:rechnung", "rechnung_id")
+def rechnung_notiz(request, rechnung_id):
+    r = get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
+    r.bemerkung = request.POST.get("bemerkung", "").strip()[:200]
+    r.save(update_fields=["bemerkung"])
+    messages.success(request, "Notiz gespeichert.")
+    return redirect("einkauf:rechnung", rechnung_id=r.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:rechnung", "rechnung_id")
+def rechnung_abweichung_bestaetigen(request, rechnung_id):
+    r = get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
+    r.abweichung_bestaetigen(request.POST.get("grund"), request.user)
+    messages.success(request, "Abweichung bestätigt und protokolliert.")
+    return redirect("einkauf:rechnung", rechnung_id=r.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:rechnung", "rechnung_id")
+def rechnung_korrigieren(request, rechnung_id):
+    r = get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
+    r.betraege_korrigieren(zahl(request.POST.get("netto")), zahl(request.POST.get("steuer")), zahl(request.POST.get("brutto")),
+                           request.user)
+    messages.success(request, "Beträge korrigiert und protokolliert.")
+    return redirect("einkauf:rechnung", rechnung_id=r.pk)
+
+
+@mit_mandant
+@require_POST
 @schutz("einkauf:rechnungen")
 def sepa_export(request):
     auswahl = Lieferantenrechnung.objects.filter(pk__in=request.POST.getlist("auswahl"), mandant=request.mandant) \
         .exclude(status=RechnungStatus.BEZAHLT).select_related("lieferant")
+    for r in auswahl:
+        r.freigabe_pruefen()
     ausfuehrung = tag(request.POST.get("ausfuehrung"))
     daten = sepa.erzeuge(request.mandant, list(auswahl), ausfuehrung)
     auswahl.update(status=RechnungStatus.EXPORTIERT)
