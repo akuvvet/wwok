@@ -149,3 +149,37 @@ class EsdSucheTest(TestCase):
         self.assertEqual([t["nummer"] for t in self.client.get(url, {"q": "windows"}).json()["treffer"]], ["S1"])
         self.assertEqual([t["nummer"] for t in self.client.get(url, {"q": "*"}).json()["treffer"]], ["S1"])
         self.assertEqual(self.client.get(url, {"q": "w"}).json()["treffer"], [])
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class CsvImportTest(TestCase):
+    def setUp(self):
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.a = Artikel.objects.create(nummer="21882", bezeichnung="Office", steuersatz=st)
+        self.user = get_user_model().objects.create_user("t", password="x" * 14)
+        self.client.force_login(self.user)
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+
+    def test_import_mit_mandant_artikel_key_anzahl(self):
+        daten = "OKAY;21882;AAA-1;1\nOKAY;21882;AAA-2;5\n".encode()
+        self.assertEqual(services.csv_importieren(daten), (2, 0, 1))
+        self.assertEqual(services.csv_importieren(daten), (0, 2, 1))
+        self.a.refresh_from_db()
+        self.assertTrue(self.a.esd_key)
+        self.assertEqual(ESDKey.objects.get(key="AAA-2").max_vergaben, 5)
+
+    def test_fehler_bricht_alles_ab(self):
+        daten = "OKAY;21882;AAA-1;1\nXXX;21882;AAA-2;1\nOKAY;999;AAA-3;1\nOKAY;21882;AAA-4;0\n".encode()
+        with self.assertRaises(services.CsvFehler) as ctx:
+            services.csv_importieren(daten)
+        self.assertEqual(len(ctx.exception.fehler), 3)
+        self.assertEqual(ESDKey.objects.count(), 0)
+
+    def test_kopfzeile_und_upload(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        datei = SimpleUploadedFile("k.csv", "Mandant;Artikel;Key;Anzahl\nOKAY;21882;K-1;2\n".encode("cp1252"))
+        r = self.client.post(reverse("esd:csv_import"), {"datei": datei}, follow=True)
+        self.assertContains(r, "1 Key(s) für 1 Artikel importiert")

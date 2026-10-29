@@ -35,6 +35,82 @@ def importieren(mandant, artikel, text, max_vergaben=1):
     return neu, doppelt
 
 
+class CsvFehler(ValueError):
+    def __init__(self, fehler):
+        self.fehler = fehler
+        super().__init__(f"{len(fehler)} Fehler in der Datei – es wurde nichts importiert.")
+
+
+def csv_importieren(inhalt: bytes):
+    """CSV mit vier Spalten: Mandant (Kurzname); Artikelnummer; Key; Anzahl Vergaben. Alles oder nichts:
+    bei Fehlern (CsvFehler mit Zeilenmeldungen) wird nichts angelegt. Rückgabe: (neu, doppelt, artikel_anzahl)."""
+    import csv
+
+    from apps.kern.models import Mandant
+    from apps.stammdaten.models import Artikel
+
+    from .views import software_kategorien
+
+    try:
+        text = inhalt.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = inhalt.decode("cp1252")
+    zeilen_ = [z for z in text.splitlines() if z.strip()]
+    if not zeilen_:
+        raise ValueError("Die Datei ist leer.")
+    trenner = ";" if zeilen_[0].count(";") >= zeilen_[0].count(",") else ","
+    mandanten = {m.kurzname.lower(): m for m in Mandant.objects.all()}
+    kategorien = software_kategorien()
+    artikel_cache, fehler, eintraege, gesehen = {}, [], [], set()
+    for nr, teile in enumerate(csv.reader(zeilen_, delimiter=trenner), start=1):
+        teile = [t.strip() for t in teile]
+        if nr == 1 and (len(teile) < 4 or not teile[3].isdigit()):
+            continue  # Kopfzeile
+        if len(teile) < 4 or not all(teile[:4]):
+            fehler.append(f"Zeile {nr}: vier Spalten erwartet (Mandant; Artikelnummer; Key; Anzahl).")
+            continue
+        mandant = mandanten.get(teile[0].lower())
+        if mandant is None:
+            fehler.append(f"Zeile {nr}: Mandant „{teile[0]}“ unbekannt.")
+            continue
+        if not teile[3].isdigit() or not 1 <= int(teile[3]) <= 100000:
+            fehler.append(f"Zeile {nr}: Anzahl „{teile[3]}“ ist keine ganze Zahl ab 1.")
+            continue
+        if len(teile[2]) > 250:
+            fehler.append(f"Zeile {nr}: Key ist länger als 250 Zeichen.")
+            continue
+        if teile[1] not in artikel_cache:
+            artikel_cache[teile[1]] = Artikel.objects.filter(nummer=teile[1], typ="A").first()
+        artikel = artikel_cache[teile[1]]
+        if artikel is None:
+            fehler.append(f"Zeile {nr}: Artikel „{teile[1]}“ nicht gefunden (Typ A).")
+            continue
+        if kategorien is not None and artikel.kategorie_id not in kategorien:
+            fehler.append(f"Zeile {nr}: Artikel „{teile[1]}“ gehört nicht zur Kategorie Software.")
+            continue
+        schluessel = (mandant.pk, artikel.pk, teile[2])
+        if schluessel in gesehen:
+            fehler.append(f"Zeile {nr}: Key {teile[2]} steht in der Datei mehrfach.")
+            continue
+        gesehen.add(schluessel)
+        eintraege.append((mandant, artikel, teile[2], int(teile[3])))
+    if fehler:
+        raise CsvFehler(fehler)
+    if not eintraege:
+        raise ValueError("Die Datei enthält keine Keys.")
+    neu = doppelt = 0
+    with transaction.atomic():
+        for mandant, artikel, key, anzahl in eintraege:
+            if not artikel.esd_key:
+                artikel.esd_key = True
+                artikel.save()
+            _, angelegt = ESDKey.objects.get_or_create(mandant=mandant, artikel=artikel, key=key,
+                                                       defaults={"max_vergaben": anzahl})
+            neu += angelegt
+            doppelt += not angelegt
+    return neu, doppelt, len({e[1].pk for e in eintraege})
+
+
 def bestand(mandant, artikel) -> dict:
     keys = ESDKey.objects.filter(mandant=mandant, artikel=artikel)
     aktiv = keys.filter(status=KeyStatus.AKTIV)

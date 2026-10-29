@@ -63,6 +63,24 @@ def suche(request):
 
 @mit_mandant
 @require_POST
+def csv_import(request):
+    """Keys per CSV (Mandant; Artikelnummer; Key; Anzahl) für mehrere Artikel und Mandanten auf einmal."""
+    datei = request.FILES.get("datei")
+    if datei is None or datei.size > 5 * 1024 * 1024:
+        messages.error(request, "Bitte eine CSV-Datei bis 5 MB auswählen.")
+        return redirect("esd:uebersicht")
+    try:
+        neu, doppelt, artikel_anzahl = services.csv_importieren(datei.read())
+        messages.success(request, f"{neu} Key(s) für {artikel_anzahl} Artikel importiert, {doppelt} bereits vorhanden.")
+    except services.CsvFehler as e:
+        messages.error(request, str(e) + " " + " ".join(e.fehler[:15]) + (" …" if len(e.fehler) > 15 else ""))
+    except ValueError as e:
+        messages.error(request, str(e))
+    return redirect("esd:uebersicht")
+
+
+@mit_mandant
+@require_POST
 def aktivieren(request, artikel_id):
     """Artikel der Kategorie Software als ESD-Key-Artikel kennzeichnen, damit Keys importiert werden können."""
     a = get_object_or_404(Artikel, pk=artikel_id, typ="A")
