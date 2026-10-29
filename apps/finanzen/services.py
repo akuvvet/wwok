@@ -141,6 +141,7 @@ def zahlung_stornieren(zahlung, grund, benutzer=None, datum=None) -> Zahlung:
     grund = (grund or "").strip()
     if not grund:
         raise ValueError("Bitte einen Stornogrund angeben.")
+    Zahlung.objects.select_for_update().get(pk=zahlung.pk)  # Sperre, damit ein Doppelstorno als Meldung statt als Fehler endet
     if zahlung.storno_zu_id:
         raise ValueError("Eine Stornobuchung kann nicht erneut storniert werden.")
     if Zahlung.objects.filter(storno_zu=zahlung).exists():

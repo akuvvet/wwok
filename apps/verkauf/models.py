@@ -310,6 +310,10 @@ class Beleg(Zeitstempel):
     def abschliessen(self):
         if self.abgeschlossen:
             return
+        # Zeile sperren und Zustand neu lesen: Doppelklick/zweiter Tab darf keine zweite Nummer vergeben
+        if Beleg.objects.select_for_update().values_list("abgeschlossen", flat=True).get(pk=self.pk):
+            self.refresh_from_db()
+            return
         if not self.positionen.exists():
             raise ValueError("Beleg ohne Positionen kann nicht abgeschlossen werden.")
         if self.art in (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) and self.p_positionen().exists():

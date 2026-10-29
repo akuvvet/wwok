@@ -57,6 +57,17 @@ class VerkaufTest(TestCase):
         with self.assertRaises(BelegGesperrt):
             b.save()
 
+    def test_doppelter_abschluss_vergibt_nur_eine_nummer(self):
+        b = self.beleg()
+        Position.objects.create(beleg=b, bezeichnung="Dienst", einzelpreis=Decimal("100"))
+        zweiter_tab = Beleg.objects.get(pk=b.pk)  # veralteter Zustand, wie bei Doppelklick/zweitem Tab
+        b.abschliessen()
+        nummer = b.nummer
+        zweiter_tab.abschliessen()
+        self.assertEqual(zweiter_tab.nummer, nummer)
+        self.assertTrue(zweiter_tab.abgeschlossen)
+        self.assertEqual(Beleg.objects.filter(art=Belegart.RECHNUNG, nummer__isnull=False).count(), 1)
+
     def test_belegfluss(self):
         a = self.beleg(Belegart.ANGEBOT)
         Position.objects.create(beleg=a, artikel=self.art, bezeichnung="Maus", einzelpreis=Decimal("8"))
