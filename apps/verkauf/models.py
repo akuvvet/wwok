@@ -83,6 +83,28 @@ class Nummernkreis(models.Model):
         return f"{self.mandant} {self.art} {self.jahr}: {self.letzte_nummer}"
 
 
+class Versandart(Zeitstempel):
+    """Stammtabelle: Standardkosten je Versandart; sie werden beim Wählen am Beleg vorbelegt."""
+
+    name = models.CharField("Versandart", max_length=100, unique=True)
+    dienstleister = models.CharField("Dienstleister", max_length=60, blank=True)
+    versandkosten = models.DecimalField("Versandkosten netto", max_digits=12, decimal_places=2, default=Decimal("0"))
+    verpackung = models.DecimalField("Verpackung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
+    versicherung = models.DecimalField("Versicherung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
+    frachtfrei_ab = models.DecimalField("frachtfrei ab (Netto-Warenwert)", max_digits=12, decimal_places=2, null=True, blank=True,
+                                        help_text="Ab diesem Warenwert entfallen die Versandkosten.")
+    nur_inland = models.BooleanField("nur Inland", default=False)
+    aktiv = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Versandart"
+        verbose_name_plural = "Versandarten"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class Beleg(Zeitstempel):
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="belege")
     art = models.CharField("Belegart", max_length=2, choices=Belegart.choices)
@@ -98,6 +120,12 @@ class Beleg(Zeitstempel):
     verpackung = models.DecimalField("Verpackung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
     versicherung = models.DecimalField("Versicherung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
     referenz = models.CharField("Ihre Referenz / Bestellnummer", max_length=100, blank=True)
+    bezugnahme = models.CharField("Bezugnahme", max_length=60, blank=True,
+                                  help_text="Wie kam der Auftrag zustande? z. B. telefonisch, schriftlich, E-Mail, eBay, Shop.")
+    bearbeiter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Bearbeiter")
+    gueltig_bis = models.DateField("Angebot gültig bis", null=True, blank=True)
+    liefertermin = models.DateField("Liefertermin", null=True, blank=True)
     vortext = models.TextField("Text vor den Positionen", blank=True)
     schlusstext = models.TextField("Text nach den Positionen", blank=True)
     bemerkung = models.TextField("Bemerkung (intern, wird nicht gedruckt)", blank=True)
@@ -305,6 +333,19 @@ class Beleg(Zeitstempel):
         self.summe_brutto = self.summe_netto + steuer
         Beleg.objects.filter(pk=self.pk).update(
             summe_netto=self.summe_netto, summe_steuer=self.summe_steuer, summe_brutto=self.summe_brutto)
+
+    def versandart_setzen(self, name: str):
+        """Versandart wählen; gehört sie zur Stammtabelle, werden Standardkosten vorbelegt (frachtfrei ab Warenwert, nur Inland)."""
+        name = (name or "").strip()
+        stamm = Versandart.objects.filter(name__iexact=name, aktiv=True).first() if name else None
+        if stamm and stamm.nur_inland and (self.kunde.land or "DE") != "DE":
+            raise ValueError(f"Die Versandart „{stamm.name}“ gilt nur im Inland.")
+        self.versandart = stamm.name if stamm else name
+        if stamm:
+            warenwert = sum((p.netto_gesamt for p in self.positionen.all()), Decimal("0"))
+            frei = stamm.frachtfrei_ab is not None and warenwert >= stamm.frachtfrei_ab
+            self.versandkosten = Decimal("0") if frei else stamm.versandkosten
+            self.verpackung, self.versicherung = stamm.verpackung, stamm.versicherung
 
     @transaction.atomic
     def abschliessen(self):
@@ -729,3 +770,22 @@ class Versand(Zeitstempel):
     @property
     def tracking_url(self) -> str:
         return self.TRACKING[self.dienst].format(nr=self.sendungsnummer) if self.sendungsnummer else ""
+
+class Wiedervorlage(Zeitstempel):
+    """Erinnerung an einen Kunden (optional zu einem Beleg); fällige erscheinen auf der Startseite."""
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="wiedervorlagen")
+    kunde = models.ForeignKey(Kunde, on_delete=models.CASCADE, related_name="wiedervorlagen")
+    beleg = models.ForeignKey(Beleg, on_delete=models.SET_NULL, null=True, blank=True, related_name="wiedervorlagen")
+    faellig = models.DateField("fällig am")
+    text = models.CharField("Notiz", max_length=300)
+    erledigt = models.BooleanField(default=False, db_index=True)
+    erledigt_am = models.DateField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Wiedervorlage"
+        verbose_name_plural = "Wiedervorlagen"
+        ordering = ["faellig", "id"]
+
+    def __str__(self):
+        return f"{self.faellig:%d.%m.%Y} {self.kunde} – {self.text}"

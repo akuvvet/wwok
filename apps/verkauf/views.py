@@ -11,7 +11,7 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import Abo, AboPosition, Versand, Beleg, BelegGesperrt, Belegart, Position
+from .models import Abo, AboPosition, Versand, Versandart, Wiedervorlage, Beleg, BelegGesperrt, Belegart, Position
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
 from .pdf import beleg_pdf
@@ -25,6 +25,14 @@ def dezimal(text, standard=None):
         return Decimal(text)
     except InvalidOperation:
         raise ValueError(f"Ungültige Zahl: {text}")
+
+
+def datum_oder_none(text):
+    from datetime import date
+    try:
+        return date.fromisoformat(text) if text else None
+    except ValueError:
+        raise ValueError(f"Ungültiges Datum: {text}")
 
 
 def mandant_oder_none(request):
@@ -81,7 +89,15 @@ def start(request):
     if mandant and treffer is None:  # ohne Suche: die offenen (nicht abgeschlossenen) Belege zum Weiterbearbeiten
         offene = list(Beleg.objects.filter(mandant=mandant, abgeschlossen=False, positionen__isnull=False).distinct().select_related("kunde")
                       .order_by("-belegdatum", "-id")[:100])
+    wiedervorlagen = mahnungen_faellig = None
+    if mandant:
+        from apps.finanzen.services import mahnvorschlag
+        from django.utils import timezone
+        wiedervorlagen = list(Wiedervorlage.objects.filter(mandant=mandant, erledigt=False, faellig__lte=timezone.localdate())
+                              .select_related("kunde", "beleg")[:50])
+        mahnungen_faellig = len(mahnvorschlag(mandant))
     return render(request, "verkauf/start.html", {
+        "wiedervorlagen": wiedervorlagen, "mahnungen_faellig": mahnungen_faellig,
         "mandant": mandant, "mandanten": Mandant.objects.filter(aktiv=True), "q": q, "treffer": treffer,
         "offene": offene})
 
@@ -135,7 +151,8 @@ def kunde_detail(request, kunde_id):
         "kunde": kunde, "zeilen": zeilen, "seite": seite, "parameter": parameter.urlencode(), "filter": art,
         "ab": ab, "ohne_storno": ohne_storno, "arten": Belegart.choices,
         "kreditlimit": mandantendaten.kreditlimit if mandantendaten else None,
-        "ansprechpartner": kunde.ansprechpartner.all()})
+        "ansprechpartner": kunde.ansprechpartner.all(),
+        "wiedervorlagen": kunde.wiedervorlagen.filter(mandant=request.mandant, erledigt=False)})
 
 
 def adresse_text(kunde, art):
@@ -169,7 +186,7 @@ def beleg_neu(request, kunde_id):
         ansprechpartner=kunde.ansprechpartner.filter(hauptkontakt=True).first(),
         zahlungsbedingung=kunde.zahlungsbedingung,
         rechnungsanschrift=adresse_text(kunde, Anschriftart.RECHNUNG),
-        versandanschrift=adresse_text(kunde, Anschriftart.VERSAND))
+        versandanschrift=adresse_text(kunde, Anschriftart.VERSAND), bearbeiter=request.user)
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
@@ -199,7 +216,7 @@ def beleg_detail(request, beleg_id):
         "druckhindernis": druckhindernis(beleg),
         "gruppen": [p for p in positionen if p.typ == "G" and not p.gruppe_id],
         "arten": Belegart.choices,
-        "zahlungsbedingungen": Zahlungsbedingung.objects.all(),
+        "zahlungsbedingungen": Zahlungsbedingung.objects.all(), "versandarten": Versandart.objects.filter(aktiv=True),
         "ansprechpartner": beleg.kunde.ansprechpartner.all()})
 
 
@@ -221,7 +238,10 @@ def sperr_schutz(view):
 @sperr_schutz
 def beleg_kopf(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
-    beleg.versandart = request.POST.get("versandart", "").strip()
+    neue_versandart = request.POST.get("versandart", "").strip()
+    versandart_geaendert = neue_versandart != beleg.versandart and not beleg.gesperrt
+    if not versandart_geaendert:
+        beleg.versandart = neue_versandart
     beleg.zahlungsbedingung = Zahlungsbedingung.objects.filter(pk=request.POST.get("zahlungsbedingung") or None).first()
     if not beleg.gesperrt:
         beleg.ansprechpartner = Ansprechpartner.objects.filter(
@@ -233,8 +253,13 @@ def beleg_kopf(request, beleg_id):
         beleg.verpackung = dezimal(request.POST.get("verpackung"), Decimal("0"))
         beleg.versicherung = dezimal(request.POST.get("versicherung"), Decimal("0"))
         beleg.referenz = request.POST.get("referenz", "").strip()[:100]
+        beleg.bezugnahme = request.POST.get("bezugnahme", "").strip()[:60]
+        beleg.gueltig_bis = datum_oder_none(request.POST.get("gueltig_bis"))
+        beleg.liefertermin = datum_oder_none(request.POST.get("liefertermin"))
         beleg.vortext = request.POST.get("vortext", "")
         beleg.schlusstext = request.POST.get("schlusstext", "")
+        if versandart_geaendert:  # Stammdaten-Standardkosten überschreiben die eingegebenen Kosten
+            beleg.versandart_setzen(neue_versandart)
     beleg.save()
     if not beleg.gesperrt:
         beleg.berechne()
@@ -722,3 +747,64 @@ def versand_aufkleber(request, beleg_id, versand_id):
     antwort = HttpResponse(pdf, content_type="application/pdf")
     antwort["Content-Disposition"] = f'inline; filename="paketaufkleber_{beleg.nummer or beleg.pk}.pdf"'
     return antwort
+
+@mit_mandant
+def belege(request):
+    """Alle Belege des Mandanten, kundenübergreifend: Suche, Belegart, Status, Zeitraum."""
+    from datetime import date
+
+    from django.core.paginator import Paginator
+    liste = Beleg.objects.filter(mandant=request.mandant, positionen__isnull=False).distinct().select_related("kunde")
+    q = request.GET.get("q", "").strip()
+    for wort in q.split():
+        liste = liste.filter(Q(nummer__icontains=wort) | Q(kunde__name1__icontains=wort) | Q(kunde__nummer__icontains=wort)
+                             | Q(referenz__icontains=wort))
+    art = request.GET.get("art", "")
+    if art in Belegart.values:
+        liste = liste.filter(art=art)
+    status = request.GET.get("status", "")
+    if status == "offen":
+        liste = liste.filter(abgeschlossen=False)
+    elif status == "abgeschlossen":
+        liste = liste.filter(abgeschlossen=True)
+    zeitraum = {}
+    for feld, bedingung in (("von", "belegdatum__gte"), ("bis", "belegdatum__lte")):
+        wert = request.GET.get(feld, "")
+        try:
+            if wert:
+                liste = liste.filter(**{bedingung: date.fromisoformat(wert)})
+        except ValueError:
+            wert = ""
+        zeitraum[feld] = wert
+    parameter = request.GET.copy()
+    parameter.pop("seite", None)
+    seite = Paginator(liste.order_by("-belegdatum", "-id"), 50).get_page(request.GET.get("seite"))
+    return render(request, "verkauf/belege.html", {
+        "seite": seite, "q": q, "art": art, "status": status, "von": zeitraum["von"], "bis": zeitraum["bis"],
+        "arten": Belegart.choices, "parameter": parameter.urlencode(), "anzahl": seite.paginator.count})
+
+@mit_mandant
+@require_POST
+def wiedervorlage_neu(request, kunde_id):
+    kunde = get_object_or_404(Kunde, pk=kunde_id)
+    try:
+        faellig = datum_oder_none(request.POST.get("faellig"))
+        text = request.POST.get("text", "").strip()[:300]
+        if not faellig or not text:
+            raise ValueError("Bitte Datum und Notiz angeben.")
+        beleg = Beleg.objects.filter(pk=request.POST.get("beleg") or None, mandant=request.mandant, kunde=kunde).first()
+        Wiedervorlage.objects.create(mandant=request.mandant, kunde=kunde, beleg=beleg, faellig=faellig, text=text)
+        messages.success(request, "Wiedervorlage gespeichert.")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("verkauf:kunde", kunde_id=kunde.pk)
+
+
+@mit_mandant
+@require_POST
+def wiedervorlage_erledigt(request, wiedervorlage_id):
+    from django.utils import timezone
+    w = get_object_or_404(Wiedervorlage, pk=wiedervorlage_id, mandant=request.mandant)
+    w.erledigt, w.erledigt_am = True, timezone.localdate()
+    w.save()
+    return redirect("verkauf:start")

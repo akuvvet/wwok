@@ -832,10 +832,14 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Finanzen: Offene Posten, Zahlungen mit Storno, Mahnwesen, Bankimport, Kassenbuch, DATEV
 - [x] Werkstatt, ESD-Keys, Shopware-Anbindung
 - [ ] Anmeldung mit 2FA (bewusst verschoben)
-- [ ] Lastschrift-Einzug (pain.008) – wartet auf Entscheidung
+- [x] Lastschrift-Einzug (pain.008)
 - [ ] Ausgehende E-Rechnung (ZUGFeRD/XRechnung) – Eingang ist umgesetzt
-- [ ] Proforma-Rechnung, Nachlieferschein, wiederkehrende Rechnungen
-- [ ] Versand (DHL/Deutsche Post), eBay, Kaufland, Newsletter mit Double-Opt-in, USt-ID-Prüfung, Kategorien-Sync mit Shopware
+- [x] Proforma-Rechnung, Nachlieferschein, wiederkehrende Rechnungen
+- [x] Versand mit DHL-Paket-Label und Sendungsnummer
+- [x] Rechte: Admin (is_staff/Superuser) und Mitarbeiter; Storno, Lastschrift aufheben und Preislisten-Einrichtung nur Admin
+- [x] Artikelmaske mit Registerkarten (Lager → „+ Neuer Artikel“), neue Artikelfelder, Artikelansicht mit bestellt/letztem Wareneingang/Lieferanten
+- [x] Alle Belege (kundenübergreifende Liste), Versandarten-Stammtabelle mit Standardkosten, Wiedervorlage mit Startseiten-Übersicht, Belegkopf (Bearbeiter, Bezugnahme, Liefertermin, Angebot gültig bis)
+- [ ] Deutsche Post, eBay, Kaufland, Newsletter mit Double-Opt-in, USt-ID-Prüfung, Kategorien-Sync mit Shopware
 - [ ] Auswertungen (Umsatz, Marge, Topseller) und Startseiten-Übersicht mit Wiedervorlagen und fälligen Mahnungen
 
 **Einrichtung**

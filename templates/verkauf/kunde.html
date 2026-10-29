@@ -29,6 +29,17 @@
   </div>
 </div>
 
+<div class="karte">
+  <h2>Wiedervorlage</h2>
+  {% for w in wiedervorlagen %}<form method="post" action="{% url 'verkauf:wiedervorlage_erledigt' w.pk %}" class="zeile">{% csrf_token %}
+    <span>{{ w.faellig|date:"d.m.Y" }} – {{ w.text }}</span><button class="leise" type="submit">erledigt</button></form>{% endfor %}
+  <form method="post" action="{% url 'verkauf:wiedervorlage_neu' kunde.pk %}" class="zeile">{% csrf_token %}
+    <div><label>fällig am</label><input type="date" name="faellig" required></div>
+    <div><label>Notiz</label><input name="text" size="40" maxlength="300" required></div>
+    <button type="submit" class="leise">Merken</button>
+  </form>
+</div>
+
 {% if not kunde.gesperrt %}
 <div class="karte">
   <h2>Neuen Beleg anlegen</h2>

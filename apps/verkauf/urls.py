@@ -6,6 +6,9 @@ app_name = "verkauf"
 
 urlpatterns = [
     path("", views.start, name="start"),
+    path("belege/", views.belege, name="belege"),
+    path("kunde/<int:kunde_id>/wiedervorlage/", views.wiedervorlage_neu, name="wiedervorlage_neu"),
+    path("wiedervorlage/<int:wiedervorlage_id>/erledigt/", views.wiedervorlage_erledigt, name="wiedervorlage_erledigt"),
     path("kunde/<int:kunde_id>/", views.kunde_detail, name="kunde"),
     path("kunde/<int:kunde_id>/lieferscheine-abrechnen/", views.lieferscheine_abrechnen, name="lieferscheine_abrechnen"),
     path("kunde/<int:kunde_id>/beleg-neu/", views.beleg_neu, name="beleg_neu"),

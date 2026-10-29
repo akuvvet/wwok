@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block titel %}Alle Belege – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:start' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Alle Belege · Mandant {{ request.mandant }}</h1>
+  <form method="get" class="zeile">
+    <div><label for="q">Beleg-Nr., Kunde oder Referenz</label><input id="q" name="q" value="{{ q }}" size="30" autofocus></div>
+    <div><label>Belegart</label><select name="art"><option value="">alle</option>
+      {% for wert, name in arten %}<option value="{{ wert }}" {% if art == wert %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
+    <div><label>Status</label><select name="status">
+      <option value="">alle</option>
+      <option value="offen" {% if status == "offen" %}selected{% endif %}>offen (Entwurf)</option>
+      <option value="abgeschlossen" {% if status == "abgeschlossen" %}selected{% endif %}>abgeschlossen</option></select></div>
+    <div><label>von</label><input type="date" name="von" value="{{ von }}"></div>
+    <div><label>bis</label><input type="date" name="bis" value="{{ bis }}"></div>
+    <button type="submit">Filtern</button>
+  </form>
+  <p>{{ anzahl }} Belege</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Beleg</th><th>Datum</th><th>Kunde</th><th>Referenz</th><th>Status</th><th class="zahl">Netto</th><th class="zahl">Brutto</th></tr></thead>
+    <tbody>
+    {% for b in seite.object_list %}
+    <tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(Entwurf)" }}</a></td>
+      <td>{{ b.belegdatum|date:"d.m.Y" }}</td>
+      <td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td>
+      <td>{{ b.referenz }}</td>
+      <td>{% if b.abgeschlossen %}abgeschlossen{% else %}offen{% endif %}</td>
+      <td class="zahl">{{ b.summe_netto }}</td><td class="zahl">{{ b.summe_brutto }}</td></tr>
+    {% empty %}<tr><td colspan="7">Keine Belege gefunden.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% include "seiten.html" %}
+</div>
+{% endblock %}

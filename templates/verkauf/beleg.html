@@ -142,12 +142,18 @@
       <select name="zahlungsbedingung"><option value="">–</option>
         {% for z in zahlungsbedingungen %}<option value="{{ z.pk }}" {% if z.pk == beleg.zahlungsbedingung_id %}selected{% endif %}>{{ z.bezeichnung }}</option>{% endfor %}
       </select></div>
-    <div><label>Versandart</label><input name="versandart" value="{{ beleg.versandart }}"></div>
+    <div><label>Versandart</label><input name="versandart" value="{{ beleg.versandart }}" list="versandarten">
+      <datalist id="versandarten">{% for v in versandarten %}<option value="{{ v.name }}">{% endfor %}</datalist></div>
     <div><label>Ansprechpartner</label>
       <select name="ansprechpartner" {% if beleg.gesperrt %}disabled{% endif %}><option value="">–</option>
         {% for a in ansprechpartner %}<option value="{{ a.pk }}" {% if a.pk == beleg.ansprechpartner_id %}selected{% endif %}>{{ a }}</option>{% endfor %}
       </select></div>
     <div><label>Ihre Referenz / Bestellnummer des Kunden</label><input name="referenz" value="{{ beleg.referenz }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
+    <div><label>Bezugnahme</label><input name="bezugnahme" value="{{ beleg.bezugnahme }}" list="bezugnahmen" {% if beleg.gesperrt %}disabled{% endif %}>
+      <datalist id="bezugnahmen"><option value="telefonisch"><option value="schriftlich"><option value="E-Mail"><option value="persönlich"><option value="eBay"><option value="Shop"></datalist></div>
+    <div><label>Liefertermin</label><input type="date" name="liefertermin" value="{{ beleg.liefertermin|date:'Y-m-d' }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
+    {% if beleg.art == "AN" %}<div><label>Angebot gültig bis</label><input type="date" name="gueltig_bis" value="{{ beleg.gueltig_bis|date:'Y-m-d' }}" {% if beleg.gesperrt %}disabled{% endif %}></div>{% endif %}
+    <div><label>Bearbeiter</label><input value="{{ beleg.bearbeiter|default:'–' }}" disabled></div>
     <div><label>Versandkosten netto</label><input name="versandkosten" value="{{ beleg.versandkosten }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
     <div><label>Verpackung netto</label><input name="verpackung" value="{{ beleg.verpackung }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
     <div><label>Versicherung netto</label><input name="versicherung" value="{{ beleg.versicherung }}" {% if beleg.gesperrt %}disabled{% endif %}></div>

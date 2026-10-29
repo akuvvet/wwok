@@ -69,6 +69,14 @@ def beleg_pdf(beleg) -> bytes:
         daten.append(["Ihre Referenz", beleg.referenz])
     if beleg.ansprechpartner:
         daten.append(["Ansprechpartner", str(beleg.ansprechpartner)])
+    if beleg.bearbeiter:
+        daten.append(["Bearbeiter", beleg.bearbeiter.get_full_name() or beleg.bearbeiter.get_username()])
+    if beleg.bezugnahme:
+        daten.append(["Bezugnahme", beleg.bezugnahme])
+    if beleg.art == Belegart.ANGEBOT and beleg.gueltig_bis:
+        daten.append(["Gültig bis", beleg.gueltig_bis.strftime("%d.%m.%Y")])
+    if beleg.liefertermin:
+        daten.append(["Liefertermin", beleg.liefertermin.strftime("%d.%m.%Y")])
     if beleg.vorgaenger and beleg.vorgaenger.nummer:
         daten.append(["Bezug", f"{beleg.vorgaenger.get_art_display()} {beleg.vorgaenger.nummer}"])
     rechte_spalte = Table([[absatz(a, klein), absatz(b, normal)] for a, b in daten], colWidths=[28 * mm, 40 * mm])
