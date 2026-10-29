@@ -7,7 +7,7 @@ from django.urls import reverse
 
 from apps.kern.models import Mandant
 
-from .models import Artikel, ArtikelMandant, Steuersatz
+from .models import Artikel, ArtikelMandant, Kategorie, Steuersatz
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -68,3 +68,12 @@ class ArtikelMaskeTest(TestCase):
         r = self.client.get(reverse("lager:artikel", args=[a.pk]))
         self.assertContains(r, "bestellt (offen)")
         self.assertContains(r, reverse("stammdaten:artikel_bearbeiten", args=[a.pk]))
+
+    def test_esd_key_nur_in_kategorie_software(self):
+        software = Kategorie.objects.create(name="Software")
+        hardware = Kategorie.objects.create(name="Hardware")
+        r = self.client.post(reverse("stammdaten:artikel_neu"), self.daten(esd_key="on", kategorie=hardware.pk))
+        self.assertEqual(r.status_code, 422)
+        r = self.client.post(reverse("stammdaten:artikel_neu"), self.daten(esd_key="on", kategorie=software.pk))
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(Artikel.objects.get(nummer="5000").esd_key)

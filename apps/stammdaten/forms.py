@@ -110,6 +110,16 @@ class ArtikelForm(forms.ModelForm):
             self.fields["nachfolger"].queryset = Artikel.objects.exclude(pk=self.instance.pk)
         self.fields["nachfolger"].queryset = self.fields["nachfolger"].queryset.order_by("nummer")
 
+    def clean(self):
+        daten = super().clean()
+        if daten.get("esd_key"):  # ESD-Keys nur für Typ A der Kategorie Software (wie in der ESD-Verwaltung)
+            from apps.esd.views import software_kategorien
+            ids = software_kategorien()
+            kat = daten.get("kategorie")
+            if daten.get("typ", self.instance.typ) != Artikeltyp.A or (ids is not None and (kat is None or kat.pk not in ids)):
+                self.add_error("esd_key", "ESD-Keys gibt es nur für Lagerartikel (A) der Kategorie Software.")
+        return daten
+
 
 class ArtikelMandantForm(forms.ModelForm):
     class Meta:
