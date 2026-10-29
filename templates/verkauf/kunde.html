@@ -66,7 +66,7 @@
     <tbody>
     {% for z in zeilen %}{% with b=z.beleg %}
     <tr><td>{% if sammelrechnung and b.abrechenbar %}<input type="checkbox" name="auswahl" value="{{ b.pk }}" title="Lieferschein für Rechnung auswählen">{% endif %}</td>
-        <td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(Entwurf)" }}</a>
+        <td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(Entwurf)" }}</a>{% include "verkauf/versand_marke.html" %}
           {% if z.positionen %}<details><summary style="cursor:pointer;opacity:.7;font-size:12px">{{ z.positionen|length }} Position(en)</summary>
             <ul style="margin:4px 0 0 16px;padding:0;font-size:12px;opacity:.85">{% for p in z.positionen %}<li>{{ p.menge|floatformat:"-3" }} × {{ p.bezeichnung }}</li>{% endfor %}</ul></details>{% endif %}</td>
         <td>{{ b.belegdatum|date:"d.m.Y" }}</td><td>{{ z.faellig|date:"d.m.Y"|default:"" }}</td>

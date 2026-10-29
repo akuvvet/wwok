@@ -139,7 +139,9 @@ def kunde_detail(request, kunde_id):
     parameter.pop("seite", None)
     seite = Paginator(belege, 25).get_page(request.GET.get("seite"))
     zeilen = []
+    mit_versand = set(Versand.objects.filter(beleg__in=list(seite.object_list)).values_list("beleg_id", flat=True))
     for b in seite.object_list:
+        b.hat_versand = b.pk in mit_versand
         rechnung = b.art == Belegart.RECHNUNG and b.abgeschlossen
         zeilen.append({
             "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None,
@@ -220,6 +222,7 @@ def beleg_detail(request, beleg_id):
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),
         "beleg": beleg, "positionen": positionen, "loeschbar": beleg.loeschhindernis() is None,
         "druckhindernis": druckhindernis(beleg),
+        "versendungen": list(beleg.versendungen.select_related("briefprodukt")),
         "gruppen": [p for p in positionen if p.typ == "G" and not p.gruppe_id],
         "arten": Belegart.choices,
         "zahlungsbedingungen": Zahlungsbedingung.objects.all(), "versandarten": Versandart.objects.filter(aktiv=True),
@@ -851,6 +854,7 @@ def versand_aufkleber(request, beleg_id, versand_id):
             messages.error(request, f"Etikett der Briefmarke nicht abrufbar: {fehler}")
             return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
     pdf = bytes(v.label) if v.label else vs.aufkleber_pdf(v)  # amtliches DHL-/Post-Etikett, sonst interner Aufkleber
+    Versand.objects.filter(pk=v.pk).update(gedruckt_am=timezone.now())  # am Beleg sichtbar: Label gedruckt
     antwort = HttpResponse(pdf, content_type="application/pdf")
     antwort["Content-Disposition"] = f'inline; filename="paketaufkleber_{beleg.nummer or beleg.pk}.pdf"'
     return antwort
@@ -886,6 +890,9 @@ def belege(request):
     parameter = request.GET.copy()
     parameter.pop("seite", None)
     seite = Paginator(liste.order_by("-belegdatum", "-id"), 50).get_page(request.GET.get("seite"))
+    mit_versand = set(Versand.objects.filter(beleg__in=list(seite.object_list)).values_list("beleg_id", flat=True))
+    for b in seite.object_list:
+        b.hat_versand = b.pk in mit_versand
     return render(request, "verkauf/belege.html", {
         "seite": seite, "q": q, "art": art, "status": status, "von": zeitraum["von"], "bis": zeitraum["bis"],
         "arten": Belegart.choices, "parameter": parameter.urlencode(), "anzahl": seite.paginator.count})

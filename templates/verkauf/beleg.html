@@ -19,6 +19,13 @@
       {% if beleg.referenz %}<span>Ref.: {{ beleg.referenz }}</span>{% endif %}
     </p>
     {% if beleg.gesperrt %}<p style="margin:6px 0 0;opacity:.75">Korrektur nur per Storno/Gutschrift. Versandart und Zahlungsbedingung bleiben änderbar.</p>{% endif %}
+    {% if versendungen %}<p class="zeile versandhinweis" style="margin:6px 0 0">{% for v in versendungen %}
+      <a class="marke {% if v.kauf_status %}gesperrt{% else %}ok{% endif %}" href="{% url 'verkauf:versand_aufkleber' beleg.pk v.pk %}" target="_blank"
+         title="{{ v.etikett_name }} öffnen{% if v.gedruckt_am %} – zuletzt gedruckt {{ v.gedruckt_am|date:'d.m.Y H:i' }}{% endif %}">
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" style="vertical-align:-2px;fill:currentColor"><use href="#i-einkauf"/></svg>
+        {{ v.etikett_name }} vorhanden · {{ v.bezeichnung }}{% if v.sendungsnummer and v.dienst != 'dp' %} · {{ v.sendungsnummer }}{% endif %}
+        {% if v.kauf_status %} · {{ v.get_kauf_status_display }}{% elif v.gedruckt_am %} · gedruckt {{ v.gedruckt_am|date:"d.m. H:i" }}{% else %} · noch nicht gedruckt{% endif %}</a>
+    {% endfor %}</p>{% endif %}
   </div>
   <div class="summe">
     {% if beleg.ek_marge_code %}<div style="opacity:.55;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.5px" title="EK und Marge (intern)">{{ beleg.ek_marge_code }}</div>
@@ -37,6 +44,7 @@
   {% else %}<a class="symbol" data-tip="PDF" aria-label="PDF" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank" onclick="setTimeout(function(){location.href='{% url 'verkauf:kunde' beleg.kunde_id %}'},600)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14a2 2 0 0 0 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg></a>{% endif %}
   {% if beleg.nummer %}<a class="symbol{% if beleg.mails.exists %} voll{% endif %}" href="{% url 'verkauf:beleg_mail' beleg.pk %}" data-tip="E-Mail{% if beleg.mails.exists %} (bereits versendet){% endif %}" aria-label="E-Mail"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg></a>{% endif %}
   {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'AB' and beleg.nummer %}<a class="symbol" data-tip="Zahlungen" aria-label="Zahlungen" href="{% url 'finanzen:beleg' beleg.pk %}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18.5c-2.51 0-4.68-1.42-5.76-3.5H15l1-2H8.58c-.05-.33-.08-.66-.08-1s.03-.67.08-1H15l1-2H9.24C10.32 6.92 12.5 5.5 15 5.5c1.61 0 3.09.59 4.23 1.57L21 5.3C19.41 3.87 17.3 3 15 3c-3.92 0-7.24 2.51-8.48 6H3l-1 2h4.06c-.04.33-.06.66-.06 1s.02.67.06 1H3l-1 2h4.52c1.24 3.49 4.56 6 8.48 6 2.31 0 4.41-.87 6-2.3l-1.78-1.77c-1.13.98-2.6 1.57-4.22 1.57z"/></svg></a>{% endif %}
+  {% if beleg.art == 'LS' or beleg.art == 'RE' or beleg.art == 'NL' %}<a class="symbol{% if versendungen %} voll{% endif %}" href="{% url 'verkauf:beleg_versand' beleg.pk %}" data-tip="Versand{% if versendungen %} (Label vorhanden){% else %}: Paket oder Brief{% endif %}" aria-label="Versand"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-einkauf"/></svg></a>{% endif %}
   {% if beleg.esd_vergaben.exists or esd_positionen %}<a class="symbol" data-tip="ESD-Keys" aria-label="ESD-Keys" href="{% url 'esd:beleg' beleg.pk %}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.65 10A6 6 0 1 0 12.65 14H17v4h4v-4h2v-4H12.65zM7 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg></a>{% endif %}
   <details class="menue-mehr"><summary class="symbol" data-tip="Mehr" aria-label="Mehr"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg></summary>
     <div class="mehr">
@@ -46,7 +54,6 @@
         <select name="art" aria-label="Kopieren als">{% for wert, name in arten %}{% if wert != 'GS' and wert != 'LS' and wert != 'NL' or wert == 'LS' and beleg.art == 'AB' or wert == 'NL' and beleg.art == 'RE' and beleg.abgeschlossen %}<option value="{{ wert }}" {% if wert == beleg.folgeart %}selected{% endif %}>{{ name }}</option>{% endif %}{% endfor %}</select>
         <button class="leise" type="submit">Kopieren als …</button>
       </form>
-      {% if beleg.art == 'LS' or beleg.art == 'RE' or beleg.art == 'NL' %}<a class="knopf leise" href="{% url 'verkauf:beleg_versand' beleg.pk %}">Versand (Paket)</a>{% endif %}
       {% if beleg.art == 'AN' or beleg.art == 'AB' %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'LS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'werkstatt:reklamation' beleg.pk %}">Gerät reklamiert → Werkstatt</a>{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'GS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'verkauf:beleg_xrechnung' beleg.pk %}">XRechnung (XML) herunterladen</a>{% endif %}

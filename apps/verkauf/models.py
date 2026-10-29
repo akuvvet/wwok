@@ -882,6 +882,7 @@ class Versand(Zeitstempel):
     shop_order_id = models.CharField("Bestellnummer INTERNETMARKE", max_length=20, blank=True, editable=False)
     label_link = models.URLField("Link zum Etikett", max_length=500, blank=True, editable=False)
     erstattung_beantragt = models.DateTimeField("Erstattung beantragt", null=True, blank=True, editable=False)
+    gedruckt_am = models.DateTimeField("Etikett zuletzt geöffnet/gedruckt", null=True, blank=True, editable=False)
     LAEUFT, UNKLAR = "laeuft", "unklar"
     kauf_status = models.CharField("Kaufstatus", max_length=8, blank=True, editable=False,
                                    choices=[(LAEUFT, "Kauf läuft"), (UNKLAR, "Kauf unklar – Portokasse prüfen")])
@@ -893,6 +894,12 @@ class Versand(Zeitstempel):
 
     def __str__(self):
         return f"{self.get_dienst_display()} {self.sendungsnummer or '(ohne Nummer)'}"
+
+    @property
+    def etikett_name(self) -> str:
+        if self.dienst == "dp":
+            return "Etikett"
+        return "DHL-Label" if self.dhl_erzeugt else "Aufkleber"
 
     @property
     def bezeichnung(self) -> str:
