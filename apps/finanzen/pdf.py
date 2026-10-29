@@ -6,6 +6,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from apps.kern.pdfhilfe import logo_elemente
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from apps.verkauf.pdf import absatz, euro
@@ -41,7 +42,7 @@ def mahnung_pdf(mahnung) -> bytes:
     k = beleg.kunde
     anschrift = beleg.rechnungsanschrift or "\n".join(t for t in (k.name1, k.name2, k.strasse, f"{k.plz} {k.ort}") if t)
     gesamt = mahnung.offener_betrag + mahnung.gebuehr
-    inhalt = [absatz(f"{m.firmenname} · {m.strasse} · {m.plz} {m.ort}", klein), Spacer(1, 4 * mm),
+    inhalt = [*logo_elemente(m), absatz(f"{m.firmenname} · {m.strasse} · {m.plz} {m.ort}", klein), Spacer(1, 4 * mm),
               absatz(anschrift, normal), Spacer(1, 6 * mm),
               absatz(f"Datum: {mahnung.datum:%d.%m.%Y} · Kunden-Nr. {k.nummer}", klein), Spacer(1, 4 * mm),
               Paragraph(escape(f"{mahnung.bezeichnung} zu Rechnung {beleg.nummer}"), titel), Spacer(1, 6 * mm),

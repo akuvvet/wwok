@@ -15,6 +15,7 @@ from apps.verkauf.models import Belegart
 from . import services
 from .models import Reparatur, ReparaturPosition, Status
 from .pdf import schein_pdf
+from apps.kern.testhilfe import mit_logo
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -79,6 +80,9 @@ class WerkstattTest(TestCase):
         for art in ("annahme", "abhol"):
             self.assertEqual(self.client.get(reverse("werkstatt:schein", args=[rep.pk, art]))["Content-Type"], "application/pdf")
         self.assertTrue(schein_pdf(rep, True).startswith(b"%PDF"))
+        ohne = schein_pdf(rep, True)
+        with mit_logo(self.m):
+            self.assertGreater(len(schein_pdf(type(rep).objects.get(pk=rep.pk), True)), len(ohne))  # Logo eingebettet
         self.assertContains(self.client.get(reverse("lager:seriennummern"), {"q": "ABC9"}), rep.nummer)
         self.client.post(reverse("werkstatt:rechnung", args=[rep.pk]))
         rep.refresh_from_db()

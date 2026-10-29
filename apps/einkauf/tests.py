@@ -5,6 +5,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from apps.kern.testhilfe import mit_logo
 
 from apps.kern.models import Mandant
 from apps.lager.models import Bewegungsart, Seriennummer, bestand
@@ -167,6 +168,9 @@ class EinkaufTest(TestCase):
         self.assertEqual(b.positionen.get().artikel, self.maus)
         self.assertContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), "Maus")
         self.assertEqual(self.client.get(reverse("einkauf:bestellung_pdf", args=[b.pk]))["Content-Type"], "application/pdf")
+        ohne = len(self.client.get(reverse("einkauf:bestellung_pdf", args=[b.pk])).content)
+        with mit_logo(self.m):
+            self.assertGreater(len(self.client.get(reverse("einkauf:bestellung_pdf", args=[b.pk])).content), ohne)  # Logo eingebettet
         self.assertEqual(self.client.get(reverse("einkauf:bestellung_mail", args=[b.pk])).status_code, 200)
         self.client.post(reverse("einkauf:bestellung_bestellen", args=[b.pk]))
         self.client.post(reverse("einkauf:wareneingang_neu"), {"bestellung": b.pk})

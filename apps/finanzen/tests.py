@@ -13,6 +13,7 @@ from . import services
 from .models import Bankumsatz, Kassenbuch, Mahnung, Zahlung
 
 from .pdf import mahnung_pdf
+from apps.kern.testhilfe import mit_logo
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -68,6 +69,9 @@ class FinanzenTest(TestCase):
         services.zahlung_buchen(alt, Decimal("119"), date.today(), "ue")
         self.assertEqual([z["beleg"] for z in services.mahnvorschlag(self.m, spaeter)], [neu])  # bezahlt -> keine Mahnung
         self.assertTrue(mahnung_pdf(mahnung).startswith(b"%PDF"))
+        ohne = mahnung_pdf(mahnung)
+        with mit_logo(self.m):
+            self.assertGreater(len(mahnung_pdf(type(mahnung).objects.get(pk=mahnung.pk))), len(ohne))  # Logo eingebettet
         self.assertIn("Rechnung " + alt.nummer, mahnung_text(mahnung))
 
     def test_kontoauszug_und_kreditlimit(self):

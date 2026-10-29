@@ -5,6 +5,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from apps.kern.pdfhilfe import logo_elemente
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from apps.verkauf.pdf import absatz, euro, zahl
@@ -36,7 +37,7 @@ def bestellung_pdf(bestellung) -> bytes:
     rechts = Table([[absatz(a, klein), absatz(b, normal)] for a, b in daten], colWidths=[30 * mm, 40 * mm])
     kopf = Table([[absatz(anschrift, normal), rechts]], colWidths=[100 * mm, 70 * mm])
     kopf.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    inhalt = [absatz(f"{m.firmenname} · {m.strasse} · {m.plz} {m.ort}", klein), Spacer(1, 4 * mm), kopf, Spacer(1, 10 * mm),
+    inhalt = [*logo_elemente(m), absatz(f"{m.firmenname} · {m.strasse} · {m.plz} {m.ort}", klein), Spacer(1, 4 * mm), kopf, Spacer(1, 10 * mm),
               Paragraph(f"Bestellung {bestellung.nummer}", titel), Spacer(1, 4 * mm)]
     zeilen = [[absatz(t, fett) for t in ("Pos.", "Best.-Nr.", "Bezeichnung", "Menge", "EK netto", "Netto")]]
     for i, p in enumerate(bestellung.positionen.select_related("artikel"), start=1):

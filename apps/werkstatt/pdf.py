@@ -7,6 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from apps.kern.pdfhilfe import logo_elemente
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from apps.verkauf.models import runden
@@ -35,7 +36,7 @@ def schein_pdf(reparatur, abholung=False) -> bytes:
              ["Gerät", reparatur.geraet], ["Seriennummer", reparatur.seriennummer or "–"],
              ["Zubehör", reparatur.zubehoer or "–"], ["Garantiefall", "ja" if reparatur.garantie else "nein"]]
     tab = Table([[absatz(a, klein), absatz(b, normal)] for a, b in daten], colWidths=[38 * mm, 120 * mm])
-    inhalt = [absatz(f"{m.firmenname} · {m.strasse} · {m.plz} {m.ort}", klein), Spacer(1, 4 * mm),
+    inhalt = [*logo_elemente(m), absatz(f"{m.firmenname} · {m.strasse} · {m.plz} {m.ort}", klein), Spacer(1, 4 * mm),
               absatz(anschrift, normal), Spacer(1, 8 * mm),
               Paragraph("Abholschein" if abholung else "Annahmeschein Reparatur", titel), Spacer(1, 4 * mm), tab,
               Spacer(1, 5 * mm), absatz("Fehlerbeschreibung:", klein), absatz(reparatur.fehler, normal), Spacer(1, 5 * mm)]
