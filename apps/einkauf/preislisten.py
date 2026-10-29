@@ -356,7 +356,7 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
                         al_geaendert.append(al)
             if len(neue) >= 1000 or len(geaenderte) >= 1000:
                 schreiben()
-        except (ValueError, PreislistenFehler) as grund:
+        except (ValueError, ArithmeticError, PreislistenFehler) as grund:
             protokoll.fehler += 1
             if len(fehler) < 200:
                 fehler.append({"zeile": nr, "grund": str(grund), "daten": z})
@@ -364,9 +364,9 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
     hinweis = ""
     if profil.entfernen_veraltete:
         veraltet = [bn for bn, alt in vorhanden.items() if alt["id"] is not None and bn not in gesehen]
-        if veraltet and bisher >= 100 and len(gesehen) < bisher * 0.5:
-            hinweis = (f" – ACHTUNG: {len(veraltet)} nicht mehr gelistete Artikel wurden NICHT entfernt, weil die Liste nur "
-                       f"{len(gesehen)} von bisher {bisher} Artikeln enthält (unvollständiger Download?)")
+        if veraltet and ((bisher >= 10 and len(veraltet) > bisher * 0.5) or not gesehen):
+            hinweis = (f" – ACHTUNG: {len(veraltet)} von bisher {bisher} Artikeln stehen nicht mehr in der Liste und wurden "
+                       "NICHT entfernt (unvollständiger Download oder falsche Datei?)")
         elif veraltet:
             protokoll.geloescht = entfernen(lieferant, veraltet, [vorhanden[bn]["id"] for bn in veraltet])
     protokoll.fehlerzeilen = fehler

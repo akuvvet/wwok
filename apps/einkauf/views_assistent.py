@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Lieferant
-from apps.kern.rechte import nur_admin
+from apps.kern.rechte import admin_bei_aenderung, nur_admin
 from apps.verkauf.views import mit_mandant
 
 from . import assistent, preislisten
@@ -112,6 +112,7 @@ def zuordnung(request, kontext, profil, inhalt, token, dateiname, erkannt, name,
 
 
 @mit_mandant
+@admin_bei_aenderung
 def artikelpreise(request):
     """EK/VK-Preise je Artikel aus Excel oder CSV einlesen (Vorschau, dann übernehmen)."""
     kontext = {"schritt": 1, "preisfelder": assistent.PREISFELDER, "schluessel": assistent.SCHLUESSEL}

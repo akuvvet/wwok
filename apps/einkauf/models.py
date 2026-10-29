@@ -232,6 +232,9 @@ class Lieferantenrechnung(Zeitstempel):
     def betraege_korrigieren(self, netto, steuer, brutto, benutzer=None):
         if self.status == RechnungStatus.BEZAHLT:
             raise ValueError("Bezahlte Rechnungen lassen sich nicht korrigieren – erst die Zahlung stornieren.")
+        if self.status == RechnungStatus.EXPORTIERT:
+            raise ValueError("Die Rechnung wurde schon zur Zahlung exportiert (SEPA-Datei) – eine Korrektur könnte doppelt zahlen lassen. "
+                             "Bitte erst mit der Bank klären.")
         if netto is None or brutto is None or steuer is None or min(netto, brutto) <= 0 or steuer < 0:
             raise ValueError("Netto, Steuer und Brutto müssen angegeben werden (Netto und Brutto größer 0).")
         if abs(netto + steuer - brutto) > Decimal("0.01"):
@@ -239,7 +242,6 @@ class Lieferantenrechnung(Zeitstempel):
         self.historie_eintrag(f"Beträge korrigiert: netto {self.netto} → {netto}, steuer {self.steuer} → {steuer}, "
                               f"brutto {self.brutto} → {brutto}", benutzer)
         self.netto, self.steuer, self.brutto = netto, steuer, brutto
-        self.status = RechnungStatus.OFFEN  # ein exportierter Zahlungsauftrag gilt mit neuen Beträgen nicht mehr
         self.save()
 
 

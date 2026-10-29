@@ -22,7 +22,7 @@ class Command(BaseCommand):
                 protokoll = preislisten.importieren(profil, inhalt, dateiname)
                 importiert = True
                 self.stdout.write(f"{profil}: {protokoll.meldung}")
-            except preislisten.PreislistenFehler as fehler:
+            except Exception as fehler:  # ein fehlerhaftes Profil darf die übrigen und den Bestpreis-Lauf nicht aufhalten
                 self.stderr.write(f"{profil}: {fehler}")
         if not profile:
             self.stdout.write("Keine Preisliste fällig.")

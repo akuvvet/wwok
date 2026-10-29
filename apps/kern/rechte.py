@@ -18,3 +18,14 @@ def nur_admin(view):
             return redirect(request.META.get("HTTP_REFERER") or "verkauf:start")
         return view(request, *args, **kwargs)
     return umhuellt
+
+
+def admin_bei_aenderung(view):
+    """Ansehen darf jeder angemeldete Benutzer, Änderungen (POST) nur Admins. Innerhalb von @mit_mandant verwenden."""
+    @wraps(view)
+    def umhuellt(request, *args, **kwargs):
+        if request.method not in ("GET", "HEAD", "OPTIONS") and not ist_admin(request.user):
+            messages.error(request, "Dafür ist die Berechtigung „Admin“ nötig.")
+            return redirect(request.META.get("HTTP_REFERER") or "verkauf:start")
+        return view(request, *args, **kwargs)
+    return umhuellt

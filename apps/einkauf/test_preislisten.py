@@ -132,7 +132,7 @@ class PreislistenMaskeTest(TestCase):
         m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
         lf = Lieferant.objects.create(nummer="L1", name1="Techdata GmbH", kurzname="Techdata")
         p = profil(lf)
-        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14, is_staff=True))
         s = self.client.session
         s["mandant_id"] = m.pk
         s.save()

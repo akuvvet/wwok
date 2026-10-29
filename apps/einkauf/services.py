@@ -3,7 +3,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.db import models, transaction
-from django.db.models import Q, Sum
+from django.db.models import F, Q, Sum
 from django.utils import timezone
 
 from apps.lager.models import Bewegungsart, Lagerbewegung, bestand, reserviert
@@ -230,6 +230,10 @@ def wareneingang_erfassen(we, artikel, menge=Decimal("1"), ek=None, seriennummer
     """Zeile zum Wareneingang; derselbe Artikel (ohne Seriennummern) erhöht die vorhandene Zeile (Scan +1)."""
     if we.gebucht:
         raise ValueError("Der Wareneingang ist bereits gebucht.")
+    if menge is None or not menge.is_finite() or menge <= 0:
+        raise ValueError("Die Menge muss größer als 0 sein.")
+    if ek is not None and (not ek.is_finite() or ek < 0):
+        raise ValueError("Der EK darf nicht negativ sein.")
     bp = None
     if we.bestellung_id:
         bp = we.bestellung.positionen.filter(artikel=artikel).first()
@@ -257,19 +261,22 @@ def wareneingang_aus_bestellung(we):
 @transaction.atomic
 def wareneingang_buchen(we, benutzer=None) -> int:
     """Bucht Bestand, letzten EK, Durchschnitts-EK, Seriennummern und Liefermengen der Bestellung."""
+    we = Wareneingang.objects.select_for_update().get(pk=we.pk)  # Sperre: Doppelklick/zweiter Tab darf nicht doppelt buchen
     if we.gebucht:
         raise ValueError("Der Wareneingang ist bereits gebucht.")
     positionen = list(we.positionen.select_related("artikel", "bestellposition"))
     if not positionen:
         raise ValueError("Keine Positionen erfasst.")
     for p in positionen:  # vorab prüfen, damit nichts halb gebucht wird
+        if p.menge <= 0 or p.ek < 0:
+            raise ValueError(f"{p.artikel.nummer}: Menge muss größer als 0 und der EK darf nicht negativ sein.")
         sn = zeilen(p.seriennummern)
         if sn and len(sn) != p.menge:
             raise ValueError(f"{p.artikel.nummer}: {len(sn)} Seriennummern, aber Menge {p.menge:f}.")
     heute = we.datum
     for p in positionen:
-        a = p.artikel
-        vorher = bestand(we.mandant, a)
+        a = Artikel.objects.select_for_update().get(pk=p.artikel_id)  # frisch laden: mehrere Zeilen desselben Artikels
+        vorher = Lagerbewegung.objects.filter(artikel=a).aggregate(s=Sum("menge"))["s"] or Decimal("0")  # Ø-EK gilt für alle Mandanten
         Lagerbewegung.objects.create(mandant=we.mandant, artikel=a, art=Bewegungsart.WARENEINGANG, menge=p.menge,
                                      bemerkung=f"{we.nummer} {we.lieferant.name1}", benutzer=benutzer)
         am, _ = ArtikelMandant.objects.get_or_create(artikel=a, mandant=we.mandant)
@@ -284,9 +291,8 @@ def wareneingang_buchen(we, benutzer=None) -> int:
         a.save()
         if p.seriennummern.strip():
             seriennummern_einlagern(we.mandant, a, p.seriennummern, we.nummer)
-        if p.bestellposition_id:
-            p.bestellposition.geliefert += p.menge
-            p.bestellposition.save()
+        if p.bestellposition_id:  # in der Datenbank hochzählen, damit mehrere Zeilen derselben Bestellposition nicht überschreiben
+            BestellPosition.objects.filter(pk=p.bestellposition_id).update(geliefert=F("geliefert") + p.menge)
     we.gebucht = True
     we.save()
     if we.bestellung_id:
@@ -298,6 +304,10 @@ def wareneingang_buchen(we, benutzer=None) -> int:
 
 def rechnung_erfassen(mandant, lieferant, rechnungsnummer, datum, netto, brutto, steuer=None, quelle="manuell",
                       wareneingaenge=()) -> Lieferantenrechnung:
+    if netto is None or brutto is None or netto <= 0 or brutto <= 0:
+        raise ValueError("Netto und Brutto müssen größer als 0 sein (Gutschriften des Lieferanten bitte nicht als Rechnung erfassen).")
+    if Lieferantenrechnung.objects.filter(mandant=mandant, lieferant=lieferant, rechnungsnummer=rechnungsnummer).exists():
+        raise ValueError(f"Die Rechnung {rechnungsnummer} von {lieferant.name1} ist bereits erfasst.")
     zb = lieferant.zahlungsbedingung
     faellig = datum + timedelta(days=zb.tage_netto if zb and zb.tage_netto else 14)
     skonto_bis = datum + timedelta(days=zb.skonto_tage) if zb and zb.skonto_tage and zb.skonto_prozent else None

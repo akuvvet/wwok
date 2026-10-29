@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel
-from apps.kern.rechte import nur_admin
+from apps.kern.rechte import admin_bei_aenderung, nur_admin
 from apps.verkauf.mail import MailFehler, senden_an
 from apps.verkauf.models import Beleg
 from apps.verkauf.views import mit_mandant
@@ -28,9 +28,12 @@ def zahl(text, standard=None):
     if not text:
         return standard
     try:
-        return Decimal(text)
+        wert = Decimal(text)
     except InvalidOperation:
         raise ValueError(f"Ungültige Zahl: {text}")
+    if not wert.is_finite():
+        raise ValueError(f"Ungültige Zahl: {text}")
+    return wert
 
 
 def tag(text, standard=None):
@@ -332,6 +335,8 @@ def wareneingang_zeile_aendern(request, we_id, position_id):
     else:
         pos.menge = zahl(request.POST.get("menge"), pos.menge)
         pos.ek = zahl(request.POST.get("ek"), pos.ek)
+        if pos.menge <= 0 or pos.ek < 0:
+            raise ValueError("Die Menge muss größer als 0 sein und der EK darf nicht negativ sein.")
         pos.seriennummern = request.POST.get("seriennummern", "")
         pos.save()
     return redirect("einkauf:wareneingang", we_id=we.pk)
@@ -407,8 +412,15 @@ def rechnung_erechnung(request):
 def rechnung_detail(request, rechnung_id):
     r = get_object_or_404(Lieferantenrechnung.objects.select_related("lieferant"), pk=rechnung_id, mandant=request.mandant)
     if request.method == "POST":
+        if r.status == RechnungStatus.BEZAHLT:
+            messages.error(request, "Die Rechnung ist bezahlt – die Verknüpfung lässt sich nicht mehr ändern.")
+            return redirect("einkauf:rechnung", rechnung_id=r.pk)
         ids = request.POST.getlist("wareneingang")
-        r.wareneingaenge.set(Wareneingang.objects.filter(pk__in=ids, mandant=request.mandant, lieferant=r.lieferant))
+        frei = Wareneingang.objects.filter(pk__in=ids, mandant=request.mandant, lieferant=r.lieferant).exclude(
+            rechnungen__in=Lieferantenrechnung.objects.exclude(pk=r.pk))  # ein Wareneingang gehört zu höchstens einer Rechnung
+        if frei.count() < len(set(ids)):
+            messages.warning(request, "Wareneingänge, die schon zu einer anderen Rechnung gehören, wurden nicht verknüpft.")
+        r.wareneingaenge.set(frei)
         messages.success(request, "Verknüpfung gespeichert.")
         return redirect("einkauf:rechnung", rechnung_id=r.pk)
     verknuepft = set(r.wareneingaenge.values_list("pk", flat=True))
@@ -424,10 +436,15 @@ def rechnung_detail(request, rechnung_id):
 @schutz("einkauf:rechnung", "rechnung_id")
 def rechnung_bezahlt(request, rechnung_id):
     r = get_object_or_404(Lieferantenrechnung.objects.select_related("lieferant"), pk=rechnung_id, mandant=request.mandant)
+    if r.status == RechnungStatus.BEZAHLT:
+        raise ValueError("Die Rechnung ist schon als bezahlt gebucht.")
     r.freigabe_pruefen()
+    betrag = zahl(request.POST.get("betrag"), r.zahlbetrag(tag(request.POST.get("datum"))))
+    if betrag <= 0:
+        raise ValueError("Der bezahlte Betrag muss größer als 0 sein.")
     r.status = RechnungStatus.BEZAHLT
     r.bezahlt_am = tag(request.POST.get("datum"))
-    r.bezahlter_betrag = zahl(request.POST.get("betrag"), r.zahlbetrag(r.bezahlt_am))
+    r.bezahlter_betrag = betrag
     r.save()
     return redirect("einkauf:rechnung", rechnung_id=r.pk)
 
@@ -483,6 +500,8 @@ def sepa_export(request):
         .exclude(status=RechnungStatus.BEZAHLT).select_related("lieferant")
     for r in auswahl:
         r.freigabe_pruefen()
+    if any(r.status == RechnungStatus.EXPORTIERT for r in auswahl):
+        messages.warning(request, "Achtung: Die Auswahl enthält Rechnungen, die schon einmal exportiert wurden – nicht doppelt bei der Bank einreichen.")
     ausfuehrung = tag(request.POST.get("ausfuehrung"))
     daten = sepa.erzeuge(request.mandant, list(auswahl), ausfuehrung)
     auswahl.update(status=RechnungStatus.EXPORTIERT)
@@ -557,6 +576,7 @@ def preislisten_liste(request):
 
 
 @mit_mandant
+@admin_bei_aenderung
 def preisliste(request, profil_id):
     import uuid
 
@@ -612,6 +632,7 @@ def preislistenimport(request, import_id):
 
 
 @mit_mandant
+@admin_bei_aenderung
 def bestpreise_ansicht(request):
     """Günstigsten Lieferanten-EK je Herstellernummer in die A-Artikel übernehmen: erst Vorschau, dann anwenden."""
     from . import bestpreis

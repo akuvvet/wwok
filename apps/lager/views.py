@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -24,9 +25,12 @@ def zahl(text, standard=None):
     if not text:
         return standard
     try:
-        return Decimal(text)
+        wert = Decimal(text)
     except InvalidOperation:
         raise ValueError(f"Ungültige Zahl: {text}")
+    if not wert.is_finite():
+        raise ValueError(f"Ungültige Zahl: {text}")
+    return wert
 
 
 def suche(q):
@@ -113,14 +117,17 @@ def buchen(request, artikel_id):
         if menge is None:
             raise ValueError("Menge fehlt.")
         art = request.POST.get("art")
+        if art not in [a.value for a in MANUELL]:
+            raise ValueError("Diese Buchungsart ist hier nicht erlaubt.")
         seriennummern = zeilen(request.POST.get("seriennummern"))
         if seriennummern and art not in (Bewegungsart.WARENEINGANG, Bewegungsart.RETOURE):
             raise ValueError("Seriennummern nur bei Wareneingang oder Retoure.")
         if seriennummern and len(seriennummern) != abs(menge):
             raise ValueError(f"{len(seriennummern)} Seriennummern, aber Menge {abs(menge):f}.")
-        buche_manuell(request.mandant, artikel, art, menge, request.POST.get("bemerkung", "").strip(), request.user)
-        if seriennummern:
-            seriennummern_einlagern(request.mandant, artikel, chr(10).join(seriennummern), request.POST.get("bemerkung", "").strip())
+        with transaction.atomic():  # schlägt die Seriennummer fehl, wird auch die Bestandsbuchung zurückgenommen
+            buche_manuell(request.mandant, artikel, art, menge, request.POST.get("bemerkung", "").strip(), request.user)
+            if seriennummern:
+                seriennummern_einlagern(request.mandant, artikel, chr(10).join(seriennummern), request.POST.get("bemerkung", "").strip())
         messages.success(request, "Gebucht.")
     except ValueError as fehler:
         messages.error(request, str(fehler))
