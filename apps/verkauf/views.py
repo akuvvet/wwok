@@ -727,15 +727,21 @@ def beleg_versand(request, beleg_id):
         except ValueError as fehler:
             messages.error(request, str(fehler))
             return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
+        produkt = request.POST.get("produkt")
+        if produkt not in dict(Versand.PRODUKTE):
+            produkt = Versand.PAKET  # nichts raten: ohne Angabe DHL Paket
+        if gewicht_roh is not None and gewicht_roh <= 0:
+            messages.error(request, "Das Gewicht muss größer als 0 sein.")
+            return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
         if aktion == "neu":
             gewicht = gewicht_roh
             Versand.objects.create(beleg=beleg, sendungsnummer=request.POST.get("sendungsnummer", "").replace(" ", "")[:40],
-                                   gewicht_kg=gewicht)
+                                   gewicht_kg=gewicht, produkt=produkt)
             messages.success(request, "Versand gespeichert.")
         elif aktion == "dhl":
             from . import dhl
-            gewicht = gewicht_roh
-            v = Versand.objects.create(beleg=beleg, gewicht_kg=gewicht)
+            gewicht = gewicht_roh if gewicht_roh is not None else beleg.artikelgewicht()[0] or None
+            v = Versand.objects.create(beleg=beleg, gewicht_kg=gewicht, produkt=produkt)
             try:
                 dhl.label_erzeugen(v)
                 messages.success(request, f"DHL-Label erzeugt, Sendungsnummer {v.sendungsnummer}.")
@@ -762,9 +768,17 @@ def beleg_versand(request, beleg_id):
                 v.delete()
         return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
     ap = beleg.ansprechpartner
+    from . import dhl
+    gewicht, ohne_gewicht = beleg.artikelgewicht()
+    try:
+        inland = dhl.anschrift_zerlegen(beleg.versandanschrift or beleg.rechnungsanschrift)["country"] == "DEU"
+    except dhl.DhlFehler:
+        inland = True  # unvollständige Anschrift: meldet DHL beim Erzeugen
     return render(request, "verkauf/versand.html", {
         "beleg": beleg, "versendungen": beleg.versendungen.all(),
-        "mailadresse": (ap.email if ap and ap.email else beleg.kunde.email) or ""})
+        "mailadresse": (ap.email if ap and ap.email else beleg.kunde.email) or "",
+        "gewicht": gewicht if gewicht > 0 else None, "ohne_gewicht": ohne_gewicht, "inland": inland,
+        "produkte": Versand.PRODUKTE, "produkt": Versand.produkt_vorschlag(gewicht, inland, not ohne_gewicht)})
 
 
 @mit_mandant

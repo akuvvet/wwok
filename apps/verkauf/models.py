@@ -6,7 +6,7 @@ Gutschriften sind gesperrt (GoBD); Korrektur nur per Storno/Gutschrift.
 """
 import calendar
 from datetime import date, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, ROUND_UP, Decimal
 
 from django.conf import settings
 from django.db import models, transaction
@@ -339,6 +339,35 @@ class Beleg(Zeitstempel):
         self.summe_brutto = self.summe_netto + steuer
         Beleg.objects.filter(pk=self.pk).update(
             summe_netto=self.summe_netto, summe_steuer=self.summe_steuer, summe_brutto=self.summe_brutto)
+
+    def artikelgewicht(self):
+        """Paketgewicht aus den Artikelgewichten (Menge × Gewicht). Rückgabe: (kg, Bezeichnungen ohne Gewicht).
+        Leistungen und ESD-Keys wiegen nichts und zählen nicht als fehlend. Bei einer Gruppe (z. B. Komplett-PC)
+        zählt das Gewicht des Gruppenartikels, wenn es gepflegt ist – sonst die Summe der Unterpositionen."""
+        summe, fehlt = Decimal("0"), []
+        positionen = list(self.positionen.select_related("artikel", "preisliste_artikel"))
+        mit_kindern = {p.gruppe_id for p in positionen if p.gruppe_id}
+        gewogen = set()  # Gruppen, deren Gewicht schon über den Gruppenartikel zählt
+        for p in positionen:
+            if p.typ == Artikeltyp.G and p.menge > 0:
+                if p.artikel and p.artikel.gewicht_kg:
+                    summe += p.menge * p.artikel.gewicht_kg
+                    gewogen.add(p.pk)
+                elif p.pk not in mit_kindern and p.artikel:
+                    fehlt.append(p.bezeichnung)
+        for p in positionen:
+            if p.typ == Artikeltyp.G or p.gruppe_id in gewogen:
+                continue
+            if p.menge <= 0 or p.typ == Artikeltyp.L or (p.artikel and p.artikel.esd_key):
+                continue
+            quelle = p.artikel or p.preisliste_artikel
+            if quelle is None:
+                continue  # freie Textposition
+            if quelle.gewicht_kg:
+                summe += p.menge * quelle.gewicht_kg
+            else:
+                fehlt.append(p.bezeichnung)
+        return summe.quantize(Decimal("0.01"), rounding=ROUND_UP), fehlt
 
     def nach_rabatt(self, roh: dict):
         """Belegrabatt je Steuersatz abziehen: (Steuerbasis nach Rabatt, Rabattbetrag je Satz). Rundung je Satz auf Cent."""
@@ -799,9 +828,14 @@ class Versand(Zeitstempel):
 
     DIENSTE = [("dhl", "DHL Paket")]
     TRACKING = {"dhl": "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode={nr}"}
+    PAKET, KLEINPAKET = "paket", "kleinpaket"
+    PRODUKTE = [(PAKET, "DHL Paket (ab 1 kg)"), (KLEINPAKET, "DHL Kleinpaket / Warenpost (bis 1 kg)")]
+    KLEINPAKET_MAX_KG = Decimal("1")
+    PAKET_MIN_KG = Decimal("1")
 
     beleg = models.ForeignKey(Beleg, on_delete=models.CASCADE, related_name="versendungen")
     dienst = models.CharField("Versanddienstleister", max_length=10, choices=DIENSTE, default="dhl")
+    produkt = models.CharField("Produkt", max_length=12, choices=PRODUKTE, default=PAKET)
     sendungsnummer = models.CharField("Sendungsnummer", max_length=40, blank=True)
     gewicht_kg = models.DecimalField("Gewicht (kg)", max_digits=7, decimal_places=2, null=True, blank=True)
     versendet_am = models.DateField("Versanddatum", default=timezone.localdate)
@@ -820,6 +854,25 @@ class Versand(Zeitstempel):
     @property
     def tracking_url(self) -> str:
         return self.TRACKING[self.dienst].format(nr=self.sendungsnummer) if self.sendungsnummer else ""
+
+    @classmethod
+    def produkt_vorschlag(cls, gewicht, inland=True, vollstaendig=True) -> str:
+        """Bis 1 kg Kleinpaket (Warenpost) – aber nur im Inland und nur, wenn alle Artikel ein Gewicht haben;
+        sonst DHL Paket (sicherer als ein zu leicht angemeldetes Kleinpaket)."""
+        if inland and vollstaendig and gewicht and 0 < gewicht <= cls.KLEINPAKET_MAX_KG:
+            return cls.KLEINPAKET
+        return cls.PAKET
+
+    @classmethod
+    def versandgewicht(cls, produkt, gewicht) -> Decimal:
+        """Gewicht, das an DHL geht: Paket beginnt bei 1 kg, Kleinpaket höchstens 1 kg."""
+        if produkt == cls.KLEINPAKET:
+            if not gewicht or gewicht <= 0:
+                raise ValueError("Für das Kleinpaket bitte das Gewicht angeben (höchstens 1 kg).")
+            if gewicht > cls.KLEINPAKET_MAX_KG:
+                raise ValueError(f"Kleinpaket/Warenpost ist höchstens 1 kg – das Paket wiegt {gewicht:f} kg. Bitte DHL Paket wählen.")
+            return gewicht
+        return max(gewicht or cls.PAKET_MIN_KG, cls.PAKET_MIN_KG)
 
 class Wiedervorlage(Zeitstempel):
     """Erinnerung an einen Kunden (optional zu einem Beleg); fällige erscheinen auf der Startseite."""

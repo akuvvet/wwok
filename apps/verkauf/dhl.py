@@ -5,6 +5,7 @@ Zugangsdaten stehen nur in der .env (je Mandant, Kurzname in Großbuchstaben):
   DHL_BENUTZER_<MANDANT>     Benutzername des Geschäftskundenportals (GKP)
   DHL_PASSWORT_<MANDANT>     Passwort des GKP-Benutzers
   DHL_ABRECHNUNG_<MANDANT>   Abrechnungsnummer (14 Stellen, z. B. 33333333330101)
+  DHL_ABRECHNUNG_KLEINPAKET_<MANDANT>  optional: Abrechnungsnummer für Kleinpaket/Warenpost (Standard: EKP + 62 + 01)
   DHL_TEST=1                 optional: Testumgebung (Sandbox) verwenden"""
 import base64
 import json
@@ -13,6 +14,8 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from .models import Versand
 
 PRODUKTION = "https://api-eu.dhl.com/parcel/de/shipping/v2"
 SANDBOX = "https://api-sandbox.dhl.com/parcel/de/shipping/v2"
@@ -32,6 +35,8 @@ def zugang(mandant) -> dict:
     if fehlt:
         raise DhlFehler("DHL-Zugang unvollständig: in der .env fehlt " + ", ".join(fehlt) + ".")
     werte["url"] = SANDBOX if os.environ.get("DHL_TEST") == "1" else PRODUKTION
+    # Kleinpaket (früher Warenpost) läuft über Verfahren 62; ohne eigene Angabe: EKP + 62 + Teilnahme 01
+    werte["abrechnung_kleinpaket"] = os.environ.get(f"DHL_ABRECHNUNG_KLEINPAKET_{k}", "") or werte["abrechnung"][:10] + "6201"
     return werte
 
 
@@ -76,9 +81,19 @@ def auftrag(versand) -> dict:
     absender = ohne_leere({"name1": m.firmenname[:50], "addressStreet": strasse[:50], "addressHouse": haus[:10], "postalCode": m.plz,
                            "city": m.ort[:40], "country": ISO3.get(m.land or "DE", "DEU")})
     inland = empfaenger["country"] == "DEU"
-    sendung = {"product": "V01PAK" if inland else "V53WPAK", "billingNumber": zugangsdaten["abrechnung"],
+    try:
+        gewicht = Versand.versandgewicht(versand.produkt, versand.gewicht_kg)
+    except ValueError as fehler:
+        raise DhlFehler(str(fehler))
+    if versand.produkt == Versand.KLEINPAKET:
+        if not inland:
+            raise DhlFehler("Kleinpaket/Warenpost geht nur innerhalb Deutschlands – bitte DHL Paket wählen.")
+        produkt, abrechnung = "V62KP", zugangsdaten["abrechnung_kleinpaket"]
+    else:
+        produkt, abrechnung = ("V01PAK" if inland else "V53WPAK"), zugangsdaten["abrechnung"]
+    sendung = {"product": produkt, "billingNumber": abrechnung,
                "refNo": (beleg.nummer or str(beleg.pk))[:35], "shipper": absender, "consignee": empfaenger,
-               "details": {"weight": {"uom": "kg", "value": float(versand.gewicht_kg or 1)}}}
+               "details": {"weight": {"uom": "kg", "value": float(gewicht)}}}
     return {"profile": PROFIL, "shipments": [sendung]}
 
 
@@ -127,6 +142,7 @@ def label_erzeugen(versand) -> None:
         raise DhlFehler("DHL hat kein Label geliefert: " + (meldungen(antwort) or "unbekannter Fehler"))
     item = items[0]
     versand.sendungsnummer = item["shipmentNo"]
+    versand.gewicht_kg = Versand.versandgewicht(versand.produkt, versand.gewicht_kg)  # so, wie es an DHL ging
     b64 = (item.get("label") or {}).get("b64")
     if b64:
         versand.label = base64.b64decode(b64)

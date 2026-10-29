@@ -1,19 +1,42 @@
 {% extends "base.html" %}
 {% block titel %}Versand – wwok{% endblock %}
+{% block skript %}
+<script>
+  // Produkt passend zum Gewicht: über 1 kg immer DHL Paket; Kleinpaket nur vorschlagen, wenn es erlaubt ist
+  (function () {
+    var kleinErlaubt = {% if inland and not ohne_gewicht %}true{% else %}false{% endif %};
+    [['gw', 'pr1'], ['gw2', 'pr']].forEach(function (paar) {
+      var gw = document.getElementById(paar[0]), pr = document.getElementById(paar[1]);
+      gw.addEventListener('input', function () {
+        var kg = parseFloat(gw.value.replace(/\./g, gw.value.indexOf(',') >= 0 ? '' : '.').replace(',', '.'));
+        if (kg > 1) pr.value = 'paket';
+        else if (kg > 0 && kleinErlaubt) pr.value = 'kleinpaket';
+      });
+    });
+  })();
+</script>
+{% endblock %}
 {% block inhalt %}
 <a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
 <div class="karte">
   <h1>Versand · {{ beleg.get_art_display }} {{ beleg.nummer }} · {{ beleg.kunde.name1 }}</h1>
   <form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="aktion" value="neu">
     <div><label for="sn">Sendungsnummer (DHL)</label><input id="sn" name="sendungsnummer" size="26" autofocus placeholder="Paketnummer / JJD…"></div>
-    <div><label for="gw">Gewicht (kg)</label><input id="gw" name="gewicht" size="6" inputmode="decimal"></div>
+    <div><label for="gw">Gewicht (kg)</label><input id="gw" name="gewicht" size="6" inputmode="decimal" value="{{ gewicht|default_if_none:'' }}"></div>
+    <div><label for="pr1">Produkt</label><select id="pr1" name="produkt">
+      {% for wert, name in produkte %}<option value="{{ wert }}" {% if wert == produkt %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
     <button type="submit">Versand speichern</button>
   </form>
   <form method="post" class="zeile" style="margin-top:8px">{% csrf_token %}<input type="hidden" name="aktion" value="dhl">
-    <div><label for="gw2">Gewicht (kg)</label><input id="gw2" name="gewicht" size="6" inputmode="decimal" value="1"></div>
+    <div><label for="gw2">Gewicht (kg)</label><input id="gw2" name="gewicht" size="6" inputmode="decimal" value="{{ gewicht|default_if_none:'1' }}"></div>
+    <div><label for="pr">Produkt</label><select id="pr" name="produkt">
+      {% for wert, name in produkte %}<option value="{{ wert }}" {% if wert == produkt %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
     <button type="submit">DHL-Label automatisch erzeugen</button>
   </form>
-  <p style="opacity:.8">„DHL-Label automatisch erzeugen“ holt Label und Sendungsnummer direkt von DHL (Zugangsdaten in der .env). Alternativ die Sendungsnummer aus der DHL-Online-Frankierung eintragen – der Aufkleber ist dann ein interner mit Empfänger und Barcode.</p>
+  <p style="opacity:.8">Gewicht aus den Artikeln: <strong>{% if gewicht %}{{ gewicht }} kg{% else %}keins hinterlegt{% endif %}</strong>
+    {% if ohne_gewicht %}<span style="color:var(--warn)">· ohne Gewicht im Artikel: {{ ohne_gewicht|join:", " }} – Gewicht bitte prüfen, daher DHL Paket vorgeschlagen</span>{% endif %}<br>
+    DHL Paket wird mit mindestens 1 kg angemeldet; Kleinpaket/Warenpost geht nur bis 1 kg und nur innerhalb Deutschlands.<br>
+    „DHL-Label automatisch erzeugen“ holt Label und Sendungsnummer direkt von DHL. Alternativ die Sendungsnummer aus der DHL-Online-Frankierung eintragen – der Aufkleber ist dann ein interner mit Empfänger und Barcode.</p>
 </div>
 {% if versendungen %}
 <div class="karte">
@@ -21,7 +44,7 @@
   <div class="scroll"><table>
     <thead><tr><th>Datum</th><th>Dienst</th><th>Sendungsnummer</th><th class="zahl">kg</th><th>Verfolgung</th><th>Mail</th><th></th></tr></thead>
     <tbody>{% for v in versendungen %}<tr>
-      <td>{{ v.versendet_am|date:"d.m.Y" }}</td><td>{{ v.get_dienst_display }}</td><td>{{ v.sendungsnummer|default:"–" }}</td>
+      <td>{{ v.versendet_am|date:"d.m.Y" }}</td><td>{{ v.get_produkt_display }}</td><td>{{ v.sendungsnummer|default:"–" }}</td>
       <td class="zahl">{{ v.gewicht_kg|default_if_none:"–" }}</td>
       <td>{% if v.tracking_url %}<a href="{{ v.tracking_url }}" target="_blank" rel="noopener">Sendung verfolgen</a>{% endif %}</td>
       <td>{% if v.mail_gesendet %}gesendet {{ v.mail_gesendet|date:"d.m. H:i" }}{% else %}–{% endif %}</td>
