@@ -24,7 +24,7 @@ class LastschriftTest(TestCase):
                                       sepa_mandatsreferenz="M-1", sepa_mandat_datum=date(2026, 1, 5))
         self.ohne = Kunde.objects.create(nummer="2", name1="Ohne Mandat")
         self.re = self.rechnung(self.k)
-        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14, is_staff=True))
         s = self.client.session
         s["mandant_id"] = self.m.pk
         s.save()

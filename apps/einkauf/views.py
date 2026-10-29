@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel
+from apps.kern.rechte import nur_admin
 from apps.verkauf.mail import MailFehler, senden_an
 from apps.verkauf.models import Beleg
 from apps.verkauf.views import mit_mandant
@@ -432,6 +433,7 @@ def rechnung_bezahlt(request, rechnung_id):
 @mit_mandant
 @require_POST
 @schutz("einkauf:rechnung", "rechnung_id")
+@nur_admin
 def rechnung_zahlung_storno(request, rechnung_id):
     r = get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
     r.zahlung_stornieren(request.POST.get("grund"), request.user)

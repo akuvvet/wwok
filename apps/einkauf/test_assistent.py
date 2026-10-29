@@ -26,7 +26,7 @@ class AssistentTest(TestCase):
         self.st = Steuersatz.objects.get(nummer=1)
         self.maus = Artikel.objects.create(nummer="M1", bezeichnung="Maus", herstellernummer="MX-100", steuersatz=self.st,
                                            vk1=Decimal("20"), durchschnitts_ek=Decimal("10"))
-        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14, is_staff=True))
         s = self.client.session
         s["mandant_id"] = self.m.pk
         s.save()

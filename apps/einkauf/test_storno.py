@@ -17,7 +17,7 @@ class EinkaufStornoLoeschenTest(TestCase):
     def setUp(self):
         self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
         self.lf = Lieferant.objects.create(nummer="L1", name1="Techdata GmbH", iban="DE89370400440532013000")
-        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14, is_staff=True))
         s = self.client.session
         s["mandant_id"] = self.m.pk
         s.save()

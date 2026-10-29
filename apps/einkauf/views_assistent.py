@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Lieferant
+from apps.kern.rechte import nur_admin
 from apps.verkauf.views import mit_mandant
 
 from . import assistent, preislisten
@@ -38,6 +39,7 @@ def profil_aus_post(post, lieferant, erkannt) -> Preislistenprofil:
 
 
 @mit_mandant
+@nur_admin
 def assistent_ansicht(request, profil_id=None):
     """Schritt 1: Datei hochladen. Schritt 2: Spalten zuordnen und als Profil speichern."""
     vorhanden = get_object_or_404(Preislistenprofil.objects.select_related("lieferant"), pk=profil_id) if profil_id else None

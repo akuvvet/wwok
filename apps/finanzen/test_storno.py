@@ -52,7 +52,7 @@ class StornoTest(TestCase):
         self.assertEqual((umsatz.status, umsatz.zahlung), ("offen", None))  # kann neu zugeordnet werden
 
     def test_maske_storno(self):
-        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14, is_staff=True))
         s = self.client.session
         s["mandant_id"] = self.m.pk
         s.save()
@@ -63,3 +63,13 @@ class StornoTest(TestCase):
         self.client.post(reverse("finanzen:zahlung_storno", args=[z.pk]), {"grund": "Irrtum"})
         self.assertEqual(Zahlung.objects.count(), 2)
         self.assertContains(self.client.get(reverse("finanzen:beleg", args=[self.b.pk])), "Irrtum")
+
+    def test_mitarbeiter_darf_nicht_stornieren(self):
+        self.client.force_login(get_user_model().objects.create_user("m", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+        z = services.zahlung_buchen(self.b, Decimal("50"), date.today(), "ue")
+        antwort = self.client.post(reverse("finanzen:zahlung_storno", args=[z.pk]), {"grund": "Irrtum"})
+        self.assertEqual(antwort.status_code, 302)
+        self.assertEqual(Zahlung.objects.count(), 1)  # nichts storniert

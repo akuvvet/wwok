@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Kunde
+from apps.kern.rechte import nur_admin
 from apps.verkauf.mail import MailFehler, senden
 from apps.verkauf.models import Beleg, Belegart
 from apps.verkauf.views import mit_mandant
@@ -73,6 +74,7 @@ def zahlung_buchen(request, beleg_id):
 
 @mit_mandant
 @require_POST
+@nur_admin
 def zahlung_storno(request, zahlung_id):
     from .models import Zahlung
     zahlung = get_object_or_404(Zahlung.objects.select_related("beleg"), pk=zahlung_id, mandant=request.mandant)
@@ -278,6 +280,7 @@ def lastschrift_export(request):
 
 @mit_mandant
 @require_POST
+@nur_admin
 def lastschrift_aufheben(request, ls_id):
     ls = get_object_or_404(Lastschrift, pk=ls_id, mandant=request.mandant)
     grund = request.POST.get("grund", "").strip()
