@@ -6,7 +6,7 @@
   <h1>Geräteannahme</h1>
   <form method="post">{% csrf_token %}
     <div class="raster">
-      <div><label>Kundennummer</label><input name="kundennummer" value="{{ post.kundennummer|default:kunde.nummer|default:'' }}" autofocus>
+      <div><label>Kundennummer</label><input name="kundennummer" value="{% if post.kundennummer %}{{ post.kundennummer }}{% elif kunde %}{{ kunde.nummer }}{% endif %}" autofocus>
         {% if kunde %}<small>{{ kunde.name1 }}, {{ kunde.ort }}</small>{% endif %}</div>
       <div><label>Gerät</label><input name="geraet" value="{{ post.geraet }}" placeholder="z. B. Notebook Lenovo T14"></div>
       <div><label>Seriennummer</label><input name="seriennummer" value="{{ post.seriennummer }}"></div>

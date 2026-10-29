@@ -12,9 +12,6 @@
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="bestand" value="1" {% if nur_bestand %}checked{% endif %}> nur mit Bestand</label>
     <button type="submit">Filtern</button>
     <a class="knopf" data-modal="{% url 'stammdaten:artikel_neu' %}" href="/verwaltung/stammdaten/artikel/add/">+ Neuer Artikel</a>
-    <a class="knopf leise" href="{% url 'lager:inventur_liste' %}">Inventur / Zählliste</a>
-    <a class="knopf leise" href="{% url 'lager:seriennummern' %}">Seriennummern</a>
-    <a class="knopf leise" href="{% url 'esd:uebersicht' %}">ESD-Keys</a>
   </form>
   <p>Lagerwert (Durchschnitts-EK × Bestand): <strong>{{ lagerwert }} €</strong> · {{ seite.paginator.count }} Artikel</p>
   <div class="scroll">
