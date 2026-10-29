@@ -157,6 +157,11 @@ class Beleg(Zeitstempel):
     def gesperrt(self) -> bool:
         return self.abgeschlossen and self.art in GESPERRT_NACH_ABSCHLUSS
 
+    @property
+    def positionen_gesperrt(self) -> bool:
+        """Positionen sind nach Abschluss fest: bei Rechnung/Gutschrift (GoBD) und bei Lieferschein/Nachlieferschein (Lagerbuchung)."""
+        return self.abgeschlossen and (self.art in GESPERRT_NACH_ABSCHLUSS or self.art in (Belegart.LIEFERSCHEIN, Belegart.NACHLIEFERSCHEIN))
+
     def loeschhindernis(self):
         """Grund, warum der Beleg nicht gelöscht werden darf (None = löschbar).
         Löschbar sind Angebote, Kundenbestellungen (Aufträge, auch nach dem Übernehmen in einen Folgebeleg) und noch nicht
@@ -200,7 +205,7 @@ class Beleg(Zeitstempel):
     def abrechenbar(self) -> bool:
         """Abgeschlossener Lieferschein, der noch in keine Rechnung (und keinen anderen Folgebeleg) übernommen wurde."""
         return (self.art == Belegart.LIEFERSCHEIN and self.abgeschlossen
-                and not self.folgebelege.exists() and not self.rechnungen.exists())
+                and not self.folgebelege.filter(art=Belegart.RECHNUNG).exists() and not self.rechnungen.exists())
 
     @property
     def folgeart(self):
@@ -373,6 +378,12 @@ class Beleg(Zeitstempel):
                 raise ValueError("Erst den Lieferschein " + ", ".join(l.nummer or "(Entwurf)" for l in offen) +
                                  " abschließen (bucht das Lager ab), dann die Rechnung.")
         self.berechne()
+        if self.art == Belegart.GUTSCHRIFT and self.vorgaenger_id and self.vorgaenger.art == Belegart.RECHNUNG:
+            andere = sum((g.summe_brutto for g in self.vorgaenger.folgebelege.filter(art=Belegart.GUTSCHRIFT, abgeschlossen=True)
+                          .exclude(pk=self.pk)), Decimal("0"))
+            if andere + self.summe_brutto > self.vorgaenger.summe_brutto + CENT:
+                raise ValueError(f"Die Gutschriften ({andere + self.summe_brutto} €) würden die Rechnung "
+                                 f"{self.vorgaenger.nummer} ({self.vorgaenger.summe_brutto} €) übersteigen.")
         if not self.nummer:
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
         self.abgeschlossen = True
@@ -385,6 +396,16 @@ class Beleg(Zeitstempel):
         from apps.esd.services import beleg_zuordnen  # ESD-Keys beim Verkauf automatisch zuordnen
         beleg_zuordnen(self, benutzer)
 
+    def folge_pruefen(self, art):
+        """Verhindert doppelte Abrechnung und doppelte Lieferung aus demselben Ursprungsbeleg."""
+        if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abrechenbar:
+            raise ValueError(f"{self} ist schon abgerechnet (oder nicht abrechenbar).")
+        if self.art == Belegart.AUFTRAG and art == Belegart.LIEFERSCHEIN and self.folgebelege.filter(art=Belegart.LIEFERSCHEIN).exists():
+            raise ValueError(f"Zu {self} gibt es schon einen Lieferschein.")
+        if self.art == Belegart.AUFTRAG and art == Belegart.RECHNUNG and self.folgebelege.filter(
+                art__in=(Belegart.LIEFERSCHEIN, Belegart.RECHNUNG)).exists():
+            raise ValueError(f"Zu {self} gibt es schon einen Lieferschein oder eine Rechnung – keine zweite Abrechnung.")
+
     @transaction.atomic
     def folgebeleg_erzeugen(self) -> "Beleg":
         art = self.folgeart
@@ -393,6 +414,7 @@ class Beleg(Zeitstempel):
         if self.art == Belegart.LIEFERSCHEIN and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
         self.positionen_pruefen()
+        self.folge_pruefen(art)
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
@@ -413,6 +435,8 @@ class Beleg(Zeitstempel):
         """Positionen mit ausreichendem Bestand wandern in einen neuen Beleg derselben Art, der abgeschlossen wird;
         der Rest bleibt unverändert als Entwurf in diesem Beleg. Versandkosten laufen mit der Teillieferung."""
         from apps.lager.services import teilung
+        if self.abgeschlossen:
+            raise ValueError("Der Beleg ist schon abgeschlossen – eine Teillieferung gibt es nur für Entwürfe.")
         lieferbar, knapp = teilung(self)
         if not lieferbar or not knapp:
             raise ValueError("Eine Teillieferung ist nur möglich, wenn ein Teil der Positionen lieferbar ist und ein Teil nicht.")
@@ -421,6 +445,7 @@ class Beleg(Zeitstempel):
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
             versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
+            rabatt_prozent=self.rabatt_prozent, bezugnahme=self.bezugnahme, liefertermin=self.liefertermin, bearbeiter=self.bearbeiter,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=self.bemerkung, vorgaenger=self.vorgaenger, nl_lager_abbuchen=self.nl_lager_abbuchen)
         ids = [p.pk for p in lieferbar]
@@ -445,6 +470,7 @@ class Beleg(Zeitstempel):
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
         self.positionen_pruefen()
+        self.folge_pruefen(art)
         nachlieferung = art == Belegart.NACHLIEFERSCHEIN
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
@@ -469,6 +495,9 @@ class Beleg(Zeitstempel):
         """Storno/Gutschrift zu einer abgeschlossenen Rechnung (Positionen unverändert, Belegart Gutschrift)."""
         if self.art != Belegart.RECHNUNG or not self.abgeschlossen:
             raise ValueError("Eine Gutschrift gibt es nur zu einer abgeschlossenen Rechnung.")
+        schon = sum((g.summe_brutto for g in self.folgebelege.filter(art=Belegart.GUTSCHRIFT)), Decimal("0"))
+        if schon >= self.summe_brutto:
+            raise ValueError("Zu dieser Rechnung gibt es schon Gutschriften über den vollen Betrag.")
         neu = Beleg.objects.create(
             mandant=self.mandant, art=Belegart.GUTSCHRIFT, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
@@ -656,16 +685,16 @@ class Position(Zeitstempel):
         return runden(self.menge * self.einzelpreis * (Decimal("100") - self.rabatt_prozent) / 100)
 
     def save(self, *args, **kwargs):
-        if self.beleg.gesperrt:
-            raise BelegGesperrt(f"{self.beleg} ist gesperrt.")
+        if self.beleg.positionen_gesperrt:
+            raise BelegGesperrt(f"{self.beleg} ist abgeschlossen – Positionen lassen sich nicht mehr ändern.")
         if not self.pk and not self.pos:
             letzte = Position.objects.filter(beleg=self.beleg).aggregate(m=models.Max("pos"))["m"] or 0
             self.pos = letzte + 1
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        if self.beleg.gesperrt:
-            raise BelegGesperrt(f"{self.beleg} ist gesperrt.")
+        if self.beleg.positionen_gesperrt:
+            raise BelegGesperrt(f"{self.beleg} ist abgeschlossen – Positionen lassen sich nicht mehr ändern.")
         super().delete(*args, **kwargs)
 
 
@@ -688,6 +717,12 @@ class Abo(Zeitstempel):
     naechster_termin = models.DateField("nächste Rechnung am")
     ende = models.DateField("Ende (optional)", null=True, blank=True)
     aktiv = models.BooleanField(default=True)
+    starttag = models.PositiveSmallIntegerField("Tag im Monat", null=True, blank=True, editable=False,
+                                                help_text="Gewünschter Tag; bei kurzen Monaten wird auf den Monatsletzten gekürzt, ohne dass der Tag wandert.")
+    rabatt_prozent = models.DecimalField("Belegrabatt %", max_digits=5, decimal_places=2, default=Decimal("0"))
+    versandkosten = models.DecimalField("Versandkosten netto", max_digits=12, decimal_places=2, default=Decimal("0"))
+    verpackung = models.DecimalField("Verpackung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
+    versicherung = models.DecimalField("Versicherung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
     zahlungsbedingung = models.ForeignKey(Zahlungsbedingung, on_delete=models.PROTECT, null=True, blank=True)
     vortext = models.TextField("Text vor den Positionen", blank=True)
     schlusstext = models.TextField("Text nach den Positionen", blank=True)
@@ -720,6 +755,8 @@ class Abo(Zeitstempel):
             zahlungsbedingung=self.zahlungsbedingung or self.kunde.zahlungsbedingung,
             rechnungsanschrift=adresse_text(self.kunde, Anschriftart.RECHNUNG),
             versandanschrift=adresse_text(self.kunde, Anschriftart.VERSAND),
+            rabatt_prozent=self.rabatt_prozent, versandkosten=self.versandkosten, verpackung=self.verpackung,
+            versicherung=self.versicherung,
             vortext=self.vortext, schlusstext=self.schlusstext, bemerkung=f"Wiederkehrende Rechnung: {self.bezeichnung}")
         for p in self.positionen.all():
             Position.objects.create(
@@ -727,7 +764,9 @@ class Abo(Zeitstempel):
                 einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent)
         beleg.berechne()
         self.letzter_lauf, self.letzte_rechnung = heute, beleg
-        self.naechster_termin = monate_addieren(self.naechster_termin, self.monate)
+        wunschtag = self.starttag or self.naechster_termin.day
+        weiter = monate_addieren(self.naechster_termin.replace(day=1), self.monate)
+        self.naechster_termin = weiter.replace(day=min(wunschtag, calendar.monthrange(weiter.year, weiter.month)[1]))
         if self.ende and self.naechster_termin > self.ende:
             self.aktiv = False
         self.save()
@@ -751,7 +790,8 @@ class AboPosition(models.Model):
 
 def faellige_abos(heute=None):
     heute = heute or timezone.localdate()
-    return Abo.objects.filter(aktiv=True, naechster_termin__lte=heute).select_related("kunde", "mandant")
+    return Abo.objects.filter(aktiv=True, naechster_termin__lte=heute).filter(
+        models.Q(ende__isnull=True) | models.Q(ende__gte=models.F("naechster_termin"))).select_related("kunde", "mandant")
 
 
 class Versand(Zeitstempel):

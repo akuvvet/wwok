@@ -84,7 +84,7 @@
           <form method="post" action="{% url 'lager:position_sn' p.pk %}">{% csrf_token %}
             <textarea name="seriennummern" rows="3" cols="30">{% for sn in p.seriennummern.all %}{{ sn.nummer }}
 {% endfor %}</textarea><br><button type="submit" class="leise">Speichern</button></form></details>{% endif %}
-        {% if not beleg.gesperrt %}
+        {% if not beleg.positionen_gesperrt %}
         <details><summary style="cursor:pointer;opacity:.8">bearbeiten</summary>
           <form method="post" action="{% url 'verkauf:position_aendern' beleg.pk p.pk %}" class="zeile" style="margin-top:6px">{% csrf_token %}
             <div><label>Menge</label><input name="menge" value="{{ p.menge|floatformat:'-3' }}" size="6"></div>
@@ -96,18 +96,18 @@
         {% endif %}
       </td>
       <td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
-      <td class="zahl">{% if p.gruppe_id %}<span style="opacity:.6">{{ p.einzelpreis }}</span>{% elif p.typ == 'G' and not beleg.gesperrt %}
+      <td class="zahl">{% if p.gruppe_id %}<span style="opacity:.6">{{ p.einzelpreis }}</span>{% elif p.typ == 'G' and not beleg.positionen_gesperrt %}
         <form method="post" action="{% url 'verkauf:gruppenpreis' beleg.pk p.pk %}" style="display:flex;gap:4px;justify-content:flex-end">{% csrf_token %}
           <input name="preis" value="{{ p.einzelpreis }}" size="8" title="Gruppenpreis netto; leer lassen = Summe der Unterpositionen">
           <button type="submit" class="leise" title="Gruppenpreis speichern (leer = Summe der Unterpositionen)">OK</button></form>{% else %}{{ p.einzelpreis }}{% endif %}</td>
       <td class="zahl">{% if not p.gruppe_id and p.rabatt_prozent %}{{ p.rabatt_prozent|floatformat:"-2" }} %{% endif %}</td>
       <td class="zahl">{% if not p.gruppe_id %}{{ p.netto_gesamt }}{% endif %}</td>
-      <td>{% if not beleg.gesperrt %}<form method="post" action="{% url 'verkauf:position_loeschen' beleg.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit" title="Position löschen">×</button></form>{% endif %}</td>
+      <td>{% if not beleg.positionen_gesperrt %}<form method="post" action="{% url 'verkauf:position_loeschen' beleg.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit" title="Position löschen">×</button></form>{% endif %}</td>
     </tr>
     {% empty %}<tr><td colspan="7" style="padding:20px;text-align:center;opacity:.7">Noch keine Positionen – unten einen Artikel suchen und mit Enter übernehmen.</td></tr>{% endfor %}
   </table>
 
-  {% if not beleg.gesperrt %}
+  {% if not beleg.positionen_gesperrt %}
   <form method="post" action="{% url 'verkauf:position_neu' beleg.pk %}" id="positionsform" class="erfassung zeile" autocomplete="off">{% csrf_token %}
     <div><label>Typ</label>
       <select name="typ"><option>A</option><option>P</option><option>L</option><option>G</option></select></div>
@@ -225,7 +225,7 @@
     if (['versand', 'texte'].indexOf(start) >= 0) zeige(start);
   })();
 </script>
-{% if not beleg.gesperrt %}
+{% if not beleg.positionen_gesperrt %}
 <script>
   (function () {
     var feld = document.getElementById('artikel'), box = document.getElementById('trefferliste');

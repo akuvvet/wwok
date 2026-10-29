@@ -13,8 +13,8 @@ class Command(BaseCommand):
         for abo in list(faellige_abos()):
             try:  # je Lauf höchstens eine Rechnung je Vertrag; versäumte Termine holt der nächste Lauf nach
                 beleg = abo.rechnung_erzeugen()
-            except ValueError as fehler:
-                self.stderr.write(str(fehler))
+            except Exception as fehler:  # ein fehlerhaftes Abo darf die übrigen nicht aufhalten
+                self.stderr.write(f"{abo}: {fehler}")
                 continue
             anzahl += 1
             self.stdout.write(f"{abo}: Entwurf für {abo.kunde.name1} angelegt (Beleg {beleg.pk})")

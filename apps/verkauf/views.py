@@ -22,9 +22,12 @@ def dezimal(text, standard=None):
     if not text:
         return standard
     try:
-        return Decimal(text)
+        wert = Decimal(text)
     except InvalidOperation:
         raise ValueError(f"Ungültige Zahl: {text}")
+    if not wert.is_finite():
+        raise ValueError(f"Ungültige Zahl: {text}")
+    return wert
 
 
 def datum_oder_none(text):
@@ -252,6 +255,8 @@ def beleg_kopf(request, beleg_id):
         beleg.versandkosten = dezimal(request.POST.get("versandkosten"), Decimal("0"))
         beleg.verpackung = dezimal(request.POST.get("verpackung"), Decimal("0"))
         beleg.versicherung = dezimal(request.POST.get("versicherung"), Decimal("0"))
+        if min(beleg.versandkosten, beleg.verpackung, beleg.versicherung) < 0:
+            raise ValueError("Versand, Verpackung und Versicherung dürfen nicht negativ sein.")
         beleg.referenz = request.POST.get("referenz", "").strip()[:100]
         beleg.rabatt_prozent = dezimal(request.POST.get("rabatt_prozent"), Decimal("0"))
         if not Decimal("0") <= beleg.rabatt_prozent <= Decimal("100"):
@@ -291,6 +296,10 @@ def position_neu(request, beleg_id):
         raise ValueError(f"Artikel '{nummer}' nicht gefunden.")
     menge = dezimal(request.POST.get("menge"), Decimal("1"))
     rabatt = dezimal(request.POST.get("rabatt"), Decimal("0"))
+    if menge <= 0:
+        raise ValueError("Die Menge muss größer als 0 sein (Rückgaben laufen über die Gutschrift).")
+    if not Decimal("0") <= rabatt <= Decimal("100"):
+        raise ValueError("Der Rabatt muss zwischen 0 und 100 % liegen.")
     if request.POST.get("pl"):  # Artikel aus der Lieferantenpreisliste (Typ P): ohne eigene Artikelanlage verkaufbar
         from apps.stammdaten.models import Steuersatz
         from apps.stammdaten.preise import preislistenpreis
@@ -560,6 +569,11 @@ def beleg_mail(request, beleg_id):
     if not beleg.nummer:
         messages.error(request, "Erst abschließen und nummerieren, dann versenden.")
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    from apps.lager.services import druckhindernis
+    hindernis = druckhindernis(beleg)
+    if hindernis:
+        messages.error(request, hindernis)
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
     an, betreff, text = mail_vorschlag(beleg)
     if request.method != "POST" and beleg.art in ("RE", "GS"):
         from .zugferd import beleg_pdf_mit_xml
@@ -657,14 +671,21 @@ def abo_aus_rechnung(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
     if beleg.art != Belegart.RECHNUNG:
         raise ValueError("Wiederkehrend einrichten geht nur aus einer Rechnung.")
-    monate = int(request.POST.get("monate", "1"))
+    try:
+        monate = int(request.POST.get("monate", "1"))
+    except ValueError:
+        monate = 0
+    if monate not in dict(Abo.INTERVALLE):
+        raise ValueError("Bitte einen gültigen Rhythmus wählen (monatlich, vierteljährlich, halbjährlich oder jährlich).")
     try:
         start = date.fromisoformat(request.POST.get("start", ""))
     except ValueError:
         raise ValueError("Bitte ein gültiges Startdatum angeben.")
     abo = Abo.objects.create(
         mandant=beleg.mandant, kunde=beleg.kunde, bezeichnung=(request.POST.get("bezeichnung") or f"nach {beleg.nummer or 'Rechnung'}")[:100],
-        monate=monate, naechster_termin=start, zahlungsbedingung=beleg.zahlungsbedingung, vortext=beleg.vortext, schlusstext=beleg.schlusstext)
+        monate=monate, naechster_termin=start, starttag=start.day, zahlungsbedingung=beleg.zahlungsbedingung,
+        rabatt_prozent=beleg.rabatt_prozent, versandkosten=beleg.versandkosten, verpackung=beleg.verpackung,
+        versicherung=beleg.versicherung, vortext=beleg.vortext, schlusstext=beleg.schlusstext)
     for p in beleg.positionen.filter(gruppe__isnull=True).order_by("pos", "id"):
         AboPosition.objects.create(abo=abo, artikel=p.artikel, bezeichnung=p.bezeichnung, menge=p.menge, einzelpreis=p.einzelpreis,
                                    rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent)
@@ -701,14 +722,19 @@ def beleg_versand(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
     if request.method == "POST":
         aktion = request.POST.get("aktion")
+        try:
+            gewicht_roh = dezimal(request.POST.get("gewicht"), None)
+        except ValueError as fehler:
+            messages.error(request, str(fehler))
+            return redirect("verkauf:beleg_versand", beleg_id=beleg.pk)
         if aktion == "neu":
-            gewicht = dezimal(request.POST.get("gewicht"), None)
+            gewicht = gewicht_roh
             Versand.objects.create(beleg=beleg, sendungsnummer=request.POST.get("sendungsnummer", "").replace(" ", "")[:40],
                                    gewicht_kg=gewicht)
             messages.success(request, "Versand gespeichert.")
         elif aktion == "dhl":
             from . import dhl
-            gewicht = dezimal(request.POST.get("gewicht"), None)
+            gewicht = gewicht_roh
             v = Versand.objects.create(beleg=beleg, gewicht_kg=gewicht)
             try:
                 dhl.label_erzeugen(v)

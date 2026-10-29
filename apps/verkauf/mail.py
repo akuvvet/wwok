@@ -59,8 +59,12 @@ def vorschlag(beleg):
     """Empfänger, Betreff und Text aus Vorlage (oder Standard) mit eingesetzten Platzhaltern."""
     vorlage = Mailvorlage.objects.filter(mandant=beleg.mandant, art=beleg.art).first()
     werte = platzhalter(beleg)
-    betreff = (vorlage.betreff if vorlage else STANDARD_BETREFF).format_map(_Leer(werte))
-    text = (vorlage.text if vorlage else STANDARD_TEXT).format_map(_Leer(werte))
+    try:
+        betreff = (vorlage.betreff if vorlage else STANDARD_BETREFF).format_map(_Leer(werte))
+        text = (vorlage.text if vorlage else STANDARD_TEXT).format_map(_Leer(werte))
+    except (ValueError, IndexError, KeyError, AttributeError):  # fehlerhafte Klammern in der Mailvorlage
+        betreff = STANDARD_BETREFF.format_map(_Leer(werte))
+        text = STANDARD_TEXT.format_map(_Leer(werte))
     ap = beleg.ansprechpartner
     empfaenger = [(ap.email if ap and ap.email else beleg.kunde.email) or ""]
     if beleg.art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT):
@@ -125,6 +129,10 @@ def beleg_senden(beleg, an: str, betreff: str, text: str, benutzer=None) -> Mail
         raise MailFehler("Entwürfe ohne Belegnummer können nicht versendet werden.")
     if not beleg.positionen.exists():
         raise MailFehler("Ein Beleg ohne Position kann nicht versendet werden.")
+    from apps.lager.services import druckhindernis
+    hindernis = druckhindernis(beleg)
+    if hindernis:
+        raise MailFehler(hindernis)
     from .zugferd import beleg_pdf_mit_xml  # abgeschlossene Rechnungen/Gutschriften gehen als ZUGFeRD-PDF raus
     pdf, _ = beleg_pdf_mit_xml(beleg)
     return senden(beleg, an, betreff, text, pdf, f"{beleg.nummer}.pdf", benutzer)
