@@ -9,4 +9,6 @@ urlpatterns = [
     path("kunde/<int:pk>/bearbeiten/", masken.kunde_bearbeiten, name="kunde_bearbeiten"),
     path("lieferant/neu/", masken.lieferant_bearbeiten, name="lieferant_neu"),
     path("lieferant/<int:pk>/bearbeiten/", masken.lieferant_bearbeiten, name="lieferant_bearbeiten"),
+    path("artikel/neu/", masken.artikel_bearbeiten, name="artikel_neu"),
+    path("artikel/<int:pk>/bearbeiten/", masken.artikel_bearbeiten, name="artikel_bearbeiten"),
 ]

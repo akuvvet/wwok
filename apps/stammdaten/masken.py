@@ -9,7 +9,7 @@ from django.urls import reverse
 from apps.verkauf.views import mit_mandant
 
 from . import forms as f
-from .models import Kunde, KundeMandant, Lieferant, LieferantMandant
+from .models import Artikel, ArtikelMandant, Kunde, KundeMandant, Lieferant, LieferantMandant
 
 
 def naechste_nummer(modell) -> str:
@@ -121,3 +121,29 @@ def kunde_bearbeiten(request, pk=None):
 @mit_mandant
 def lieferant_bearbeiten(request, pk=None):
     return bearbeiten(request, "lieferant", pk)
+
+@mit_mandant
+def artikel_bearbeiten(request, pk=None):
+    """Artikelstamm im Dialog mit Registerkarten; Lagerplatz und Bestandsgrenzen gelten je Mandant."""
+    mandant = request.mandant
+    instanz = get_object_or_404(Artikel, pk=pk) if pk else Artikel(nummer=naechste_nummer(Artikel))
+    daten = request.POST if request.method == "POST" else None
+    form = f.ArtikelForm(daten, instance=instanz)
+    md_instanz = (ArtikelMandant.objects.filter(artikel=instanz, mandant=mandant).first() if pk else None) or ArtikelMandant(mandant=mandant)
+    mandantform = f.ArtikelMandantForm(daten, instance=md_instanz, prefix="md")
+    status = 200
+    if request.method == "POST":
+        if alle_gueltig(form, mandantform):
+            with transaction.atomic():
+                objekt = form.save()
+                md = mandantform.save(commit=False)
+                md.artikel, md.mandant = objekt, mandant
+                md.save()
+            return JsonResponse({"ok": True, "ziel": reverse("lager:artikel", args=[objekt.pk])})
+        status = 422
+    antwort = render(request, "stammdaten/modal.html", {
+        "titel": f"Artikel {instanz.nummer} – {instanz.bezeichnung}" if pk else "Neuer Artikel",
+        "tabs": baue_tabs("artikel", form, [], mandantform), "form": form, "neu": not pk, "warnung": "",
+        "aktion": request.path, "kunde": False, "mandant": mandant})
+    antwort.status_code = status
+    return antwort

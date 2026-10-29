@@ -88,7 +88,14 @@ def artikel_detail(request, artikel_id):
     if artikel.typ == "G":  # Bestand einer Gruppe ergibt sich aus den Komponenten
         from .models import gruppen_verfuegbar
         gruppe = gruppen_verfuegbar(request.mandant, artikel)
+    from apps.einkauf.models import WareneingangPosition
+    from apps.einkauf.services import offen_bestellt
+    letzter_we = WareneingangPosition.objects.filter(
+        artikel=artikel, wareneingang__mandant=request.mandant, wareneingang__gebucht=True
+    ).select_related("wareneingang__lieferant").order_by("-wareneingang__datum", "-id").first()
     return render(request, "lager/artikel.html", {
+        "bestellt": offen_bestellt(request.mandant, artikel), "letzter_we": letzter_we,
+        "lieferanten": artikel.lieferanten.select_related("lieferant").order_by("ek"),
         "gruppe_verfuegbar": gruppe, "komponenten": artikel.komponenten.select_related("komponente") if artikel.typ == "G" else [],
         "artikel": artikel, "daten": daten, "bestand": b, "reserviert": r, "verfuegbar": b - r,
         "bewegungen": Lagerbewegung.objects.filter(mandant=request.mandant, artikel=artikel).select_related("beleg", "benutzer")[:100],

@@ -340,6 +340,12 @@ class Artikel(Zeitstempel):
     gewicht_kg = models.DecimalField("Gewicht (kg)", max_digits=9, decimal_places=3, null=True, blank=True)
     garantie_monate = models.PositiveSmallIntegerField("Garantie (Monate)", null=True, blank=True)
     nicht_aktiv = models.BooleanField("nicht aktiv", default=False)
+    mengeneinheit = models.CharField("Mengeneinheit", max_length=20, default="Stück")
+    eol_datum = models.DateField("EOL-Datum (Auslauf)", null=True, blank=True)
+    nachfolger = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="vorgaenger",
+                                   verbose_name="Nachfolger (ersetzen durch)")
+    sperrgut = models.BooleanField("Sperrgut", default=False)
+    zolltarifnummer = models.CharField("Zolltarifnummer", max_length=20, blank=True)
     esd_key = models.BooleanField("ESD-Key-Artikel (Lizenzschlüssel)", default=False,
                                   help_text="Beim Verkauf wird automatisch ein Key aus dem Key-Bestand zugeordnet.")
     steuersatz = models.ForeignKey(Steuersatz, on_delete=models.PROTECT)
@@ -381,6 +387,7 @@ class ArtikelMandant(Zeitstempel):
     letzter_ek_datum = models.DateField("letzter EK am", null=True, blank=True)
     lagerplatz = models.CharField("Lagerplatz (Regal/Fach)", max_length=40, blank=True)
     mindestbestand = models.PositiveIntegerField("Mindestbestand", null=True, blank=True)
+    maximalbestand = models.PositiveIntegerField("Maximalbestand", null=True, blank=True)
 
     class Meta:
         verbose_name = "Artikeldaten pro Mandant"
