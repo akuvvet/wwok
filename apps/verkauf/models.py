@@ -11,6 +11,7 @@ from decimal import ROUND_HALF_UP, ROUND_UP, Decimal
 from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
+from django.utils.functional import cached_property
 
 from apps.kern.models import Mandant, Zeitstempel
 from apps.stammdaten.models import Ansprechpartner, Artikel, Artikeltyp, Kunde, Zahlungsbedingung
@@ -161,6 +162,20 @@ class Beleg(Zeitstempel):
     def positionen_gesperrt(self) -> bool:
         """Positionen sind nach Abschluss fest: bei Rechnung/Gutschrift (GoBD) und bei Lieferschein/Nachlieferschein (Lagerbuchung)."""
         return self.abgeschlossen and (self.art in GESPERRT_NACH_ABSCHLUSS or self.art in (Belegart.LIEFERSCHEIN, Belegart.NACHLIEFERSCHEIN))
+
+    @cached_property
+    def hat_versand(self) -> bool:
+        """Gibt es zum Beleg eine Sendung (Label/Etikett)? Listen setzen den Wert vorab für alle Zeilen (versand_markieren)."""
+        return self.versendungen.exists()
+
+    @staticmethod
+    def versand_markieren(belege):
+        """Setzt hat_versand für eine ganze Liste mit einer Abfrage (statt einer je Zeile)."""
+        belege = list(belege)
+        mit = set(Versand.objects.filter(beleg__in=belege).values_list("beleg_id", flat=True))
+        for b in belege:
+            b.hat_versand = b.pk in mit
+        return belege
 
     def loeschhindernis(self):
         """Grund, warum der Beleg nicht gelöscht werden darf (None = löschbar).

@@ -45,3 +45,17 @@ class VersandAnzeigeTest(TestCase):
         for liste in (reverse("verkauf:belege"), reverse("verkauf:kunde", args=[self.kunde.pk])):
             inhalt = self.client.get(liste).content.decode()
             self.assertEqual(inhalt.count('title="Versandlabel vorhanden"'), 1, liste)  # nur LS-1, nicht LS-2
+
+    def test_symbol_auf_startseite_und_in_offenen_posten(self):
+        entwurf = Beleg.objects.create(mandant=self.m, art=Belegart.LIEFERSCHEIN, kunde=self.kunde)  # offen = Startseite
+        Position.objects.create(beleg=entwurf, bezeichnung="Dienst", einzelpreis=Decimal("1"))
+        Versand.objects.create(beleg=entwurf, sendungsnummer="1")
+        inhalt = self.client.get(reverse("verkauf:start")).content.decode()
+        self.assertEqual(inhalt.count('title="Versandlabel vorhanden"'), 1)
+        rechnung = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde)
+        Position.objects.create(beleg=rechnung, bezeichnung="Dienst", einzelpreis=Decimal("10"))
+        rechnung.abschliessen()
+        Versand.objects.create(beleg=rechnung, sendungsnummer="2")
+        inhalt = self.client.get(reverse("finanzen:offene_posten")).content.decode()
+        self.assertEqual(inhalt.count('title="Versandlabel vorhanden"'), 1)
+        self.assertIs(Beleg.objects.get(pk=self.ohne.pk).hat_versand, False)  # einzeln abgefragt

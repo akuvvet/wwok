@@ -93,8 +93,8 @@ def start(request):
             return redirect("verkauf:kunde", kunde_id=treffer[0].pk)
     offene = None
     if mandant and treffer is None:  # ohne Suche: die offenen (nicht abgeschlossenen) Belege zum Weiterbearbeiten
-        offene = list(Beleg.objects.filter(mandant=mandant, abgeschlossen=False, positionen__isnull=False).distinct().select_related("kunde")
-                      .order_by("-belegdatum", "-id")[:100])
+        offene = Beleg.versand_markieren(Beleg.objects.filter(mandant=mandant, abgeschlossen=False, positionen__isnull=False)
+                                         .distinct().select_related("kunde").order_by("-belegdatum", "-id")[:100])
     wiedervorlagen = mahnungen_faellig = None
     if mandant:
         from apps.finanzen.services import mahnvorschlag
@@ -139,9 +139,8 @@ def kunde_detail(request, kunde_id):
     parameter.pop("seite", None)
     seite = Paginator(belege, 25).get_page(request.GET.get("seite"))
     zeilen = []
-    mit_versand = set(Versand.objects.filter(beleg__in=list(seite.object_list)).values_list("beleg_id", flat=True))
+    seite.object_list = Beleg.versand_markieren(seite.object_list)
     for b in seite.object_list:
-        b.hat_versand = b.pk in mit_versand
         rechnung = b.art == Belegart.RECHNUNG and b.abgeschlossen
         zeilen.append({
             "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None,
@@ -890,9 +889,7 @@ def belege(request):
     parameter = request.GET.copy()
     parameter.pop("seite", None)
     seite = Paginator(liste.order_by("-belegdatum", "-id"), 50).get_page(request.GET.get("seite"))
-    mit_versand = set(Versand.objects.filter(beleg__in=list(seite.object_list)).values_list("beleg_id", flat=True))
-    for b in seite.object_list:
-        b.hat_versand = b.pk in mit_versand
+    seite.object_list = Beleg.versand_markieren(seite.object_list)
     return render(request, "verkauf/belege.html", {
         "seite": seite, "q": q, "art": art, "status": status, "von": zeitraum["von"], "bis": zeitraum["bis"],
         "arten": Belegart.choices, "parameter": parameter.urlencode(), "anzahl": seite.paginator.count})

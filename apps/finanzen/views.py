@@ -54,6 +54,7 @@ def offene_posten(request):
         zeilen = [z for z in zeilen if z["ueberfaellig"] > 0]
     summe = sum((z["offen"] for z in zeilen), Decimal("0"))
     ueberfaellig = sum((z["offen"] for z in zeilen if z["ueberfaellig"] > 0), Decimal("0"))
+    Beleg.versand_markieren(z["beleg"] for z in zeilen)  # Versand-Symbol in der Liste
     return render(request, "finanzen/offene_posten.html", {
         "zeilen": zeilen, "summe": summe, "ueberfaellig": ueberfaellig, "kunde": kunde,
         "nur": request.GET.get("nur", "")})
