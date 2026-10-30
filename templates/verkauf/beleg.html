@@ -84,6 +84,7 @@
         {% if p.gruppe_id %}<span style="padding-left:18px">↳ </span>{% endif %}
         {% if p.artikelnummer %}<span style="opacity:.7">{{ p.artikelnummer }}</span> {% endif %}{% if p.preisliste_artikel %}<span class="marke" title="Artikel aus der Preisliste des Lieferanten">{{ p.preisliste_artikel.lieferant.kurz }}</span> {% if beleg.art == 'AB' or beleg.art == 'LS' or beleg.art == 'RE' %}<span class="marke gesperrt" title="Preislistenartikel: gilt nur als Angebot, bis der Artikel im Lager ist">Angebot</span> {% endif %}{% endif %}{% if p.typ == 'G' and not p.gruppe_id %}<strong>{{ p.bezeichnung }}</strong>{% else %}{{ p.bezeichnung }}{% endif %}
         {% if p.zusatztext %}<br><small style="opacity:.75;white-space:pre-line">{{ p.zusatztext }}</small>{% endif %}
+        {% if p.letzter %}<br><small style="opacity:.75" title="Netto je Stück nach Rabatten, aus der letzten Rechnung an diesen Kunden">Zuletzt bezahlt: <strong>{{ p.letzter.preis }} €</strong> am {{ p.letzter.datum|date:"d.m.Y" }} (<a href="{% url 'verkauf:beleg' p.letzter.beleg_id %}">{{ p.letzter.nummer }}</a>)</small>{% endif %}
         {% if p.lieferschein and not p.gruppe_id %}<br><small style="opacity:.75">Lieferschein {{ p.lieferschein.nummer }} vom {{ p.lieferschein.belegdatum|date:"d.m.Y" }}</small>{% endif %}
         {% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
         {% if p.artikel and p.artikel.typ == 'A' and beleg.art == 'LS' or p.artikel and p.artikel.typ == 'A' and beleg.art == 'RE' %}
@@ -261,7 +262,7 @@
       var t = liste[i]; if (!t) return;
       feld.value = t.nummer; preis.value = t.preis; typ.value = t.typ; document.getElementById('pl').value = t.pl || '';
       aktuellerEk = t.ek === undefined ? '' : t.ek; ekErfassung();
-      info.textContent = t.bezeichnung + (t.letzter ? ' · letzter Preis dieses Kunden: ' + t.letzter.preis + ' € am ' + t.letzter.datum : '');
+      info.textContent = t.bezeichnung + (t.letzter ? ' · zuletzt bezahlt: ' + t.letzter.preis + ' € netto am ' + t.letzter.datum + ' (' + t.letzter.nummer + ')' : '');
       liste = []; aktiv = -1; zeige();
       document.querySelector('#positionsform input[name=menge]').focus(); document.querySelector('#positionsform input[name=menge]').select();
     }

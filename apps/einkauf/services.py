@@ -52,7 +52,7 @@ def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None
             raise ValueError(f"{preisliste_artikel.nummer} gehört zur Preisliste von {preisliste_artikel.lieferant.name1}, "
                              f"nicht zu {bestellung.lieferant.name1}.")
         pos = bestellung.positionen.filter(preisliste_artikel=preisliste_artikel, artikel__isnull=True, geliefert=0).first()
-        if pos:
+        if pos and (ek is None or pos.ek == ek):
             pos.menge += menge
             pos.save()
             return pos
@@ -61,7 +61,7 @@ def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None
             bezeichnung=preisliste_artikel.bezeichnung[:255], menge=menge, ek=ek if ek is not None else preisliste_artikel.ek)
     vorschlag, bestellnr = ek_vorschlag(bestellung.mandant, bestellung.lieferant, artikel)
     pos = bestellung.positionen.filter(artikel=artikel, geliefert=0).first()
-    if pos:  # gleicher Artikel: Menge addieren
+    if pos and (ek is None or pos.ek == ek):  # gleicher Artikel zum gleichen Preis: Menge addieren, sonst eigene Zeile
         pos.menge += menge
         pos.save()
         return pos

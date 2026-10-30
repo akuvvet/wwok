@@ -44,15 +44,15 @@ class KundeForm(forms.ModelForm):
 class LieferantForm(forms.ModelForm):
     TABS = [
         ("grund", "Grunddaten", ["nummer", "kurzname"] + PARTNER_ADRESSE),
-        ("konditionen", "Konditionen & Hinweis", ["zahlungsbedingung", "mindestbestellwert", "versandkostenfrei_ab", "lieferzeit_tage",
-                                                  "gesperrt", "hinweis"]),
+        ("konditionen", "Konditionen & Hinweis", ["zahlungsbedingung", "mindestbestellwert", "versandkosten", "versandkostenfrei_ab",
+                                                  "lieferzeit_tage", "gesperrt", "hinweis"]),
         ("bank", "Steuer & Bank", PARTNER_BANK),
     ]
 
     class Meta:
         model = Lieferant
         fields = (["nummer", "kurzname"] + PARTNER_ADRESSE
-                  + ["zahlungsbedingung", "mindestbestellwert", "versandkostenfrei_ab", "lieferzeit_tage", "gesperrt", "hinweis"]
+                  + ["zahlungsbedingung", "mindestbestellwert", "versandkosten", "versandkostenfrei_ab", "lieferzeit_tage", "gesperrt", "hinweis"]
                   + PARTNER_BANK)
 
     def __init__(self, *args, **kwargs):

@@ -160,6 +160,7 @@
 <a class="knopf {% if un == 'rechnungen' or un == 'rechnung' %}{% else %}leise{% endif %}" href="{% url 'einkauf:rechnungen' %}"><svg class="ic"><use href="#i-rechnung"/></svg><span>Lieferantenrechnungen</span></a>
 <a class="knopf {% if un == 'preislisten' or un == 'preisliste' %}{% else %}leise{% endif %}" href="{% url 'einkauf:preislisten' %}"><svg class="ic"><use href="#i-preis"/></svg><span>Preislisten &amp; EK-Import</span></a>
 <a class="knopf {% if un == 'preislistenartikel' %}{% else %}leise{% endif %}" href="{% url 'einkauf:preislistenartikel' %}"><svg class="ic"><use href="#i-suche"/></svg><span>Preislistenartikel</span></a>
+<a class="knopf {% if un == 'preisvergleich' %}{% else %}leise{% endif %}" href="{% url 'einkauf:preisvergleich' %}"><svg class="ic"><use href="#i-liste"/></svg><span>Lieferantenvergleich</span></a>
 <a class="knopf {% if un == 'bestpreise' %}{% else %}leise{% endif %}" href="{% url 'einkauf:bestpreise' %}"><svg class="ic"><use href="#i-bestpreis"/></svg><span>Günstigster EK</span></a>
 <a class="knopf {% if un == 'rma_liste' or un == 'rma' %}{% else %}leise{% endif %}" href="{% url 'einkauf:rma_liste' %}"><svg class="ic"><use href="#i-rma"/></svg><span>RMA</span></a>
 <a class="knopf {% if un == 'lieferanten' %}{% else %}leise{% endif %}" href="{% url 'einkauf:lieferanten' %}"><svg class="ic"><use href="#i-lieferanten"/></svg><span>Lieferanten</span></a>

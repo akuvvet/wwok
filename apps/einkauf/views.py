@@ -15,7 +15,7 @@ from apps.verkauf.models import Beleg
 from apps.verkauf.views import mit_mandant
 from apps.werkstatt.models import Reparatur
 
-from . import erechnung, sepa, services
+from . import erechnung, sepa, services, vergleich
 from .models import (BestellPosition, BestellStatus, Bestellung, Bestpreisplan, Lieferantenrechnung, Rma, RmaStatus, RechnungStatus,
                      Wareneingang, WareneingangPosition)
 from .pdf import bestellung_pdf
@@ -96,9 +96,109 @@ def bestellung_holen(request, bestellung_id):
 @mit_mandant
 def bestellung_detail(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
+    positionen = list(b.positionen.select_related("artikel", "preisliste_artikel"))
+    entwurf = b.status == BestellStatus.ENTWURF
+    for p in positionen:
+        p.bestellung = b
+        p.alternative = vergleich.alternative(p) if entwurf and not p.geliefert else None
+    netto, konditionen = b.summe_netto, []
+    if entwurf and positionen:
+        l = b.lieferant
+        if l.mindestbestellwert and netto < l.mindestbestellwert:
+            konditionen.append(f"Mindestbestellwert {vergleich.eur(l.mindestbestellwert)} € – es fehlen {vergleich.eur(l.mindestbestellwert - netto)} €.")
+        if l.versandkostenfrei_ab and netto < l.versandkostenfrei_ab:
+            konditionen.append(f"Versandkostenfrei ab {vergleich.eur(l.versandkostenfrei_ab)} € – es fehlen {vergleich.eur(l.versandkostenfrei_ab - netto)} €.")
+        if vergleich.versand(l, netto):
+            konditionen.append(f"Versandkosten: {vergleich.eur(vergleich.versand(l, netto))} €.")
     return render(request, "einkauf/bestellung.html", {
-        "b": b, "positionen": b.positionen.select_related("artikel"), "netto": b.summe_netto,
+        "b": b, "positionen": positionen, "netto": netto, "konditionen": konditionen,
         "wareneingaenge": b.wareneingaenge.all(), "aus_beleg": b.aus_beleg})
+
+
+def vergleich_menge(text):
+    """Menge für den Vergleich: gültig für das Mengenfeld der Bestellung, sonst ValueError."""
+    menge = zahl(text, Decimal("1"))
+    if not Decimal("0.001") <= menge <= Decimal("9999999"):
+        raise ValueError("Die Menge muss zwischen 0,001 und 9.999.999 liegen.")
+    return menge.quantize(Decimal("0.001"))
+
+
+def vergleich_entwurf(request, daten):
+    """Die Bestellung, aus der heraus verglichen wird: ihr Entwurf hat beim eigenen Lieferanten Vorrang."""
+    nummer = daten.get("bestellung", "")
+    return Bestellung.objects.filter(pk=nummer, mandant=request.mandant).first() if nummer.isdigit() else None
+
+
+def vergleich_produkt(request, daten):
+    """(Artikel, Preislisteneintrag) aus den Angaben 'artikel' (Nummer) und 'pl' (Eintrag)."""
+    pl = daten.get("pl", "")
+    if pl.isdigit():
+        eintrag = Preislistenartikel.objects.select_related("artikel").filter(pk=pl).first()
+        if eintrag:
+            return (eintrag.artikel, None) if eintrag.artikel_id else (None, eintrag)
+    nummer = daten.get("artikel", "").strip()
+    return (Artikel.objects.filter(nummer__iexact=nummer).first() if nummer else None), None
+
+
+@mit_mandant
+def preisvergleich(request):
+    """Produkt suchen, Lieferanten vergleichen und selbst entscheiden. Mit ?teil=1 nur die Tabelle (für die Bestellmaske)."""
+    try:
+        menge = vergleich_menge(request.GET.get("menge"))
+    except ValueError:
+        menge = Decimal("1")
+    q = request.GET.get("q", "").strip()
+    position_id = request.GET.get("position", "")
+    position = BestellPosition.objects.filter(pk=position_id if position_id.isdigit() else None, bestellung__mandant=request.mandant,
+                                              bestellung__status=BestellStatus.ENTWURF, geliefert=0) \
+        .select_related("artikel", "preisliste_artikel__artikel", "bestellung").first()
+    if position:
+        menge, artikel = position.menge, position.artikel or (position.preisliste_artikel.artikel if position.preisliste_artikel_id else None)
+        eintrag = None if artikel else position.preisliste_artikel
+    elif q:  # neue Suche ersetzt das bisher gewählte Produkt
+        artikel, eintrag = None, None
+    else:
+        artikel, eintrag = vergleich_produkt(request, request.GET)
+    produkt = artikel or eintrag
+    aktuelle = vergleich_entwurf(request, request.GET)
+    kontext = {"artikel": artikel, "eintrag": eintrag, "produkt": produkt, "menge": menge, "position": position, "aktuelle": aktuelle,
+               "zeilen": vergleich.vergleich(request.mandant, menge, artikel, eintrag, position, aktuelle) if produkt else []}
+    if request.GET.get("teil"):
+        return render(request, "einkauf/vergleich_tabelle.html", kontext)
+    treffer, eintraege = [], []
+    if len(q) >= 2 and not produkt:
+        treffer = Artikel.objects.filter(nicht_aktiv=False, typ="A")
+        eintraege = Preislistenartikel.objects.filter(artikel__isnull=True).select_related("lieferant")
+        for wort in q.split():
+            treffer = treffer.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
+                                     | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+            eintraege = eintraege.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
+                                         | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))
+        treffer, eintraege = treffer.order_by("nummer")[:20], eintraege.order_by("bezeichnung")[:20]
+    return render(request, "einkauf/vergleich.html", {**kontext, "q": q, "treffer": treffer, "eintraege": eintraege})
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:preisvergleich")
+def preisvergleich_bestellen(request):
+    """Gewähltes Angebot in den Entwurf des Lieferanten legen; mit 'position' wird eine Entwurfsposition dorthin verschoben."""
+    position = None
+    if request.POST.get("position", "").isdigit():
+        position = get_object_or_404(BestellPosition.objects.select_related("artikel", "preisliste_artikel__artikel"),
+                                     pk=request.POST["position"], bestellung__mandant=request.mandant)
+        artikel = position.artikel or (position.preisliste_artikel.artikel if position.preisliste_artikel_id else None)
+        eintrag, menge = None if artikel else position.preisliste_artikel, position.menge
+    else:
+        artikel, eintrag = vergleich_produkt(request, request.POST)
+        menge = vergleich_menge(request.POST.get("menge"))
+    if not (artikel or eintrag):
+        raise ValueError("Bitte zuerst ein Produkt wählen.")
+    lieferant = request.POST.get("lieferant", "")
+    ziel = vergleich.bestellen(request.mandant, int(lieferant) if lieferant.isdigit() else 0, menge, artikel, eintrag, position,
+                               vergleich_entwurf(request, request.POST))
+    messages.success(request, f"{'Verschoben nach' if position else 'Aufgenommen in'} Bestellung {ziel.nummer} ({ziel.lieferant.kurz}).")
+    return redirect("einkauf:bestellung", bestellung_id=ziel.pk)
 
 
 @mit_mandant

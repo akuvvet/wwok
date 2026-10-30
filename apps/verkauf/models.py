@@ -840,6 +840,44 @@ def faellige_abos(heute=None):
         models.Q(ende__isnull=True) | models.Q(ende__gte=models.F("naechster_termin"))).select_related("kunde", "mandant")
 
 
+def letzte_preise(mandant, kunde, artikel_ids=(), preisliste_ids=(), ohne_beleg=None) -> dict:
+    """Was der Kunde zuletzt bezahlt hat: Netto-Stückpreis nach Positions- und Belegrabatt aus der jüngsten abgeschlossenen
+    Rechnung. Gutgeschrieben gilt als nicht bezahlt: je Artikel die gutgeschriebene Menge, außerdem Rechnungen, deren
+    Gutschriften zusammen den Betrag erreichen. Schlüssel ("a", artikel_id) bzw. ("p", preislistenartikel_id)."""
+    artikel_ids, preisliste_ids = [i for i in artikel_ids if i], [i for i in preisliste_ids if i]
+    if not artikel_ids and not preisliste_ids:
+        return {}
+    gutschriften = Beleg.objects.filter(mandant=mandant, kunde=kunde, art=Belegart.GUTSCHRIFT, abgeschlossen=True, vorgaenger__isnull=False)
+    summen, zurueck = {}, {}
+    for rechnung, brutto in gutschriften.values_list("vorgaenger_id", "summe_brutto"):
+        summen[rechnung] = summen.get(rechnung, Decimal("0")) + brutto
+    for rechnung, art_id, pl_id, menge in Position.objects.filter(beleg__in=gutschriften, menge__gt=0).values_list(
+            "beleg__vorgaenger_id", "artikel_id", "preisliste_artikel_id", "menge"):
+        ziel = (rechnung, ("a", art_id) if art_id else ("p", pl_id))
+        zurueck[ziel] = zurueck.get(ziel, Decimal("0")) + menge
+    zeilen = Position.objects.filter(
+        models.Q(artikel_id__in=artikel_ids) | models.Q(preisliste_artikel_id__in=preisliste_ids, artikel__isnull=True),
+        beleg__mandant=mandant, beleg__kunde=kunde, beleg__art=Belegart.RECHNUNG, beleg__abgeschlossen=True,
+        gruppe__isnull=True, menge__gt=0).select_related("beleg")
+    if ohne_beleg:
+        zeilen = zeilen.exclude(beleg_id=ohne_beleg)
+    ergebnis = {}
+    for p in zeilen.order_by("-beleg__belegdatum", "-beleg_id", "-id"):
+        schluessel = ("a", p.artikel_id) if p.artikel_id else ("p", p.preisliste_artikel_id)
+        if p.beleg_id in summen and summen[p.beleg_id] >= p.beleg.summe_brutto - Decimal("0.01"):
+            continue  # Rechnung vollständig gutgeschrieben
+        rest = zurueck.get((p.beleg_id, schluessel), Decimal("0"))
+        if rest > 0:  # Menge dieser Zeile zurückgegeben; nur ein Rest gilt weiter als bezahlt
+            zurueck[(p.beleg_id, schluessel)] = rest - p.menge
+            if rest >= p.menge:
+                continue
+        if schluessel not in ergebnis:
+            faktor = (100 - p.rabatt_prozent) * (100 - p.beleg.rabatt_prozent) / 10000
+            ergebnis[schluessel] = {"preis": (p.einzelpreis * faktor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                                    "datum": p.beleg.belegdatum, "nummer": p.beleg.nummer, "beleg_id": p.beleg_id}
+    return ergebnis
+
+
 class Briefprodukt(models.Model):
     """Brief-Produkt der Deutschen Post für die INTERNETMARKE (Produktcode aus der Produkt-/Preisliste, Porto in Euro).
     Bei einer Portoerhöhung hier den Preis anpassen – die Post lehnt sonst den Kauf ab."""

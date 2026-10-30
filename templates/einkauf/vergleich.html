@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block titel %}Lieferantenvergleich – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% if position %}{% url 'einkauf:bestellung' position.bestellung_id %}{% else %}{% url 'einkauf:bestellungen' %}{% endif %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Lieferantenvergleich</h1>
+  {% if position %}<p>Position aus Bestellung <a href="{% url 'einkauf:bestellung' position.bestellung_id %}">{{ position.bestellung.nummer }}</a></p>
+  {% else %}
+  <form method="get" class="zeile" autocomplete="off">
+    {% if artikel %}<input type="hidden" name="artikel" value="{{ artikel.nummer }}">{% elif eintrag %}<input type="hidden" name="pl" value="{{ eintrag.pk }}">{% endif %}
+    <div><label for="q">Produkt suchen (mehrere Wörter, beliebige Reihenfolge)</label><input id="q" name="q" value="{{ q }}" size="40" autofocus></div>
+    <div><label for="menge">Menge</label><input id="menge" name="menge" value="{{ menge|floatformat:'-3' }}" size="5"></div>
+    <button type="submit">Suchen</button>
+  </form>
+  {% endif %}
+  {% if treffer or eintraege %}
+  <div class="scroll"><table style="margin-top:12px">
+    <thead><tr><th>Nummer</th><th>Bezeichnung</th><th>Quelle</th></tr></thead>
+    <tbody>{% for a in treffer %}<tr><td><a href="?artikel={{ a.nummer|urlencode }}&amp;menge={{ menge|floatformat:'-3' }}">{{ a.nummer }}</a></td><td>{{ a.bezeichnung }}</td><td>eigener Artikel</td></tr>{% endfor %}
+    {% for e in eintraege %}<tr><td><a href="?pl={{ e.pk }}&amp;menge={{ menge|floatformat:'-3' }}">{{ e.nummer }}</a></td><td>{{ e.bezeichnung }}</td><td>Preisliste {{ e.lieferant.kurz }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% elif q and not produkt %}<p>Nichts gefunden.</p>{% endif %}
+  {% include "einkauf/vergleich_tabelle.html" %}
+</div>
+{% endblock %}

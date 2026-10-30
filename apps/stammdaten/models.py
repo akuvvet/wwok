@@ -282,6 +282,7 @@ class Lieferant(Partner):
     kurzname = models.CharField("Kurzname", max_length=30, blank=True,
                                 help_text="Steht in Suchlisten neben den Preislistenartikeln, z. B. API, Kosatec, Ingram.")
     mindestbestellwert = models.DecimalField("Mindestbestellwert netto", null=True, blank=True, **GELD)
+    versandkosten = models.DecimalField("Versandkosten netto je Bestellung", null=True, blank=True, **GELD)
     versandkostenfrei_ab = models.DecimalField("versandkostenfrei ab netto", null=True, blank=True, **GELD)
     lieferzeit_tage = models.PositiveSmallIntegerField("Lieferzeit (Tage)", null=True, blank=True)
 

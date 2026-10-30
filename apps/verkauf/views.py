@@ -16,7 +16,8 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Position, Versand, Versandart, Wiedervorlage
+from .models import (Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Position, Versand, Versandart, Wiedervorlage,
+                     letzte_preise)
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
 from .pdf import beleg_pdf
@@ -197,7 +198,10 @@ def beleg_detail(request, beleg_id):
     from apps.lager.models import bestand, reserviert
     beleg = beleg_holen(request, beleg_id)
     positionen = list(beleg.positionen.select_related("artikel", "preisliste_artikel__lieferant"))
+    letzte = {} if beleg.art == Belegart.GUTSCHRIFT else letzte_preise(
+        beleg.mandant, beleg.kunde, [p.artikel_id for p in positionen], [p.preisliste_artikel_id for p in positionen], ohne_beleg=beleg.pk)
     for p in positionen:  # Warnung, wenn der verfügbare Bestand nicht reicht
+        p.letzter = None if p.gruppe_id else letzte.get(("a", p.artikel_id) if p.artikel_id else ("p", p.preisliste_artikel_id))
         p.knapp = None
         if p.artikel_id and p.artikel.typ == "A" and not beleg.abgeschlossen and beleg.art in ("AB", "LS", "RE"):
             frei = bestand(beleg.mandant, p.artikel) - reserviert(beleg.mandant, p.artikel)
@@ -624,13 +628,14 @@ def api_artikel(request):
     artikel = artikel.select_related("steuersatz").order_by("nummer")[:(60 if alle else 20)]
     preisliste = list(pl.order_by("bezeichnung")[:(60 if alle else 15)])
     treffer = []
+    artikel = list(artikel)
+    letzte = letzte_preise(request.mandant, kunde, [a.pk for a in artikel], [e.pk for e in preisliste]) if kunde else {}
+
+    def letzter(schluessel):
+        z = letzte.get(schluessel)
+        return {"preis": f"{z['preis']:.2f}".replace(".", ","), "datum": z["datum"].strftime("%d.%m.%Y"), "nummer": z["nummer"]} if z else None
+
     for a in artikel:
-        letzte = None
-        if kunde:
-            p = Position.objects.filter(artikel=a, beleg__kunde=kunde, beleg__mandant=request.mandant) \
-                .select_related("beleg").order_by("-beleg__belegdatum", "-id").first()
-            if p:
-                letzte = {"preis": str(p.einzelpreis), "datum": p.beleg.belegdatum.strftime("%d.%m.%Y")}
         from apps.stammdaten.preise import verkaufspreis
         preis, quelle = verkaufspreis(a, kunde)
         frei = None
@@ -644,12 +649,14 @@ def api_artikel(request):
         ek = a.ek_errechnet
         treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "typ": a.typ, "verfuegbar": frei,
                         "ek": str(ek) if ek is not None else "",
-                        "preis": str(preis) if preis is not None else "", "sonderpreis": quelle == "sonderpreis", "letzter": letzte})
+                        "preis": str(preis) if preis is not None else "", "sonderpreis": quelle == "sonderpreis",
+                        "letzter": letzter(("a", a.pk))})
     from apps.stammdaten.preise import preislistenpreis
     for e in preisliste:  # Lieferantenartikel (Typ P) mit Kurzname des Lieferanten
         preis = preislistenpreis(e, kunde)
         treffer.append({"nummer": e.nummer, "bezeichnung": e.bezeichnung, "typ": "P", "verfuegbar": None, "sonderpreis": False,
-                        "preis": str(preis) if preis is not None else "", "letzter": None, "pl": e.pk, "ek": str(e.ek), "lieferant": e.lieferant.kurz,
+                        "preis": str(preis) if preis is not None else "", "letzter": letzter(("p", e.pk)), "pl": e.pk, "ek": str(e.ek),
+                        "lieferant": e.lieferant.kurz,
                         "lieferant_bestand": e.bestand})
     return JsonResponse({"treffer": treffer})
 
