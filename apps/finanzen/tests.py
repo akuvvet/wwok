@@ -81,6 +81,22 @@ class FinanzenTest(TestCase):
         self.assertEqual((len(zeilen), saldo), (2, Decimal("69.00")))
         self.assertEqual(services.kunde_offen(self.m, self.kunde), Decimal("69.00"))
 
+    def test_kreditwarnung_steht_neben_dem_limit(self):
+        from apps.stammdaten.models import KundeMandant
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+        md = KundeMandant.objects.create(kunde=self.kunde, mandant=self.m, kreditlimit=Decimal("100"))
+        self.rechnung()
+        html = self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk])).content.decode()
+        self.assertNotIn('class="warnung">Kreditlimit', html)
+        self.assertLess(html.index("Kreditlimit 100"), html.index("Überschritten 119"))
+        self.assertLess(html.index("Überschritten 119"), html.index("Offene Posten"))
+        md.kreditlimit = Decimal("500")
+        md.save()
+        self.assertNotContains(self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk])), "Überschritten")
+
     def test_masken(self):
         user = get_user_model().objects.create_user("t", password="x" * 14)
         self.client.force_login(user)

@@ -4,7 +4,6 @@
 {% block inhalt %}
 <a href="{% url 'verkauf:start' %}" data-escape style="display:none">zurück</a>
 {% if kunde.gesperrt %}<div class="warnung">Kunde ist gesperrt – keine neuen Belege.</div>{% endif %}
-{% if limit_ueberschritten %}<div class="warnung">Kreditlimit überschritten: offen {{ offen|floatformat:2 }} € bei Limit {{ kreditlimit }} €.</div>{% endif %}
 {% if kunde.hinweis %}<div class="warnung">{{ kunde.hinweis|linebreaksbr }}</div>{% endif %}
 <div class="karte kundenkopf">
   <div class="kk-titel">
@@ -36,7 +35,7 @@
     <div style="margin-top:4px">Tel. {{ kunde.telefon|default:"–" }}<br>{{ kunde.email|default:"–" }}</div>
     </div>
     <div>Preisstufe VK{{ kunde.preisstufe }}<br>Zahlung: {{ kunde.zahlungsbedingung|default:"–" }}
-      {% if kreditlimit %}<br>Kreditlimit {{ kreditlimit }} €{% endif %}
+      {% if kreditlimit %}<br>Kreditlimit {{ kreditlimit }} €{% if limit_ueberschritten %}&ensp;<span class="gefahr-text">Überschritten {{ offen|floatformat:2 }} €</span>{% endif %}{% endif %}
       <div class="kk-zeile">Offene Posten: <a href="{% url 'finanzen:offene_posten' %}?kunde={{ kunde.pk }}">{{ offen|floatformat:2 }} €</a>
         <a class="symbol" data-tip="Kontoauszug" aria-label="Kontoauszug" href="{% url 'finanzen:kontoauszug' kunde.pk %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6H6zm7 1.5L18.5 9H13V3.5zM8 13h8v1.6H8V13zm0 3.4h8V18H8v-1.6zM8 9.6h3.5v1.6H8V9.6z"/></svg></a></div></div>
