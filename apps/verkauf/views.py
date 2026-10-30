@@ -291,6 +291,12 @@ def gruppenpreis_erhoehen(gruppe, betrag):
         gruppe.einzelpreis = neu
 
 
+def steuer_passt_zur_gruppe(steuer, gruppe):
+    """Versteuert wird nur der Gruppenkopf; eine Unterposition mit anderem Satz ergäbe eine falsche Umsatzsteuer."""
+    if steuer != gruppe.steuer_prozent:
+        raise ValueError("Position und Gruppe haben unterschiedliche Steuersätze – die Position gehört nicht in diese Gruppe.")
+
+
 @transaction.atomic
 def gruppe_wechseln(p, ziel, alter_betrag):
     """Position nachträglich in eine Gruppe verschieben, in eine andere oder heraus; ziel=None = eigene Position. Der Belegwert
@@ -300,8 +306,7 @@ def gruppe_wechseln(p, ziel, alter_betrag):
     if ziel:
         if not (p.artikel_id or p.preisliste_artikel_id):
             raise ValueError("Unterpositionen brauchen einen Artikel.")
-        if p.steuer_prozent != ziel.steuer_prozent:  # versteuert wird nur der Gruppenkopf
-            raise ValueError("Position und Gruppe haben unterschiedliche Steuersätze – die Position lässt sich nicht verschieben.")
+        steuer_passt_zur_gruppe(p.steuer_prozent, ziel)
         if p.lieferschein_id != ziel.lieferschein_id:  # der Vermerk zum Lieferschein erscheint nur an der Gruppe
             raise ValueError("Position und Gruppe stammen aus unterschiedlichen Lieferscheinen – die Position lässt sich nicht verschieben.")
     if (alt and alt.rabatt_prozent) or (ziel and ziel.rabatt_prozent):
@@ -354,9 +359,12 @@ def position_neu(request, beleg_id):
         if preis is None:
             raise ValueError("Für Preislistenartikel ist noch kein Aufschlag hinterlegt (Verwaltung → Globale Preisvorgabe) – bitte den Preis eintragen.")
         standard = Steuersatz.objects.filter(nummer=1).first()
+        steuer_pl = standard.prozent if standard else Decimal("19")
+        if gruppe_pl:
+            steuer_passt_zur_gruppe(steuer_pl, gruppe_pl)
         neue_teil = Position.objects.create(
             beleg=beleg, gruppe=gruppe_pl, typ="P", preisliste_artikel=eintrag, bezeichnung=(request.POST.get("bezeichnung", "").strip() or eintrag.bezeichnung)[:255],
-            menge=menge, einzelpreis=preis, rabatt_prozent=rabatt, steuer_prozent=standard.prozent if standard else Decimal("19"))
+            menge=menge, einzelpreis=preis, rabatt_prozent=rabatt, steuer_prozent=steuer_pl)
         if gruppe_pl:
             gruppenpreis_erhoehen(gruppe_pl, menge * preis)
         beleg.berechne()
@@ -389,6 +397,7 @@ def position_neu(request, beleg_id):
             kopf.save()
     elif gruppe or typ == "G" and not artikel:  # Unterposition bzw. frei benannte Gruppe
         if gruppe:
+            steuer_passt_zur_gruppe(steuer, gruppe)
             if preis is None:
                 preis = vorschlag_preis(artikel, beleg.kunde) or Decimal("0")
             Position.objects.create(beleg=beleg, gruppe=gruppe, typ=artikel.typ, artikel=artikel, bezeichnung=bezeichnung,

@@ -655,6 +655,17 @@ class PositionInGruppeVerschiebenTest(TestCase):
         p = self.position(steuer_prozent=Decimal("7"))
         self.bleibt(p, str(self.gruppe().pk))
 
+    def test_eingabezeile_sperrt_fremden_steuersatz(self):
+        kopf = self.gruppe()
+        ermaessigt = Steuersatz.objects.create(bezeichnung="7", prozent=Decimal("7"))
+        Artikel.objects.create(nummer="B1", bezeichnung="Buch", steuersatz=ermaessigt, vk1=Decimal("20"))
+        url = reverse("verkauf:position_neu", args=[self.beleg.pk])
+        r = self.client.post(url, {"typ": "A", "artikel": "B1", "menge": "1", "gruppe": str(kopf.pk)}, follow=True)
+        self.assertContains(r, "unterschiedliche Steuersätze")
+        self.assertFalse(kopf.unterpositionen.exists())
+        self.client.post(url, {"typ": "A", "artikel": "A1", "menge": "1", "gruppe": str(kopf.pk)})
+        self.assertEqual(kopf.unterpositionen.count(), 1)
+
     def test_gruppe_mit_rabatt_wird_abgelehnt(self):
         kopf = self.gruppe(rabatt_prozent=Decimal("10"))
         self.bleibt(self.position(), str(kopf.pk))
