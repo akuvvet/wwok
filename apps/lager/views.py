@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.kern.models import Mandant
-from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie
+from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie, keine_leistung
 from apps.verkauf.views import mit_mandant
 
 from apps.verkauf.models import Beleg, Position
@@ -113,6 +113,7 @@ def artikel_detail(request, artikel_id):
 def buchen(request, artikel_id):
     artikel = get_object_or_404(Artikel, pk=artikel_id)
     try:
+        keine_leistung(artikel)
         menge = zahl(request.POST.get("menge"))
         if menge is None:
             raise ValueError("Menge fehlt.")
@@ -139,6 +140,7 @@ def buchen(request, artikel_id):
 def inventur_buchen(request, artikel_id):
     artikel = get_object_or_404(Artikel, pk=artikel_id)
     try:
+        keine_leistung(artikel)
         gezaehlt = zahl(request.POST.get("gezaehlt"))
         if gezaehlt is None or gezaehlt < 0:
             raise ValueError("Gezählter Bestand fehlt.")
@@ -154,6 +156,11 @@ def inventur_buchen(request, artikel_id):
 def stamm(request, artikel_id):
     """Lagerplatz und Mindestbestand pro Mandant."""
     artikel = get_object_or_404(Artikel, pk=artikel_id)
+    try:
+        keine_leistung(artikel)
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+        return redirect("lager:artikel", artikel_id=artikel.pk)
     daten, _ = ArtikelMandant.objects.get_or_create(artikel=artikel, mandant=request.mandant)
     daten.lagerplatz = request.POST.get("lagerplatz", "").strip()[:40]
     mindest = request.POST.get("mindestbestand", "").strip()
@@ -168,6 +175,7 @@ def stamm(request, artikel_id):
 def umbuchung(request, artikel_id):
     artikel = get_object_or_404(Artikel, pk=artikel_id)
     try:
+        keine_leistung(artikel)
         ziel = get_object_or_404(Mandant, pk=request.POST.get("nach"), aktiv=True)
         umbuchen(request.mandant, ziel, artikel, zahl(request.POST.get("menge"), Decimal("0")), request.user)
         messages.success(request, f"Nach {ziel.kurzname} umgebucht.")

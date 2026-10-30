@@ -10,7 +10,7 @@ from apps.lager.models import Bewegungsart, Lagerbewegung, bestand, reserviert
 from apps.esd.models import ESDKey
 from apps.esd.services import zeilen as esd_zeilen
 from apps.lager.services import seriennummern_einlagern, zeilen
-from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel
+from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel, keine_leistung
 from apps.verkauf.models import Belegart, Nummernkreis, Position
 
 from .models import (BestellPosition, BestellStatus, Bestellung, Lieferantenrechnung, Rma, RmaStatus,
@@ -53,6 +53,8 @@ def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None
     ek = ek_runden(ek)
     if artikel is None and preisliste_artikel is not None and preisliste_artikel.artikel_id:
         artikel = preisliste_artikel.artikel  # zu dem Eintrag gibt es schon einen eigenen Artikel
+    if artikel is not None:
+        keine_leistung(artikel)
     if artikel is None:
         if preisliste_artikel is None:
             raise ValueError("Artikel fehlt.")
@@ -240,6 +242,7 @@ def wareneingang_erfassen(we, artikel, menge=Decimal("1"), ek=None, seriennummer
     """Zeile zum Wareneingang; derselbe Artikel (ohne Seriennummern) erhöht die vorhandene Zeile (Scan +1)."""
     if we.gebucht:
         raise ValueError("Der Wareneingang ist bereits gebucht.")
+    keine_leistung(artikel)
     if menge is None or not menge.is_finite() or menge <= 0:
         raise ValueError("Die Menge muss größer als 0 sein.")
     if ek is not None and (not ek.is_finite() or ek < 0):
@@ -264,6 +267,8 @@ def wareneingang_aus_bestellung(we):
         if bp.artikel_id is None and bp.preisliste_artikel_id:  # Preislistenartikel wird zum eigenen Artikel
             bp.artikel = artikel_aus_preisliste(bp.preisliste_artikel)
             bp.save(update_fields=["artikel"])
+        if bp.artikel.typ == "L":  # Leistungen kommen nicht ins Lager
+            continue
         if bp.offen > 0 and not we.positionen.filter(bestellposition=bp).exists():
             WareneingangPosition.objects.create(wareneingang=we, bestellposition=bp, artikel=bp.artikel, menge=bp.offen, ek=bp.ek)
 
@@ -278,6 +283,7 @@ def wareneingang_buchen(we, benutzer=None) -> int:
     if not positionen:
         raise ValueError("Keine Positionen erfasst.")
     for p in positionen:  # vorab prüfen, damit nichts halb gebucht wird
+        keine_leistung(p.artikel)
         if p.menge <= 0 or p.ek < 0:
             raise ValueError(f"{p.artikel.nummer}: Menge muss größer als 0 und der EK darf nicht negativ sein.")
         sn = zeilen(p.seriennummern)

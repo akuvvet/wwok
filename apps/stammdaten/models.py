@@ -352,6 +352,13 @@ class Artikel(Zeitstempel):
     steuersatz = models.ForeignKey(Steuersatz, on_delete=models.PROTECT)
     # Preise (netto). Leer = aus Aufschlag berechnet.
     durchschnitts_ek = models.DecimalField("Durchschnitts-EK", null=True, blank=True, editable=False, **EK_GELD)
+    def save(self, *args, **kwargs):
+        if self.typ == Artikeltyp.L:  # Leistung: keine Maße, kein Gewicht, kein Versand, nicht im Shop
+            self.laenge_cm = self.breite_cm = self.hoehe_cm = self.gewicht_kg = None
+            self.sperrgut, self.esd_key, self.online = False, False, False
+            self.zolltarifnummer = ""
+        super().save(*args, **kwargs)
+
     @property
     def ek_errechnet(self):
         return _ek_quelle(self)[0]
@@ -430,6 +437,12 @@ class ArtikelLieferant(Zeitstempel):
 
     def __str__(self):
         return f"{self.lieferant.name1}: {self.bestellnummer}"
+
+
+def keine_leistung(artikel):
+    """Leistungen (Typ L) sind keine Ware: kein Lager, keine Bestellung, kein Wareneingang."""
+    if artikel.typ == Artikeltyp.L:
+        raise ValueError(f"{artikel.nummer} ist eine Leistung – dafür gibt es weder Lagerbestand noch Bestellung oder Wareneingang.")
 
 
 def _ek_quelle(artikel):

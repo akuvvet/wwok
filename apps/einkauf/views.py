@@ -237,7 +237,7 @@ def api_bestellartikel(request, bestellung_id):
     q = request.GET.get("q", "").strip()
     if len(q) < 2:
         return JsonResponse({"treffer": []})
-    artikel = Artikel.objects.filter(nicht_aktiv=False, typ__in=["A", "L"])
+    artikel = Artikel.objects.filter(nicht_aktiv=False, typ="A")
     eintraege = Preislistenartikel.objects.filter(lieferant=b.lieferant, artikel__isnull=True)
     for wort in q.split():
         artikel = artikel.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)

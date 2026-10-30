@@ -7,6 +7,18 @@
     <a class="knopf leise" style="font-size:14px;margin-left:12px" data-modal="{% url 'stammdaten:artikel_bearbeiten' artikel.pk %}" href="/verwaltung/stammdaten/artikel/{{ artikel.pk }}/change/">Bearbeiten</a></h1>
   {% if artikel.nicht_aktiv %}<p class="warnung">Artikel ist nicht aktiv.</p>{% endif %}
   {% if artikel.eol_datum %}<p class="warnung">Auslauf (EOL) ab {{ artikel.eol_datum|date:"d.m.Y" }}{% if artikel.nachfolger %} – Nachfolger: <a href="{% url 'lager:artikel' artikel.nachfolger.pk %}">{{ artikel.nachfolger.nummer }}</a>{% endif %}.</p>{% endif %}
+  {% if artikel.typ == 'L' %}
+  <p><span class="marke">Leistung</span> ohne Lager, Bestellung und Wareneingang</p>
+  <div class="raster">
+    <div>VK1 netto<br><strong style="font-size:22px">{{ artikel.vk1|floatformat:2 }} €</strong></div>
+    <div>VK2 netto<br><strong>{{ artikel.vk2|floatformat:2 }} €</strong></div>
+    <div>VK3 netto<br><strong>{{ artikel.vk3|floatformat:2 }} €</strong></div>
+    <div>Steuersatz<br>{{ artikel.steuersatz.prozent|floatformat:"-2" }} %</div>
+    <div>Einheit<br>{{ artikel.mengeneinheit }}</div>
+    <div>Kategorie<br>{{ artikel.kategorie|default:"–" }}</div>
+  </div>
+</div>
+{% else %}
   <div class="raster">
     <div>Bestand<br><strong style="font-size:22px">{{ bestand|floatformat:"-3" }}</strong></div>
     <div>reserviert (offene Aufträge)<br><strong style="font-size:22px">{{ reserviert|floatformat:"-3" }}</strong></div>
@@ -83,4 +95,5 @@
     {% empty %}<tr><td colspan="6">Noch keine Bewegungen.</td></tr>{% endfor %}
   </table>
 </div>
+{% endif %}
 {% endblock %}
