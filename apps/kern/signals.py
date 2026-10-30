@@ -8,7 +8,7 @@ import json
 from .middleware import aktueller_benutzer
 
 PROTOKOLLIERTE_APPS = {"kern", "stammdaten", "verkauf", "lager", "finanzen", "werkstatt", "einkauf", "esd", "shop"}
-AUSGENOMMEN = {"AenderungsProtokoll"}
+AUSGENOMMEN = {"AenderungsProtokoll", "BelegArbeitsstand"}  # der Arbeitsstand ist nur eine Kopie der Positionen
 
 
 def _relevant(sender) -> bool:

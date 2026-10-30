@@ -5,10 +5,13 @@ Belege und Nummernkreise sind pro Mandant getrennt. Abgeschlossene Rechnungen un
 Gutschriften sind gesperrt (GoBD); Korrektur nur per Storno/Gutschrift.
 """
 import calendar
+import json
+import logging
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, ROUND_UP, Decimal
 
 from django.conf import settings
+from django.core import serializers
 from django.db import models, transaction
 from django.utils import timezone
 from django.utils.functional import cached_property
@@ -16,7 +19,11 @@ from django.utils.functional import cached_property
 from apps.kern.models import Mandant, Zeitstempel
 from apps.stammdaten.models import Ansprechpartner, Artikel, Artikeltyp, Kunde, Zahlungsbedingung
 
+logger = logging.getLogger(__name__)
+
 CENT = Decimal("0.01")
+STAND_OFFEN = "Der Beleg hat nicht gespeicherte Änderungen – bitte zuerst speichern oder verwerfen."
+ARBEITSSTAND_STUNDEN = 8  # so lange bleiben nicht gespeicherte Positionsänderungen stehen, etwa nach einem geschlossenen Browser
 
 
 def runden(wert: Decimal) -> Decimal:
@@ -248,8 +255,11 @@ class Beleg(Zeitstempel):
     def leere_entwuerfe_entfernen(cls, mandant, kunde=None, minuten=2):
         """Belege ohne Position werden nicht aufbewahrt: leere, nicht abgeschlossene Entwürfe, die älter als ein paar Minuten
         sind und an denen nichts hängt, werden gelöscht; ihre Nummer wird wieder frei, wenn sie die letzte vergebene war."""
+        for stand in BelegArbeitsstand.objects.filter(beleg__mandant=mandant, geaendert_am__lt=timezone.now() - timedelta(hours=ARBEITSSTAND_STUNDEN)):
+            stand.beleg.arbeitsstand_ablaufen()
         grenze = timezone.now() - timedelta(minutes=minuten)
-        kandidaten = cls.objects.filter(mandant=mandant, abgeschlossen=False, angelegt_am__lt=grenze, positionen__isnull=True)
+        kandidaten = cls.objects.filter(mandant=mandant, abgeschlossen=False, angelegt_am__lt=grenze, positionen__isnull=True,
+                                        arbeitsstand__isnull=True)
         if kunde is not None:
             kandidaten = kandidaten.filter(kunde=kunde)
         anzahl = 0
@@ -263,6 +273,85 @@ class Beleg(Zeitstempel):
                 Nummernkreis.freigeben(mandant, art, nummer)
             anzahl += 1
         return anzahl
+
+    def arbeitsstand_sichern(self, benutzer) -> bool:
+        """Merkt sich vor der ersten Positionsänderung den gespeicherten Stand, damit „Verwerfen“ ihn zurückholen kann.
+        True, wenn der Stand mit diesem Aufruf angelegt wurde."""
+        if self.positionen_gesperrt:
+            return False
+        if BelegArbeitsstand.objects.filter(beleg=self).update(geaendert_am=timezone.now()):
+            return False
+        return BelegArbeitsstand.objects.get_or_create(beleg=self, defaults={"benutzer": benutzer, "daten": json.dumps({
+            "positionen": serializers.serialize("json", self.positionen.all()),
+            "seriennummern": list(self.positionen.filter(seriennummern__isnull=False).values_list("pk", "seriennummern")),
+            "esd": list(self.positionen.filter(esd_vergaben__isnull=False).values_list("pk", "esd_vergaben")),
+            "folgepositionen": list(Position.objects.filter(quellposition__beleg=self).values_list("quellposition", "pk"))})})[1]
+
+    def arbeitsstand_beenden(self) -> bool:
+        """Die Änderungen gelten: Speichern, Abschließen oder Weiterführen des Belegs. True, wenn es offene Änderungen gab."""
+        return BelegArbeitsstand.objects.filter(beleg=self).delete()[0] > 0
+
+    @property
+    def hat_offenen_stand(self) -> bool:
+        return BelegArbeitsstand.objects.filter(beleg=self).exists()
+
+    def stand_pruefen(self):
+        """Mail, Versand, Bestellung, Seriennummern und ESD-Keys arbeiten nie mit ungespeicherten Positionen."""
+        if self.hat_offenen_stand:
+            raise ValueError(STAND_OFFEN)
+
+    def arbeitsstand_ablaufen(self) -> bool:
+        """Alter Stand: Änderungen verwerfen. Ein neuer Beleg hatte noch keinen gespeicherten Stand, seine Positionen bleiben.
+        Ein Stand, der sich nicht mehr lesen lässt, darf keine Seite blockieren. True, wenn verworfen wurde."""
+        stand = BelegArbeitsstand.objects.filter(beleg=self).first()
+        if not stand:
+            return False
+        try:
+            if not json.loads(json.loads(stand.daten)["positionen"]):
+                stand.delete()
+                return False
+            self.arbeitsstand_verwerfen()
+            return True
+        except Exception:
+            logger.exception("Arbeitsstand von Beleg %s ließ sich nicht verwerfen", self.pk)
+            return False
+
+    @transaction.atomic
+    def arbeitsstand_verwerfen(self) -> bool:
+        """Holt die Positionen des gespeicherten Stands zurück, mit denselben Schlüsseln, Seriennummern, ESD-Vergaben und
+        Verweisen aus Folgebelegen. True, wenn es offene Änderungen gab."""
+        from apps.esd.models import ESDVergabe
+        from apps.lager.models import Seriennummer
+        from apps.stammdaten.models import Preislistenartikel
+        stand = BelegArbeitsstand.objects.select_for_update().filter(beleg=self).first()
+        if not stand:
+            return False
+        if self.positionen_gesperrt:
+            stand.delete()
+            return True
+        daten = json.loads(stand.daten)
+        alt = sorted(serializers.deserialize("json", daten["positionen"], ignorenonexistent=True),
+                     key=lambda eintrag: eintrag.object.gruppe_id is not None)
+        Position.objects.filter(beleg=self).update(gruppe=None)  # sonst nähme eine neue Gruppe ihre alten Unterpositionen mit
+        Position.objects.filter(beleg=self).exclude(pk__in=[e.object.pk for e in alt]).delete()
+        for eintrag in alt:
+            for feld in Position._meta.concrete_fields:  # Bezüge können inzwischen fehlen, etwa nach einem Preislistenabruf
+                wert = getattr(eintrag.object, feld.attname)
+                if feld.is_relation and wert and not feld.related_model.objects.filter(pk=wert).exists():
+                    setattr(eintrag.object, feld.attname, None)
+            p = eintrag.object
+            if p.preisliste_artikel_id and not p.artikel_id:  # inzwischen eingetroffen: bleibt Typ A (Wareneingang)
+                artikel_id = Preislistenartikel.objects.filter(pk=p.preisliste_artikel_id).values_list("artikel_id", flat=True).first()
+                if artikel_id:
+                    p.artikel_id, p.typ, p.preisliste_artikel_id = artikel_id, "A", None
+            eintrag.save()
+        for modell, feld, paare in ((Seriennummer, "position", daten["seriennummern"]), (ESDVergabe, "position", daten["esd"]),
+                                    (Position, "quellposition", daten["folgepositionen"])):
+            for position, pk in paare:  # nur, was seit dem Löschen frei ist, also an keinem anderen Beleg hängt
+                modell.objects.filter(pk=pk, **{feld + "__isnull": True}).update(**{feld + "_id": position})
+        stand.delete()
+        self.berechne()
+        return True
 
     def ek_und_marge(self):
         """(EK netto, Marge in % vom Netto-VK, unvollständig) für die interne Anzeige; None bei Belegarten ohne Anzeige.
@@ -408,6 +497,7 @@ class Beleg(Zeitstempel):
     def abschliessen(self):
         if self.abgeschlossen:
             return
+        self.arbeitsstand_beenden()
         # Zeile sperren und Zustand neu lesen: Doppelklick/zweiter Tab darf keine zweite Nummer vergeben
         if Beleg.objects.select_for_update().values_list("abgeschlossen", flat=True).get(pk=self.pk):
             self.refresh_from_db()
@@ -454,6 +544,7 @@ class Beleg(Zeitstempel):
 
     @transaction.atomic
     def folgebeleg_erzeugen(self) -> "Beleg":
+        self.arbeitsstand_beenden()
         art = self.folgeart
         if not art:
             raise ValueError("Für diese Belegart gibt es keinen Folgebeleg.")
@@ -486,6 +577,7 @@ class Beleg(Zeitstempel):
         lieferbar, knapp = teilung(self)
         if not lieferbar or not knapp:
             raise ValueError("Eine Teillieferung ist nur möglich, wenn ein Teil der Positionen lieferbar ist und ein Teil nicht.")
+        self.arbeitsstand_beenden()
         neu = Beleg.objects.create(
             mandant=self.mandant, art=self.art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
@@ -507,6 +599,7 @@ class Beleg(Zeitstempel):
     def kopieren_als(self, art, urbeleg_abschliessen=False) -> "Beleg":
         """Beliebigen Beleg als neuen Entwurf der gewünschten Belegart kopieren (Gutschrift nur über Storno).
         Optional wird der Ursprungsbeleg danach abgeschlossen (erledigt)."""
+        self.arbeitsstand_beenden()
         if art not in Belegart.values or art == Belegart.GUTSCHRIFT:
             raise ValueError("Diese Belegart kann nicht als Kopie angelegt werden.")
         if art == Belegart.LIEFERSCHEIN and self.art != Belegart.AUFTRAG:
@@ -745,6 +838,24 @@ class Position(Zeitstempel):
         if self.beleg.positionen_gesperrt:
             raise BelegGesperrt(f"{self.beleg} ist abgeschlossen – Positionen lassen sich nicht mehr ändern.")
         super().delete(*args, **kwargs)
+
+
+class BelegArbeitsstand(models.Model):
+    """Gespeicherter Stand der Positionen, solange ein Beleg nicht gespeicherte Änderungen hat. Die Änderungen selbst stehen
+    schon an den Positionen; erst „Speichern“ macht sie endgültig, „Verwerfen“ stellt diesen Stand wieder her."""
+    beleg = models.OneToOneField(Beleg, on_delete=models.CASCADE, related_name="arbeitsstand")
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    daten = models.TextField("Positionen vor der Änderung (JSON)")
+    angelegt_am = models.DateTimeField(auto_now_add=True)
+    geaendert_am = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Arbeitsstand eines Belegs"
+        verbose_name_plural = "Arbeitsstände von Belegen"
+
+    @property
+    def abgelaufen(self) -> bool:
+        return self.geaendert_am < timezone.now() - timedelta(hours=ARBEITSSTAND_STUNDEN)
 
 
 def monate_addieren(tag: date, monate: int) -> date:

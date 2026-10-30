@@ -134,6 +134,9 @@
   .meldung { padding:8px 12px; border-radius:6px; margin-bottom:12px; border:1px solid var(--rand); background:var(--karte); }
   .meldung.error, .meldung.warning { border-color:var(--warn); color:var(--warn); } .meldung.success { border-color:var(--ok); color:var(--ok); }
   .warnung { border:1px solid var(--warn); color:var(--warn); padding:8px 12px; border-radius:6px; margin-bottom:12px; }
+  .kreditwarnung { margin:8px 0 0; max-width:300px; font-size:13px; text-align:left; }
+  .arbeitsstand { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .arbeitsstand span { flex:1 1 240px; } .arbeitsstand form { margin:0; }
   .raster { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
   label { display:block; font-size:13px; opacity:.8; margin-bottom:2px; }
   .zeile { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
@@ -258,7 +261,7 @@
   document.addEventListener('keydown', function (e) {
     if (document.querySelector('dialog[open]')) return;  // Escape schließt nur den Dialog
     var ziel = document.querySelector('[data-escape]');
-    if (e.key === 'Escape' && ziel) { window.location = ziel.getAttribute('href'); }
+    if (e.key === 'Escape' && ziel) ziel.click();
   });
 </script>
 <script>

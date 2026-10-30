@@ -5,7 +5,6 @@
 {% block inhalt %}
 <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}" data-escape style="display:none">zurück</a>
 {% if beleg.p_hinweis %}<div class="warnung">{{ beleg.p_hinweis }}</div>{% endif %}
-{% if kredit_warnung %}<div class="warnung">Kreditlimit würde überschritten: offen {{ kunde_offen|floatformat:2 }} € + dieser Beleg {{ beleg.summe_brutto|floatformat:2 }} € &gt; Limit {{ kreditlimit }} €.</div>{% endif %}
 
 <div class="karte kopfkarte">
   <div>
@@ -34,12 +33,21 @@
     <div style="opacity:.7">Brutto</div>
     <div class="betrag">{{ beleg.summe_brutto|floatformat:2 }} €</div>
     <div style="opacity:.7">netto {{ beleg.summe_netto|floatformat:2 }} €</div>
+    {% if kredit_warnung %}<div class="warnung kreditwarnung">Kreditlimit würde überschritten: offen {{ kunde_offen|floatformat:2 }} € + dieser Beleg {{ beleg.summe_brutto|floatformat:2 }} € &gt; Limit {{ kreditlimit }} €.</div>{% endif %}
   </div>
 </div>
 
+{% if arbeitsstand %}
+<div class="warnung arbeitsstand" id="arbeitsstand" data-bleibt>
+  <span>Nicht gespeicherte Änderungen{% if arbeitsstand.benutzer and arbeitsstand.benutzer != user %} von {{ arbeitsstand.benutzer }}{% endif %}: Sie gelten erst nach dem Speichern.</span>
+  <form method="post" action="{% url 'verkauf:beleg_speichern' beleg.pk %}" id="standspeichern">{% csrf_token %}<button type="submit">Speichern</button></form>
+  <form method="post" action="{% url 'verkauf:beleg_verwerfen' beleg.pk %}" id="standverwerfen" data-frage="Änderungen verwerfen und den gespeicherten Stand wiederherstellen?">{% csrf_token %}<button type="submit" class="leise">Verwerfen</button></form>
+</div>
+{% endif %}
+
 <div class="aktionen">
   {% if not beleg.abgeschlossen %}
-  <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" id="abschlussform" data-text="Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}">{% csrf_token %}<input type="hidden" name="danach" value=""><button type="submit" class="symbol voll" data-tip="Speichern: abschließen &amp; Nummer vergeben" aria-label="Speichern: abschließen und Nummer vergeben"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10v4z"/></svg></button></form>
+  <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" id="abschlussform" data-bleibt data-text="Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}">{% csrf_token %}<input type="hidden" name="danach" value=""><button type="submit" class="symbol voll" data-tip="Speichern: abschließen &amp; Nummer vergeben" aria-label="Speichern: abschließen und Nummer vergeben"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10v4z"/></svg></button></form>
   {% endif %}
   {% if druckhindernis %}<a class="symbol" href="#" onclick="wwokMeldung('{{ druckhindernis|escapejs }}');return false" data-tip="PDF – Druck nicht möglich" aria-label="PDF – Druck nicht möglich" style="opacity:.55"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14a2 2 0 0 0 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg></a>
   {% else %}<a class="symbol" data-tip="PDF" aria-label="PDF" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank" onclick="setTimeout(function(){location.href='{% url 'verkauf:kunde' beleg.kunde_id %}'},600)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14a2 2 0 0 0 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg></a>{% endif %}
@@ -146,7 +154,7 @@
   </table>
 </div>
 
-<form method="post" action="{% url 'verkauf:beleg_kopf' beleg.pk %}">{% csrf_token %}
+<form method="post" action="{% url 'verkauf:beleg_kopf' beleg.pk %}" data-bleibt>{% csrf_token %}
 <div class="karte tabinhalt" id="tab-versand" hidden>
   <div class="raster">
     <div><label>Zahlungsbedingung</label>
@@ -211,6 +219,45 @@
     document.addEventListener('toggle', function (e) { if (e.target.open) markieren(e); }, true);
   })();
 </script>
+{% if arbeitsstand and arbeitsstand.benutzer == user %}<script>
+  // Nicht gespeicherte Änderungen: Wer den Beleg verlässt, entscheidet vorher über Speichern oder Verwerfen
+  (function () {
+    var durchlassen = false;
+    function entscheiden(weiter) {
+      wwokDialog('Dieser Beleg hat nicht gespeicherte Änderungen.', [
+        {text: 'Speichern', wert: 'standspeichern', haupt: true}, {text: 'Verwerfen', wert: 'standverwerfen'}, {text: 'Abbrechen', wert: null}
+      ]).then(function (id) {
+        if (!id) return;
+        var f = document.getElementById(id);
+        fetch(f.action, {method: 'POST', body: new FormData(f), credentials: 'same-origin', headers: {'X-Wwok-Stand': '1'}}).then(function (antwort) {
+          if (!antwort.ok || antwort.redirected) throw new Error();  // Weiterleitung = Fehlermeldung oder abgelaufene Anmeldung
+          durchlassen = true;
+          weiter();
+        }).catch(function () { wwokMeldung('Das hat nicht geklappt. Bitte die Seite neu laden und erneut versuchen.'); });
+      });
+    }
+    window.addEventListener('click', function (e) {
+      var a = e.target.closest && e.target.closest('a[href]');
+      if (durchlassen || !a || a.getAttribute('href').charAt(0) === '#' || a.getAttribute('href').indexOf('javascript:') === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      entscheiden(function () { a.click(); if (a.target) location.reload(); });
+    }, true);
+    window.addEventListener('submit', function (e) {
+      var f = e.target, weiterknopf = e.submitter;
+      if (durchlassen || f.closest('[data-bleibt]') || f.closest('#tab-positionen')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      entscheiden(function () {  // folgt noch eine Rückfrage, könnte sie abgebrochen werden: dann stimmt die Seite nicht mehr
+        if (f.dataset.frage || f.classList.contains('kopieren')) location.reload(); else f.requestSubmit(weiterknopf);
+      });
+    }, true);
+    var absenden = HTMLFormElement.prototype.submit, gesendet = false;  // Dialoge senden nach der Rückfrage per submit()
+    HTMLFormElement.prototype.submit = function () { gesendet = true; absenden.call(this); };
+    window.addEventListener('submit', function (e) { if (!e.defaultPrevented) gesendet = true; });
+    window.addEventListener('beforeunload', function (e) { if (!durchlassen && !gesendet) { e.preventDefault(); e.returnValue = ''; } });
+  })();
+</script>{% endif %}
 <script>
   // Abschließen: Rückfrage im Modal mit Auswahl, was danach passieren soll
   (function () {

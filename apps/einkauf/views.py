@@ -378,6 +378,7 @@ def bestellung_mail(request, bestellung_id):
 def bestellung_aus_beleg(request, beleg_id):
     beleg = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
     try:
+        beleg.stand_pruefen()
         liste = services.bestellungen_aus_beleg(beleg)
     except ValueError as fehler:
         messages.error(request, str(fehler))

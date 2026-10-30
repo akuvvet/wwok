@@ -203,6 +203,7 @@ def position_seriennummern(request, position_id):
     try:
         if not position.artikel_id:
             raise ValueError("Nur bei Artikelpositionen.")
+        position.beleg.stand_pruefen()
         seriennummern_zuordnen(position, request.POST.get("seriennummern", ""))
         messages.success(request, "Seriennummern gespeichert.")
     except ValueError as fehler:

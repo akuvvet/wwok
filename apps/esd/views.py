@@ -130,6 +130,7 @@ def zuordnen(request, beleg_id):
     b = beleg_holen(request, beleg_id)
     position = get_object_or_404(Position, pk=request.POST.get("position"), beleg=b)
     try:
+        b.stand_pruefen()
         anzahl = int(request.POST.get("anzahl") or 1)
         vergaben = services.zuordnen(position, anzahl, bool(request.POST.get("doppelt")), request.POST.get("bemerkung", ""), request.user)
         messages.success(request, f"{len(vergaben)} Key(s) zugeordnet.")

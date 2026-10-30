@@ -831,6 +831,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Stammdaten Kunde, Lieferant, Artikel laut Feldlisten; Importe aus den Mention-Tabellen (Abschnitt 19)
 - [x] Eigene Masken: Kundensuche, Kundenkarte, Belegmaske, Dialog für Kunden/Lieferanten mit Registerkarten
 - [x] Verkaufsabwicklung: Belegfluss, Gruppen (G), Sammelrechnung, Teillieferung, Kopieren, Gutschrift, PDF, Mailversand
+- [x] Beleg: Positionsänderungen erst nach „Speichern“ gültig, sonst verwerfbar; Kreditlimit-Warnung in der Kopfkarte unter Netto
 - [x] Position nachträglich in eine Gruppe verschieben (Position → „bearbeiten“ → Gruppe), auch in eine andere oder heraus; abgelehnt, wenn sich dadurch Belegwert oder Steuer ändern würden (Steuersatz, Rabatt der Gruppe, nicht centgenauer Rabatt, anderer Lieferschein, negativer Gruppenpreis)
 - [x] Einkauf: Bestellungen, Wareneingang, Lieferantenrechnungen, RMA, Bestellvorschlag, SEPA-Export, Preislisten-Import (Typ P als eigene Tabelle)
 - [x] Lager: Bestand je Mandant, Bewegungen, Inventur, Seriennummern, Bestandsregel (nie unter 0)
@@ -895,6 +896,7 @@ Diese Regeln sind mit dem Nutzer abgestimmt und im Code umgesetzt. Änderungen n
 | Löschen | Angebot, Auftrag und noch nicht nummerierte Rechnungs-/Gutschriftentwürfe dürfen gelöscht werden, sofern keine Folgebelege, Mails, Zahlungen oder Lagerbuchungen daran hängen; Lieferscheine und abgeschlossene Rechnungen nicht |
 | Sammelrechnung | die Auswahl „Ausgewählte Lieferscheine in Rechnung umwandeln“ erscheint nur bei **mindestens zwei** offenen Lieferscheinen; das Lieferscheindatum steht bei der Position |
 | ESD-Keys | nur für Artikel der Kategorie **Software** |
+| Positionsänderungen | Hinzufügen, Ändern und Löschen von Positionen sind vorläufig, bis „Speichern“ sie übernimmt; „Verwerfen“ stellt den gespeicherten Stand wieder her. Beim Verlassen des Belegs fragt ein Modal, Abschließen und Weiterführen übernehmen die Änderungen. Solange Änderungen offen sind, sperrt das Programm Mailversand, Versandlabel, Lieferantenbestellung, Seriennummern und ESD-Keys. Nach 8 Stunden ohne Änderung werden offene Änderungen verworfen; bei einem neuen Beleg ohne gespeicherten Stand bleiben die Positionen stehen |
 | Positionsnummern | lückenlos 1, 2, 3 …, nach Löschen automatisch neu vergeben; Gruppen-Unterpositionen tragen die Nummer ihrer Gruppe |
 | Gruppe (Typ G) | Komponenten pflegt man in der Artikelmaske (Reiter „Komponenten“, auch beim Neuanlegen): Lagerartikel und Leistungen, keine Gruppen. EK der Gruppe = Summe der Komponenten, Leistungen zählen mit 0 €; Marge in % vom VK. Im Reiter lässt sich der Gruppenpreis oder pauschal ein Aufschlag auf den EK setzen und in VK1–VK3 übernehmen. Die Artikelseite zeigt Komponenten mit EK, VK, Marge und den Gruppenpreis. Eine Position kommt nur in eine Gruppe mit demselben Steuersatz, denn versteuert wird der Gruppenkopf |
 | Leistung (Typ L) | Dienstleistung, keine Ware: kein Lagerbestand, keine Lieferantenbestellung, kein Wareneingang, keine Maße, kein Gewicht, nicht im Shop. In Belegen ganz normal berechenbar |
