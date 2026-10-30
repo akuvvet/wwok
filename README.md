@@ -614,6 +614,10 @@ python manage.py test apps
 
 Bei `DJANGO_DEBUG=false` leitet die Anwendung auf HTTPS um; lokal deshalb `DJANGO_DEBUG=true` setzen.
 
+### Testumgebung für Claude
+
+`.claude/launch.json` startet über `scripts/testumgebung.py` die lokale Instanz auf http://127.0.0.1:8000: Python aus `.venv`, Datenbank `lokal.sqlite3`, ausstehende Migrationen werden eingespielt. Der Testzugang `claude_test` wird bei jedem Start neu gesetzt und steht in `.lokal_testzugang` (nicht im Repository). Mit `/auftrag <Text>` setzt Claude einen Text um, prüft ihn dort und committet; Push und Deploy folgen erst nach Freigabe.
+
 ## 12. Erstes Hochladen zu GitHub – so ist es gelaufen
 
 | Schritt | Ergebnis | Lösung |
