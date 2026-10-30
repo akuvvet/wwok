@@ -24,12 +24,14 @@ def nummer(mandant, art: str) -> str:
 # ---- Bestellung ---------------------------------------------------------------------------------
 
 def ek_vorschlag(mandant, lieferant, artikel):
-    """(EK, Bestellnummer des Lieferanten): Preisliste, sonst letzter EK des Mandanten."""
+    """(EK, Bestellnummer des Lieferanten): Preisliste, sonst letzter Lieferantenpreis des Mandanten, sonst der jüngste eines
+    anderen Mandanten. Der Durchschnitts-EK enthält Nebenkosten und ist nur der letzte Notbehelf."""
     al = ArtikelLieferant.objects.filter(artikel=artikel, lieferant=lieferant).first()
     if al and al.ek is not None:
         return al.ek, al.bestellnummer
-    am = ArtikelMandant.objects.filter(artikel=artikel, mandant=mandant).first()
-    return (am.letzter_ek if am and am.letzter_ek is not None else artikel.durchschnitts_ek or Decimal("0")), (al.bestellnummer if al else "")
+    gekauft = ArtikelMandant.objects.filter(artikel=artikel, letzter_ek__isnull=False)
+    am = gekauft.filter(mandant=mandant).first() or gekauft.order_by("-letzter_ek_datum", "-id").first()
+    return (am.letzter_ek if am else artikel.durchschnitts_ek or Decimal("0")), (al.bestellnummer if al else "")
 
 
 @transaction.atomic
@@ -285,18 +287,21 @@ def wareneingang_buchen(we, benutzer=None) -> int:
             if vorhanden:
                 raise ValueError(f"{p.artikel.nummer} (ESD): Key bereits im Bestand: {', '.join(list(vorhanden)[:3])}.")
     heute = we.datum
+    kalkulation = we.kalkulation()
     for p in positionen:
+        p.kalk_ek = kalkulation[p.pk]  # eigentlicher EK: inkl. anteiliger Versand-, Versicherungs- und Verpackungskosten
+        p.save(update_fields=["kalk_ek"])
         a = Artikel.objects.select_for_update().get(pk=p.artikel_id)  # frisch laden: mehrere Zeilen desselben Artikels
         vorher = Lagerbewegung.objects.filter(artikel=a).aggregate(s=Sum("menge"))["s"] or Decimal("0")  # Ø-EK gilt für alle Mandanten
         Lagerbewegung.objects.create(mandant=we.mandant, artikel=a, art=Bewegungsart.WARENEINGANG, menge=p.menge,
                                      bemerkung=f"{we.nummer} {we.lieferant.name1}", benutzer=benutzer)
         am, _ = ArtikelMandant.objects.get_or_create(artikel=a, mandant=we.mandant)
-        am.letzter_ek, am.letzter_ek_datum = p.ek, heute
+        am.letzter_ek, am.letzter_ek_datum = p.ek, heute  # Lieferantenpreis: Vorschlag für die nächste Bestellung, ohne Nebenkosten
         am.save()
         if a.durchschnitts_ek is not None and vorher > 0:  # gleitender Durchschnitt über den Bestand
-            a.durchschnitts_ek = ((a.durchschnitts_ek * vorher + p.ek * p.menge) / (vorher + p.menge)).quantize(Decimal("0.0001"))
+            a.durchschnitts_ek = ((a.durchschnitts_ek * vorher + p.kalk_ek * p.menge) / (vorher + p.menge)).quantize(Decimal("0.0001"))
         else:
-            a.durchschnitts_ek = p.ek
+            a.durchschnitts_ek = p.kalk_ek
         if a.typ == "P":  # Lieferantenprodukt wird bei Wareneingang zum Lagerartikel
             a.typ = "A"
         a.save()

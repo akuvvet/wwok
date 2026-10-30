@@ -3,7 +3,7 @@ Einkauf (Pflichtenheft Abschnitt 6): Lieferantenbestellung, Wareneingang, Liefer
 Rücksendung/RMA. Alles pro Mandant getrennt.
 """
 import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
 from django.db import models
@@ -102,6 +102,9 @@ class Wareneingang(Zeitstempel):
     nummer = models.CharField("Wareneingang-Nr.", max_length=20, db_index=True)
     datum = models.DateField(default=timezone.localdate)
     lieferschein = models.CharField("Lieferschein des Lieferanten", max_length=60, blank=True)
+    versandkosten = models.DecimalField("Versandkosten netto", max_digits=10, decimal_places=2, default=Decimal("0"))
+    versicherung = models.DecimalField("Versicherungskosten netto", max_digits=10, decimal_places=2, default=Decimal("0"))
+    verpackung = models.DecimalField("Verpackungskosten netto", max_digits=10, decimal_places=2, default=Decimal("0"))
     gebucht = models.BooleanField(default=False, editable=False)
     benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
@@ -118,6 +121,31 @@ class Wareneingang(Zeitstempel):
     def summe_netto(self) -> Decimal:
         return sum((p.netto for p in self.positionen.all()), Decimal("0"))
 
+    @property
+    def nebenkosten(self) -> Decimal:
+        return self.versandkosten + self.versicherung + self.verpackung
+
+    @property
+    def gesamt_netto(self) -> Decimal:
+        return self.summe_netto + self.nebenkosten
+
+    def kalkulation(self) -> dict:
+        """Kalkulations-EK je Position: EK zuzüglich Nebenkosten, verteilt nach Warenwert (ohne Warenwert nach Menge)."""
+        positionen = list(self.positionen.all())
+        wert = sum((p.menge * p.ek for p in positionen), Decimal("0"))
+        menge = sum((p.menge for p in positionen), Decimal("0"))
+        neben = self.nebenkosten
+        ergebnis = {}
+        for p in positionen:
+            if not neben:
+                kalk = p.ek
+            elif wert > 0:
+                kalk = p.ek * (wert + neben) / wert
+            else:
+                kalk = neben / menge if menge else p.ek
+            ergebnis[p.pk] = kalk.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        return ergebnis
+
 
 class WareneingangPosition(models.Model):
     wareneingang = models.ForeignKey(Wareneingang, on_delete=models.CASCADE, related_name="positionen")
@@ -125,6 +153,7 @@ class WareneingangPosition(models.Model):
     artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT)
     menge = models.DecimalField(max_digits=10, decimal_places=3)
     ek = models.DecimalField("EK netto", **EK)
+    kalk_ek = models.DecimalField("Kalkulations-EK", null=True, blank=True, editable=False, help_text="EK inkl. anteiliger Nebenkosten, beim Buchen festgeschrieben", **EK)
     seriennummern = models.TextField("Seriennummern (eine pro Zeile)", blank=True)
     esd_keys = models.TextField("ESD-Keys (eine pro Zeile)", blank=True)
 
@@ -197,11 +226,11 @@ class Lieferantenrechnung(Zeitstempel):
         return self.brutto
 
     def abgleich(self) -> dict:
-        """Netto der verknüpften Wareneingänge gegen Rechnung: Differenz > 1 Cent ist eine Abweichung."""
+        """Netto der verknüpften Wareneingänge inkl. Nebenkosten gegen Rechnung: Differenz > 1 Cent ist eine Abweichung."""
         wareneingaenge = list(self.wareneingaenge.all())
         if not wareneingaenge:
             return {"verknuepft": False, "differenz": None, "ok": None, "bestaetigt": False, "offen": False}
-        soll = sum((w.summe_netto for w in wareneingaenge), Decimal("0"))
+        soll = sum((w.gesamt_netto for w in wareneingaenge), Decimal("0"))  # Nebenkosten stehen mit auf der Rechnung
         differenz = self.netto - soll
         ok = abs(differenz) <= Decimal("0.01")
         bestaetigt = not ok and self.abweichung_bestaetigt is not None and self.abweichung_bestaetigt == differenz

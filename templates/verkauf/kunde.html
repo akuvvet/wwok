@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block titel %}{{ kunde.name1 }} – wwok{% endblock %}
+{% block kundenmenue %}{% include "verkauf/kunde_menue.html" %}{% endblock %}
 {% block inhalt %}
 <a href="{% url 'verkauf:start' %}" data-escape style="display:none">zurück</a>
 {% if kunde.gesperrt %}<div class="warnung">Kunde ist gesperrt – keine neuen Belege.</div>{% endif %}
@@ -40,14 +41,6 @@
   </form>
 </div>
 
-{% if not kunde.gesperrt %}
-<div class="karte">
-  <h2>Neuen Beleg anlegen</h2>
-  <form method="post" action="{% url 'verkauf:beleg_neu' kunde.pk %}" class="zeile">{% csrf_token %}
-    {% for wert, name in arten %}{% if wert != 'LS' and wert != 'NL' %}<button name="art" value="{{ wert }}" type="submit" {% if wert != "AN" and wert != "AB" and wert != "RE" %}class="leise"{% endif %}>{{ name }}</button>{% endif %}{% endfor %}
-  </form>
-</div>
-{% endif %}
 
 <div class="karte">
   <h2>Belege</h2>

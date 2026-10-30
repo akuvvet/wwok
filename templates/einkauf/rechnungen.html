@@ -1,5 +1,21 @@
 {% extends "base.html" %}
 {% block titel %}Lieferantenrechnungen – wwok{% endblock %}
+{% block skript %}
+<script>
+  // Lieferant per Suchfeld: die getippte Auswahl wird zur Lieferanten-ID, freier Text gilt nicht
+  (function () {
+    var feld = document.getElementById('lieferantsuche'), id = document.getElementById('lieferantid');
+    var liste = document.getElementById('lieferantenliste');
+    function pruefen() {
+      var treffer = Array.prototype.find.call(liste.options, function (o) { return o.value === feld.value; });
+      id.value = treffer ? treffer.dataset.pk : '';
+      feld.setCustomValidity(treffer || !feld.value ? '' : 'Bitte einen Lieferanten aus der Liste wählen.');
+    }
+    feld.addEventListener('input', pruefen);
+    feld.addEventListener('change', pruefen);
+  })();
+</script>
+{% endblock %}
 {% block inhalt %}
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
@@ -9,7 +25,10 @@
     <a class="knopf {% if status != 'bezahlt' %}leise{% endif %}" href="?status=bezahlt">Bezahlt</a>
     <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a></p>
   <form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile">{% csrf_token %}
-    <div><label>Lieferant</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.name1 }}</option>{% endfor %}</select></div>
+    <div><label for="lieferantsuche">Lieferant (Name, Kurzname oder Nummer tippen)</label>
+      <input id="lieferantsuche" list="lieferantenliste" size="30" autocomplete="off" required>
+      <input type="hidden" name="lieferant" id="lieferantid">
+      <datalist id="lieferantenliste">{% for l in lieferanten %}<option value="{{ l.nummer }} – {{ l.name1 }}{% if l.kurzname %} ({{ l.kurzname }}){% endif %}" data-pk="{{ l.pk }}"></option>{% endfor %}</datalist></div>
     <div><label>Rechnungsnr.</label><input name="rechnungsnummer" size="14"></div>
     <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
     <div><label>Netto</label><input name="netto" size="9"></div>

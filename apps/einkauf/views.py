@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -403,8 +404,11 @@ def we_holen(request, we_id):
 @mit_mandant
 def wareneingang_detail(request, we_id):
     we = we_holen(request, we_id)
-    return render(request, "einkauf/wareneingang.html", {
-        "we": we, "positionen": we.positionen.select_related("artikel", "bestellposition"), "netto": we.summe_netto})
+    kalkulation = we.kalkulation()
+    positionen = list(we.positionen.select_related("artikel", "bestellposition"))
+    for p in positionen:
+        p.kalk = p.kalk_ek if we.gebucht and p.kalk_ek is not None else kalkulation[p.pk]
+    return render(request, "einkauf/wareneingang.html", {"we": we, "positionen": positionen, "netto": we.summe_netto})
 
 
 @mit_mandant
@@ -448,10 +452,24 @@ def wareneingang_zeile_aendern(request, we_id, position_id):
 @require_POST
 @schutz("einkauf:wareneingang", "we_id")
 def wareneingang_buchen(request, we_id):
-    we = we_holen(request, we_id)
-    we.lieferschein = request.POST.get("lieferschein", we.lieferschein).strip()
-    we.save()
-    anzahl = services.wareneingang_buchen(we, request.user)
+    pk = we_holen(request, we_id).pk
+    with transaction.atomic():  # Sperre: Doppelklick oder zweiter Tab dürfen weder doppelt buchen noch „gebucht“ zurücksetzen
+        we = Wareneingang.objects.select_for_update().get(pk=pk)
+        if we.gebucht:
+            raise ValueError("Der Wareneingang ist bereits gebucht.")
+        we.lieferschein = request.POST.get("lieferschein", we.lieferschein).strip()
+        felder = ["lieferschein"]
+        for feld, name in (("versandkosten", "Versandkosten"), ("versicherung", "Versicherungskosten"), ("verpackung", "Verpackungskosten")):
+            wert = zahl(request.POST.get(feld), Decimal("0"))
+            if not Decimal("0") <= wert < Decimal("100000000"):
+                raise ValueError(f"{name} dürfen nicht negativ sein.")
+            setattr(we, feld, wert.quantize(Decimal("0.01")))
+            felder.append(feld)
+        we.save(update_fields=felder)
+        if request.POST.get("aktion") == "kosten":
+            messages.success(request, "Nebenkosten gespeichert, Kalkulations-EK neu berechnet.")
+            return redirect("einkauf:wareneingang", we_id=we.pk)
+        anzahl = services.wareneingang_buchen(we, request.user)
     messages.success(request, f"{anzahl} Position(en) ins Lager gebucht.")
     return redirect("einkauf:wareneingang", we_id=we.pk)
 
@@ -477,7 +495,10 @@ def rechnungen(request):
 @require_POST
 @schutz("einkauf:rechnungen")
 def rechnung_neu(request):
-    lieferant = get_object_or_404(Lieferant, pk=request.POST.get("lieferant"))
+    lieferant_id = request.POST.get("lieferant", "")
+    lieferant = Lieferant.objects.filter(pk=lieferant_id).first() if lieferant_id.isdigit() else None
+    if lieferant is None:
+        raise ValueError("Bitte einen Lieferanten aus der Liste wählen.")
     netto, brutto = zahl(request.POST.get("netto")), zahl(request.POST.get("brutto"))
     if brutto is None or not request.POST.get("rechnungsnummer", "").strip():
         raise ValueError("Rechnungsnummer und Bruttobetrag sind Pflicht.")

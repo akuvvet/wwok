@@ -59,7 +59,7 @@ class SeitenTest(TestCase):
     def test_menues_und_zuordnung_der_bereiche(self):
         self.mit_mandant()
         verkauf = self.client.get(reverse("verkauf:belege")).content.decode()
-        for text in ("Kunden &amp; Belege", "Alle Belege", "Wiederkehrende Rechnungen", "Shops &amp; Online-Bestellungen"):
+        for text in ("<span>Kunde</span>", "Alle Belege", "Wiederkehrende Rechnungen", "Shops &amp; Online-Bestellungen"):
             self.assertIn(text, verkauf)
         lager = self.client.get(reverse("lager:uebersicht")).content.decode()
         for text in ("Artikel &amp; Bestand", "Inventur / Zählliste", "Seriennummern", "ESD-Keys"):
