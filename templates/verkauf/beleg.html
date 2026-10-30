@@ -71,8 +71,8 @@
         <select name="monate" aria-label="Rhythmus"><option value="1">monatlich</option><option value="3">vierteljährlich</option><option value="6">halbjährlich</option><option value="12">jährlich</option></select>
         <input type="date" name="start" required aria-label="nächste Rechnung am" title="Datum der nächsten Rechnung">
         <button class="leise" type="submit">Wiederkehrend einrichten</button></form>{% endif %}
-      {% if beleg.art == 'GS' and beleg.abgeschlossen %}<form method="post" action="{% url 'lager:retoure' beleg.pk %}" data-frage="Ware dieser Gutschrift ins Lager zurückbuchen?">{% csrf_token %}<button class="leise" type="submit">Ware ins Lager zurückbuchen</button></form>{% endif %}
-      {% if beleg.art == 'RE' and beleg.abgeschlossen %}<form method="post" action="{% url 'verkauf:beleg_gutschrift' beleg.pk %}" data-frage="Gutschrift (Storno) zu dieser Rechnung anlegen?">{% csrf_token %}<button class="gefahr" type="submit">Storno / Gutschrift</button></form>{% endif %}
+      {% if retoure_offen %}<form method="post" action="{% url 'lager:retoure' beleg.pk %}" data-frage="Ware dieser Gutschrift ins Lager zurückbuchen?">{% csrf_token %}<button class="leise" type="submit">Ware ins Lager zurückbuchen</button></form>{% endif %}
+      {% if beleg.art == 'RE' and beleg.abgeschlossen %}<form method="post" action="{% url 'verkauf:beleg_gutschrift' beleg.pk %}"{% if hat_lagerartikel %} id="gutschriftform"{% else %} data-frage="Gutschrift (Storno) zu dieser Rechnung anlegen?"{% endif %}>{% csrf_token %}<input type="hidden" name="ruecknahme" value=""><button class="gefahr" type="submit">Storno / Gutschrift</button></form>{% endif %}
       {% if loeschbar %}<form method="post" action="{% url 'verkauf:beleg_loeschen' beleg.pk %}" data-frage="{{ beleg.get_art_display }} wirklich löschen?">{% csrf_token %}<button class="gefahr" type="submit">{{ beleg.get_art_display }} löschen</button></form>{% endif %}
     </div>
   </details>
@@ -86,7 +86,7 @@
 
 <div class="karte tabinhalt" id="tab-positionen">
   <table>
-    <tr><th>Pos.</th><th>Artikel / Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">Preis</th><th class="zahl">Rabatt</th><th class="zahl">Netto</th><th></th></tr>
+    <tr><th>Pos.</th><th>Artikel / Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">Preis</th><th class="zahl">Rabatt</th><th class="zahl">Netto</th>{% if beleg.art == 'GS' %}<th title="Bestand: R = Reparaturbestand, B = Lagerbestand, – = keine Ware zurück">B</th>{% endif %}<th></th></tr>
     {% for p in positionen %}
     <tr data-ekstk="{% with ek=p.ek_stueck %}{% if ek is not None %}{{ ek|unlocalize }}{% endif %}{% endwith %}" data-preis="{{ p.einzelpreis|unlocalize }}" data-sub="{{ p.gruppe_id|default_if_none:'' }}"{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}>
       <td>{{ p.pos }}</td>
@@ -121,9 +121,10 @@
           <button type="submit" class="leise" title="Gruppenpreis speichern (leer = Summe der Unterpositionen)">OK</button></form>{% else %}{{ p.einzelpreis }}{% endif %}</td>
       <td class="zahl">{% if not p.gruppe_id and p.rabatt_prozent %}{{ p.rabatt_prozent|floatformat:"-2" }} %{% endif %}</td>
       <td class="zahl">{% if not p.gruppe_id %}{{ p.netto_gesamt|floatformat:2 }}{% endif %}</td>
+      {% if beleg.art == 'GS' %}<td>{% if p.artikel and p.artikel.typ == 'A' %}{% if beleg.positionen_gesperrt %}<span title="{{ p.get_ruecknahme_display }}">{% if p.ruecknahme == 'K' %}–{% else %}{{ p.ruecknahme }}{% endif %}</span>{% else %}<form method="post" action="{% url 'verkauf:position_ruecknahme' beleg.pk p.pk %}">{% csrf_token %}<button class="leise" type="submit" title="{{ p.get_ruecknahme_display|default:'Noch nicht gewählt' }} – klicken zum Wechseln">{% if p.ruecknahme == 'K' %}–{% else %}{{ p.ruecknahme|default:"?" }}{% endif %}</button></form>{% endif %}{% endif %}</td>{% endif %}
       <td>{% if not beleg.positionen_gesperrt %}<form method="post" action="{% url 'verkauf:position_loeschen' beleg.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit" title="Position löschen">×</button></form>{% endif %}</td>
     </tr>
-    {% empty %}<tr><td colspan="7" style="padding:20px;text-align:center;opacity:.7">Noch keine Positionen – unten einen Artikel suchen und mit Enter übernehmen.</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="8" style="padding:20px;text-align:center;opacity:.7">Noch keine Positionen – unten einen Artikel suchen und mit Enter übernehmen.</td></tr>{% endfor %}
   </table>
 
   {% if not beleg.positionen_gesperrt %}
@@ -271,6 +272,22 @@
         if (!antwort.wert) return;
         f.querySelector('[name=danach]').value = antwort.auswahl.join(',');
         f.dataset.bestaetigt = '1';
+        f.submit();
+      });
+    });
+  })();
+</script>
+<script>
+  // Storno/Gutschrift: zuerst fragen, wohin die zurückgegebene Ware gebucht wird
+  (function () {
+    var f = document.getElementById('gutschriftform'); if (!f) return;
+    f.addEventListener('submit', function (e) {
+      e.preventDefault();
+      wwokDialog('Gutschrift zu dieser Rechnung anlegen. Wohin soll die zurückgegebene Ware gebucht werden?', [
+        {text: 'Reparaturbestand', wert: 'R', haupt: true}, {text: 'Lagerbestand', wert: 'B'}, {text: 'Keine Ware zurück', wert: 'K'}, {text: 'Abbrechen', wert: null}
+      ]).then(function (wert) {
+        if (!wert) return;
+        f.querySelector('[name=ruecknahme]').value = wert;
         f.submit();
       });
     });

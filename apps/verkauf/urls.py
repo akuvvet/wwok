@@ -19,6 +19,7 @@ urlpatterns = [
     path("beleg/<int:beleg_id>/position/", views.position_neu, name="position_neu"),
     path("beleg/<int:beleg_id>/position/<int:position_id>/aendern/", views.position_aendern, name="position_aendern"),
     path("beleg/<int:beleg_id>/position/<int:position_id>/loeschen/", views.position_loeschen, name="position_loeschen"),
+    path("beleg/<int:beleg_id>/position/<int:position_id>/bestand/", views.position_ruecknahme, name="position_ruecknahme"),
     path("beleg/<int:beleg_id>/position/<int:position_id>/gruppenpreis/", views.gruppenpreis, name="gruppenpreis"),
     path("beleg/<int:beleg_id>/loeschen/", views.beleg_loeschen, name="beleg_loeschen"),
     path("beleg/<int:beleg_id>/abschliessen/", views.beleg_abschliessen, name="beleg_abschliessen"),

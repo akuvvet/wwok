@@ -50,6 +50,13 @@ FOLGEBELEG = {
 GESPERRT_NACH_ABSCHLUSS = {Belegart.RECHNUNG, Belegart.GUTSCHRIFT}
 
 
+class Ruecknahme(models.TextChoices):
+    """Spalte B der Gutschrift: Wohin geht die zurückgegebene Ware? Leer = ältere Gutschrift, von Hand zurückzubuchen."""
+    REPARATUR = "R", "Reparaturbestand"
+    LAGER = "B", "Lagerbestand"
+    KEINE = "K", "Keine Ware zurück"
+
+
 class BelegGesperrt(Exception):
     pass
 
@@ -520,6 +527,9 @@ class Beleg(Zeitstempel):
             if andere + self.summe_brutto > self.vorgaenger.summe_brutto + CENT:
                 raise ValueError(f"Die Gutschriften ({andere + self.summe_brutto} €) würden die Rechnung "
                                  f"{self.vorgaenger.nummer} ({self.vorgaenger.summe_brutto} €) übersteigen.")
+        if self.art == Belegart.GUTSCHRIFT:
+            from apps.lager.services import gutschrift_menge_pruefen
+            gutschrift_menge_pruefen(self)
         if not self.nummer:
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
         self.abgeschlossen = True
@@ -529,6 +539,9 @@ class Beleg(Zeitstempel):
         benutzer = aktueller_benutzer()
         benutzer = benutzer if benutzer is not None and benutzer.is_authenticated else None
         buche_beleg(self, benutzer)
+        if self.art == Belegart.GUTSCHRIFT:
+            from apps.lager.services import gutschrift_buchen
+            gutschrift_buchen(self, benutzer)
         from apps.esd.services import beleg_zuordnen  # ESD-Keys beim Verkauf automatisch zuordnen
         beleg_zuordnen(self, benutzer)
 
@@ -630,8 +643,9 @@ class Beleg(Zeitstempel):
         return neu
 
     @transaction.atomic
-    def gutschrift_erzeugen(self) -> "Beleg":
-        """Storno/Gutschrift zu einer abgeschlossenen Rechnung (Positionen unverändert, Belegart Gutschrift)."""
+    def gutschrift_erzeugen(self, ruecknahme="") -> "Beleg":
+        """Storno/Gutschrift zu einer abgeschlossenen Rechnung (Positionen unverändert, Belegart Gutschrift).
+        ruecknahme gilt für alle Positionen und lässt sich je Position in Spalte B ändern."""
         if self.art != Belegart.RECHNUNG or not self.abgeschlossen:
             raise ValueError("Eine Gutschrift gibt es nur zu einer abgeschlossenen Rechnung.")
         schon = sum((g.summe_brutto for g in self.folgebelege.filter(art=Belegart.GUTSCHRIFT)), Decimal("0"))
@@ -645,6 +659,7 @@ class Beleg(Zeitstempel):
             rabatt_prozent=self.rabatt_prozent,
             referenz=self.referenz, bemerkung=f"Gutschrift zu Rechnung {self.nummer}", vorgaenger=self)
         kopiere_positionen(self, neu)
+        neu.positionen.update(ruecknahme=ruecknahme)
         neu.berechne()
         return neu
 
@@ -785,6 +800,7 @@ class Position(Zeitstempel):
     preis_fest = models.BooleanField("Gruppenpreis fest", default=False,
                                      help_text="Nur bei Gruppen (Typ G): ein von Hand eingetragener Preis wird nicht aus den Unterpositionen berechnet.")
     steuer_prozent = models.DecimalField("Steuer %", max_digits=5, decimal_places=2, default=Decimal("19"))
+    ruecknahme = models.CharField("Bestand (Gutschrift)", max_length=1, blank=True, choices=Ruecknahme.choices)
 
     class Meta:
         verbose_name = "Position"
@@ -832,6 +848,9 @@ class Position(Zeitstempel):
         if not self.pk and not self.pos:
             letzte = Position.objects.filter(beleg=self.beleg).aggregate(m=models.Max("pos"))["m"] or 0
             self.pos = letzte + 1
+        if not self.pk and not self.ruecknahme and self.beleg.art == Belegart.GUTSCHRIFT:  # neue Position folgt der Gutschrift
+            erste = Position.objects.filter(beleg=self.beleg).order_by("pk").values_list("ruecknahme", flat=True).first()
+            self.ruecknahme = Ruecknahme.REPARATUR if erste is None else erste
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

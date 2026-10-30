@@ -3,9 +3,9 @@ from decimal import Decimal
 
 from django.db import transaction
 
-from apps.verkauf.models import Belegart
+from apps.verkauf.models import Belegart, Ruecknahme
 
-from .models import BestandReichtNicht, Bewegungsart, Lagerbewegung, Seriennummer, bestand
+from .models import BestandReichtNicht, Bewegungsart, Lagerbewegung, Reparaturart, Reparaturbewegung, Seriennummer, bestand
 
 LAGERFUEHREND = "A"  # nur Typ A (Lagerartikel) wird gebucht
 
@@ -187,6 +187,16 @@ def seriennummern_zuordnen(position, text):
         sn.save()
 
 
+def seriennummer_wieder_einlagern(seriennummer):
+    """Nach einer Gutschrift: Nur die Nummer kommt zurück, den Bestand bucht die Gutschrift selbst."""
+    position = seriennummer.position
+    if seriennummer.status != Seriennummer.VERKAUFT or (position is not None and not position.beleg.abgeschlossen):
+        raise ValueError(f"Seriennummer {seriennummer.nummer} lässt sich nicht wieder einlagern: Sie gehört zu keinem abgeschlossenen Verkauf.")
+    seriennummer.status, seriennummer.position = Seriennummer.IM_LAGER, None
+    seriennummer.eingang_bemerkung = f"Wieder eingelagert, zuvor {position.beleg}" if position else "Wieder eingelagert"
+    seriennummer.save()
+
+
 @transaction.atomic
 def umbuchen(von_mandant, nach_mandant, artikel, menge, benutzer=None):
     if von_mandant == nach_mandant:
@@ -200,15 +210,89 @@ def umbuchen(von_mandant, nach_mandant, artikel, menge, benutzer=None):
                                  bemerkung=text, benutzer=benutzer)
 
 
+def rueckgabe_mengen(positionen) -> dict:
+    """Menge je Lagerartikel, die mit R oder B zurückgebucht wird."""
+    mengen = defaultdict(Decimal)
+    for p in positionen.filter(ruecknahme__in=(Ruecknahme.REPARATUR, Ruecknahme.LAGER), artikel__typ=LAGERFUEHREND):
+        mengen[p.artikel_id] += p.menge
+    return mengen
+
+
+def gutschrift_menge_pruefen(gutschrift):
+    """Über alle Gutschriften einer Rechnung kommt je Artikel höchstens zurück, was auf der Rechnung steht."""
+    rechnung = gutschrift.vorgaenger
+    if rechnung is None or rechnung.art != Belegart.RECHNUNG:
+        return
+    verkauft = defaultdict(Decimal)
+    for p in rechnung.positionen.filter(artikel__typ=LAGERFUEHREND):
+        verkauft[p.artikel_id] += p.menge
+    frueher = defaultdict(Decimal)
+    for g in rechnung.folgebelege.filter(art=Belegart.GUTSCHRIFT, abgeschlossen=True).exclude(pk=gutschrift.pk):
+        for artikel_id, menge in rueckgabe_mengen(g.positionen).items():
+            frueher[artikel_id] += menge
+    for artikel_id, menge in rueckgabe_mengen(gutschrift.positionen).items():
+        if frueher[artikel_id] + menge > verkauft[artikel_id]:
+            nummer = gutschrift.positionen.filter(artikel_id=artikel_id).first().artikel.nummer
+            raise ValueError(f"Artikel {nummer}: Zurückgebucht würden {(frueher[artikel_id] + menge).normalize():f}, auf der Rechnung "
+                             f"{rechnung.nummer} stehen {verkauft[artikel_id].normalize():f}. Menge korrigieren oder in Spalte B „–“ wählen.")
+
+
+@transaction.atomic
+def gutschrift_buchen(gutschrift, benutzer=None) -> int:
+    """Bucht die Ware beim Abschließen der Gutschrift nach Spalte B: R in den Reparaturbestand, B in den Lagerbestand."""
+    mengen, artikel = defaultdict(Decimal), {}
+    for p in gutschrift.positionen.filter(ruecknahme__in=(Ruecknahme.REPARATUR, Ruecknahme.LAGER),
+                                          artikel__typ=LAGERFUEHREND).select_related("artikel"):
+        mengen[(p.artikel_id, p.ruecknahme)] += p.menge
+        artikel[p.artikel_id] = p.artikel
+    for (artikel_id, ziel), menge in mengen.items():
+        if ziel == Ruecknahme.LAGER:
+            Lagerbewegung.objects.create(mandant=gutschrift.mandant, artikel=artikel[artikel_id], art=Bewegungsart.RETOURE,
+                                         menge=menge, beleg=gutschrift, bemerkung=str(gutschrift), benutzer=benutzer)
+        else:
+            Reparaturbewegung.objects.create(mandant=gutschrift.mandant, artikel=artikel[artikel_id], art=Reparaturart.ZUGANG,
+                                             menge=menge, beleg=gutschrift, bemerkung=str(gutschrift), benutzer=benutzer)
+    return len(mengen)
+
+
+@transaction.atomic
+def reparatur_umbuchen(mandant, artikel, menge, bemerkung="", benutzer=None):
+    """Repariert: vom Reparaturbestand in den Lagerbestand."""
+    if menge <= 0:
+        raise ValueError("Menge muss positiv sein.")
+    Reparaturbewegung.objects.create(mandant=mandant, artikel=artikel, art=Reparaturart.LAGER, menge=-menge,
+                                     bemerkung=bemerkung, benutzer=benutzer)
+    return Lagerbewegung.objects.create(mandant=mandant, artikel=artikel, art=Bewegungsart.REPARATUR, menge=menge,
+                                        bemerkung=bemerkung, benutzer=benutzer)
+
+
+def reparatur_ausbuchen(mandant, artikel, menge, bemerkung, benutzer=None):
+    """Schrott oder Rückgabe an den Lieferanten: Die Ware verlässt den Reparaturbestand, der Lagerbestand bleibt unberührt."""
+    if menge <= 0:
+        raise ValueError("Menge muss positiv sein.")
+    if not bemerkung:
+        raise ValueError("Bitte beim Ausbuchen eine Bemerkung angeben, zum Beispiel Schrott oder an welchen Lieferanten.")
+    return Reparaturbewegung.objects.create(mandant=mandant, artikel=artikel, art=Reparaturart.AUSBUCHUNG, menge=-menge,
+                                            bemerkung=bemerkung, benutzer=benutzer)
+
+
+def retoure_offen(gutschrift) -> bool:
+    """Ältere Gutschriften ohne Spalte B werden weiter von Hand zurückgebucht (einmal je Gutschrift)."""
+    return (gutschrift.art == Belegart.GUTSCHRIFT and gutschrift.abgeschlossen
+            and gutschrift.positionen.filter(ruecknahme="", artikel__typ=LAGERFUEHREND).exists()
+            and not Lagerbewegung.objects.filter(beleg=gutschrift, art=Bewegungsart.RETOURE).exists())
+
+
 @transaction.atomic
 def retoure_aus_gutschrift(gutschrift, benutzer=None) -> int:
-    """Bucht die Lagerartikel einer abgeschlossenen Gutschrift wieder ins Lager (einmal je Gutschrift)."""
+    """Bucht die Lagerartikel einer abgeschlossenen älteren Gutschrift wieder ins Lager (einmal je Gutschrift)."""
     if gutschrift.art != Belegart.GUTSCHRIFT or not gutschrift.abgeschlossen:
         raise ValueError("Nur zu einer abgeschlossenen Gutschrift möglich.")
+    type(gutschrift).objects.select_for_update().filter(pk=gutschrift.pk).first()  # Doppelklick darf nicht doppelt buchen
     if Lagerbewegung.objects.filter(beleg=gutschrift, art=Bewegungsart.RETOURE).exists():
         raise ValueError("Diese Gutschrift wurde bereits ins Lager zurückgebucht.")
     mengen, artikel = defaultdict(Decimal), {}
-    for p in gutschrift.positionen.select_related("artikel"):
+    for p in gutschrift.positionen.filter(ruecknahme="").select_related("artikel"):
         if p.artikel_id and p.artikel.typ == LAGERFUEHREND:
             mengen[p.artikel_id] += p.menge
             artikel[p.artikel_id] = p.artikel

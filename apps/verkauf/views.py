@@ -18,8 +18,8 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import (STAND_OFFEN, runden, Abo, AboPosition, Beleg, BelegArbeitsstand, BelegGesperrt, Belegart, Briefprodukt, Position, Versand, Versandart, Wiedervorlage,
-                     letzte_preise)
+from .models import (STAND_OFFEN, runden, Abo, AboPosition, Beleg, BelegArbeitsstand, BelegGesperrt, Belegart, Briefprodukt, Position, Ruecknahme, Versand, Versandart,
+                     Wiedervorlage, letzte_preise)
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
 from .pdf import beleg_pdf
@@ -196,7 +196,7 @@ def beleg_neu(request, kunde_id):
 
 @mit_mandant
 def beleg_detail(request, beleg_id):
-    from apps.lager.services import druckhindernis
+    from apps.lager.services import druckhindernis, retoure_offen
     from apps.lager.models import bestand, reserviert
     beleg = beleg_holen(request, beleg_id)
     arbeitsstand = BelegArbeitsstand.objects.filter(beleg=beleg).select_related("benutzer").first()
@@ -225,6 +225,7 @@ def beleg_detail(request, beleg_id):
     return render(request, "verkauf/beleg.html", {
         "kredit_warnung": kredit_warnung, "kunde_offen": offen, "kreditlimit": limit, "arbeitsstand": arbeitsstand,
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),
+        "hat_lagerartikel": any(p.artikel_id and p.artikel.typ == "A" for p in positionen), "retoure_offen": retoure_offen(beleg),
         "beleg": beleg, "positionen": positionen, "loeschbar": beleg.loeschhindernis() is None,
         "druckhindernis": druckhindernis(beleg),
         "versendungen": list(beleg.versendungen.select_related("briefprodukt")),
@@ -491,6 +492,17 @@ def gruppenpreis(request, beleg_id, position_id):
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
+def gruppenmenge_anpassen(gruppe, menge):
+    """Teilrückgabe einer Gruppe in der Gutschrift: Die Unterpositionen ändern sich im selben Verhältnis wie der Kopf."""
+    teile = list(gruppe.unterpositionen.all())
+    for t in teile:
+        t.menge = t.menge * menge / gruppe.menge
+        if t.menge != t.menge.quantize(Decimal("0.001")):
+            raise ValueError(f"Die Menge {menge:f} lässt sich nicht gleichmäßig auf „{t.bezeichnung}“ verteilen. Bitte die Unterpositionen einzeln ändern.")
+    for t in teile:
+        t.save()
+
+
 @mit_mandant
 @require_POST
 @sperr_schutz
@@ -503,6 +515,8 @@ def position_aendern(request, beleg_id, position_id):
     if menge <= 0:
         raise ValueError("Die Menge muss größer als 0 sein.")
     alter_betrag = p.menge * p.einzelpreis
+    if beleg.art == Belegart.GUTSCHRIFT and p.typ == "G" and not p.gruppe_id and menge != p.menge:
+        gruppenmenge_anpassen(p, menge)  # gebucht werden die Unterpositionen, sie müssen dem Kopf folgen
     p.menge = menge
     p.zusatztext = request.POST.get("zusatztext", "")
     if not p.gruppe_id:
@@ -534,6 +548,27 @@ def position_loeschen(request, beleg_id, position_id):
         gruppenpreis_erhoehen(p.gruppe, -(p.menge * p.einzelpreis))
     p.delete()
     beleg.berechne()
+    return redirect("verkauf:beleg", beleg_id=beleg.pk)
+
+
+RUECKNAHME_FOLGE = {Ruecknahme.REPARATUR: Ruecknahme.LAGER, Ruecknahme.LAGER: Ruecknahme.KEINE, Ruecknahme.KEINE: Ruecknahme.REPARATUR}
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+@bearbeitung
+def position_ruecknahme(request, beleg_id, position_id):
+    """Spalte B der Gutschrift: Ein Klick wechselt R → B → keine Ware zurück."""
+    beleg = beleg_holen(request, beleg_id)
+    if beleg.art != Belegart.GUTSCHRIFT:
+        raise ValueError("Der Bestand lässt sich nur bei einer Gutschrift wählen.")
+    p = get_object_or_404(Position, pk=position_id, beleg=beleg, artikel__typ="A")
+    if p.ruecknahme:
+        p.ruecknahme = RUECKNAHME_FOLGE[p.ruecknahme]
+        p.save()
+    else:  # älterer Entwurf: nie gemischt, sonst bliebe ein Teil der Ware ungebucht
+        beleg.positionen.update(ruecknahme=Ruecknahme.REPARATUR)
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
@@ -641,7 +676,12 @@ def lieferscheine_abrechnen(request, kunde_id):
 @sperr_schutz
 def beleg_gutschrift(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
-    neu = beleg.gutschrift_erzeugen()
+    ruecknahme = request.POST.get("ruecknahme", "")
+    if ruecknahme not in Ruecknahme.values:
+        if beleg.positionen.filter(artikel__typ="A").exists():
+            raise ValueError("Bitte wählen, wohin die zurückgegebene Ware gebucht wird.")
+        ruecknahme = Ruecknahme.KEINE
+    neu = beleg.gutschrift_erzeugen(ruecknahme)
     messages.success(request, "Gutschrift als Entwurf angelegt – prüfen und abschließen.")
     return redirect("verkauf:beleg", beleg_id=neu.pk)
 

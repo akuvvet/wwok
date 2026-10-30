@@ -24,6 +24,7 @@ class Bewegungsart(models.TextChoices):
     UMBUCHUNG = "UM", "Umbuchung zwischen Mandanten"
     WERKSTATT = "WV", "Werkstatt (Garantie-Teile)"
     KORREKTUR = "KO", "Korrektur"
+    REPARATUR = "RP", "Aus Reparaturbestand"
 
 
 class BestandReichtNicht(ValueError):
@@ -79,6 +80,57 @@ def reserviert(mandant, artikel) -> Decimal:
     return Position.objects.filter(
         artikel=artikel, beleg__mandant=mandant, beleg__art=Belegart.AUFTRAG, beleg__folgebelege__isnull=True
     ).aggregate(s=models.Sum("menge"))["s"] or Decimal("0")
+
+
+class Reparaturart(models.TextChoices):
+    ZUGANG = "ZU", "Zugang aus Gutschrift"
+    LAGER = "LB", "In Lagerbestand umgebucht"
+    AUSBUCHUNG = "AU", "Ausgebucht"
+
+
+class Reparaturbewegung(models.Model):
+    """Reparaturbestand: zurückgegebene Ware, getrennt vom Lagerbestand. Er ist nicht verkaufbar und zählt in keine Lagerzahl."""
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="reparaturbewegungen")
+    artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT, related_name="reparaturbewegungen")
+    zeitpunkt = models.DateTimeField(default=timezone.now, db_index=True)
+    art = models.CharField("Grund", max_length=2, choices=Reparaturart.choices)
+    menge = models.DecimalField("Menge (+ Zugang, − Abgang)", max_digits=10, decimal_places=3)
+    beleg = models.ForeignKey("verkauf.Beleg", on_delete=models.PROTECT, null=True, blank=True,
+                              related_name="reparaturbewegungen")
+    bemerkung = models.CharField("Bemerkung", max_length=200, blank=True)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Reparaturbewegung"
+        verbose_name_plural = "Reparaturbewegungen"
+        ordering = ["-zeitpunkt", "-id"]
+        indexes = [models.Index(fields=["mandant", "artikel"])]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise PermissionError("Reparaturbewegungen sind unveränderlich; bitte eine Gegenbuchung erfassen.")
+        if self.menge < 0:  # Der Reparaturbestand darf wie der Lagerbestand nie unter 0 fallen
+            with transaction.atomic():
+                Artikel.objects.select_for_update().filter(pk=self.artikel_id).first()
+                aktuell = reparaturbestand(self.mandant, self.artikel)
+                if aktuell + self.menge < 0:
+                    raise BestandReichtNicht(
+                        f"Reparaturbestand reicht nicht: {self.artikel.nummer} – vorhanden {aktuell:f}, Abgang {-self.menge:f}.")
+                super().save(*args, **kwargs)
+            return
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionError("Reparaturbewegungen sind unveränderlich; bitte eine Gegenbuchung erfassen.")
+
+    def __str__(self):
+        return f"{self.artikel.nummer} {self.menge:+} ({self.get_art_display()})"
+
+
+def reparaturbestand(mandant, artikel) -> Decimal:
+    return Reparaturbewegung.objects.filter(mandant=mandant, artikel=artikel).aggregate(
+        s=models.Sum("menge"))["s"] or Decimal("0")
 
 
 class Seriennummer(models.Model):

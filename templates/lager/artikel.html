@@ -24,6 +24,7 @@
     <div>reserviert (offene Aufträge)<br><strong style="font-size:22px">{{ reserviert|floatformat:"-3" }}</strong></div>
     <div>verfügbar<br><strong style="font-size:22px">{{ verfuegbar|floatformat:"-3" }}</strong></div>
     <div>bestellt (offen)<br><strong style="font-size:22px">{{ bestellt|floatformat:"-3" }}</strong></div>
+    <div>Reparaturbestand (nicht verkaufbar)<br><strong style="font-size:22px">{{ reparatur|floatformat:"-3" }}</strong></div>
     <div>Durchschnitts-EK<br>{% if artikel.durchschnitts_ek is not None %}{{ artikel.durchschnitts_ek|floatformat:2 }} €{% else %}–{% endif %}</div>
     <div>letzter Wareneingang<br>{% if letzter_we %}{{ letzter_we.wareneingang.datum|date:"d.m.Y" }} · {{ letzter_we.menge|floatformat:"-3" }} × {{ letzter_we.ek|floatformat:2 }} €{% else %}–{% endif %}</div>
     <div>Einheit<br>{{ artikel.mengeneinheit }}</div>
@@ -47,6 +48,18 @@
       <tr><td colspan="4">Gruppenpreis (VK1)</td><td class="zahl"><strong>{% if kalkulation.preis is not None %}{{ kalkulation.preis|floatformat:2 }}{% else %}–{% endif %}</strong></td><td class="zahl"><strong>{% if kalkulation.preis_marge is not None %}{{ kalkulation.preis_marge|floatformat:2 }} %{% if not kalkulation.vollstaendig %} *{% endif %}{% else %}–{% endif %}</strong></td></tr></tfoot>{% endif %}
   </table></div>
   {% if kalkulation.zeilen and not kalkulation.vollstaendig %}<p class="fein" style="margin:6px 0 0">* Bei einer Komponente fehlt EK oder VK.</p>{% endif %}
+</div>
+{% endif %}
+
+{% if reparatur %}
+<div class="karte">
+  <h2>Reparaturbestand</h2>
+  <form method="post" action="{% url 'lager:reparatur' artikel.pk %}" class="zeile">{% csrf_token %}
+    <div><label>Menge</label><input name="menge" size="8" required></div>
+    <div><label>Bemerkung (Pflicht beim Ausbuchen)</label><input name="bemerkung" size="36" maxlength="200"></div>
+    <button type="submit" name="aktion" value="lager">In Lagerbestand umbuchen</button>
+    <button type="submit" name="aktion" value="ausbuchen" class="gefahr">Ausbuchen</button>
+  </form>
 </div>
 {% endif %}
 
@@ -93,9 +106,10 @@
 <div class="karte">
   <h2>Seriennummern</h2>
   <table>
-    <tr><th>Seriennummer</th><th>Status</th><th>Eingang</th><th>Beleg</th></tr>
+    <tr><th>Seriennummer</th><th>Status</th><th>Eingang</th><th>Beleg</th><th></th></tr>
     {% for sn in seriennummern %}<tr><td>{{ sn.nummer }}</td><td>{{ sn.get_status_display }}</td><td>{{ sn.eingang|date:"d.m.Y" }}</td>
-      <td>{% if sn.position %}<a href="{% url 'verkauf:beleg' sn.position.beleg.pk %}">{{ sn.position.beleg }}</a>{% endif %}</td></tr>{% endfor %}
+      <td>{% if sn.position %}<a href="{% url 'verkauf:beleg' sn.position.beleg.pk %}">{{ sn.position.beleg }}</a>{% endif %}</td>
+      <td>{% if sn.status == 'verkauft' and not sn.position or sn.status == 'verkauft' and sn.position.beleg.abgeschlossen %}<form method="post" action="{% url 'lager:seriennummer_einlagern' sn.pk %}" data-frage="Seriennummer {{ sn.nummer }} wieder einlagern? Der Bestand bleibt unverändert, ihn bucht die Gutschrift.">{% csrf_token %}<button class="leise" type="submit">Wieder einlagern</button></form>{% endif %}</td></tr>{% endfor %}
   </table>
 </div>
 {% endif %}
@@ -111,5 +125,18 @@
     {% empty %}<tr><td colspan="6">Noch keine Bewegungen.</td></tr>{% endfor %}
   </table>
 </div>
+
+{% if reparaturbewegungen %}
+<div class="karte">
+  <h2>Historie Reparaturbestand</h2>
+  <table>
+    <tr><th>Datum</th><th>Grund</th><th class="zahl">Menge</th><th>Beleg</th><th>Bemerkung</th><th>Benutzer</th></tr>
+    {% for b in reparaturbewegungen %}
+    <tr><td>{{ b.zeitpunkt|date:"d.m.Y H:i" }}</td><td>{{ b.get_art_display }}</td><td class="zahl">{{ b.menge|floatformat:"-3" }}</td>
+        <td>{% if b.beleg %}<a href="{% url 'verkauf:beleg' b.beleg.pk %}">{{ b.beleg }}</a>{% endif %}</td>
+        <td>{{ b.bemerkung }}</td><td>{{ b.benutzer|default:"" }}</td></tr>{% endfor %}
+  </table>
+</div>
+{% endif %}
 {% endif %}
 {% endblock %}

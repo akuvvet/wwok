@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Lagerbewegung, Seriennummer
+from .models import Lagerbewegung, Reparaturbewegung, Seriennummer
 
 
 @admin.register(Lagerbewegung)
@@ -19,6 +19,11 @@ class LagerbewegungAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(Reparaturbewegung)
+class ReparaturbewegungAdmin(LagerbewegungAdmin):
+    pass
 
 
 @admin.register(Seriennummer)

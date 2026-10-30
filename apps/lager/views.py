@@ -14,9 +14,9 @@ from apps.verkauf.views import mit_mandant
 
 from apps.verkauf.models import Beleg, Position
 
-from .models import Bewegungsart, Lagerbewegung, Seriennummer, bestand, reserviert
-from .services import (buche_manuell, inventur, retoure_aus_gutschrift, seriennummern_einlagern,
-                       seriennummern_zuordnen, umbuchen, zeilen)
+from .models import Bewegungsart, Lagerbewegung, Reparaturbewegung, Seriennummer, bestand, reparaturbestand, reserviert
+from .services import (buche_manuell, inventur, reparatur_ausbuchen, reparatur_umbuchen, retoure_aus_gutschrift,
+                       seriennummer_wieder_einlagern, seriennummern_einlagern, seriennummern_zuordnen, umbuchen, zeilen)
 
 MANUELL = [Bewegungsart.WARENEINGANG, Bewegungsart.EIGENVERBRAUCH, Bewegungsart.RETOURE, Bewegungsart.KORREKTUR]
 
@@ -58,6 +58,8 @@ def uebersicht(request):
     pro_seite = pro_seite if pro_seite in SEITENGROESSEN else 50
     summen = {s["artikel"]: s["s"] for s in Lagerbewegung.objects.filter(mandant=request.mandant)
               .values("artikel").annotate(s=Sum("menge"))}
+    reparatur = {s["artikel"]: s["s"] for s in Reparaturbewegung.objects.filter(mandant=request.mandant)
+                 .values("artikel").annotate(s=Sum("menge"))}
     artikel = suche(q) if q else Artikel.objects.filter(nicht_aktiv=False)
     if kategorie.isdigit():  # gewählte Kategorie samt Unterkategorien (bis zu drei Ebenen)
         ids = {int(kategorie)}
@@ -65,13 +67,13 @@ def uebersicht(request):
             ids |= set(Kategorie.objects.filter(eltern_id__in=ids).values_list("pk", flat=True))
         artikel = artikel.filter(kategorie_id__in=ids)
     if nur_bestand:
-        artikel = artikel.filter(pk__in=[a for a, s in summen.items() if s])
+        artikel = artikel.filter(pk__in=[a for a, s in (*summen.items(), *reparatur.items()) if s])
     seite = Paginator(artikel.select_related("steuersatz").order_by("nummer"), pro_seite).get_page(request.GET.get("seite"))
     zeilen = []
     for a in seite.object_list:
         b = summen.get(a.pk, Decimal("0"))
         r = reserviert(request.mandant, a) if b else Decimal("0")
-        zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": b - r})
+        zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": b - r, "reparatur": reparatur.get(a.pk, Decimal("0"))})
     lagerwert = Decimal("0")
     for a in Artikel.objects.filter(pk__in=[k for k, s in summen.items() if s], durchschnitts_ek__isnull=False):
         lagerwert += summen[a.pk] * a.durchschnitts_ek
@@ -104,6 +106,8 @@ def artikel_detail(request, artikel_id):
         "gruppe_verfuegbar": gruppe, "kalkulation": gruppen_kalkulation(artikel) if artikel.typ == "G" else None,
         "artikel": artikel, "daten": daten, "bestand": b, "reserviert": r, "verfuegbar": b - r,
         "bewegungen": Lagerbewegung.objects.filter(mandant=request.mandant, artikel=artikel).select_related("beleg", "benutzer")[:100],
+        "reparatur": reparaturbestand(request.mandant, artikel),
+        "reparaturbewegungen": Reparaturbewegung.objects.filter(mandant=request.mandant, artikel=artikel).select_related("beleg", "benutzer")[:100],
         "arten": [(a.value, a.label) for a in MANUELL],
         "seriennummern": Seriennummer.objects.filter(mandant=request.mandant, artikel=artikel).select_related("position__beleg")[:200],
         "andere_mandanten": Mandant.objects.filter(aktiv=True).exclude(pk=request.mandant.pk)})
@@ -183,6 +187,41 @@ def umbuchung(request, artikel_id):
     except ValueError as fehler:
         messages.error(request, str(fehler))
     return redirect("lager:artikel", artikel_id=artikel.pk)
+
+
+@mit_mandant
+@require_POST
+def reparatur_buchen(request, artikel_id):
+    """Reparaturbestand abbauen: repariert in den Lagerbestand oder ausbuchen (Schrott, Rückgabe an den Lieferanten)."""
+    artikel = get_object_or_404(Artikel, pk=artikel_id)
+    try:
+        keine_leistung(artikel)
+        menge = zahl(request.POST.get("menge"), Decimal("0"))
+        bemerkung = request.POST.get("bemerkung", "").strip()[:200]
+        aktion = request.POST.get("aktion")
+        if aktion == "lager":
+            reparatur_umbuchen(request.mandant, artikel, menge, bemerkung, request.user)
+            messages.success(request, "In den Lagerbestand umgebucht.")
+        elif aktion == "ausbuchen":
+            reparatur_ausbuchen(request.mandant, artikel, menge, bemerkung, request.user)
+            messages.success(request, "Aus dem Reparaturbestand ausgebucht.")
+        else:
+            raise ValueError("Diese Buchungsart ist hier nicht erlaubt.")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("lager:artikel", artikel_id=artikel.pk)
+
+
+@mit_mandant
+@require_POST
+def seriennummer_einlagern(request, seriennummer_id):
+    sn = get_object_or_404(Seriennummer.objects.select_related("position__beleg"), pk=seriennummer_id, mandant=request.mandant)
+    try:
+        seriennummer_wieder_einlagern(sn)
+        messages.success(request, f"Seriennummer {sn.nummer} ist wieder im Lager. Der Bestand wurde nicht verändert.")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("lager:artikel", artikel_id=sn.artikel_id)
 
 
 @mit_mandant

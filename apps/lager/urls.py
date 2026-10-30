@@ -13,6 +13,8 @@ urlpatterns = [
     path("seriennummern/", views.seriennummer_suche, name="seriennummern"),
     path("position/<int:position_id>/seriennummern/", views.position_seriennummern, name="position_sn"),
     path("gutschrift/<int:beleg_id>/retoure/", views.gutschrift_retoure, name="retoure"),
+    path("artikel/<int:artikel_id>/reparatur/", views.reparatur_buchen, name="reparatur"),
+    path("seriennummer/<int:seriennummer_id>/einlagern/", views.seriennummer_einlagern, name="seriennummer_einlagern"),
     path("inventur/", views.inventur_liste, name="inventur_liste"),
     path("artikel/<int:artikel_id>/stamm/", views.stamm, name="stamm"),
 ]
