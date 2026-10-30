@@ -73,3 +73,35 @@ def preislistenpreis(eintrag, kunde=None):
     if prozent is None:
         return None
     return (eintrag.ek * (Decimal("100") + prozent) / 100).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def marge(ek, vk):
+    """Marge in % vom VK; None, wenn EK oder VK fehlen."""
+    if ek is None or not vk:
+        return None
+    return ((vk - ek) / vk * 100).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def komponenten_zeile(artikel, menge) -> dict:
+    """Eine Komponente mit Stück-EK, Stück-VK (VK1) und Marge; EK und VK als Text, damit sie auch in JSON passen."""
+    ek, vk = artikel.ek_errechnet, stufenpreis(artikel, 1)
+    return {"pk": artikel.pk, "nummer": artikel.nummer, "bezeichnung": artikel.bezeichnung, "typ": artikel.typ, "menge": f"{menge:f}",
+            "ek": f"{ek:f}" if ek is not None else "", "vk": f"{vk:f}" if vk is not None else ""}
+
+
+def gruppen_kalkulation(gruppe) -> dict:
+    """Komponenten einer Gruppe mit EK, VK und Marge sowie Summen und Marge des Gruppenpreises."""
+    zeilen, ek_summe, vk_summe, vollstaendig = [], Decimal("0"), Decimal("0"), True
+    for k in gruppe.komponenten.select_related("komponente"):
+        z = komponenten_zeile(k.komponente, k.menge)
+        ek = Decimal(z["ek"]) if z["ek"] else None
+        vk = Decimal(z["vk"]) if z["vk"] else None
+        z.update(ek=ek, vk=vk, menge=k.menge, marge=marge(ek, vk), artikel=k.komponente)
+        if vk is None or (ek is None and k.komponente.typ != "L"):  # Leistungen haben keinen EK, das ist keine Lücke
+            vollstaendig = False
+        ek_summe += (ek or Decimal("0")) * k.menge
+        vk_summe += (vk or Decimal("0")) * k.menge
+        zeilen.append(z)
+    preis = stufenpreis(gruppe, 1)
+    return {"zeilen": zeilen, "ek": ek_summe, "vk": vk_summe, "marge": marge(ek_summe, vk_summe) if zeilen else None, "vollstaendig": vollstaendig,
+            "preis": preis, "preis_marge": marge(ek_summe, preis) if zeilen else None}

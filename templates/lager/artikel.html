@@ -29,10 +29,26 @@
     <div>Einheit<br>{{ artikel.mengeneinheit }}</div>
   </div>
   {% if daten.maximalbestand and bestand > daten.maximalbestand %}<p class="warnung" style="margin-top:12px">Über Maximalbestand ({{ daten.maximalbestand }}).</p>{% endif %}
-  {% if artikel.typ == 'G' %}<p>Gruppe: verfügbar aus Komponenten <strong>{{ gruppe_verfuegbar|default_if_none:"–" }}</strong> –
-    {% for k in komponenten %}{{ k.menge|floatformat:"-3" }} × <a href="{% url 'lager:artikel' k.komponente.pk %}">{{ k.komponente.nummer }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+  {% if artikel.typ == 'G' %}<p>Gruppe: aus den Komponenten verfügbar <strong>{{ gruppe_verfuegbar|default_if_none:"–" }}</strong></p>{% endif %}
   {% if daten.mindestbestand and bestand < daten.mindestbestand %}<p class="warnung" style="margin-top:12px">Unter Mindestbestand ({{ daten.mindestbestand }}).</p>{% endif %}
 </div>
+
+{% if kalkulation %}
+<div class="karte">
+  <h2>Komponenten</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Nummer</th><th>Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">EK</th><th class="zahl">VK</th><th class="zahl">Marge</th></tr></thead>
+    <tbody>{% for z in kalkulation.zeilen %}<tr><td><a href="{% url 'lager:artikel' z.pk %}">{{ z.nummer }}</a></td><td>{{ z.bezeichnung }}</td><td class="zahl">{{ z.menge|floatformat:"-3" }}</td>
+      <td class="zahl">{% if z.ek is None %}–{% else %}{{ z.ek|floatformat:2 }}{% endif %}</td><td class="zahl">{% if z.vk is None %}–{% else %}{{ z.vk|floatformat:2 }}{% endif %}</td>
+      <td class="zahl">{% if z.marge is None %}–{% else %}{{ z.marge|floatformat:2 }} %{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="6">Noch keine Komponenten – über „Bearbeiten“ → Komponenten hinzufügen.</td></tr>{% endfor %}</tbody>
+    {% if kalkulation.zeilen %}<tfoot><tr><td colspan="3"><strong>Summe Komponenten</strong></td><td class="zahl"><strong>{{ kalkulation.ek|floatformat:2 }}{% if not kalkulation.vollstaendig %} *{% endif %}</strong></td>
+      <td class="zahl"><strong>{{ kalkulation.vk|floatformat:2 }}{% if not kalkulation.vollstaendig %} *{% endif %}</strong></td><td class="zahl"><strong>{% if kalkulation.marge is not None %}{{ kalkulation.marge|floatformat:2 }} %{% if not kalkulation.vollstaendig %} *{% endif %}{% else %}–{% endif %}</strong></td></tr>
+      <tr><td colspan="4">Gruppenpreis (VK1)</td><td class="zahl"><strong>{% if kalkulation.preis is not None %}{{ kalkulation.preis|floatformat:2 }}{% else %}–{% endif %}</strong></td><td class="zahl"><strong>{% if kalkulation.preis_marge is not None %}{{ kalkulation.preis_marge|floatformat:2 }} %{% if not kalkulation.vollstaendig %} *{% endif %}{% else %}–{% endif %}</strong></td></tr></tfoot>{% endif %}
+  </table></div>
+  {% if kalkulation.zeilen and not kalkulation.vollstaendig %}<p class="fein" style="margin:6px 0 0">* Bei einer Komponente fehlt EK oder VK.</p>{% endif %}
+</div>
+{% endif %}
 
 <div class="karte">
   <h2>Buchen</h2>

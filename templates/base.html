@@ -223,6 +223,86 @@
       dlg.querySelectorAll('[data-modaltab]').forEach(function (b) { b.classList.toggle('aktiv', b.dataset.modaltab === name); });
       dlg.querySelectorAll('[data-modalinhalt]').forEach(function (s) { s.hidden = s.dataset.modalinhalt !== name; });
     }
+    function komponentenBereich(bereich) {  // Reiter Komponenten: suchen, Menge ändern; EK, VK und Marge rechnen sofort mit
+      var zeilen = bereich.querySelector('[data-komponentenzeilen]'), suche = bereich.querySelector('[data-komponentensuche]');
+      var box = bereich.querySelector('[data-komponententreffer]'), liste = [], aktiv = -1, timer, nr = 0;
+      function zahl(t) {
+        t = String(t).trim(); if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+        var z = parseFloat(t); return isNaN(z) ? 0 : z;
+      }
+      function deutsch(z) { return String(z).replace('.', ','); }
+      function euro(z) { return z === null ? '–' : z.toFixed(2).replace('.', ','); }
+      function marge(ek, vk) { return ek === null || !vk ? '–' : ((vk - ek) / vk * 100).toFixed(2).replace('.', ',') + ' %'; }
+      function zelle(tr, text, zahlspalte) { var td = document.createElement('td'); td.textContent = text; if (zahlspalte) td.className = 'zahl'; tr.appendChild(td); return td; }
+      function rechnen() {
+        var ek = 0, vk = 0, luecke = false, leer = !zeilen.querySelector('tr');
+        zeilen.querySelectorAll('tr').forEach(function (tr) {
+          var m = zahl(tr.querySelector('[name=komp_menge]').value);
+          if ((tr.dataset.ek === '' && tr.dataset.typ !== 'L') || tr.dataset.vk === '') luecke = true;
+          ek += m * zahl(tr.dataset.ek); vk += m * zahl(tr.dataset.vk);
+        });
+        var feld = dlg.querySelector('[name=vk1]'), preis = feld && feld.value.trim() ? zahl(feld.value) : null;
+        bereich.querySelector('[data-summe-ek]').textContent = euro(ek) + (luecke ? ' *' : '');
+        bereich.querySelector('[data-summe-vk]').textContent = euro(vk) + (luecke ? ' *' : '');
+        var stern = luecke ? ' *' : '';
+        bereich.querySelector('[data-summe-marge]').textContent = leer ? '–' : marge(ek, vk) + stern;
+        bereich.querySelector('[data-gruppe-vk]').textContent = preis === null ? 'per Aufschlag' : euro(preis);
+        bereich.querySelector('[data-gruppe-marge]').textContent = leer || preis === null ? '–' : marge(ek, preis) + stern;
+      }
+      function hinzu(t) {
+        var vorhanden = zeilen.querySelector('tr[data-pk="' + t.pk + '"]');
+        if (vorhanden) { var f = vorhanden.querySelector('[name=komp_menge]'); f.value = deutsch(zahl(f.value) + 1); rechnen(); return; }
+        var tr = document.createElement('tr'); tr.dataset.pk = t.pk; tr.dataset.ek = t.ek; tr.dataset.vk = t.vk; tr.dataset.typ = t.typ;
+        zelle(tr, t.nummer); zelle(tr, t.bezeichnung);
+        var mengenzelle = zelle(tr, '', true), id = document.createElement('input'), menge = document.createElement('input');
+        id.type = 'hidden'; id.name = 'komp_id'; id.value = t.pk;
+        menge.name = 'komp_menge'; menge.value = /^\d+(\.\d+)?$/.test(t.menge) ? deutsch(zahl(t.menge)) : t.menge; menge.className = 'posfeld'; menge.inputMode = 'decimal'; menge.setAttribute('aria-label', 'Menge');
+        menge.addEventListener('input', rechnen);
+        mengenzelle.appendChild(id); mengenzelle.appendChild(menge);
+        var ek = t.ek === '' ? null : zahl(t.ek), vk = t.vk === '' ? null : zahl(t.vk);
+        zelle(tr, euro(ek), true); zelle(tr, euro(vk), true); zelle(tr, marge(ek, vk), true);
+        var weg = document.createElement('button'), z = document.createElement('td');
+        weg.type = 'button'; weg.className = 'gefahr'; weg.textContent = '×'; weg.title = 'Komponente entfernen';
+        weg.addEventListener('click', function () { tr.remove(); rechnen(); });
+        z.appendChild(weg); tr.appendChild(z); zeilen.appendChild(tr); rechnen();
+      }
+      function zeige() {
+        box.innerHTML = '';
+        liste.forEach(function (t, i) {
+          var d = document.createElement('div');
+          d.style.cssText = 'padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--rand);' + (i === aktiv ? 'background:var(--grund)' : '');
+          d.textContent = t.nummer + ' – ' + t.bezeichnung + (t.ek ? '  (EK ' + euro(zahl(t.ek)) + ' €)' : '');
+          d.addEventListener('mousedown', function (e) { e.preventDefault(); waehle(i); });
+          box.appendChild(d);
+        });
+        box.style.display = liste.length ? 'block' : 'none';
+        if (box.children[aktiv]) box.children[aktiv].scrollIntoView({block: 'nearest'});
+      }
+      function waehle(i) { if (liste[i]) hinzu(liste[i]); liste = []; aktiv = -1; zeige(); suche.value = ''; suche.focus(); }
+      suche.addEventListener('input', function () {
+        clearTimeout(timer); nr++;
+        liste = []; aktiv = -1; zeige();  // alte Treffer gelten nicht mehr
+        timer = setTimeout(function () {
+          var n = ++nr;
+          fetch(bereich.dataset.suche + '?q=' + encodeURIComponent(suche.value.trim()), {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {
+            if (n !== nr) return; liste = d.treffer; aktiv = liste.length ? 0 : -1; zeige();
+          });
+        }, 200);
+      });
+      suche.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); if (aktiv >= 0) waehle(aktiv); return; }  // Enter speichert hier nicht die Maske
+        if (!liste.length) return;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); liste = []; aktiv = -1; zeige(); return; }  // nur die Liste schließen
+        if (e.key === 'ArrowDown') { aktiv = Math.min(aktiv + 1, liste.length - 1); zeige(); e.preventDefault(); }
+        else if (e.key === 'ArrowUp') { aktiv = Math.max(aktiv - 1, 0); zeige(); e.preventDefault(); }
+      });
+      suche.addEventListener('blur', function () { setTimeout(function () { liste = []; aktiv = -1; zeige(); }, 150); });
+      var preisfeld = dlg.querySelector('[name=vk1]'); if (preisfeld) preisfeld.addEventListener('input', rechnen);
+      JSON.parse(dlg.querySelector('#komponenten-daten').textContent).forEach(hinzu);
+      var marker = document.createElement('input');  // sagt dem Server, dass dieser Reiter geladen war
+      marker.type = 'hidden'; marker.name = 'komp_geladen'; marker.value = '1'; bereich.appendChild(marker);
+      rechnen();
+    }
     function bereit() {
       dlg.querySelectorAll('[data-modaltab]').forEach(function (b) { b.addEventListener('click', function () { zeigeTab(b.dataset.modaltab); }); });
       dlg.querySelectorAll('[data-schliessen]').forEach(function (b) { b.addEventListener('click', schliessen); });
@@ -241,11 +321,17 @@
           knopf.style.display = leistung ? 'none' : '';
           if (leistung && knopf.classList.contains('aktiv')) zeigeTab('grund');
         });
+        var komponenten = dlg.querySelector('[data-modaltab="komponenten"]');
+        if (komponenten) {
+          komponenten.style.display = typ.value === 'G' ? '' : 'none';
+          if (typ.value !== 'G' && komponenten.classList.contains('aktiv')) zeigeTab('grund');
+        }
         ['hersteller', 'herstellernummer', 'ean'].forEach(function (name) {
           var feld = dlg.querySelector('[name=' + name + ']'); if (feld) feld.closest('.mfeld').style.display = leistung ? 'none' : '';
         });
       }
       if (typ) { typ.addEventListener('change', typAnwenden); typAnwenden(); }
+      var bereich = dlg.querySelector('[data-komponenten]'); if (bereich) komponentenBereich(bereich);
       var fehler = dlg.querySelector('[data-modaltab].mit-fehler'); if (fehler) zeigeTab(fehler.dataset.modaltab);
       var formular = dlg.querySelector('form'); if (!formular) return;
       formular.addEventListener('submit', async function (e) {

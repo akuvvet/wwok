@@ -451,6 +451,9 @@ def _ek_quelle(artikel):
     if artikel.typ == Artikeltyp.G and artikel.pk:
         summe, quellen = Decimal("0"), set()
         for k in artikel.komponenten.select_related("komponente"):
+            if k.komponente.typ == Artikeltyp.L:  # Leistung: keine Ware, zählt mit 0 € EK
+                quellen.add("Leistung")
+                continue
             ek, quelle = _ek_quelle(k.komponente)
             if ek is None:
                 return None, ""

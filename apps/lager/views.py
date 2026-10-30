@@ -9,6 +9,7 @@ from django.views.decorators.http import require_POST
 
 from apps.kern.models import Mandant
 from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie, keine_leistung
+from apps.stammdaten.preise import gruppen_kalkulation
 from apps.verkauf.views import mit_mandant
 
 from apps.verkauf.models import Beleg, Position
@@ -100,7 +101,7 @@ def artikel_detail(request, artikel_id):
     return render(request, "lager/artikel.html", {
         "bestellt": offen_bestellt(request.mandant, artikel), "letzter_we": letzter_we,
         "lieferanten": artikel.lieferanten.select_related("lieferant").order_by("ek"),
-        "gruppe_verfuegbar": gruppe, "komponenten": artikel.komponenten.select_related("komponente") if artikel.typ == "G" else [],
+        "gruppe_verfuegbar": gruppe, "kalkulation": gruppen_kalkulation(artikel) if artikel.typ == "G" else None,
         "artikel": artikel, "daten": daten, "bestand": b, "reserviert": r, "verfuegbar": b - r,
         "bewegungen": Lagerbewegung.objects.filter(mandant=request.mandant, artikel=artikel).select_related("beleg", "benutzer")[:100],
         "arten": [(a.value, a.label) for a in MANUELL],

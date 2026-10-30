@@ -1,15 +1,18 @@
 """Bearbeiten und Neuanlegen von Kunden und Lieferanten im Dialog (Registerkarten). Die Ansichten liefern ein HTML-Fragment
 für den Dialog; gespeichert wird per fetch, bei Fehlern kommt das Fragment mit den Meldungen zurück (Status 422)."""
+from decimal import Decimal
+
 from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 
-from apps.verkauf.views import mit_mandant
+from apps.verkauf.views import dezimal, mit_mandant
 
 from . import forms as f
-from .models import Artikel, ArtikelMandant, Kunde, KundeMandant, Lieferant, LieferantMandant
+from .models import Artikel, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant, Lieferant, LieferantMandant
+from .preise import komponenten_zeile
 
 
 def naechste_nummer(modell) -> str:
@@ -36,6 +39,57 @@ def fehlerhafte_tabs(tabs):
     return tabs
 
 
+def komponenten_lesen(post, gruppe):
+    """Komponenten aus dem Formular; gleiche Artikel werden zusammengefasst.
+    Rückgabe: (Artikel und Mengen, Zeilen für die Maske samt ungültiger Eingaben, Fehlermeldungen)."""
+    zeilen, anzeige, fehler = {}, {}, []
+    for pk, text in zip(post.getlist("komp_id"), post.getlist("komp_menge")):
+        artikel = Artikel.objects.filter(pk=pk).first() if pk.isdigit() else None
+        if artikel is None:
+            fehler.append("Eine Komponente wurde nicht gefunden.")
+            continue
+        anzeige.setdefault(artikel.pk, {**komponenten_zeile(artikel, Decimal("1")), "menge": text})  # bleibt sichtbar, auch wenn ungültig
+        try:
+            menge = dezimal(text)
+        except ValueError:
+            menge = None
+        if menge is None or not Decimal("0.001") <= menge <= Decimal("9999999"):
+            fehler.append(f"{artikel.nummer}: Die Menge muss größer als 0 sein.")
+            continue
+        if artikel.typ == Artikeltyp.G or artikel.pk == gruppe.pk:
+            fehler.append(f"{artikel.nummer}: Eine Gruppe darf keine weitere Gruppe enthalten.")
+            continue
+        zeilen[artikel.pk] = (artikel, zeilen[artikel.pk][1] + menge if artikel.pk in zeilen else menge)
+    return list(zeilen.values()), list(anzeige.values()), fehler
+
+
+def komponenten_speichern(gruppe, gewaehlt):
+    """Nur tatsächliche Änderungen schreiben, damit das Änderungsprotokoll stimmt."""
+    vorhanden = {k.komponente_id: k for k in gruppe.komponenten.all()}
+    for artikel, menge in gewaehlt:
+        k = vorhanden.pop(artikel.pk, None)
+        if k is None:
+            GruppenKomponente.objects.create(gruppe=gruppe, komponente=artikel, menge=menge)
+        elif k.menge != menge:
+            k.menge = menge
+            k.save()
+    for k in vorhanden.values():
+        k.delete()
+
+
+@mit_mandant
+def komponenten_suche(request):
+    """Artikelsuche für den Reiter Komponenten: Lagerartikel und Leistungen, keine Gruppen."""
+    q = request.GET.get("q", "").strip()
+    if len(q) < 2:
+        return JsonResponse({"treffer": []})
+    treffer = Artikel.objects.filter(nicht_aktiv=False, typ__in=[Artikeltyp.A, Artikeltyp.L])
+    for wort in q.split():
+        treffer = treffer.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
+                                 | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+    return JsonResponse({"treffer": [komponenten_zeile(a, Decimal("1")) for a in treffer.order_by("nummer")[:20]]})
+
+
 def baue_tabs(art, form, formsets, mandantform):
     tabs = [{"id": kennung, "titel": titel, "felder": felder, "form": form, "formset": None, "extra": None}
             for kennung, titel, felder in form.TABS]
@@ -43,6 +97,14 @@ def baue_tabs(art, form, formsets, mandantform):
         tabs.append({"id": kennung, "titel": titel, "felder": [], "form": None, "formset": fs, "extra": None})
     tabs.append({"id": "mandant", "titel": "Mandant", "felder": [], "form": None, "formset": None, "extra": mandantform})
     return fehlerhafte_tabs(tabs)
+
+
+def artikel_tabs(form, mandantform, komponenten, fehler=False):
+    """Artikel-Registerkarten; der Reiter Komponenten steht nach den Preisen und ist nur bei Typ G sichtbar."""
+    tabs = baue_tabs("artikel", form, [], mandantform)
+    tabs.insert(2, {"id": "komponenten", "titel": "Komponenten", "felder": [], "form": None, "formset": None, "extra": None,
+                    "komponenten": komponenten, "fehler": fehler})
+    return tabs
 
 
 def bearbeiten(request, art: str, pk=None):
@@ -129,21 +191,31 @@ def artikel_bearbeiten(request, pk=None):
     instanz = get_object_or_404(Artikel, pk=pk) if pk else Artikel(nummer=naechste_nummer(Artikel))
     daten = request.POST if request.method == "POST" else None
     form = f.ArtikelForm(daten, instance=instanz)
+    komponenten = [komponenten_zeile(k.komponente, k.menge) for k in instanz.komponenten.select_related("komponente")] if pk else []
     md_instanz = (ArtikelMandant.objects.filter(artikel=instanz, mandant=mandant).first() if pk else None) or ArtikelMandant(mandant=mandant)
     mandantform = f.ArtikelMandantForm(daten, instance=md_instanz, prefix="md")
     status = 200
     if request.method == "POST":
-        if alle_gueltig(form, mandantform):
+        gueltig = alle_gueltig(form, mandantform)
+        # der Marker setzt erst das Skript des Reiters: ohne geladenen Reiter bleiben die Komponenten unberührt
+        gruppe = form.cleaned_data.get("typ", instanz.typ) == Artikeltyp.G and "komp_geladen" in request.POST
+        gewaehlt, anzeige, fehler = komponenten_lesen(request.POST, instanz) if gruppe else ([], komponenten, [])
+        komponenten = anzeige
+        for text in fehler:
+            form.add_error(None, text)
+        if gueltig and not fehler:
             with transaction.atomic():
                 objekt = form.save()
                 md = mandantform.save(commit=False)
                 md.artikel, md.mandant = objekt, mandant
                 md.save()
+                if gruppe:
+                    komponenten_speichern(objekt, gewaehlt)
             return JsonResponse({"ok": True, "ziel": reverse("lager:artikel", args=[objekt.pk])})
         status = 422
     antwort = render(request, "stammdaten/modal.html", {
         "titel": f"Artikel {instanz.nummer} – {instanz.bezeichnung}" if pk else "Neuer Artikel",
-        "tabs": baue_tabs("artikel", form, [], mandantform), "form": form, "neu": not pk, "warnung": "",
+        "tabs": artikel_tabs(form, mandantform, komponenten, bool(form.non_field_errors())), "form": form, "neu": not pk, "warnung": "",
         "aktion": request.path, "kunde": False, "mandant": mandant})
     antwort.status_code = status
     return antwort

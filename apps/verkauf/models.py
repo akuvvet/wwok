@@ -714,6 +714,8 @@ class Position(Zeitstempel):
                 summe = Decimal("0")
                 for t in teile:
                     e = t.ek_stueck
+                    if e is None and t.typ == "L":  # Leistung in der Gruppe: zählt mit 0 € EK
+                        continue
                     if e is None:
                         return None
                     summe += e * t.menge
