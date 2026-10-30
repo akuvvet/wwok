@@ -13,7 +13,17 @@
   body { margin:0; font:15px/1.4 system-ui, sans-serif; color:var(--text); background:var(--grund); }
   .kopfbereich { position:sticky; top:0; z-index:30; }
   @media (max-width:900px) { .kopfbereich { position:static; } }  /* auf kleinen Bildschirmen nicht festkleben */
-  .bereichsmenue { display:flex; gap:6px; flex-wrap:wrap; padding:8px 20px; background:var(--karte); border-bottom:1px solid var(--rand); }
+  .seite { display:flex; align-items:flex-start; }
+  .seite > main { flex:1; min-width:0; }
+  .bereichsmenue { flex:none; width:230px; box-sizing:border-box; display:flex; flex-direction:column; gap:6px; padding:12px; background:var(--karte);
+    border-right:1px solid var(--rand); position:sticky; top:58px; min-height:calc(100vh - 58px); max-height:calc(100vh - 58px); overflow-y:auto; }
+  .bereichsmenue .knopf { box-sizing:border-box; width:100%; display:flex; align-items:center; }
+  @media (max-width:900px) {  /* zu schmal für eine Seitenleiste: Menü wieder oben als Zeile */
+    .seite { display:block; }
+    .bereichsmenue { width:auto; flex-direction:row; flex-wrap:wrap; padding:8px 16px; border-right:0; border-bottom:1px solid var(--rand);
+      position:static; min-height:0; max-height:none; }
+    .bereichsmenue .knopf { width:auto; }
+  }
   .ic { width:16px; height:16px; fill:currentColor; vertical-align:-3px; margin-right:6px; }
   .knopf .ic { flex:none; }
   header { display:flex; gap:16px; align-items:center; padding:10px 20px; background:var(--karte); border-bottom:1px solid var(--rand); }
@@ -130,6 +140,8 @@
     {% endif %}
   </span>
 </header>
+</div>
+<div class="seite">
 {% if user.is_authenticated %}{% with bereich=hauptbereich namensraum=request.resolver_match.namespace un=request.resolver_match.url_name %}
 {% if bereich == 'verkauf' %}<nav class="bereichsmenue">
 <a class="knopf {% if namensraum == 'verkauf' and un != 'belege' and un != 'abos' %}{% else %}leise{% endif %}" href="{% url 'verkauf:start' %}"><svg class="ic"><use href="#i-suche"/></svg><span>Kunden &amp; Belege</span></a>
@@ -159,11 +171,11 @@
 <a class="knopf {% if un == 'lastschrift' %}{% else %}leise{% endif %}" href="{% url 'finanzen:lastschrift' %}"><svg class="ic"><use href="#i-lastschrift"/></svg><span>Lastschrift-Einzug</span></a>
 <a class="knopf {% if un == 'datev' %}{% else %}leise{% endif %}" href="{% url 'finanzen:datev' %}"><svg class="ic"><use href="#i-export"/></svg><span>DATEV-Export</span></a>
 </nav>{% endif %}{% endwith %}{% endif %}
-</div>
 <main>
   {% for m in messages %}<div class="meldung {{ m.tags }}">{{ m }}</div>{% endfor %}
   {% block inhalt %}{% endblock %}
 </main>
+</div>
 <script>
   // Escape schließt die Maske und führt zur übergeordneten Seite
   document.addEventListener('keydown', function (e) {
