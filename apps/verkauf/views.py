@@ -454,12 +454,13 @@ def beleg_abschliessen(request, beleg_id):
                 "beleg": beleg, "lieferbar": lieferbar, "knapp": knapp, "meldung": str(fehler)})
         raise
     messages.success(request, f"{beleg} abgeschlossen.")
-    danach = request.POST.get("danach")
-    if danach == "mail":
-        return redirect("verkauf:beleg_mail", beleg_id=beleg.pk)
-    if danach in ("pdf", "druck"):
+    danach = set(request.POST.get("danach", "").split(","))
+    if danach & {"pdf", "druck"}:  # zuerst das PDF; eine gewählte E-Mail folgt von der Ansicht aus
+        parameter = "&".join(n + "=1" for n in ("druck", "mail") if n in danach)
         ziel = reverse("verkauf:beleg_ansicht", args=[beleg.pk])
-        return redirect(ziel + "?druck=1" if danach == "druck" else ziel)
+        return redirect(f"{ziel}?{parameter}" if parameter else ziel)
+    if "mail" in danach:
+        return redirect("verkauf:beleg_mail", beleg_id=beleg.pk)
     return redirect("verkauf:kunde", kunde_id=beleg.kunde_id)
 
 
@@ -563,7 +564,8 @@ def beleg_ansicht(request, beleg_id):
     if hindernis:
         messages.error(request, hindernis)
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
-    return render(request, "verkauf/beleg_ansicht.html", {"beleg": beleg, "druck": request.GET.get("druck") == "1"})
+    return render(request, "verkauf/beleg_ansicht.html", {"beleg": beleg, "druck": request.GET.get("druck") == "1",
+                                                          "mail": request.GET.get("mail") == "1"})
 
 
 @mit_mandant

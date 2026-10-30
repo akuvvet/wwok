@@ -23,6 +23,8 @@
   dialog.hinweisdialog::backdrop { background:rgba(0,0,0,.5); }
   dialog.hinweisdialog p { margin:0 0 16px; white-space:pre-line; line-height:1.4; }
   .hinweisknoepfe { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .hinweishaken { display:flex; flex-direction:column; gap:8px; margin:0 0 18px; }
+  .hinweishaken label { display:flex; gap:8px; align-items:center; font-weight:normal; opacity:1; cursor:pointer; }
   .mandantwahl .mehr { left:0; right:auto; }
   .fein { font-size:12px; opacity:.75; }
   .posfeld { width:84px; text-align:right; }
@@ -204,12 +206,22 @@
 </main>
 </div>
 <script>
-  // Eigene Dialoge statt der Browser-Fenster: wwokDialog(Text, Knöpfe) liefert den Wert des gewählten Knopfes, Escape = null
-  window.wwokDialog = function (text, knoepfe) {
+  // Eigene Dialoge statt der Browser-Fenster: wwokDialog(Text, Knöpfe) liefert den Wert des gewählten Knopfes, Escape = null.
+  // Mit Häkchen (haken: [{name, text}]) kommt {wert, auswahl} zurück, auswahl = Namen der gesetzten Häkchen.
+  window.wwokDialog = function (text, knoepfe, haken) {
     return new Promise(function (fertig) {
       var d = document.createElement('dialog'), absatz = document.createElement('p'), leiste = document.createElement('div');
       d.className = 'hinweisdialog'; leiste.className = 'hinweisknoepfe'; absatz.textContent = text;
-      function ende(wert) { d.close(); d.remove(); fertig(wert); }
+      var auswahl = document.createElement('div'); auswahl.className = 'hinweishaken';
+      (haken || []).forEach(function (h) {
+        var zeile = document.createElement('label'), feld = document.createElement('input');
+        feld.type = 'checkbox'; feld.value = h.name;
+        zeile.appendChild(feld); zeile.appendChild(document.createTextNode(' ' + h.text)); auswahl.appendChild(zeile);
+      });
+      function ende(wert) {
+        var gesetzt = Array.prototype.map.call(auswahl.querySelectorAll('input:checked'), function (f) { return f.value; });
+        d.close(); d.remove(); fertig(haken ? {wert: wert, auswahl: gesetzt} : wert);
+      }
       knoepfe.forEach(function (k) {
         var b = document.createElement('button');
         b.type = 'button'; b.textContent = k.text; if (!k.haupt) b.className = 'leise';
@@ -217,7 +229,7 @@
         leiste.appendChild(b);
       });
       d.addEventListener('cancel', function (e) { e.preventDefault(); ende(null); });
-      d.appendChild(absatz); d.appendChild(leiste); document.body.appendChild(d); d.showModal();
+      d.appendChild(absatz); if (haken) d.appendChild(auswahl); d.appendChild(leiste); document.body.appendChild(d); d.showModal();
       var haupt = leiste.querySelector('button:not(.leise)'); if (haupt) haupt.focus();
     });
   };

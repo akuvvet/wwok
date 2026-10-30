@@ -217,12 +217,11 @@
     f.addEventListener('submit', function (e) {
       if (f.dataset.bestaetigt) return;
       e.preventDefault();
-      wwokDialog(f.dataset.text, [
-        {text: 'Abschließen', wert: '', haupt: true}, {text: 'Abschließen + PDF', wert: 'pdf'}, {text: 'Abschließen + Drucken', wert: 'druck'},
-        {text: 'Abschließen + E-Mail', wert: 'mail'}, {text: 'Abbrechen', wert: null}
-      ]).then(function (wert) {
-        if (wert === null) return;
-        f.querySelector('[name=danach]').value = wert;
+      wwokDialog(f.dataset.text, [{text: 'Abschließen', wert: true, haupt: true}, {text: 'Abbrechen', wert: null}],
+        [{name: 'pdf', text: 'PDF erstellen'}, {name: 'mail', text: 'E-Mail senden'}, {name: 'druck', text: 'Drucken'}]
+      ).then(function (antwort) {
+        if (!antwort.wert) return;
+        f.querySelector('[name=danach]').value = antwort.auswahl.join(',');
         f.dataset.bestaetigt = '1';
         f.submit();
       });

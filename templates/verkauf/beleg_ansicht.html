@@ -16,8 +16,8 @@
   <div class="zeile" style="justify-content:space-between;margin-bottom:10px">
     <h1 style="margin:0">{{ beleg.get_art_display }} {{ beleg.nummer|default:"(Entwurf)" }} · {{ beleg.kunde.name1 }}</h1>
     <div class="zeile">
-      <button type="button" id="drucken">Drucken</button>
-      {% if beleg.nummer %}<a class="knopf leise" href="{% url 'verkauf:beleg_mail' beleg.pk %}">Per E-Mail</a>{% endif %}
+      <button type="button" id="drucken"{% if mail %} class="leise"{% endif %}>Drucken</button>
+      {% if beleg.nummer %}<a class="knopf{% if not mail %} leise{% endif %}" href="{% url 'verkauf:beleg_mail' beleg.pk %}">{% if mail %}Weiter: E-Mail senden{% else %}Per E-Mail{% endif %}</a>{% endif %}
       <a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Zum Beleg</a>
       <a class="knopf leise" href="{% url 'verkauf:kunde' beleg.kunde_id %}">Zum Kunden</a>
     </div>

@@ -44,6 +44,12 @@ class AbschlussDialogTest(TestCase):
         self.assertEqual(self.abschliessen(b2, "druck")["Location"], reverse("verkauf:beleg_ansicht", args=[b2.pk]) + "?druck=1")
         b3 = self.beleg()
         self.assertEqual(self.abschliessen(b3, "mail")["Location"], reverse("verkauf:beleg_mail", args=[b3.pk]))
+        b4 = self.beleg()
+        ziel = reverse("verkauf:beleg_ansicht", args=[b4.pk])
+        self.assertEqual(self.abschliessen(b4, "pdf,mail,druck")["Location"], ziel + "?druck=1&mail=1")
+        b5 = self.beleg()
+        self.assertEqual(self.abschliessen(b5, "pdf,mail")["Location"], reverse("verkauf:beleg_ansicht", args=[b5.pk]) + "?mail=1")
+        self.assertContains(self.client.get(reverse("verkauf:beleg_ansicht", args=[b5.pk]), {"mail": "1"}), "Weiter: E-Mail senden")
         b.refresh_from_db()
         self.assertTrue(b.abgeschlossen)
 
@@ -60,7 +66,8 @@ class AbschlussDialogTest(TestCase):
     def test_beleg_zeigt_auswahl_statt_browserfenster(self):
         r = self.client.get(reverse("verkauf:beleg", args=[self.beleg().pk]))
         self.assertContains(r, 'id="abschlussform"')
-        self.assertContains(r, "Abschließen + Drucken")
+        self.assertContains(r, "E-Mail senden")
+        self.assertContains(r, "PDF erstellen")
         self.assertContains(r, 'name="danach"')
 
     def test_kopieren_als_klappt_die_auswahl_auf(self):
