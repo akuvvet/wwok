@@ -1,6 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -10,6 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from apps.kern.kontext import MANDANT_COOKIE, mandant_oder_none
 from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
@@ -41,24 +43,13 @@ def datum_oder_none(text):
         raise ValueError(f"Ungültiges Datum: {text}")
 
 
-def mandant_oder_none(request):
-    mandant_id = request.session.get("mandant_id")
-    if mandant_id:
-        return Mandant.objects.filter(pk=mandant_id, aktiv=True).first()
-    aktive = Mandant.objects.filter(aktiv=True)
-    if aktive.count() == 1:
-        request.session["mandant_id"] = aktive[0].pk
-        return aktive[0]
-    return None
-
-
 def mit_mandant(view):
     """Login nötig und ein Mandant gewählt; sonst zur Startseite."""
     @login_required
     def umhuellt(request, *args, **kwargs):
         mandant = mandant_oder_none(request)
         if mandant is None:
-            messages.info(request, "Bitte zuerst einen Mandanten wählen.")
+            messages.info(request, "Bitte zuerst einen Mandanten auswählen: Firma prüfen und auf „Auswählen“ klicken.")
             return redirect("verkauf:start")
         request.mandant = mandant
         return view(request, *args, **kwargs)
@@ -75,7 +66,10 @@ def start(request):
     if request.method == "POST":
         mandant = get_object_or_404(Mandant, pk=request.POST.get("mandant"), aktiv=True)
         request.session["mandant_id"] = mandant.pk
-        return redirect("verkauf:start")
+        antwort = redirect("verkauf:start")
+        antwort.set_cookie(MANDANT_COOKIE, mandant.pk, max_age=365 * 24 * 3600, httponly=True, samesite="Lax",
+                           secure=settings.SESSION_COOKIE_SECURE)  # auch nach neuer Anmeldung derselbe Mandant
+        return antwort
     mandant = mandant_oder_none(request)
     if mandant:
         Beleg.leere_entwuerfe_entfernen(mandant)

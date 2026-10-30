@@ -10,7 +10,7 @@
         {% for m in mandanten %}<option value="{{ m.pk }}" {% if m == mandant %}selected{% endif %}>{{ m.firmenname }}</option>{% endfor %}
       </select>
     </div>
-    <button type="submit" class="leise">Wechseln</button>
+    <button type="submit" {% if mandant %}class="leise"{% endif %}>{% if mandant %}Wechseln{% else %}Auswählen{% endif %}</button>
   </form>
   {% if not mandanten %}<p class="warnung">Noch kein Mandant angelegt – bitte unter Verwaltung → Mandanten anlegen.</p>{% endif %}
 </div>

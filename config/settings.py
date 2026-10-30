@@ -82,6 +82,7 @@ TEMPLATES = [
             "context_processors": [
                 "django.template.context_processors.request",
                 "apps.kern.kontext.hauptbereich",
+                "apps.kern.kontext.aktiver_mandant",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
             ],
