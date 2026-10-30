@@ -248,7 +248,36 @@
         bereich.querySelector('[data-summe-marge]').textContent = leer ? '–' : marge(ek, vk) + stern;
         bereich.querySelector('[data-gruppe-vk]').textContent = preis === null ? 'per Aufschlag' : euro(preis);
         bereich.querySelector('[data-gruppe-marge]').textContent = leer || preis === null ? '–' : marge(ek, preis) + stern;
+        preisBlock(ek, vk, preis, stern);
       }
+      var preisEingabe = bereich.querySelector('[data-preis-eingabe]'), aufschlagEingabe = bereich.querySelector('[data-aufschlag-eingabe]');
+      var preisModus = 'summe';  // summe: folgt VK1 bzw. Summe VK; preis: fester Betrag; aufschlag: fester Prozentsatz auf den EK
+      function preisBlock(ek, vk, vk1, stern) {
+        var wert = preisModus === 'preis' ? zahl(preisEingabe.value)
+          : preisModus === 'aufschlag' ? Math.round(ek * (100 + zahl(aufschlagEingabe.value))) / 100
+          : (vk1 === null ? vk : vk1);
+        wert = Math.round(wert * 100) / 100;
+        if (preisModus !== 'preis') preisEingabe.value = euro(wert);
+        if (preisModus !== 'aufschlag') aufschlagEingabe.value = ek > 0 ? euro((wert - ek) / ek * 100) : '';
+        bereich.querySelector('[data-preis-marge]').textContent = wert > 0 && zeilen.querySelector('tr') ? marge(ek, wert) + stern : '–';
+        bereich.dataset.gruppenpreis = wert;
+      }
+      function preisSetzen(modus) { return function () { preisModus = modus; bereich.querySelector('[data-preis-meldung]').textContent = ''; rechnen(); }; }
+      preisEingabe.addEventListener('input', preisSetzen('preis'));
+      aufschlagEingabe.addEventListener('input', preisSetzen('aufschlag'));
+      [preisEingabe, aufschlagEingabe].forEach(function (f) {
+        f.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });  // Enter speichert hier nicht die Maske
+      });
+      bereich.querySelector('[data-preis-uebernehmen]').addEventListener('click', function () {
+        var wert = parseFloat(bereich.dataset.gruppenpreis), meldung = bereich.querySelector('[data-preis-meldung]');
+        if (!(wert > 0)) { meldung.textContent = 'Bitte zuerst einen Preis eintragen.'; return; }
+        ['vk1', 'vk2', 'vk3'].forEach(function (name) {
+          var feld = dlg.querySelector('[name=' + name + ']'); if (!feld) return;
+          feld.value = feld.type === 'number' ? wert.toFixed(2) : euro(wert);
+        });
+        preisModus = 'summe'; rechnen();
+        meldung.textContent = 'Übernommen – mit „Speichern“ festhalten.';
+      });
       function hinzu(t) {
         var vorhanden = zeilen.querySelector('tr[data-pk="' + t.pk + '"]');
         if (vorhanden) { var f = vorhanden.querySelector('[name=komp_menge]'); f.value = deutsch(zahl(f.value) + 1); rechnen(); return; }

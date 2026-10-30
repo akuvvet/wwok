@@ -71,6 +71,11 @@ class KomponentenTest(TestCase):
         self.assertEqual(self.pc.bezeichnung, "PC Gaming")
         self.assertFalse(self.pc.komponenten.exists())
 
+    def test_gruppenpreis_wird_mit_vk1_bis_vk3_gespeichert(self):
+        self.client.post(self.url, self.daten(self.pc, vk1="499.00", vk2="499.00", vk3="499.00", komp_id=[self.ram.pk], komp_menge=["1"]))
+        self.pc.refresh_from_db()
+        self.assertEqual((self.pc.vk1, self.pc.vk2, self.pc.vk3), (D("499.00"), D("499.00"), D("499.00")))
+
     def test_gleicher_artikel_wird_zusammengefasst(self):
         self.client.post(self.url, self.daten(self.pc, komp_id=[self.ram.pk, self.ram.pk], komp_menge=["1", "2"]))
         self.assertEqual(self.pc.komponenten.get().menge, D("3.000"))
@@ -134,5 +139,7 @@ class KomponentenTest(TestCase):
         GruppenKomponente.objects.create(gruppe=self.pc, komponente=self.ram, menge=D("2"))
         r = self.client.get(self.url)
         self.assertContains(r, 'data-modaltab="komponenten"')
+        self.assertContains(r, "data-preis-uebernehmen")  # Gruppenpreis oder Aufschlag nach VK1–VK3
+        self.assertContains(r, "data-aufschlag-eingabe")
         self.assertContains(r, '"nummer": "22699"')
         self.assertEqual(self.client.get(reverse("stammdaten:artikel_neu")).status_code, 200)
