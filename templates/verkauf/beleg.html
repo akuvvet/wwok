@@ -100,6 +100,7 @@
             <div><label>Menge</label><input name="menge" value="{{ p.menge|floatformat:'-3' }}" size="6"></div>
             {% if not p.gruppe_id %}<div><label>Preis netto</label><input name="preis" value="{{ p.einzelpreis }}" size="8"></div>
             <div><label>Rabatt %</label><input name="rabatt" value="{{ p.rabatt_prozent|floatformat:'-2' }}" size="5"></div>{% endif %}
+            {% if gruppen and p.artikel_id or gruppen and p.preisliste_artikel_id %}{% if p.typ != 'G' or p.gruppe_id %}<div><label>Gruppe</label><select name="gruppe"><option value="">– keine –</option>{% for g in gruppen %}<option value="{{ g.pk }}"{% if g.pk == p.gruppe_id %} selected{% endif %}>{{ g.pos }} {{ g.bezeichnung }}</option>{% endfor %}</select></div>{% endif %}{% endif %}
             <div><label>Zusatztext (wird gedruckt)</label><input name="zusatztext" value="{{ p.zusatztext }}" size="30"></div>
             <button type="submit">Speichern</button>
           </form></details>

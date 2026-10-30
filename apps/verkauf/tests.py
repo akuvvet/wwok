@@ -510,6 +510,182 @@ class KreditlimitAngebotTest(TestCase):
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
+class PositionInGruppeVerschiebenTest(TestCase):
+    def setUp(self):
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        self.k = Kunde.objects.create(nummer="1", name1="K")
+        self.st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.a = Artikel.objects.create(nummer="A1", bezeichnung="Gehäuse", steuersatz=self.st, vk1=Decimal("100"))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+        self.beleg = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.k)
+
+    def position(self, **werte):
+        daten = dict(beleg=self.beleg, artikel=self.a, bezeichnung="Gehäuse", einzelpreis=Decimal("100"))
+        return Position.objects.create(**{**daten, **werte})
+
+    def gruppe(self, **werte):
+        return Position.objects.create(**{**dict(beleg=self.beleg, typ="G", bezeichnung="PC", einzelpreis=Decimal("0")), **werte})
+
+    def aendern(self, p, gruppe, **felder):
+        daten = {"menge": str(p.menge), "preis": str(p.einzelpreis), "rabatt": str(p.rabatt_prozent), "gruppe": gruppe, **felder}
+        return self.client.post(reverse("verkauf:position_aendern", args=[self.beleg.pk, p.pk]), daten)
+
+    def test_aeltere_position_rueckt_unter_die_gruppe_und_summe_bleibt(self):
+        p = self.position(menge=Decimal("2"))
+        kopf = self.gruppe()
+        self.beleg.berechne()
+        self.aendern(p, str(kopf.pk))
+        p.refresh_from_db()
+        kopf.refresh_from_db()
+        self.beleg.refresh_from_db()
+        self.assertEqual(p.gruppe_id, kopf.pk)
+        self.assertEqual(kopf.einzelpreis, Decimal("200.00"))
+        self.assertEqual(self.beleg.summe_netto, Decimal("200.00"))
+        self.assertEqual(list(self.beleg.positionen.all()), [kopf, p])
+        self.assertEqual((kopf.pos, p.pos), (1, 1))
+
+    def test_kopie_behaelt_die_gruppe_der_aelteren_position(self):
+        p = self.position()
+        kopf = self.gruppe()
+        self.aendern(p, str(kopf.pk))
+        kopie = self.beleg.kopieren_als(Belegart.AUFTRAG)
+        teil = kopie.positionen.get(typ="A")
+        self.assertEqual(teil.gruppe, kopie.positionen.get(typ="G"))
+        self.assertEqual(kopie.summe_netto, Decimal("100.00"))
+
+    def test_rabatt_geht_in_den_preis_ein(self):
+        p = self.position(rabatt_prozent=Decimal("10"))
+        self.aendern(p, str(self.gruppe().pk))
+        p.refresh_from_db()
+        self.beleg.refresh_from_db()
+        self.assertEqual((p.einzelpreis, p.rabatt_prozent), (Decimal("90.00"), Decimal("0")))
+        self.assertEqual(self.beleg.summe_netto, Decimal("90.00"))
+
+    def test_fester_gruppenpreis_steigt_und_sinkt_um_den_betrag(self):
+        p = self.position()
+        kopf = self.gruppe(einzelpreis=Decimal("150"), preis_fest=True)
+        self.aendern(p, str(kopf.pk))
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("250.00"))
+        p.refresh_from_db()
+        self.aendern(p, "")
+        kopf.refresh_from_db()
+        p.refresh_from_db()
+        self.beleg.refresh_from_db()
+        self.assertIsNone(p.gruppe_id)
+        self.assertEqual(kopf.einzelpreis, Decimal("150.00"))
+        self.assertEqual(self.beleg.summe_netto, Decimal("250.00"))
+
+    def test_herausnehmen_der_letzten_unterposition_zaehlt_nicht_doppelt(self):
+        kopf = self.gruppe()
+        p = self.position(gruppe=kopf)
+        self.beleg.berechne()
+        self.aendern(p, "")
+        kopf.refresh_from_db()
+        self.beleg.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("0.00"))
+        self.assertEqual(self.beleg.summe_netto, Decimal("100.00"))
+
+    def test_wechsel_in_andere_gruppe_mit_mengenaenderung(self):
+        eins, zwei = self.gruppe(), self.gruppe(bezeichnung="Server")
+        p = self.position(gruppe=eins)
+        self.position(gruppe=eins)
+        self.beleg.berechne()
+        self.aendern(p, str(zwei.pk), menge="3")
+        eins.refresh_from_db()
+        zwei.refresh_from_db()
+        self.assertEqual((eins.einzelpreis, zwei.einzelpreis), (Decimal("100.00"), Decimal("300.00")))
+
+    def test_gruppe_und_freie_position_lassen_sich_nicht_verschieben(self):
+        eins, zwei = self.gruppe(), self.gruppe(bezeichnung="Server")
+        self.aendern(zwei, str(eins.pk))
+        zwei.refresh_from_db()
+        self.assertIsNone(zwei.gruppe_id)
+        frei = self.position(artikel=None, bezeichnung="Sonderteil")
+        self.aendern(frei, str(eins.pk))
+        frei.refresh_from_db()
+        self.assertIsNone(frei.gruppe_id)
+
+    def test_fremde_gruppe_und_abgeschlossener_beleg(self):
+        p = self.position()
+        anderer = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.k)
+        fremd = Position.objects.create(beleg=anderer, typ="G", bezeichnung="X", einzelpreis=Decimal("0"))
+        self.assertEqual(self.aendern(p, str(fremd.pk)).status_code, 404)
+        p.refresh_from_db()
+        self.assertIsNone(p.gruppe_id)
+        kopf = self.gruppe()
+        Beleg.objects.filter(pk=self.beleg.pk).update(art=Belegart.RECHNUNG, abgeschlossen=True)
+        self.aendern(p, str(kopf.pk))
+        p.refresh_from_db()
+        self.assertIsNone(p.gruppe_id)
+
+    def test_auswahl_erscheint_nur_wo_sie_passt(self):
+        self.position()
+        self.gruppe()
+        self.position(artikel=None, bezeichnung="Sonderteil")
+        self.beleg.berechne()
+        html = self.client.get(reverse("verkauf:beleg", args=[self.beleg.pk])).content.decode()
+        self.assertEqual(html.count("<label>Gruppe</label>"), 1)
+        self.assertIn("– keine –", html)
+
+
+    def bleibt(self, p, gruppe, **felder):
+        """Der Wechsel wird abgelehnt: Position und Belegsumme bleiben unverändert."""
+        vorher = (p.gruppe_id, p.einzelpreis, p.rabatt_prozent)
+        self.aendern(p, gruppe, **felder)
+        p.refresh_from_db()
+        self.assertEqual((p.gruppe_id, p.einzelpreis, p.rabatt_prozent), vorher)
+
+    def test_abgeschlossene_rechnung_laesst_festen_gruppenpreis_unberuehrt(self):
+        kopf = self.gruppe(einzelpreis=Decimal("250"), preis_fest=True)
+        p = self.position(gruppe=kopf)
+        Beleg.objects.filter(pk=self.beleg.pk).update(art=Belegart.RECHNUNG, abgeschlossen=True)
+        self.bleibt(p, "")
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("250.00"))
+        self.client.post(reverse("verkauf:position_loeschen", args=[self.beleg.pk, p.pk]))
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("250.00"))
+        self.assertTrue(Position.objects.filter(pk=p.pk).exists())
+
+    def test_unterschiedliche_steuer_wird_abgelehnt(self):
+        p = self.position(steuer_prozent=Decimal("7"))
+        self.bleibt(p, str(self.gruppe().pk))
+
+    def test_gruppe_mit_rabatt_wird_abgelehnt(self):
+        kopf = self.gruppe(rabatt_prozent=Decimal("10"))
+        self.bleibt(self.position(), str(kopf.pk))
+        self.bleibt(self.position(gruppe=kopf), "")
+
+    def test_rabatt_der_nicht_centgenau_aufgeht_wird_abgelehnt(self):
+        p = self.position(menge=Decimal("100"), einzelpreis=Decimal("0.99"), rabatt_prozent=Decimal("15"))
+        self.bleibt(p, str(self.gruppe().pk))
+
+    def test_anderer_lieferschein_wird_abgelehnt(self):
+        ls = Beleg.objects.create(mandant=self.m, art=Belegart.LIEFERSCHEIN, kunde=self.k)
+        self.bleibt(self.position(lieferschein=ls), str(self.gruppe().pk))
+
+    def test_negativer_gruppenpreis_wird_abgelehnt(self):
+        kopf = self.gruppe(einzelpreis=Decimal("50"), preis_fest=True)
+        self.bleibt(self.position(gruppe=kopf), "")
+        kopf.refresh_from_db()
+        self.assertEqual(kopf.einzelpreis, Decimal("50.00"))
+
+    def test_verborgener_rabatt_einer_unterposition_aendert_den_wert_nicht(self):
+        kopf = self.gruppe()
+        p = self.position(gruppe=kopf, rabatt_prozent=Decimal("10"))
+        self.beleg.berechne()
+        self.aendern(p, "")
+        p.refresh_from_db()
+        self.beleg.refresh_from_db()
+        self.assertEqual((p.einzelpreis, p.rabatt_prozent), (Decimal("100.00"), Decimal("0")))
+        self.assertEqual(self.beleg.summe_netto, Decimal("100.00"))
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
 class FesterGruppenpreisErhoehenTest(TestCase):
     def test_spaeter_hinzugefuegte_teile_erhoehen_festen_preis(self):
         m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")

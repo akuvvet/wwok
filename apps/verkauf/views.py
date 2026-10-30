@@ -18,7 +18,7 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import (Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Position, Versand, Versandart, Wiedervorlage,
+from .models import (runden, Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Position, Versand, Versandart, Wiedervorlage,
                      letzte_preise)
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
@@ -283,10 +283,46 @@ def beleg_kopf(request, beleg_id):
 def gruppenpreis_erhoehen(gruppe, betrag):
     """Hat die Gruppe einen von Hand festgelegten Preis, erhöht eine später hinzugefügte Unterposition diesen Preis um ihren Betrag
     (ohne festen Preis rechnet berechne() ohnehin die Summe)."""
+    if gruppe.beleg.positionen_gesperrt:  # update() umgeht die Sperre in Position.save()
+        raise BelegGesperrt(f"{gruppe.beleg} ist abgeschlossen – Positionen lassen sich nicht mehr ändern.")
     if gruppe.preis_fest and gruppe.menge:
         neu = (gruppe.einzelpreis + betrag / gruppe.menge).quantize(Decimal("0.01"))
         Position.objects.filter(pk=gruppe.pk).update(einzelpreis=neu)
         gruppe.einzelpreis = neu
+
+
+@transaction.atomic
+def gruppe_wechseln(p, ziel, alter_betrag):
+    """Position nachträglich in eine Gruppe verschieben, in eine andere oder heraus; ziel=None = eigene Position. Der Belegwert
+    bleibt gleich: Ein Positionsrabatt geht in den Preis ein (Unterpositionen haben keinen Rabatt). Wo das nicht
+    aufgeht, wird der Wechsel abgelehnt, statt still Beträge oder die Steuer zu ändern."""
+    alt = p.gruppe
+    if ziel:
+        if not (p.artikel_id or p.preisliste_artikel_id):
+            raise ValueError("Unterpositionen brauchen einen Artikel.")
+        if p.steuer_prozent != ziel.steuer_prozent:  # versteuert wird nur der Gruppenkopf
+            raise ValueError("Position und Gruppe haben unterschiedliche Steuersätze – die Position lässt sich nicht verschieben.")
+        if p.lieferschein_id != ziel.lieferschein_id:  # der Vermerk zum Lieferschein erscheint nur an der Gruppe
+            raise ValueError("Position und Gruppe stammen aus unterschiedlichen Lieferscheinen – die Position lässt sich nicht verschieben.")
+    if (alt and alt.rabatt_prozent) or (ziel and ziel.rabatt_prozent):
+        raise ValueError("Die Gruppe hat einen Rabatt – bitte den Rabatt zuerst entfernen, sonst ändert sich der Belegwert.")
+    if alt and alt.preis_fest and alt.menge and alt.einzelpreis - alter_betrag / alt.menge < 0:
+        raise ValueError("Der Gruppenpreis würde negativ – bitte zuerst den Gruppenpreis anpassen.")
+    preis = p.einzelpreis
+    if not alt:
+        faktor = (Decimal("100") - p.rabatt_prozent) / 100
+        preis = runden(p.einzelpreis * faktor)
+        if runden(p.menge * preis) != runden(p.menge * p.einzelpreis * faktor):
+            raise ValueError("Der Rabatt geht nicht auf den Cent genau im Preis auf – bitte den Preis von Hand setzen und den Rabatt entfernen.")
+    if alt:
+        gruppenpreis_erhoehen(alt, -alter_betrag)
+    if ziel:
+        gruppenpreis_erhoehen(ziel, p.menge * preis)
+    p.einzelpreis, p.rabatt_prozent = preis, Decimal("0")
+    p.gruppe = ziel
+    p.save()
+    if alt and not alt.preis_fest and not alt.unterpositionen.exists():  # ohne Unterpositionen gibt es keine Summe mehr
+        Position.objects.filter(pk=alt.pk).update(einzelpreis=0)
 
 
 @mit_mandant
@@ -396,12 +432,13 @@ def gruppenpreis(request, beleg_id, position_id):
 @require_POST
 @sperr_schutz
 def position_aendern(request, beleg_id, position_id):
-    """Menge, Preis, Rabatt und Zusatztext einer Position ändern (Unterpositionen einer Gruppe: nur Menge und Text)."""
+    """Menge, Preis, Rabatt, Zusatztext und Gruppe einer Position ändern (Unterpositionen einer Gruppe: kein Preis und Rabatt)."""
     beleg = beleg_holen(request, beleg_id)
     p = get_object_or_404(Position, pk=position_id, beleg=beleg)
     menge = dezimal(request.POST.get("menge"), p.menge)
     if menge <= 0:
         raise ValueError("Die Menge muss größer als 0 sein.")
+    alter_betrag = p.menge * p.einzelpreis
     p.menge = menge
     p.zusatztext = request.POST.get("zusatztext", "")
     if not p.gruppe_id:
@@ -413,7 +450,11 @@ def position_aendern(request, beleg_id, position_id):
         if not 0 <= rabatt <= 100:
             raise ValueError("Der Rabatt muss zwischen 0 und 100 % liegen.")
         p.rabatt_prozent = rabatt
-    p.save()
+    ziel_id = request.POST.get("gruppe")
+    if ziel_id is None or (p.typ == "G" and not p.gruppe_id) or str(p.gruppe_id or "") == ziel_id:
+        p.save()  # eine Gruppe selbst lässt sich nicht in eine Gruppe verschieben
+    else:
+        gruppe_wechseln(p, get_object_or_404(Position, pk=ziel_id, beleg=beleg, typ="G", gruppe__isnull=True) if ziel_id else None, alter_betrag)
     beleg.berechne()
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 

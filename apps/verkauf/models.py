@@ -633,7 +633,7 @@ def kopiere_positionen(quelle, ziel):
     Lieferschein, bleibt der Lieferschein an der Position vermerkt (Nummer und Datum im Ausdruck)."""
     neu = {}
     lieferschein = quelle if quelle.art == Belegart.LIEFERSCHEIN else None
-    for p in quelle.positionen.order_by("pos", "id"):
+    for p in quelle.positionen.all():
         neu[p.pk] = Position.objects.create(
             beleg=ziel, gruppe=neu.get(p.gruppe_id), typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung,
             preisliste_artikel=p.preisliste_artikel, menge=p.menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent,
@@ -696,7 +696,8 @@ class Position(Zeitstempel):
     class Meta:
         verbose_name = "Position"
         verbose_name_plural = "Positionen"
-        ordering = ["pos", "id"]
+        # Die Gruppe steht vor ihren Unterpositionen, auch wenn eine ältere Position nachträglich in sie verschoben wurde
+        ordering = ["pos", models.F("gruppe").asc(nulls_first=True), "id"]
 
     @property
     def artikelnummer(self) -> str:
