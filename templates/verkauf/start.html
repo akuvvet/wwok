@@ -1,19 +1,21 @@
 {% extends "base.html" %}
 {% block titel %}Verkauf – wwok{% endblock %}
 {% block inhalt %}
+{% if not mandant %}
 <div class="karte">
-  <h1>Verkaufsabwicklung</h1>
+  <h1>Mandant wählen</h1>
   <form method="post" class="zeile">{% csrf_token %}
     <div>
       <label for="mandant">Mandant</label>
       <select name="mandant" id="mandant">
-        {% for m in mandanten %}<option value="{{ m.pk }}" {% if m == mandant %}selected{% endif %}>{{ m.firmenname }}</option>{% endfor %}
+        {% for m in mandanten %}<option value="{{ m.pk }}">{{ m.kurzname }} – {{ m.firmenname }}</option>{% endfor %}
       </select>
     </div>
-    <button type="submit" {% if mandant %}class="leise"{% endif %}>{% if mandant %}Wechseln{% else %}Auswählen{% endif %}</button>
+    <button type="submit">Auswählen</button>
   </form>
   {% if not mandanten %}<p class="warnung">Noch kein Mandant angelegt – bitte unter Verwaltung → Mandanten anlegen.</p>{% endif %}
 </div>
+{% endif %}
 {% if mandant %}
 <div class="karte">
   <h2>Kunde suchen</h2>

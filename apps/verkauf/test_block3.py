@@ -101,6 +101,17 @@ class Block3Test(TestCase):
         self.assertEqual(r.status_code, 302)
 
     # Wiedervorlage
+    def test_wiedervorlage_als_symbol_im_kundenkopf(self):
+        url = reverse("verkauf:kunde", args=[self.kunde.pk])
+        r = self.client.get(url)
+        self.assertContains(r, 'class="menue-mehr wiedervorlage"')
+        self.assertContains(r, 'data-tip="Wiedervorlage"')
+        self.assertNotContains(r, "<h2>Wiedervorlage</h2>")
+        self.client.post(reverse("verkauf:wiedervorlage_neu", args=[self.kunde.pk]), {"faellig": date.today().isoformat(), "text": "Nachfassen"})
+        r = self.client.get(url)
+        self.assertContains(r, 'data-tip="Wiedervorlage (1 offen)"')
+        self.assertContains(r, "Nachfassen")
+
     def test_wiedervorlage_erscheint_faellig_auf_startseite_und_wird_erledigt(self):
         self.client.post(reverse("verkauf:wiedervorlage_neu", args=[self.kunde.pk]),
                          {"faellig": date.today().isoformat(), "text": "Angebot nachfassen"})

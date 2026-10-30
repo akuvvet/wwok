@@ -97,6 +97,18 @@ class NebenkostenTest(TestCase):
         r2.wareneingaenge.add(we2)
         self.assertEqual(r2.abgleich()["differenz"], D("-10.00"))
 
+    def test_nebenkosten_auf_eigener_rechnung_zaehlen_nur_im_ek(self):
+        we = self.we((self.a, "10", "10"), versand="10")
+        url = reverse("einkauf:wareneingang_buchen", args=[we.pk])
+        self.client.post(url, {"aktion": "kosten", "versandkosten": "10", "nebenkosten_extern": "on"})
+        we.refresh_from_db()
+        self.assertEqual((we.nebenkosten_extern, we.rechnungswert, we.gesamt_netto), (True, D("100.00"), D("110.00")))
+        self.client.post(url, {"versandkosten": "10", "nebenkosten_extern": "on"})
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.durchschnitts_ek, D("11.0000"))  # eigentlicher EK enthält die Spedition
+        r = services.rechnung_erfassen(self.m, self.lf, "R-1", date.today(), D("100"), D("119"), wareneingaenge=[we])
+        self.assertTrue(r.abgleich()["ok"])  # Warenrechnung passt ohne Speditionskosten
+
     def test_maske_speichern_buchen_und_danach_gesperrt(self):
         we = self.we((self.a, "10", "10"))
         url = reverse("einkauf:wareneingang_buchen", args=[we.pk])
@@ -158,8 +170,7 @@ class KopfUndKundenmenueTest(TestCase):
         r = self.client.get(start)
         self.assertNotContains(r, "<strong>wwok</strong>")
         self.assertContains(r, 'class="firma"')
-        self.assertContains(r, ">OKAY</a>")
-        self.assertContains(r, 'title="OKAY Computer – hier wechseln"')
+        self.assertContains(r, 'title="OKAY Computer – Mandant wechseln">OKAY')
 
     def test_kundenmenue_mit_neuem_beleg_als_untermenue(self):
         self.wahl()

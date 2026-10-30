@@ -487,7 +487,8 @@ def wareneingang_buchen(request, we_id):
         if we.gebucht:
             raise ValueError("Der Wareneingang ist bereits gebucht.")
         we.lieferschein = request.POST.get("lieferschein", we.lieferschein).strip()
-        felder = ["lieferschein"]
+        we.nebenkosten_extern = bool(request.POST.get("nebenkosten_extern"))
+        felder = ["lieferschein", "nebenkosten_extern"]
         for feld, name in (("versandkosten", "Versandkosten"), ("versicherung", "Versicherungskosten"), ("verpackung", "Verpackungskosten")):
             wert = zahl(request.POST.get(feld), Decimal("0"))
             if not Decimal("0") <= wert < Decimal("100000000"):

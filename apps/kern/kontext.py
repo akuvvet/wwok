@@ -34,4 +34,5 @@ def aktiver_mandant(request):
     benutzer = getattr(request, "user", None)
     if benutzer is None or not benutzer.is_authenticated:
         return {}
-    return {"aktiver_mandant": getattr(request, "mandant", None) or mandant_oder_none(request)}
+    return {"aktiver_mandant": getattr(request, "mandant", None) or mandant_oder_none(request),
+            "alle_mandanten": Mandant.objects.filter(aktiv=True)}

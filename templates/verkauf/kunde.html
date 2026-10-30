@@ -9,8 +9,22 @@
 <div class="karte kundenkopf">
   <div class="kk-titel">
     <h1>{{ kunde.nummer }} – {{ kunde.name1 }} {{ kunde.name2 }}</h1>
+    <div class="kk-symbole">
     <a class="symbol links" data-tip="Kundendaten bearbeiten" aria-label="Kundendaten bearbeiten" data-modal="{% url 'stammdaten:kunde_bearbeiten' kunde.pk %}" href="/verwaltung/stammdaten/kunde/{{ kunde.pk }}/change/">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a>
+    <details class="menue-mehr wiedervorlage"><summary class="symbol links{% if wiedervorlagen %} voll{% endif %}" data-tip="Wiedervorlage{% if wiedervorlagen %} ({{ wiedervorlagen|length }} offen){% endif %}" aria-label="Wiedervorlage">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 5.72 17.4 1.86l-1.29 1.53 4.6 3.86L22 5.72zM7.88 3.39 6.6 1.86 2 5.71l1.29 1.53 4.59-3.85zM12.5 8H11v6l4.75 2.85.75-1.23-4-2.37V8zM12 4a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 16a7 7 0 1 1 0-14 7 7 0 0 1 0 14z"/></svg></summary>
+      <div class="mehr">
+        <strong>Wiedervorlage</strong>
+        {% for w in wiedervorlagen %}<form method="post" action="{% url 'verkauf:wiedervorlage_erledigt' w.pk %}">{% csrf_token %}
+          <div class="fein">{{ w.faellig|date:"d.m.Y" }}</div><div>{{ w.text }}</div><button class="leise" type="submit">erledigt</button></form>{% endfor %}
+        <form method="post" action="{% url 'verkauf:wiedervorlage_neu' kunde.pk %}">{% csrf_token %}
+          <label>fällig am</label><input type="date" name="faellig" required>
+          <label>Notiz</label><input name="text" maxlength="300" required>
+          <button type="submit" class="leise" style="margin-top:6px">Merken</button>
+        </form>
+      </div></details>
+    </div>
   </div>
   <div class="kk-raster">
     <div>
@@ -29,18 +43,6 @@
     {% if ansprechpartner %}<div>{% for a in ansprechpartner %}{{ a }}{% if a.hauptkontakt %} ★{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
   </div>
 </div>
-
-<div class="karte">
-  <h2>Wiedervorlage</h2>
-  {% for w in wiedervorlagen %}<form method="post" action="{% url 'verkauf:wiedervorlage_erledigt' w.pk %}" class="zeile">{% csrf_token %}
-    <span>{{ w.faellig|date:"d.m.Y" }} – {{ w.text }}</span><button class="leise" type="submit">erledigt</button></form>{% endfor %}
-  <form method="post" action="{% url 'verkauf:wiedervorlage_neu' kunde.pk %}" class="zeile">{% csrf_token %}
-    <div><label>fällig am</label><input type="date" name="faellig" required></div>
-    <div><label>Notiz</label><input name="text" size="40" maxlength="300" required></div>
-    <button type="submit" class="leise">Merken</button>
-  </form>
-</div>
-
 
 <div class="karte">
   <h2>Belege</h2>

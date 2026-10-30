@@ -105,6 +105,8 @@ class Wareneingang(Zeitstempel):
     versandkosten = models.DecimalField("Versandkosten netto", max_digits=10, decimal_places=2, default=Decimal("0"))
     versicherung = models.DecimalField("Versicherungskosten netto", max_digits=10, decimal_places=2, default=Decimal("0"))
     verpackung = models.DecimalField("Verpackungskosten netto", max_digits=10, decimal_places=2, default=Decimal("0"))
+    nebenkosten_extern = models.BooleanField("Nebenkosten auf eigener Rechnung", default=False,
+                                             help_text="z. B. Spedition bei Auslandsware: zählen im Kalkulations-EK, nicht im Abgleich mit der Warenrechnung")
     gebucht = models.BooleanField(default=False, editable=False)
     benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
@@ -128,6 +130,11 @@ class Wareneingang(Zeitstempel):
     @property
     def gesamt_netto(self) -> Decimal:
         return self.summe_netto + self.nebenkosten
+
+    @property
+    def rechnungswert(self) -> Decimal:
+        """Was auf der Rechnung des Lieferanten stehen muss."""
+        return self.summe_netto if self.nebenkosten_extern else self.gesamt_netto
 
     def kalkulation(self) -> dict:
         """Kalkulations-EK je Position: EK zuzüglich Nebenkosten, verteilt nach Warenwert (ohne Warenwert nach Menge)."""
@@ -226,11 +233,12 @@ class Lieferantenrechnung(Zeitstempel):
         return self.brutto
 
     def abgleich(self) -> dict:
-        """Netto der verknüpften Wareneingänge inkl. Nebenkosten gegen Rechnung: Differenz > 1 Cent ist eine Abweichung."""
+        """Netto der verknüpften Wareneingänge gegen Rechnung, Nebenkosten mitgerechnet, außer sie kommen auf eigener Rechnung:
+        Differenz > 1 Cent ist eine Abweichung."""
         wareneingaenge = list(self.wareneingaenge.all())
         if not wareneingaenge:
             return {"verknuepft": False, "differenz": None, "ok": None, "bestaetigt": False, "offen": False}
-        soll = sum((w.gesamt_netto for w in wareneingaenge), Decimal("0"))  # Nebenkosten stehen mit auf der Rechnung
+        soll = sum((w.rechnungswert for w in wareneingaenge), Decimal("0"))
         differenz = self.netto - soll
         ok = abs(differenz) <= Decimal("0.01")
         bestaetigt = not ok and self.abweichung_bestaetigt is not None and self.abweichung_bestaetigt == differenz

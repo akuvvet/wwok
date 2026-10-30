@@ -30,7 +30,7 @@
     </tr>
     {% empty %}<tr><td colspan="7">Noch nichts erfasst – Artikel scannen.</td></tr>{% endfor %}
     <tr><td colspan="4"><strong>Summe netto</strong></td><td class="zahl"><strong>{{ netto|floatformat:2 }}</strong></td><td colspan="2"></td></tr>
-    {% if we.nebenkosten %}<tr><td colspan="4">Nebenkosten (Versand {{ we.versandkosten }}, Versicherung {{ we.versicherung }}, Verpackung {{ we.verpackung }})</td><td class="zahl">{{ we.nebenkosten }}</td><td colspan="2"></td></tr>
+    {% if we.nebenkosten %}<tr><td colspan="4">Nebenkosten (Versand {{ we.versandkosten }}, Versicherung {{ we.versicherung }}, Verpackung {{ we.verpackung }}){% if we.nebenkosten_extern %} · auf eigener Rechnung{% endif %}</td><td class="zahl">{{ we.nebenkosten }}</td><td colspan="2"></td></tr>
     <tr><td colspan="4"><strong>Gesamt netto</strong></td><td class="zahl"><strong>{{ we.gesamt_netto|floatformat:2 }}</strong></td><td colspan="2"></td></tr>{% endif %}
   </table>
   {% if not we.gebucht and positionen %}
@@ -39,6 +39,7 @@
     <div><label>Versandkosten netto</label><input name="versandkosten" value="{{ we.versandkosten }}" size="8" inputmode="decimal"></div>
     <div><label>Versicherung netto</label><input name="versicherung" value="{{ we.versicherung }}" size="8" inputmode="decimal"></div>
     <div><label>Verpackung netto</label><input name="verpackung" value="{{ we.verpackung }}" size="8" inputmode="decimal"></div>
+    <div><label style="display:flex;gap:6px;align-items:center;font-weight:normal"><input type="checkbox" name="nebenkosten_extern" {% if we.nebenkosten_extern %}checked{% endif %}> kommen auf eigener Rechnung (Spedition)</label></div>
     <button type="submit" name="aktion" value="kosten" class="leise">Kosten speichern</button>
     <button type="submit">Ins Lager buchen</button>
   </form>
