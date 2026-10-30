@@ -8,15 +8,15 @@
     <a class="knopf {% if nur != 'ueberfaellig' %}leise{% endif %}" href="?nur=ueberfaellig{% if kunde %}&kunde={{ kunde.pk }}{% endif %}">Überfällige</a>
     {% if kunde %}<a class="knopf leise" href="{% url 'finanzen:kontoauszug' kunde.pk %}">Kontoauszug</a>{% endif %}
   </p>
-  <p>Offen gesamt: <strong>{{ summe }} €</strong> · davon überfällig: <strong style="color:var(--warn)">{{ ueberfaellig }} €</strong></p>
+  <p>Offen gesamt: <strong>{{ summe|floatformat:2 }} €</strong> · davon überfällig: <strong style="color:var(--warn)">{{ ueberfaellig|floatformat:2 }} €</strong></p>
   <table>
     <tr><th>Rechnung</th><th>Kunde</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">bezahlt</th><th class="zahl">offen</th><th class="zahl">überfällig</th><th>Mahnstufe</th></tr>
     {% for z in zeilen %}
     <tr><td><a href="{% url 'finanzen:beleg' z.beleg.pk %}">{{ z.beleg.nummer }}</a>{% include "verkauf/versand_marke.html" with b=z.beleg %}</td>
         <td><a href="{% url 'finanzen:offene_posten' %}?kunde={{ z.beleg.kunde.pk }}">{{ z.beleg.kunde.name1 }}</a></td>
         <td>{{ z.beleg.belegdatum|date:"d.m.Y" }}</td><td>{{ z.faellig|date:"d.m.Y" }}</td>
-        <td class="zahl">{{ z.beleg.summe_brutto }}</td><td class="zahl">{{ z.bezahlt|add:z.gutschrift }}</td>
-        <td class="zahl"><strong>{{ z.offen }}</strong></td>
+        <td class="zahl">{{ z.beleg.summe_brutto|floatformat:2 }}</td><td class="zahl">{{ z.erledigt|floatformat:2 }}</td>
+        <td class="zahl"><strong>{{ z.offen|floatformat:2 }}</strong></td>
         <td class="zahl">{% if z.ueberfaellig %}{{ z.ueberfaellig }} Tage{% endif %}</td><td>{{ z.mahnstufe|default:"–" }}</td></tr>
     {% empty %}<tr><td colspan="9">Keine offenen Posten.</td></tr>{% endfor %}
   </table>

@@ -67,7 +67,12 @@ class LieferantAdmin(admin.ModelAdmin):
 class ArtikelMandantInline(admin.TabularInline):
     model = m.ArtikelMandant
     extra = 0
-    readonly_fields = ["letzter_ek", "letzter_ek_datum"]
+    exclude = ["letzter_ek"]  # wird beim Wareneingang gesetzt, nicht von Hand
+    readonly_fields = ["letzter_ek_anzeige", "letzter_ek_datum"]
+
+    @admin.display(description="letzter EK")
+    def letzter_ek_anzeige(self, obj):
+        return f"{obj.letzter_ek:.2f}".replace(".", ",") if obj and obj.letzter_ek is not None else "–"
 
 
 class ArtikelBildInline(admin.TabularInline):
@@ -94,7 +99,7 @@ class ArtikelAdmin(admin.ModelAdmin):
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "online", "nicht_aktiv"]
     list_filter = ["typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
     search_fields = ["nummer", "bezeichnung", "herstellernummer", "ean"]
-    readonly_fields = ["durchschnitts_ek", "ek_anzeige", "angelegt_am", "geaendert_am", "geaendert_von"]
+    readonly_fields = ["ek_anzeige", "angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [ArtikelMandantInline, ArtikelLieferantInline, GruppenKomponenteInline, ArtikelBildInline]
 
     @admin.display(description="EK netto (errechnet)")
@@ -131,9 +136,13 @@ class KundenpreisAdmin(admin.ModelAdmin):
 class PreislistenartikelAdmin(admin.ModelAdmin):
     """Artikel aus den Lieferantenpreislisten (Typ P). Sie entstehen durch den Preislistenimport; hier nur zum Nachsehen."""
 
-    list_display = ["lieferant", "herstellernummer", "bestellnummer", "bezeichnung", "hersteller", "ek", "bestand", "artikel"]
+    list_display = ["lieferant", "herstellernummer", "bestellnummer", "bezeichnung", "hersteller", "ek_anzeige", "bestand", "artikel"]
     list_filter = ["lieferant"]
     search_fields = ["bezeichnung", "herstellernummer", "bestellnummer", "ean", "hersteller"]
     raw_id_fields = ["artikel"]
     list_select_related = ["lieferant", "artikel"]
     show_full_result_count = False  # bei Hunderttausenden Zeilen kein teures COUNT(*)
+
+    @admin.display(description="EK netto", ordering="ek")
+    def ek_anzeige(self, obj):
+        return f"{obj.ek:.2f}".replace(".", ",")

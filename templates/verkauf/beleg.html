@@ -5,7 +5,7 @@
 {% block inhalt %}
 <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}" data-escape style="display:none">zurück</a>
 {% if beleg.p_hinweis %}<div class="warnung">{{ beleg.p_hinweis }}</div>{% endif %}
-{% if kredit_warnung %}<div class="warnung">Kreditlimit würde überschritten: offen {{ kunde_offen }} € + dieser Beleg {{ beleg.summe_brutto }} € &gt; Limit {{ kreditlimit }} €.</div>{% endif %}
+{% if kredit_warnung %}<div class="warnung">Kreditlimit würde überschritten: offen {{ kunde_offen|floatformat:2 }} € + dieser Beleg {{ beleg.summe_brutto|floatformat:2 }} € &gt; Limit {{ kreditlimit }} €.</div>{% endif %}
 
 <div class="karte kopfkarte">
   <div>
@@ -32,8 +32,8 @@
     {% if beleg.ek_marge_code %}<div style="opacity:.55;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.5px" title="EK und Marge (intern)">{{ beleg.ek_marge_code }}</div>
     <div id="ekzeile" style="opacity:.55;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.5px;min-height:15px" title="EK und Marge der markierten Position (intern)"></div>{% endif %}
     <div style="opacity:.7">Brutto</div>
-    <div class="betrag">{{ beleg.summe_brutto }} €</div>
-    <div style="opacity:.7">netto {{ beleg.summe_netto }} €</div>
+    <div class="betrag">{{ beleg.summe_brutto|floatformat:2 }} €</div>
+    <div style="opacity:.7">netto {{ beleg.summe_netto|floatformat:2 }} €</div>
   </div>
 </div>
 
@@ -85,7 +85,7 @@
         {% if p.gruppe_id %}<span style="padding-left:18px">↳ </span>{% endif %}
         {% if p.artikelnummer %}<span style="opacity:.7">{{ p.artikelnummer }}</span> {% endif %}{% if p.preisliste_artikel %}<span class="marke" title="Artikel aus der Preisliste des Lieferanten">{{ p.preisliste_artikel.lieferant.kurz }}</span> {% if beleg.art == 'AB' or beleg.art == 'LS' or beleg.art == 'RE' %}<span class="marke gesperrt" title="Preislistenartikel: gilt nur als Angebot, bis der Artikel im Lager ist">Angebot</span> {% endif %}{% endif %}{% if p.typ == 'G' and not p.gruppe_id %}<strong>{{ p.bezeichnung }}</strong>{% else %}{{ p.bezeichnung }}{% endif %}
         {% if p.zusatztext %}<br><small style="opacity:.75;white-space:pre-line">{{ p.zusatztext }}</small>{% endif %}
-        {% if p.letzter %}<br><small style="opacity:.75" title="Netto je Stück nach Rabatten, aus der letzten Rechnung an diesen Kunden">Zuletzt bezahlt: <strong>{{ p.letzter.preis }} €</strong> am {{ p.letzter.datum|date:"d.m.Y" }} (<a href="{% url 'verkauf:beleg' p.letzter.beleg_id %}">{{ p.letzter.nummer }}</a>)</small>{% endif %}
+        {% if p.letzter %}<br><small style="opacity:.75" title="Netto je Stück nach Rabatten, aus der letzten Rechnung an diesen Kunden">Zuletzt bezahlt: <strong>{{ p.letzter.preis|floatformat:2 }} €</strong> am {{ p.letzter.datum|date:"d.m.Y" }} (<a href="{% url 'verkauf:beleg' p.letzter.beleg_id %}">{{ p.letzter.nummer }}</a>)</small>{% endif %}
         {% if p.lieferschein and not p.gruppe_id %}<br><small style="opacity:.75">Lieferschein {{ p.lieferschein.nummer }} vom {{ p.lieferschein.belegdatum|date:"d.m.Y" }}</small>{% endif %}
         {% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
         {% if p.artikel and p.artikel.typ == 'A' and beleg.art == 'LS' or p.artikel and p.artikel.typ == 'A' and beleg.art == 'RE' %}
@@ -110,7 +110,7 @@
           <input name="preis" value="{{ p.einzelpreis }}" size="8" title="Gruppenpreis netto; leer lassen = Summe der Unterpositionen">
           <button type="submit" class="leise" title="Gruppenpreis speichern (leer = Summe der Unterpositionen)">OK</button></form>{% else %}{{ p.einzelpreis }}{% endif %}</td>
       <td class="zahl">{% if not p.gruppe_id and p.rabatt_prozent %}{{ p.rabatt_prozent|floatformat:"-2" }} %{% endif %}</td>
-      <td class="zahl">{% if not p.gruppe_id %}{{ p.netto_gesamt }}{% endif %}</td>
+      <td class="zahl">{% if not p.gruppe_id %}{{ p.netto_gesamt|floatformat:2 }}{% endif %}</td>
       <td>{% if not beleg.positionen_gesperrt %}<form method="post" action="{% url 'verkauf:position_loeschen' beleg.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit" title="Position löschen">×</button></form>{% endif %}</td>
     </tr>
     {% empty %}<tr><td colspan="7" style="padding:20px;text-align:center;opacity:.7">Noch keine Positionen – unten einen Artikel suchen und mit Enter übernehmen.</td></tr>{% endfor %}
@@ -138,9 +138,9 @@
     {% if beleg.versandkosten %}<tr><td>Versandkosten</td><td class="zahl">{{ beleg.versandkosten }} €</td></tr>{% endif %}
     {% if beleg.verpackung %}<tr><td>Verpackung</td><td class="zahl">{{ beleg.verpackung }} €</td></tr>{% endif %}
     {% if beleg.versicherung %}<tr><td>Versicherung</td><td class="zahl">{{ beleg.versicherung }} €</td></tr>{% endif %}
-    <tr><td>Netto</td><td class="zahl">{{ beleg.summe_netto }} €</td></tr>
-    <tr><td>Steuer</td><td class="zahl">{{ beleg.summe_steuer }} €</td></tr>
-    <tr><td><strong>Brutto</strong></td><td class="zahl"><strong>{{ beleg.summe_brutto }} €</strong></td></tr>
+    <tr><td>Netto</td><td class="zahl">{{ beleg.summe_netto|floatformat:2 }} €</td></tr>
+    <tr><td>Steuer</td><td class="zahl">{{ beleg.summe_steuer|floatformat:2 }} €</td></tr>
+    <tr><td><strong>Brutto</strong></td><td class="zahl"><strong>{{ beleg.summe_brutto|floatformat:2 }} €</strong></td></tr>
   </table>
 </div>
 

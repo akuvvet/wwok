@@ -26,7 +26,7 @@
     <thead><tr><th>Zeile</th><th>Bestell-Nr.</th><th>Herst.-Nr.</th><th>EAN</th><th>Bezeichnung</th><th class="zahl">EK</th><th>Bestand</th><th>Ergebnis</th></tr></thead>
     <tbody>{% for z in vorschau.zeilen %}
     <tr><td>{{ z.nr }}</td><td>{{ z.daten.bestellnummer }}</td><td>{{ z.daten.herstellernummer }}</td><td>{{ z.daten.ean }}</td><td>{{ z.daten.bezeichnung }}</td>
-        <td class="zahl">{{ z.ek }}</td><td>{{ z.daten.bestand }}</td>
+        <td class="zahl">{{ z.ek|floatformat:2 }}</td><td>{{ z.daten.bestand }}</td>
         <td>{{ z.ergebnis }}{% if z.artikel %}: {{ z.artikel.nummer }}{% endif %}</td></tr>
     {% endfor %}</tbody></table></div>
   <form method="post" class="zeile" style="margin-top:12px">{% csrf_token %}

@@ -14,7 +14,7 @@
   </form>
   <table style="margin-top:12px">
     <tr><th>RMA</th><th>Lieferant</th><th>Gerät/Artikel</th><th>Seriennr.</th><th>Status</th><th class="zahl">Gutschrift</th></tr>
-    {% for r in liste %}<tr><td><a href="{% url 'einkauf:rma' r.pk %}">{{ r.nummer }}</a></td><td>{{ r.lieferant.name1 }}</td><td>{{ r.bezeichnung }}</td><td>{{ r.seriennummer }}</td><td>{{ r.get_status_display }}</td><td class="zahl">{{ r.gutschrift_betrag|default_if_none:"" }}</td></tr>
+    {% for r in liste %}<tr><td><a href="{% url 'einkauf:rma' r.pk %}">{{ r.nummer }}</a></td><td>{{ r.lieferant.name1 }}</td><td>{{ r.bezeichnung }}</td><td>{{ r.seriennummer }}</td><td>{{ r.get_status_display }}</td><td class="zahl">{{ r.gutschrift_betrag|floatformat:2 }}</td></tr>
     {% empty %}<tr><td colspan="6">Keine RMA-Fälle.</td></tr>{% endfor %}
   </table>
 </div>

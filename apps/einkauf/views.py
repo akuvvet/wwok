@@ -99,20 +99,25 @@ def bestellung_detail(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
     positionen = list(b.positionen.select_related("artikel", "preisliste_artikel"))
     entwurf = b.status == BestellStatus.ENTWURF
+    aenderbar = b.status not in (BestellStatus.STORNIERT, BestellStatus.GELIEFERT)
+    offen_im_we = set(WareneingangPosition.objects.filter(bestellposition__bestellung=b, wareneingang__gebucht=False)
+                      .values_list("bestellposition_id", flat=True))
     for p in positionen:
         p.bestellung = b
+        p.im_wareneingang = p.pk in offen_im_we
+        p.aenderbar = aenderbar and not p.geliefert and not p.im_wareneingang
         p.alternative = vergleich.alternative(p) if entwurf and not p.geliefert else None
     netto, konditionen = b.summe_netto, []
     if entwurf and positionen:
         l = b.lieferant
         if l.mindestbestellwert and netto < l.mindestbestellwert:
-            konditionen.append(f"Mindestbestellwert {vergleich.eur(l.mindestbestellwert)} € – es fehlen {vergleich.eur(l.mindestbestellwert - netto)} €.")
+            konditionen.append(f"Mindestbestellwert: noch {vergleich.eur(l.mindestbestellwert - netto)} €")
         if l.versandkostenfrei_ab and netto < l.versandkostenfrei_ab:
-            konditionen.append(f"Versandkostenfrei ab {vergleich.eur(l.versandkostenfrei_ab)} € – es fehlen {vergleich.eur(l.versandkostenfrei_ab - netto)} €.")
+            konditionen.append(f"noch {vergleich.eur(l.versandkostenfrei_ab - netto)} € bis versandfrei")
         if vergleich.versand(l, netto):
-            konditionen.append(f"Versandkosten: {vergleich.eur(vergleich.versand(l, netto))} €.")
+            konditionen.append(f"Versand {vergleich.eur(vergleich.versand(l, netto))} €")
     return render(request, "einkauf/bestellung.html", {
-        "b": b, "positionen": positionen, "netto": netto, "konditionen": konditionen,
+        "b": b, "positionen": positionen, "netto": netto, "konditionen": konditionen, "mit_lieferung": any(p.geliefert for p in positionen),
         "wareneingaenge": b.wareneingaenge.all(), "aus_beleg": b.aus_beleg})
 
 
@@ -196,8 +201,11 @@ def preisvergleich_bestellen(request):
     if not (artikel or eintrag):
         raise ValueError("Bitte zuerst ein Produkt wählen.")
     lieferant = request.POST.get("lieferant", "")
+    ek = zahl(request.POST.get("ek"))  # in der Bestellmaske eingetragener Preis gilt für „Übernehmen“
+    if ek is not None and (ek < 0 or ek >= Decimal("100000000")):
+        raise ValueError("Der Preis darf nicht negativ sein.")
     ziel = vergleich.bestellen(request.mandant, int(lieferant) if lieferant.isdigit() else 0, menge, artikel, eintrag, position,
-                               vergleich_entwurf(request, request.POST))
+                               vergleich_entwurf(request, request.POST), ek)
     messages.success(request, f"{'Verschoben nach' if position else 'Aufgenommen in'} Bestellung {ziel.nummer} ({ziel.lieferant.kurz}).")
     return redirect("einkauf:bestellung", bestellung_id=ziel.pk)
 
@@ -239,10 +247,10 @@ def api_bestellartikel(request, bestellung_id):
     treffer = []
     for a in artikel.order_by("nummer")[:15]:
         ek, bestellnr = services.ek_vorschlag(b.mandant, b.lieferant, a)
-        treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "ek": str(ek), "bestellnummer": bestellnr,
+        treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "ek": vergleich.eur(ek), "bestellnummer": bestellnr,
                         "pl": None, "lieferant": "", "eigener": True})
     for e in eintraege.order_by("bezeichnung")[:15]:
-        treffer.append({"nummer": e.nummer, "bezeichnung": e.bezeichnung, "ek": str(e.ek), "bestellnummer": e.bestellnummer,
+        treffer.append({"nummer": e.nummer, "bezeichnung": e.bezeichnung, "ek": vergleich.eur(e.ek), "bestellnummer": e.bestellnummer,
                         "pl": e.pk, "lieferant": e.lieferant.kurz, "bestand": e.bestand, "eigener": False})
     return JsonResponse({"treffer": treffer})
 
@@ -267,6 +275,27 @@ def preislistenartikel(request):
     return render(request, "einkauf/preislistenartikel.html", {
         "seite": seite, "parameter": parameter.urlencode(), "q": q, "lieferant": lieferant,
         "verknuepft": request.GET.get("verknuepft") == "1", "lieferanten": Lieferant.objects.filter(preislistenartikel__isnull=False).distinct()})
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:bestellung", "bestellung_id")
+def bestellung_position_aendern(request, bestellung_id, position_id):
+    """Menge und Preis einer Position nachträglich ändern – bis zur ersten Lieferung dieser Position."""
+    b = bestellung_holen(request, bestellung_id)
+    with transaction.atomic():  # Sperre: ein gleichzeitig gebuchter Wareneingang darf nicht überschrieben werden
+        pos = get_object_or_404(BestellPosition.objects.select_for_update(), pk=position_id, bestellung=b)
+        if pos.geliefert or b.status in (BestellStatus.STORNIERT, BestellStatus.GELIEFERT):
+            raise ValueError("Diese Position lässt sich nicht mehr ändern.")
+        if pos.eingaenge.filter(wareneingang__gebucht=False).exists():
+            raise ValueError("Die Position steht in einem offenen Wareneingang – bitte dort ändern oder ihn erst löschen.")
+        text = request.POST.get("menge", "").strip()
+        menge, ek = vergleich_menge(text) if text else pos.menge, zahl(request.POST.get("ek"), pos.ek)
+        if ek < 0 or ek >= Decimal("100000000"):
+            raise ValueError("Der Preis darf nicht negativ sein.")
+        pos.menge, pos.ek = menge, services.ek_runden(ek)
+        pos.save(update_fields=["menge", "ek"])
+    return redirect("einkauf:bestellung", bestellung_id=b.pk)
 
 
 @mit_mandant
@@ -438,7 +467,7 @@ def wareneingang_zeile_aendern(request, we_id, position_id):
         pos.delete()
     else:
         pos.menge = zahl(request.POST.get("menge"), pos.menge)
-        pos.ek = zahl(request.POST.get("ek"), pos.ek)
+        pos.ek = services.ek_runden(zahl(request.POST.get("ek"), pos.ek))
         if pos.menge <= 0 or pos.ek < 0:
             raise ValueError("Die Menge muss größer als 0 sein und der EK darf nicht negativ sein.")
         pos.seriennummern = request.POST.get("seriennummern", "")

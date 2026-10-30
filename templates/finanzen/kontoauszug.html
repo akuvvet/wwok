@@ -9,9 +9,9 @@
     <tr><th>Datum</th><th>Buchung</th><th class="zahl">Betrag</th><th class="zahl">Saldo</th></tr>
     {% for z in zeilen %}
     <tr><td>{{ z.datum|date:"d.m.Y" }}</td><td><a href="{% url 'finanzen:beleg' z.beleg.pk %}">{{ z.text }}</a></td>
-        <td class="zahl">{{ z.betrag }}</td><td class="zahl">{{ z.saldo }}</td></tr>
+        <td class="zahl">{{ z.betrag }}</td><td class="zahl">{{ z.saldo|floatformat:2 }}</td></tr>
     {% empty %}<tr><td colspan="4">Keine Buchungen.</td></tr>{% endfor %}
-    <tr><td colspan="3"><strong>Offener Saldo (Kunde schuldet)</strong></td><td class="zahl"><strong>{{ saldo }} €</strong></td></tr>
+    <tr><td colspan="3"><strong>Offener Saldo (Kunde schuldet)</strong></td><td class="zahl"><strong>{{ saldo|floatformat:2 }} €</strong></td></tr>
   </table>
   <p><button class="leise" onclick="window.print()">Drucken</button></p>
 </div>

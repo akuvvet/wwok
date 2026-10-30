@@ -891,6 +891,7 @@ Diese Regeln sind mit dem Nutzer abgestimmt und im Code umgesetzt. Änderungen n
 | Sammelrechnung | die Auswahl „Ausgewählte Lieferscheine in Rechnung umwandeln“ erscheint nur bei **mindestens zwei** offenen Lieferscheinen; das Lieferscheindatum steht bei der Position |
 | ESD-Keys | nur für Artikel der Kategorie **Software** |
 | Positionsnummern | lückenlos 1, 2, 3 …, nach Löschen automatisch neu vergeben; Gruppen-Unterpositionen tragen die Nummer ihrer Gruppe |
+| Preisanzeige | Alle Preise mit 2 Stellen. EK in Bestellung und Wareneingang wird auf 2 Stellen gerundet, damit EK × Menge aufgeht; Preisliste und Durchschnitts-EK rechnen intern mit 4 Stellen |
 | Kalkulations-EK | Lieferanten-EK plus anteilige Nebenkosten des Wareneingangs (Versand, Versicherung, Verpackung), verteilt nach Warenwert. Er ist der eigentliche EK: Er fließt beim Buchen in den Durchschnitts-EK. „Letzter EK“ bleibt der Lieferantenpreis (Vorschlag für Bestellungen). Der Abgleich zur Lieferantenrechnung rechnet die Nebenkosten mit |
 | EK (errechnet) | Wareneingang (Durchschnitts-EK) hat Vorrang, sonst günstigster Preislisten-EK; Gruppenartikel (G) = Summe der Komponenten. Grundlage für VK per Aufschlag |
 | Zahlungen | Eingang und Ausgang sind unveränderlich; Korrektur nur per Stornobuchung mit Storno-Grund |

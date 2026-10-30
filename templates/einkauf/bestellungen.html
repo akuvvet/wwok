@@ -2,19 +2,22 @@
 {% block titel %}Einkauf – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Lieferantenbestellungen · Mandant {{ request.mandant }}</h1>
-  <p class="zeile">
-    <a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">Offene</a>
-    <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a>
-  </p>
-  <form method="post" action="{% url 'einkauf:bestellung_neu' %}" class="zeile">{% csrf_token %}
-    <div><label>Neue Bestellung bei</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.nummer }} – {{ l.name1 }}</option>{% endfor %}</select></div>
-    <button type="submit">Anlegen</button>
-  </form>
-  <table style="margin-top:12px">
-    <tr><th>Nr.</th><th>Datum</th><th>Lieferant</th><th>Status</th></tr>
-    {% for b in bestellungen %}<tr><td><a href="{% url 'einkauf:bestellung' b.pk %}">{{ b.nummer }}</a></td><td>{{ b.datum|date:"d.m.Y" }}</td><td>{{ b.lieferant.name1 }}</td><td>{{ b.get_status_display }}</td></tr>
-    {% empty %}<tr><td colspan="4">Keine Bestellungen.</td></tr>{% endfor %}
-  </table>
+  <h1>Lieferantenbestellungen</h1>
+  <div class="zeile" style="justify-content:space-between">
+    <p class="zeile" style="margin:0">
+      <a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">Offene</a>
+      <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a>
+    </p>
+    <form method="post" action="{% url 'einkauf:bestellung_neu' %}" class="zeile">{% csrf_token %}
+      <div><label>Neue Bestellung bei</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.kurz }} – {{ l.name1 }}</option>{% endfor %}</select></div>
+      <button type="submit">Anlegen</button>
+    </form>
+  </div>
+  <div class="scroll" style="margin-top:12px"><table>
+    <thead><tr><th>Nr.</th><th>Datum</th><th>Lieferant</th><th class="zahl">Summe netto</th><th>Status</th></tr></thead>
+    <tbody>{% for b in bestellungen %}<tr><td><a href="{% url 'einkauf:bestellung' b.pk %}">{{ b.nummer }}</a></td><td>{{ b.datum|date:"d.m.Y" }}</td><td>{{ b.lieferant.name1 }}</td>
+      <td class="zahl">{{ b.summe_netto|floatformat:2 }}</td><td><span class="marke {% if b.status != 'entwurf' %}ok{% endif %}">{{ b.get_status_display }}</span></td></tr>
+    {% empty %}<tr><td colspan="5">Keine Bestellungen.</td></tr>{% endfor %}</tbody>
+  </table></div>
 </div>
 {% endblock %}

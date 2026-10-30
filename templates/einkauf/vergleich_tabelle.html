@@ -1,28 +1,25 @@
 {% if produkt %}
-<h2 style="margin-top:14px">Lieferanten für {{ menge|floatformat:"-3" }} × {{ produkt.bezeichnung }}</h2>
+<h2 style="margin-top:14px">Wo bestellen? {{ menge|floatformat:"-3" }} × {{ produkt.bezeichnung }}</h2>
 {% if zeilen %}
-<div class="scroll"><table>
-  <thead><tr><th>Lieferant</th><th class="zahl">EK</th><th class="zahl">Bestand</th><th class="zahl">Tage</th><th class="zahl">Ware</th><th class="zahl">Versand</th><th class="zahl">Gesamt</th><th class="zahl">je Stück</th><th>Hinweis</th><th></th></tr></thead>
+<div class="scroll"><table class="vergleich">
+  <thead><tr><th>Lieferant</th><th>Verfügbar</th><th class="zahl">EK</th><th class="zahl">Versand</th><th class="zahl" title="Ware + Versand, den diese Bestellung zusätzlich auslöst">Gesamt</th><th></th></tr></thead>
   <tbody>{% for z in zeilen %}
-  <tr{% if forloop.first and z.empfehlung %} style="background:var(--grund)"{% endif %}>
-    <td><strong>{{ z.lieferant.kurz }}</strong>{% if forloop.first and z.empfehlung %} <span class="marke ok">am günstigsten</span>{% elif forloop.first and z.lieferbar and not z.fehlt %} <span class="marke">vorn, Versand teils unbekannt</span>{% endif %}{% if z.bestellnummer %}<br><small style="opacity:.7">{{ z.bestellnummer }}</small>{% endif %}</td>
-    <td class="zahl">{{ z.ek }}</td>
-    <td class="zahl">{% if z.bestand is None %}?{% else %}{{ z.bestand }}{% endif %}</td>
-    <td class="zahl">{{ z.lieferzeit|default_if_none:"–" }}</td>
-    <td class="zahl">{{ z.ware }}</td>
-    <td class="zahl">{% if z.versand_offen %}?{% else %}{{ z.versand }}{% endif %}</td>
-    <td class="zahl"><strong>{{ z.gesamt }}{% if z.versand_offen %} + ?{% endif %}</strong></td>
-    <td class="zahl">{{ z.je_stueck }}</td>
-    <td><small>{% for h in z.hinweise %}{{ h }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</small></td>
-    <td>{% if position and position.bestellung.lieferant_id == z.lieferant.pk %}<span class="marke">aktuell</span>{% else %}
-      <form method="post" action="{% url 'einkauf:preisvergleich_bestellen' %}" class="vergleichform">{% csrf_token %}
+  <tr{% if forloop.first and z.empfehlung %} class="beste"{% endif %}>
+    <td title="{{ z.bestellnummer }}"><strong>{{ z.lieferant.kurz }}</strong>{% if forloop.first and z.empfehlung %} <span class="marke ok">günstigste Wahl</span>{% endif %}
+      {% if z.hinweise %}<br><span class="fein">{{ z.hinweise|join:" · " }}</span>{% endif %}</td>
+    <td>{% if z.bestand is None %}?{% else %}{{ z.bestand }}{% endif %}{% if z.lieferzeit is not None %} · {{ z.lieferzeit }} Tage{% endif %}</td>
+    <td class="zahl">{{ z.ek|floatformat:2 }}</td>
+    <td class="zahl">{% if z.versand_offen %}?{% elif z.versandfrei %}frei{% else %}{{ z.versand|floatformat:2 }}{% endif %}</td>
+    <td class="zahl"><strong>{{ z.gesamt|floatformat:2 }}{% if z.versand_offen %} + ?{% endif %}</strong></td>
+    <td class="zahl">{% if position and position.bestellung.lieferant_id == z.lieferant.pk %}<span class="marke">aktuell</span>{% else %}
+      <form method="post" action="{% url 'einkauf:preisvergleich_bestellen' %}"{% if aktuelle.lieferant_id == z.lieferant.pk %} data-eigener{% endif %}>{% csrf_token %}
         <input type="hidden" name="lieferant" value="{{ z.lieferant.pk }}"><input type="hidden" name="menge" value="{{ menge|floatformat:'-3' }}">
         {% if aktuelle %}<input type="hidden" name="bestellung" value="{{ aktuelle.pk }}">{% endif %}
         {% if position %}<input type="hidden" name="position" value="{{ position.pk }}">{% elif artikel %}<input type="hidden" name="artikel" value="{{ artikel.nummer }}">{% else %}<input type="hidden" name="pl" value="{{ eintrag.pk }}">{% endif %}
-        <button type="submit" style="white-space:nowrap" {% if not forloop.first %}class="leise"{% endif %}>{% if position %}Hierhin verschieben{% else %}Hier bestellen{% endif %}</button>
+        <button type="submit" style="white-space:nowrap" {% if not forloop.first %}class="leise"{% endif %}>{% if position %}Hierhin verschieben{% elif aktuelle.lieferant_id == z.lieferant.pk and aktuelle.status == 'entwurf' %}Übernehmen{% else %}Hier bestellen{% endif %}</button>
       </form>{% endif %}</td>
   </tr>{% endfor %}</tbody>
 </table></div>
-<p style="opacity:.8;margin:6px 0 0">Sortiert nach: lieferbar, Mindestbestellwert erreicht, Gesamtkosten. Gesamt = Ware + die Versandkosten, die diese Bestellung zusätzlich auslöst; ein offener Entwurf beim Lieferanten zählt mit. Bei „?“ fehlen Angaben – die Entscheidung liegt bei dir. Konditionen pflegst du beim Lieferanten (Tab „Konditionen“).</p>
+<p class="fein" style="margin:6px 0 0">Gesamt = Ware + Versand. Ein offener Entwurf beim Lieferanten zählt mit. „?“ = Angabe fehlt beim Lieferanten (Tab „Konditionen“).</p>
 {% else %}<p>Keine Lieferantenpreise zu diesem Produkt gefunden.</p>{% endif %}
 {% endif %}

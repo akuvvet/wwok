@@ -16,7 +16,7 @@
       {% for z in zeilen %}<tr>
         <td>{% if not z.fehlt and not z.gezogen %}<input type="checkbox" name="auswahl" value="{{ z.beleg.pk }}">{% endif %}</td>
         <td><a href="{% url 'finanzen:beleg' z.beleg.pk %}">{{ z.beleg.nummer }}</a></td>
-        <td>{{ z.beleg.kunde.name1 }}</td><td>{{ z.beleg.belegdatum|date:"d.m.Y" }}</td><td class="zahl"><strong>{{ z.offen }}</strong></td>
+        <td>{{ z.beleg.kunde.name1 }}</td><td>{{ z.beleg.belegdatum|date:"d.m.Y" }}</td><td class="zahl"><strong>{{ z.offen|floatformat:2 }}</strong></td>
         <td>{% if z.gezogen %}<span class="marke">bereits eingezogen</span>{% elif z.fehlt %}<span style="color:var(--warn)">fehlt: {{ z.fehlt }}</span>{% else %}{{ z.beleg.kunde.sepa_mandatsreferenz }}{% endif %}</td></tr>
       {% empty %}<tr><td colspan="6">Keine offenen Rechnungen.</td></tr>{% endfor %}
       </tbody></table></div>

@@ -649,13 +649,13 @@ def api_artikel(request):
         ek = a.ek_errechnet
         treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "typ": a.typ, "verfuegbar": frei,
                         "ek": str(ek) if ek is not None else "",
-                        "preis": str(preis) if preis is not None else "", "sonderpreis": quelle == "sonderpreis",
+                        "preis": f"{preis:.2f}" if preis is not None else "", "sonderpreis": quelle == "sonderpreis",
                         "letzter": letzter(("a", a.pk))})
     from apps.stammdaten.preise import preislistenpreis
     for e in preisliste:  # Lieferantenartikel (Typ P) mit Kurzname des Lieferanten
         preis = preislistenpreis(e, kunde)
         treffer.append({"nummer": e.nummer, "bezeichnung": e.bezeichnung, "typ": "P", "verfuegbar": None, "sonderpreis": False,
-                        "preis": str(preis) if preis is not None else "", "letzter": letzter(("p", e.pk)), "pl": e.pk, "ek": str(e.ek),
+                        "preis": f"{preis:.2f}" if preis is not None else "", "letzter": letzter(("p", e.pk)), "pl": e.pk, "ek": str(e.ek),
                         "lieferant": e.lieferant.kurz,
                         "lieferant_bestand": e.bestand})
     return JsonResponse({"treffer": treffer})

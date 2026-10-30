@@ -117,6 +117,10 @@ PREISFELDER = {"ek": "Durchschnitts-EK (netto)", "vk1": "VK1", "vk2": "VK2", "vk
 SCHLUESSEL = {"nummer": "Artikelnummer", "herstellernummer": "Herstellernummer", "ean": "EAN"}
 
 
+def betrag(wert) -> str:
+    return "–" if wert is None else f"{wert:,.2f}".replace(",", " ").replace(".", ",").replace(" ", ".")
+
+
 def artikelpreise(profil, inhalt: bytes, schluessel: str, spalte_schluessel: str, felder: dict,
                   brutto: bool = False, anwenden: bool = False) -> dict:
     """Liest Preise je Artikel (Schlüssel: Artikelnummer, Herstellernummer oder EAN) und schreibt sie bei anwenden=True.
@@ -181,7 +185,7 @@ def artikelpreise(profil, inhalt: bytes, schluessel: str, spalte_schluessel: str
             continue
         ergebnis["geaendert"] += 1
         merke({"zeile": nr, "schluessel": wert, "artikel": artikel.nummer,
-               "aenderungen": ", ".join(f"{PREISFELDER['ek' if k == 'durchschnitts_ek' else k]}: {a if a is not None else '–'} → {n}"
+               "aenderungen": ", ".join(f"{PREISFELDER['ek' if k == 'durchschnitts_ek' else k]}: {betrag(a)} → {betrag(n)}"
                                         for k, (a, n) in aenderungen.items())})
         if anwenden:
             for attribut, (_, n) in aenderungen.items():

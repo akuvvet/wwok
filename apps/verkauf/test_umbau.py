@@ -108,7 +108,7 @@ class UmbauTest(TestCase):
         b = einkauf.bestellung_anlegen(self.m, self.api)
         treffer = self.client.get(reverse("einkauf:bestellartikel_suche", args=[b.pk]), {"q": "azza netz"}).json()["treffer"]
         self.assertEqual([t["nummer"] for t in treffer], ["PSAZ-650"])  # Gehäuse gehört zu Kosatec, nicht zu dieser Bestellung
-        self.assertEqual((treffer[0]["ek"], treffer[0]["lieferant"]), ("40.0000", "API"))
+        self.assertEqual((treffer[0]["ek"], treffer[0]["lieferant"]), ("40,00", "API"))
         eigene = self.client.get(reverse("einkauf:bestellartikel_suche", args=[b.pk]), {"q": "maus"}).json()["treffer"]
         self.assertEqual([t["nummer"] for t in eigene], ["M1"])
         self.client.post(reverse("einkauf:bestellung_position", args=[b.pk]), {"pl": self.netzteil.pk, "menge": "4"})

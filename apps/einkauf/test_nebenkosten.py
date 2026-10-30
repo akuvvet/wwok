@@ -80,8 +80,8 @@ class NebenkostenTest(TestCase):
         self.assertContains(self.client.get(reverse("einkauf:rechnung", args=[r.pk])), "110,00")
 
     def test_ohne_nebenkosten_aendert_sich_nichts_und_ohne_warenwert_nach_menge(self):
-        we = self.we((self.a, "3", "7.1234"))
-        self.assertEqual(list(we.kalkulation().values()), [D("7.1234")])
+        we = self.we((self.a, "3", "7.1234"))  # EK im Wareneingang hat 2 Stellen
+        self.assertEqual(list(we.kalkulation().values()), [D("7.1200")])
         kostenlos = self.we((self.a, "2", "0"), (self.b, "3", "0"), versand="10")
         self.assertEqual(set(kostenlos.kalkulation().values()), {D("2.0000")})
 
@@ -158,7 +158,8 @@ class KopfUndKundenmenueTest(TestCase):
         r = self.client.get(start)
         self.assertNotContains(r, "<strong>wwok</strong>")
         self.assertContains(r, 'class="firma"')
-        self.assertContains(r, ">OKAY Computer</a>")
+        self.assertContains(r, ">OKAY</a>")
+        self.assertContains(r, 'title="OKAY Computer – hier wechseln"')
 
     def test_kundenmenue_mit_neuem_beleg_als_untermenue(self):
         self.wahl()

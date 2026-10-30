@@ -18,7 +18,7 @@
   <div class="scroll" style="margin-top:12px"><table>
     <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">bisher</th><th class="zahl">neu (günstigster)</th><th>Lieferant</th></tr></thead>
     <tbody>{% for z in beispiele %}<tr><td>{{ z.artikel.nummer }}</td><td>{{ z.artikel.bezeichnung }}</td>
-      <td class="zahl">{{ z.alt|default_if_none:"–" }}</td><td class="zahl"><strong>{{ z.neu }}</strong></td><td>{{ z.lieferant }}</td></tr>{% endfor %}</tbody></table></div>
+      <td class="zahl">{% if z.alt is not None %}{{ z.alt|floatformat:2 }}{% else %}–{% endif %}</td><td class="zahl"><strong>{{ z.neu|floatformat:2 }}</strong></td><td>{{ z.lieferant }}</td></tr>{% endfor %}</tbody></table></div>
   {% if e.aenderungen|length > 100 %}<p style="opacity:.7">Angezeigt sind die ersten 100 von {{ e.aenderungen|length }}.</p>{% endif %}
   {% else %}<p>Alles aktuell – keine Änderung nötig.</p>{% endif %}
 </div>

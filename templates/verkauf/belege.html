@@ -27,7 +27,7 @@
       <td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td>
       <td>{{ b.referenz }}</td>
       <td>{% if b.abgeschlossen %}abgeschlossen{% else %}offen{% endif %}</td>
-      <td class="zahl">{{ b.summe_netto }}</td><td class="zahl">{{ b.summe_brutto }}</td></tr>
+      <td class="zahl">{{ b.summe_netto|floatformat:2 }}</td><td class="zahl">{{ b.summe_brutto|floatformat:2 }}</td></tr>
     {% empty %}<tr><td colspan="7">Keine Belege gefunden.</td></tr>{% endfor %}
     </tbody>
   </table>

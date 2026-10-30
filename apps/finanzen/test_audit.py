@@ -53,6 +53,12 @@ class AuditFinanzenTest(TestCase):
         r = self.client.post(reverse("finanzen:mahnungen_erstellen"), {"auswahl": "kaputt"}, follow=True)
         self.assertContains(r, "Ungültige Auswahl")
 
+    def test_offene_posten_zeigt_bezahlt_mit_cents(self):
+        zb = Zahlungsbedingung.objects.create(bezeichnung="sofort", tage_netto=0, tage_mahnung=0)
+        b = self.rechnung(zb)
+        services.zahlung_buchen(b, Decimal("12.50"), date.today(), "bank", benutzer=self.user)
+        self.assertContains(self.client.get(reverse("finanzen:offene_posten")), "12,50")
+
     # Mahnwesen
     def test_mahnung_nicht_vor_der_faelligkeit(self):
         zb = Zahlungsbedingung.objects.create(bezeichnung="14 Tage", tage_netto=14, tage_mahnung=0)

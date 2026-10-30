@@ -4,7 +4,7 @@
 {% block inhalt %}
 <a href="{% url 'verkauf:start' %}" data-escape style="display:none">zurück</a>
 {% if kunde.gesperrt %}<div class="warnung">Kunde ist gesperrt – keine neuen Belege.</div>{% endif %}
-{% if limit_ueberschritten %}<div class="warnung">Kreditlimit überschritten: offen {{ offen }} € bei Limit {{ kreditlimit }} €.</div>{% endif %}
+{% if limit_ueberschritten %}<div class="warnung">Kreditlimit überschritten: offen {{ offen|floatformat:2 }} € bei Limit {{ kreditlimit }} €.</div>{% endif %}
 {% if kunde.hinweis %}<div class="warnung">{{ kunde.hinweis|linebreaksbr }}</div>{% endif %}
 <div class="karte kundenkopf">
   <div class="kk-titel">
@@ -23,7 +23,7 @@
     </div>
     <div>Preisstufe VK{{ kunde.preisstufe }}<br>Zahlung: {{ kunde.zahlungsbedingung|default:"–" }}
       {% if kreditlimit %}<br>Kreditlimit {{ kreditlimit }} €{% endif %}
-      <div class="kk-zeile">Offene Posten: <a href="{% url 'finanzen:offene_posten' %}?kunde={{ kunde.pk }}">{{ offen }} €</a>
+      <div class="kk-zeile">Offene Posten: <a href="{% url 'finanzen:offene_posten' %}?kunde={{ kunde.pk }}">{{ offen|floatformat:2 }} €</a>
         <a class="symbol" data-tip="Kontoauszug" aria-label="Kontoauszug" href="{% url 'finanzen:kontoauszug' kunde.pk %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6H6zm7 1.5L18.5 9H13V3.5zM8 13h8v1.6H8V13zm0 3.4h8V18H8v-1.6zM8 9.6h3.5v1.6H8V9.6z"/></svg></a></div></div>
     {% if ansprechpartner %}<div>{% for a in ansprechpartner %}{{ a }}{% if a.hauptkontakt %} ★{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
@@ -63,9 +63,9 @@
           {% if z.positionen %}<details><summary style="cursor:pointer;opacity:.7;font-size:12px">{{ z.positionen|length }} Position(en)</summary>
             <ul style="margin:4px 0 0 16px;padding:0;font-size:12px;opacity:.85">{% for p in z.positionen %}<li>{{ p.menge|floatformat:"-3" }} × {{ p.bezeichnung }}</li>{% endfor %}</ul></details>{% endif %}</td>
         <td>{{ b.belegdatum|date:"d.m.Y" }}</td><td>{{ z.faellig|date:"d.m.Y"|default:"" }}</td>
-        <td class="zahl">{{ b.summe_brutto }}</td>
-        <td class="zahl">{% if z.bezahlt is not None %}{{ z.bezahlt }}{% endif %}</td>
-        <td class="zahl">{% if z.offen is not None %}{% if z.offen %}<strong style="color:var(--warn)">{{ z.offen }}</strong>{% else %}<span style="color:var(--ok)">0,00</span>{% endif %}{% endif %}</td>
+        <td class="zahl">{{ b.summe_brutto|floatformat:2 }}</td>
+        <td class="zahl">{% if z.bezahlt is not None %}{{ z.bezahlt|floatformat:2 }}{% endif %}</td>
+        <td class="zahl">{% if z.offen is not None %}{% if z.offen %}<strong style="color:var(--warn)">{{ z.offen|floatformat:2 }}</strong>{% else %}<span style="color:var(--ok)">0,00</span>{% endif %}{% endif %}</td>
         <td>{{ z.bezug }}</td>
         <td>{% if b.abgeschlossen %}abgeschlossen{% if b.art == 'LS' and not b.abrechenbar %} · berechnet{% endif %}{% else %}Entwurf{% endif %}</td></tr>
     {% endwith %}{% empty %}<tr><td colspan="9">Keine Belege.</td></tr>{% endfor %}

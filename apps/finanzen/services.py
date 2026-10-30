@@ -75,7 +75,7 @@ def offene_rechnungen(mandant, kunde=None):
             continue
         faellig = faellig_am(b)
         letzte = b.mahnungen.order_by("-stufe").first()
-        zeilen.append({"beleg": b, "bezahlt": bezahlt(b), "gutschrift": gutgeschrieben(b), "offen": rest,
+        zeilen.append({"beleg": b, "bezahlt": bezahlt(b), "gutschrift": gutgeschrieben(b), "erledigt": bezahlt(b) + gutgeschrieben(b), "offen": rest,
                        "faellig": faellig, "ueberfaellig": max((heute - faellig).days, 0), "mahnstufe": letzte.stufe if letzte else 0})
     return zeilen
 

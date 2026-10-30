@@ -10,6 +10,7 @@ urlpatterns = [
     path("bestellung/<int:bestellung_id>/", views.bestellung_detail, name="bestellung"),
     path("bestellung/<int:bestellung_id>/suche/", views.api_bestellartikel, name="bestellartikel_suche"),
     path("bestellung/<int:bestellung_id>/position/", views.bestellung_position, name="bestellung_position"),
+    path("bestellung/<int:bestellung_id>/position/<int:position_id>/aendern/", views.bestellung_position_aendern, name="bestellung_position_aendern"),
     path("bestellung/<int:bestellung_id>/position/<int:position_id>/loeschen/", views.bestellung_position_loeschen, name="bestellung_position_loeschen"),
     path("bestellung/<int:bestellung_id>/bestellen/", views.bestellung_bestellen, name="bestellung_bestellen"),
     path("bestellung/<int:bestellung_id>/stornieren/", views.bestellung_stornieren, name="bestellung_stornieren"),

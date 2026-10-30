@@ -38,6 +38,12 @@
       });
     }
     menge.addEventListener('input', function () { clearTimeout(vergleichTimer); vergleichTimer = setTimeout(vergleichen, 300); });
+    document.getElementById('vergleich').addEventListener('submit', function (e) {  // beim eigenen Lieferanten gilt ein eingetragener Preis
+      if (!e.target.hasAttribute('data-eigener') || !ek.value.trim()) return;
+      var feld = document.createElement('input');
+      feld.type = 'hidden'; feld.name = 'ek'; feld.value = ek.value;
+      e.target.appendChild(feld);
+    });
     function suche() {
       var q = feld.value.trim(), nr = ++anfrage;
       if (q.length < 2) { liste = []; zeige(); return; }
@@ -64,25 +70,57 @@
 {% endblock %}
 {% block inhalt %}
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
+<div class="karte kopfkarte">
+  <div>
+    <h1>Bestellung {{ b.nummer }}
+      <a class="symbol" data-tip="Lieferantendaten bearbeiten" aria-label="Lieferantendaten bearbeiten" data-modal="{% url 'stammdaten:lieferant_bearbeiten' b.lieferant.pk %}" href="{% url 'einkauf:lieferanten' %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a></h1>
+    <p class="zeile" style="margin:0"><strong>{{ b.lieferant.name1 }}</strong> <span>{{ b.datum|date:"d.m.Y" }}</span>
+      <span class="marke {% if b.status == 'entwurf' %}{% else %}ok{% endif %}">{{ b.get_status_display }}</span>
+      {% if aus_beleg %}<span>aus <a href="{% url 'verkauf:beleg' aus_beleg.pk %}">{{ aus_beleg }}</a></span>{% endif %}</p>
+    {% if konditionen %}<p class="fein" style="margin:6px 0 0">{{ konditionen|join:" · " }}</p>{% endif %}
+  </div>
+  <div class="summe"><div style="opacity:.7">Summe netto</div><div class="betrag">{{ netto|floatformat:2 }} €</div></div>
+</div>
+
+<div class="aktionen">
+  {% if b.status != 'storniert' %}<a class="knopf" href="{% url 'einkauf:bestellung_mail' b.pk %}">Per E-Mail bestellen</a>{% endif %}
+  {% if b.status == 'entwurf' %}<form method="post" action="{% url 'einkauf:bestellung_bestellen' b.pk %}">{% csrf_token %}<button class="leise" type="submit">Als bestellt markieren</button></form>{% endif %}
+  {% if b.status == 'bestellt' or b.status == 'teil' %}<form method="post" action="{% url 'einkauf:wareneingang_neu' %}">{% csrf_token %}<input type="hidden" name="bestellung" value="{{ b.pk }}"><button type="submit">Wareneingang erfassen</button></form>{% endif %}
+  <a class="knopf leise" href="{% url 'einkauf:bestellung_pdf' b.pk %}" target="_blank">PDF</a>
+  {% if not wareneingaenge %}<details class="menue-mehr"><summary class="symbol" data-tip="Mehr" aria-label="Mehr"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg></summary>
+    <div class="mehr">
+      {% if b.status != 'storniert' %}<form method="post" action="{% url 'einkauf:bestellung_stornieren' b.pk %}" onsubmit="return confirm('Bestellung stornieren?')">{% csrf_token %}<button class="gefahr" type="submit">Stornieren</button></form>{% endif %}
+      <form method="post" action="{% url 'einkauf:bestellung_loeschen' b.pk %}" onsubmit="return confirm('Bestellung wirklich löschen?')">{% csrf_token %}<button class="gefahr" type="submit">Löschen</button></form>
+    </div></details>{% endif %}
+  {% if wareneingaenge %}<span class="fein">Wareneingänge: {% for w in wareneingaenge %}<a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</span>{% endif %}
+</div>
+
 <div class="karte">
-  <h1>Bestellung {{ b.nummer }} – {{ b.lieferant.name1 }}
-    <a class="symbol" data-tip="Lieferantendaten bearbeiten" aria-label="Lieferantendaten bearbeiten" data-modal="{% url 'stammdaten:lieferant_bearbeiten' b.lieferant.pk %}" href="{% url 'einkauf:lieferanten' %}">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a></h1>
-  <p>{{ b.datum|date:"d.m.Y" }} · Status: <strong>{{ b.get_status_display }}</strong>{% if aus_beleg %} · aus <a href="{% url 'verkauf:beleg' aus_beleg.pk %}">{{ aus_beleg }}</a>{% endif %}</p>
-  <table>
-    <tr><th>Artikel</th><th>Best.-Nr.</th><th>Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">geliefert</th><th class="zahl">EK netto</th><th class="zahl">Netto</th><th></th></tr>
-    {% for p in positionen %}
-    <tr><td>{{ p.nummer }}{% if p.preisliste_artikel and not p.artikel %} <span class="marke" title="aus der Preisliste, wird beim Wareneingang zum eigenen Artikel">Preisliste</span>{% endif %}</td><td>{{ p.bestellnummer }}</td>
-        <td>{{ p.bezeichnung }}{% if b.status == 'entwurf' and not p.geliefert %}<br><small>{% if p.alternative %}<span style="color:var(--warn)">Günstiger bei {{ p.alternative.lieferant.kurz }}: {{ p.alternative.gesamt }} € gesamt{% if p.alternative.versand_offen %} + Versand unbekannt{% else %} ({{ p.alternative.ersparnis }} € weniger){% endif %}</span> · {% endif %}<a href="{% url 'einkauf:preisvergleich' %}?position={{ p.pk }}">Lieferanten vergleichen</a></small>{% endif %}</td>
-        <td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
-        <td class="zahl">{{ p.geliefert|floatformat:"-3" }}</td><td class="zahl">{{ p.ek }}</td><td class="zahl">{{ p.netto }}</td>
-        <td>{% if not p.geliefert and b.status != 'storniert' %}<form method="post" action="{% url 'einkauf:bestellung_position_loeschen' b.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit">×</button></form>{% endif %}</td></tr>
-    {% empty %}<tr><td colspan="8">Noch keine Positionen.</td></tr>{% endfor %}
-    <tr><td colspan="6"><strong>Summe netto</strong></td><td class="zahl"><strong>{{ netto }}</strong></td><td></td></tr>
-  </table>
-  {% if b.status != 'storniert' and b.status != 'geliefert' %}
+  <h2>Positionen</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Artikel</th><th class="zahl">Menge</th>{% if mit_lieferung %}<th class="zahl">geliefert</th>{% endif %}<th class="zahl">EK netto</th><th class="zahl">Netto</th><th></th></tr></thead>
+    <tbody>{% for p in positionen %}
+    <tr><td>{{ p.bezeichnung }}
+        <br><span class="fein">{{ p.nummer }}{% if p.bestellnummer %} · Best.-Nr. {{ p.bestellnummer }}{% endif %}{% if p.preisliste_artikel and not p.artikel %} · aus Preisliste{% endif %}{% if p.im_wareneingang %} · im offenen Wareneingang{% endif %}</span>
+        {% if b.status == 'entwurf' and not p.geliefert %}<br><span class="fein">{% if p.alternative %}<span style="color:var(--warn)">Günstiger bei {{ p.alternative.lieferant.kurz }}: {{ p.alternative.gesamt|floatformat:2 }} €{% if p.alternative.versand_offen %} + Versand?{% else %} ({{ p.alternative.ersparnis|floatformat:2 }} € weniger){% endif %}</span> · {% endif %}<a href="{% url 'einkauf:preisvergleich' %}?position={{ p.pk }}">vergleichen</a></span>{% endif %}
+        {% if p.aenderbar %}<form id="pos{{ p.pk }}" method="post" action="{% url 'einkauf:bestellung_position_aendern' b.pk p.pk %}">{% csrf_token %}</form>{% endif %}</td>
+      {% if p.aenderbar %}<td class="zahl"><input form="pos{{ p.pk }}" class="posfeld" name="menge" value="{{ p.menge|floatformat:'-3' }}" inputmode="decimal" aria-label="Menge"></td>
+      {% else %}<td class="zahl">{{ p.menge|floatformat:"-3" }}</td>{% endif %}
+      {% if mit_lieferung %}<td class="zahl">{{ p.geliefert|floatformat:"-3" }}</td>{% endif %}
+      {% if p.aenderbar %}<td class="zahl"><input form="pos{{ p.pk }}" class="posfeld" name="ek" value="{{ p.ek|floatformat:2 }}" inputmode="decimal" aria-label="EK netto"></td>
+      {% else %}<td class="zahl">{{ p.ek|floatformat:2 }}</td>{% endif %}
+      <td class="zahl">{{ p.netto|floatformat:2 }}</td>
+      <td style="white-space:nowrap">{% if p.aenderbar %}<button form="pos{{ p.pk }}" type="submit" class="leise" title="Menge und Preis speichern">OK</button> {% endif %}{% if not p.geliefert and b.status != 'storniert' %}<form method="post" action="{% url 'einkauf:bestellung_position_loeschen' b.pk p.pk %}" style="display:inline">{% csrf_token %}<button class="gefahr" type="submit" title="Position löschen">×</button></form>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="6" style="padding:16px;text-align:center;opacity:.7">Noch keine Positionen.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+
+{% if b.status != 'storniert' and b.status != 'geliefert' %}
+<div class="karte">
+  <h2>Artikel hinzufügen</h2>
   <form method="post" action="{% url 'einkauf:bestellung_position' b.pk %}" class="zeile erfassung" id="positionsform" autocomplete="off">{% csrf_token %}
-    <div><label>Artikel suchen (mehrere Wörter, beliebige Reihenfolge – z. B. „netz azza“)</label>
+    <div><label>Artikel suchen (Wörter in beliebiger Reihenfolge)</label>
       <div style="position:relative"><input name="artikel" id="artikel" size="40" autofocus><input type="hidden" name="pl" id="pl">
         <div id="trefferliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:600px;max-height:340px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
     <div><label>Menge</label><input name="menge" value="1" size="5"></div>
@@ -90,18 +128,8 @@
     <button type="submit" class="symbol voll" data-tip="Position übernehmen" aria-label="Position übernehmen">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg></button>
   </form>
-  <p id="hinweis" style="opacity:.8;margin:6px 0 0"></p>
+  <p id="hinweis" class="fein" style="margin:6px 0 0"></p>
   <div id="vergleich"></div>
-  {% endif %}
-  {% for k in konditionen %}<p class="warnung" style="margin:8px 0 0">{{ k }}</p>{% endfor %}
-  <div class="zeile" style="margin-top:12px">
-    <a class="knopf leise" href="{% url 'einkauf:bestellung_pdf' b.pk %}" target="_blank">PDF</a>
-    {% if b.status != 'storniert' %}<a class="knopf" href="{% url 'einkauf:bestellung_mail' b.pk %}">Per E-Mail bestellen</a>{% endif %}
-    {% if b.status == 'entwurf' %}<form method="post" action="{% url 'einkauf:bestellung_bestellen' b.pk %}">{% csrf_token %}<button class="leise" type="submit">Als bestellt markieren</button></form>{% endif %}
-    {% if b.status == 'bestellt' or b.status == 'teil' %}<form method="post" action="{% url 'einkauf:wareneingang_neu' %}">{% csrf_token %}<input type="hidden" name="bestellung" value="{{ b.pk }}"><button type="submit">Wareneingang erfassen</button></form>{% endif %}
-    {% if not wareneingaenge %}<form method="post" action="{% url 'einkauf:bestellung_loeschen' b.pk %}" onsubmit="return confirm('Bestellung wirklich löschen?')">{% csrf_token %}<button class="gefahr" type="submit">Löschen</button></form>{% endif %}
-    {% if b.status != 'storniert' and not wareneingaenge %}<form method="post" action="{% url 'einkauf:bestellung_stornieren' b.pk %}" onsubmit="return confirm('Bestellung stornieren?')">{% csrf_token %}<button class="gefahr" type="submit">Stornieren</button></form>{% endif %}
-  </div>
-  {% if wareneingaenge %}<p style="margin-top:12px">Wareneingänge: {% for w in wareneingaenge %}<a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 </div>
+{% endif %}
 {% endblock %}

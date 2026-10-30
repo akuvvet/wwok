@@ -25,10 +25,10 @@
     <tr><th>Art</th><th>Bezeichnung</th><th class="zahl">Menge/Std.</th><th class="zahl">Preis</th><th class="zahl">Netto</th><th></th></tr>
     {% for p in positionen %}
     <tr><td>{{ p.get_art_display }}</td><td>{{ p.artikel.nummer|default:"" }} {{ p.bezeichnung }}</td><td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
-        <td class="zahl">{{ p.einzelpreis }}</td><td class="zahl">{{ p.netto }}</td>
+        <td class="zahl">{{ p.einzelpreis }}</td><td class="zahl">{{ p.netto|floatformat:2 }}</td>
         <td>{% if not r.rechnung and not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:position_loeschen' r.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit">×</button></form>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="6">Noch nichts erfasst.</td></tr>{% endfor %}
-    <tr><td colspan="4"><strong>Summe netto</strong></td><td class="zahl"><strong>{{ netto }}</strong></td><td></td></tr>
+    <tr><td colspan="4"><strong>Summe netto</strong></td><td class="zahl"><strong>{{ netto|floatformat:2 }}</strong></td><td></td></tr>
   </table>
   {% if not r.rechnung and not r.teile_gebucht %}
   <form method="post" action="{% url 'werkstatt:position' r.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}

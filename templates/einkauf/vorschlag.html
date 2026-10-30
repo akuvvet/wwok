@@ -12,7 +12,7 @@
     <tr><td>{% if z.lieferant %}<input type="checkbox" name="auswahl" value="{{ z.artikel.pk }}" checked>{% endif %}</td>
         <td>{{ z.artikel.nummer }}</td><td>{{ z.artikel.bezeichnung }}</td><td class="zahl">{{ z.ziel|floatformat:"-3" }}</td><td class="zahl">{{ z.haben|floatformat:"-3" }}</td>
         <td><input name="menge_{{ z.artikel.pk }}" value="{{ z.menge|floatformat:'-3' }}" size="5"></td>
-        <td>{{ z.lieferant.name1|default:"kein Lieferant" }}<br><small><a href="{% url 'einkauf:preisvergleich' %}?artikel={{ z.artikel.nummer|urlencode }}&amp;menge={{ z.menge|floatformat:'-3' }}">Lieferanten vergleichen</a></small></td><td class="zahl">{{ z.ek|default_if_none:"" }}</td><td>{{ z.grund }}</td></tr>
+        <td>{{ z.lieferant.name1|default:"kein Lieferant" }}<br><small><a href="{% url 'einkauf:preisvergleich' %}?artikel={{ z.artikel.nummer|urlencode }}&amp;menge={{ z.menge|floatformat:'-3' }}">Lieferanten vergleichen</a></small></td><td class="zahl">{{ z.ek|floatformat:2 }}</td><td>{{ z.grund }}</td></tr>
     {% empty %}<tr><td colspan="9">Kein Artikel unter Mindestbestand.</td></tr>{% endfor %}
   </table>
   {% if zeilen %}<p><button type="submit">Bestellungen als Entwurf anlegen</button></p>{% endif %}

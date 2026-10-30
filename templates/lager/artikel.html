@@ -12,8 +12,8 @@
     <div>reserviert (offene Aufträge)<br><strong style="font-size:22px">{{ reserviert|floatformat:"-3" }}</strong></div>
     <div>verfügbar<br><strong style="font-size:22px">{{ verfuegbar|floatformat:"-3" }}</strong></div>
     <div>bestellt (offen)<br><strong style="font-size:22px">{{ bestellt|floatformat:"-3" }}</strong></div>
-    <div>Durchschnitts-EK<br>{{ artikel.durchschnitts_ek|default:"–" }} €</div>
-    <div>letzter Wareneingang<br>{% if letzter_we %}{{ letzter_we.wareneingang.datum|date:"d.m.Y" }} · {{ letzter_we.menge|floatformat:"-3" }} × {{ letzter_we.ek }} €{% else %}–{% endif %}</div>
+    <div>Durchschnitts-EK<br>{% if artikel.durchschnitts_ek is not None %}{{ artikel.durchschnitts_ek|floatformat:2 }} €{% else %}–{% endif %}</div>
+    <div>letzter Wareneingang<br>{% if letzter_we %}{{ letzter_we.wareneingang.datum|date:"d.m.Y" }} · {{ letzter_we.menge|floatformat:"-3" }} × {{ letzter_we.ek|floatformat:2 }} €{% else %}–{% endif %}</div>
     <div>Einheit<br>{{ artikel.mengeneinheit }}</div>
   </div>
   {% if daten.maximalbestand and bestand > daten.maximalbestand %}<p class="warnung" style="margin-top:12px">Über Maximalbestand ({{ daten.maximalbestand }}).</p>{% endif %}
@@ -54,7 +54,7 @@
   <h2>Lieferanten</h2>
   <table>
     <tr><th>Lieferant</th><th>Bestellnummer</th><th class="zahl">EK netto</th><th class="zahl">Bestand</th><th class="zahl">Lieferzeit</th><th>Preisliste vom</th></tr>
-    {% for l in lieferanten %}<tr><td>{{ l.lieferant.kurzname|default:l.lieferant.name1 }}</td><td>{{ l.bestellnummer }}</td><td class="zahl">{{ l.ek|default_if_none:"–" }}</td>
+    {% for l in lieferanten %}<tr><td>{{ l.lieferant.kurzname|default:l.lieferant.name1 }}</td><td>{{ l.bestellnummer }}</td><td class="zahl">{% if l.ek is not None %}{{ l.ek|floatformat:2 }}{% else %}–{% endif %}</td>
       <td class="zahl">{{ l.bestand|default_if_none:"–" }}</td><td class="zahl">{% if l.lieferzeit_tage is not None %}{{ l.lieferzeit_tage }} Tage{% else %}–{% endif %}</td>
       <td>{{ l.aktualisiert_am|date:"d.m.Y"|default:"–" }}</td></tr>{% endfor %}
   </table>

@@ -5,10 +5,10 @@
 <div class="karte">
   <h1><a href="{% url 'verkauf:beleg' beleg.pk %}">{{ beleg }}</a> – {{ beleg.kunde.name1 }}</h1>
   <div class="raster">
-    <div>Rechnungsbetrag<br><strong>{{ beleg.summe_brutto }} €</strong></div>
-    <div>bezahlt<br><strong>{{ bezahlt }} €</strong></div>
-    <div>Gutschriften<br><strong>{{ gutschrift }} €</strong></div>
-    <div>offen<br><strong style="font-size:20px">{{ offen }} €</strong></div>
+    <div>Rechnungsbetrag<br><strong>{{ beleg.summe_brutto|floatformat:2 }} €</strong></div>
+    <div>bezahlt<br><strong>{{ bezahlt|floatformat:2 }} €</strong></div>
+    <div>Gutschriften<br><strong>{{ gutschrift|floatformat:2 }} €</strong></div>
+    <div>offen<br><strong style="font-size:20px">{{ offen|floatformat:2 }} €</strong></div>
     <div>fällig am<br>{{ faellig|date:"d.m.Y" }}</div>
   </div>
 </div>
@@ -17,7 +17,7 @@
   <h2>Zahlung buchen</h2>
   <form method="post" action="{% url 'finanzen:zahlung' beleg.pk %}" class="zeile">{% csrf_token %}
     <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
-    <div><label>Betrag brutto (negativ = Gegenbuchung)</label><input name="betrag" value="{{ offen }}" size="10" autofocus></div>
+    <div><label>Betrag brutto (negativ = Gegenbuchung)</label><input name="betrag" value="{{ offen|floatformat:2 }}" size="10" autofocus></div>
     <div><label>Zahlart</label><select name="zahlart">{% for w, n in zahlarten %}<option value="{{ w }}">{{ n }}</option>{% endfor %}</select></div>
     <div><label>Bemerkung</label><input name="bemerkung" size="26"></div>
     <button type="submit">Buchen</button>

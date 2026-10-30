@@ -34,7 +34,7 @@ class MandantMerkenTest(TestCase):
         self.neu_anmelden()
         self.assertEqual(self.client.get(reverse("verkauf:belege")).status_code, 200)  # keine Umleitung
         r = self.client.get(self.start)
-        self.assertContains(r, 'title="Aktiver Mandant – hier wechseln">ZONE Handel</a>')
+        self.assertContains(r, 'title="ZONE Handel – hier wechseln">ZONE</a>')
         self.assertContains(r, "Wechseln</button>")
 
     def test_deaktivierter_mandant_im_cookie_gilt_nicht(self):
@@ -43,7 +43,7 @@ class MandantMerkenTest(TestCase):
         self.zone.save()
         self.neu_anmelden()
         self.assertEqual(self.client.get(reverse("verkauf:belege")).status_code, 200)  # nur OKAY aktiv: automatisch
-        self.assertContains(self.client.get(self.start), ">OKAY Computer</a>")
+        self.assertContains(self.client.get(self.start), ">OKAY</a>")
 
     def test_ungueltiges_cookie_und_anmeldeseite(self):
         self.client.cookies[MANDANT_COOKIE] = "abc"

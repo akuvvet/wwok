@@ -48,7 +48,7 @@ class VergleichTest(TestCase):
         self.a.lieferanten.filter(lieferant=self.kosa).update(ek=D("10"))
         zeilen = vergleich.vergleich(self.m, D("2"), self.a)  # Kosatec billiger, aber 20 € < 100 € Mindestwert
         self.assertEqual(self.namen(zeilen), ["API", "Kosatec"])
-        self.assertIn("es fehlen 80,00 €", zeilen[1]["hinweise"][0])
+        self.assertIn("noch 80,00 €", zeilen[1]["hinweise"][0])
         self.a.lieferanten.filter(lieferant=self.api).update(bestand=1)
         zeilen = vergleich.vergleich(self.m, D("2"), self.a)
         self.assertFalse(next(z for z in zeilen if z["lieferant"] == self.api)["lieferbar"])
@@ -68,14 +68,14 @@ class VergleichTest(TestCase):
         Preislistenartikel.objects.create(lieferant=self.ingram, bestellnummer="ING-9", bezeichnung="Mouse", ean="4000000000001", ek=D("15"))
         zeile = next(z for z in vergleich.vergleich(self.m, D("1"), self.a) if z["lieferant"] == self.ingram)
         self.assertTrue(zeile["versand_offen"])
-        self.assertIn("Versandkosten nicht hinterlegt", zeile["hinweise"])
+        self.assertIn("Versand nicht hinterlegt", zeile["hinweise"])
         self.ingram.gesperrt = True
         self.ingram.save()
         self.assertNotIn("Ingram", self.namen(vergleich.vergleich(self.m, D("1"), self.a)))
 
     def test_seite_und_bestellen_legt_in_entwurf(self):
         r = self.client.get(self.url, {"artikel": "A1", "menge": "6"})
-        self.assertContains(r, "am günstigsten")
+        self.assertContains(r, "günstigste Wahl")
         self.assertContains(self.client.get(self.url, {"q": "maus"}), "?artikel=A1")
         self.assertNotContains(self.client.get(self.url, {"artikel": "A1", "teil": "1"}), "<html")
         r = self.client.post(reverse("einkauf:preisvergleich_bestellen"), {"artikel": "A1", "menge": "6", "lieferant": self.kosa.pk}, follow=True)
@@ -99,8 +99,8 @@ class VergleichTest(TestCase):
         b = services.bestellung_anlegen(self.m, self.api)
         p = services.bestellposition(b, self.a, D("6"))
         r = self.client.get(reverse("einkauf:bestellung", args=[b.pk]))
-        self.assertContains(r, "Günstiger bei Kosatec: 150.00 € gesamt".replace("150.00", "150,00"))
-        self.assertContains(r, "Versandkostenfrei ab")
+        self.assertContains(r, "Günstiger bei Kosatec: 150,00 €")
+        self.assertContains(r, "bis versandfrei")
         self.assertContains(self.client.get(self.url, {"position": p.pk}), "Hierhin verschieben")
         self.client.post(reverse("einkauf:preisvergleich_bestellen"), {"position": p.pk, "lieferant": self.kosa.pk})
         self.assertFalse(b.positionen.exists())
@@ -150,8 +150,8 @@ class VergleichTest(TestCase):
     def test_unbekannter_versand_ist_nicht_am_guenstigsten(self):
         ArtikelLieferant.objects.create(artikel=self.a, lieferant=self.ingram, bestellnummer="I", ek=D("19"), bestand=50)
         r = self.client.get(self.url, {"artikel": "A1", "menge": "6"})
-        self.assertContains(r, "Versand teils unbekannt")
-        self.assertNotContains(r, "am günstigsten")
+        self.assertContains(r, "+ ?")
+        self.assertNotContains(r, "günstigste Wahl")
 
     def test_lieferbares_angebot_schlaegt_billigeres_ohne_bestand(self):
         ArtikelLieferant.objects.create(artikel=self.a, lieferant=self.api, bestellnummer="API-2", ek=D("15"), bestand=0)
@@ -162,7 +162,7 @@ class VergleichTest(TestCase):
         r = self.client.get(self.url, {"artikel": "A1", "menge": "1"})
         self.assertContains(r, '<input type="hidden" name="artikel" value="A1">')
         r = self.client.get(self.url, {"artikel": "A1", "q": "", "menge": "6"})
-        self.assertContains(r, "Lieferanten für 6 ×")
+        self.assertContains(r, "Wo bestellen? 6 ×")
         self.assertContains(self.client.get(self.url, {"artikel": "A1", "q": "maus", "menge": "6"}), "?artikel=A1")  # neue Suche
 
     def test_extreme_mengen(self):
@@ -171,6 +171,77 @@ class VergleichTest(TestCase):
             r = self.client.post(reverse("einkauf:preisvergleich_bestellen"), {"artikel": "A1", "menge": menge, "lieferant": self.api.pk})
             self.assertEqual(r.status_code, 302, menge)
         self.assertFalse(Bestellung.objects.exists())
+
+    def test_position_menge_und_preis_nachtraeglich_aendern(self):
+        b = services.bestellung_anlegen(self.m, self.kosa)
+        p = services.bestellposition(b, self.a, D("1"), ek=D("15.6543"))
+        self.assertEqual(p.ek, D("15.65"))  # EK × Menge geht sichtbar auf
+        url = reverse("einkauf:bestellung_position_aendern", args=[b.pk, p.pk])
+        self.assertContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), 'value="15,65"')
+        self.client.post(url, {"menge": "2,5", "ek": "12,346"})
+        p.refresh_from_db()
+        self.assertEqual((p.menge, p.ek, p.netto), (D("2.500"), D("12.35"), D("30.88")))
+        self.client.post(url, {"menge": "", "ek": ""})  # geleerte Felder behalten den Wert
+        p.refresh_from_db()
+        self.assertEqual((p.menge, p.ek), (D("2.500"), D("12.35")))
+        for daten in ({"menge": "0", "ek": "1"}, {"menge": "1", "ek": "-1"}, {"menge": "abc", "ek": "1"}, {"menge": "1", "ek": "NaN"}):
+            self.assertEqual(self.client.post(url, daten).status_code, 302, daten)
+        p.refresh_from_db()
+        self.assertEqual((p.menge, p.ek), (D("2.500"), D("12.35")))
+
+    def test_position_im_offenen_wareneingang_bleibt_fest(self):
+        b = services.bestellung_anlegen(self.m, self.kosa)
+        p = services.bestellposition(b, self.a, D("10"), ek=D("5"))
+        services.bestellen(b)
+        self.client.post(reverse("einkauf:wareneingang_neu"), {"bestellung": b.pk})
+        r = self.client.post(reverse("einkauf:bestellung_position_aendern", args=[b.pk, p.pk]), {"menge": "6", "ek": "4"}, follow=True)
+        self.assertContains(r, "offenen Wareneingang")
+        p.refresh_from_db()
+        self.assertEqual(p.menge, D("10.000"))
+        self.assertNotContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), f'id="pos{p.pk}"')
+
+    def test_versand_im_entwurf_ist_nicht_frei(self):
+        l = Lieferant.objects.create(nummer="L4", name1="Fix", kurzname="Fix", versandkosten=D("5"))
+        ArtikelLieferant.objects.create(artikel=self.a, lieferant=l, bestellnummer="F", ek=D("10"), bestand=50)
+        services.bestellposition(services.bestellung_anlegen(self.m, l), self.a, D("1"))
+        zeile = next(z for z in vergleich.vergleich(self.m, D("1"), self.a) if z["lieferant"] == l)
+        self.assertEqual((zeile["versand"], zeile["versandfrei"]), (D("0"), False))
+        self.assertIn("Versand schon im Entwurf", zeile["hinweise"])
+        self.assertTrue(next(z for z in vergleich.vergleich(self.m, D("1"), self.a) if z["lieferant"] == self.kosa)["versandfrei"])
+
+    def test_eingetragener_preis_gilt_beim_uebernehmen(self):
+        b = services.bestellung_anlegen(self.m, self.kosa)
+        self.client.post(reverse("einkauf:preisvergleich_bestellen"), {"artikel": "A1", "menge": "1", "lieferant": self.kosa.pk, "bestellung": b.pk, "ek": "9,99"})
+        self.assertEqual(b.positionen.get().ek, D("9.99"))
+        self.assertEqual(self.client.post(reverse("einkauf:preisvergleich_bestellen"), {"artikel": "A1", "menge": "1", "lieferant": self.kosa.pk, "ek": "-1"}).status_code, 302)
+        self.assertEqual(b.positionen.count(), 1)
+
+    def test_gelieferte_position_und_stornierte_bestellung_bleiben_fest(self):
+        b = services.bestellung_anlegen(self.m, self.kosa)
+        p = services.bestellposition(b, self.a, D("2"))
+        p.geliefert = D("1")
+        p.save()
+        url = reverse("einkauf:bestellung_position_aendern", args=[b.pk, p.pk])
+        self.assertNotContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), f'id="pos{p.pk}"')
+        self.client.post(url, {"menge": "9", "ek": "1"})
+        p.refresh_from_db()
+        self.assertEqual(p.menge, D("2.000"))
+        p.geliefert = D("0")
+        p.save()
+        b.status = BestellStatus.STORNIERT
+        b.save()
+        self.client.post(url, {"menge": "9", "ek": "1"})
+        p.refresh_from_db()
+        self.assertEqual(p.menge, D("2.000"))
+
+    def test_preise_mit_zwei_stellen(self):
+        ArtikelLieferant.objects.filter(artikel=self.a, lieferant=self.api).update(ek=D("15.6500"))
+        r = self.client.get(self.url, {"artikel": "A1"})
+        self.assertContains(r, "15,65")
+        self.assertNotContains(r, "15,6500")
+        b = services.bestellung_anlegen(self.m, self.api)
+        d = self.client.get(reverse("einkauf:bestellartikel_suche", args=[b.pk]), {"q": "maus"}).json()
+        self.assertEqual(d["treffer"][0]["ek"], "15,65")
 
     def test_ungueltige_eingaben_ohne_500(self):
         self.assertEqual(self.client.get(self.url, {"menge": "abc", "position": "x", "pl": "y"}).status_code, 200)

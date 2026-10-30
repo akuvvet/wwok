@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import models, transaction
 from django.db.models import F, Q, Sum
@@ -19,6 +19,11 @@ from .models import (BestellPosition, BestellStatus, Bestellung, Lieferantenrech
 
 def nummer(mandant, art: str) -> str:
     return Nummernkreis.naechste(mandant, art, timezone.localdate().year)
+
+
+def ek_runden(ek):
+    """EK in Bestellung und Wareneingang hat 2 Stellen, damit EK × Menge sichtbar aufgeht (Preisliste und Ø-EK rechnen genauer)."""
+    return None if ek is None else ek.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 # ---- Bestellung ---------------------------------------------------------------------------------
@@ -45,6 +50,7 @@ def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None
     zum eigenen Artikel)."""
     if bestellung.status not in (BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL):
         raise ValueError("Zu dieser Bestellung können keine Positionen mehr erfasst werden.")
+    ek = ek_runden(ek)
     if artikel is None and preisliste_artikel is not None and preisliste_artikel.artikel_id:
         artikel = preisliste_artikel.artikel  # zu dem Eintrag gibt es schon einen eigenen Artikel
     if artikel is None:
@@ -60,7 +66,7 @@ def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None
             return pos
         return BestellPosition.objects.create(
             bestellung=bestellung, preisliste_artikel=preisliste_artikel, bestellnummer=preisliste_artikel.bestellnummer,
-            bezeichnung=preisliste_artikel.bezeichnung[:255], menge=menge, ek=ek if ek is not None else preisliste_artikel.ek)
+            bezeichnung=preisliste_artikel.bezeichnung[:255], menge=menge, ek=ek if ek is not None else ek_runden(preisliste_artikel.ek))
     vorschlag, bestellnr = ek_vorschlag(bestellung.mandant, bestellung.lieferant, artikel)
     pos = bestellung.positionen.filter(artikel=artikel, geliefert=0).first()
     if pos and (ek is None or pos.ek == ek):  # gleicher Artikel zum gleichen Preis: Menge addieren, sonst eigene Zeile
@@ -68,7 +74,7 @@ def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None
         pos.save()
         return pos
     return BestellPosition.objects.create(bestellung=bestellung, artikel=artikel, bestellnummer=bestellnr,
-                                          bezeichnung=artikel.bezeichnung, menge=menge, ek=ek if ek is not None else vorschlag)
+                                          bezeichnung=artikel.bezeichnung, menge=menge, ek=ek if ek is not None else ek_runden(vorschlag))
 
 
 def bestellen(bestellung):
@@ -249,7 +255,7 @@ def wareneingang_erfassen(we, artikel, menge=Decimal("1"), ek=None, seriennummer
     if ek is None:
         ek = bp.ek if bp else ek_vorschlag(we.mandant, we.lieferant, artikel)[0]
     return WareneingangPosition.objects.create(wareneingang=we, bestellposition=bp, artikel=artikel, menge=menge,
-                                               ek=ek, seriennummern=seriennummern)
+                                               ek=ek_runden(ek), seriennummern=seriennummern)
 
 
 def wareneingang_aus_bestellung(we):

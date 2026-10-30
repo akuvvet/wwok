@@ -56,6 +56,7 @@ def angebote(artikel=None, eintrag=None, menge=Decimal("1")) -> list:
         return (bestand is not None and bestand < menge, ek)
 
     def merken(lieferant, ek, bestand, lieferzeit, bestellnummer, stand, pl=None):
+        ek = services.ek_runden(ek)  # so, wie es in die Bestellung käme
         vorhanden = beste.get(lieferant.pk)
         if vorhanden is None or rang(ek, bestand) < rang(vorhanden["ek"], vorhanden["bestand"]):
             beste[lieferant.pk] = {"lieferant": lieferant, "ek": ek, "bestand": bestand, "bestellnummer": bestellnummer, "pl": pl,
@@ -108,16 +109,18 @@ def vergleich(mandant, menge, artikel=None, eintrag=None, ohne_position=None, be
         lieferbar = a["bestand"] is None or a["bestand"] >= menge
         hinweise = []
         if fehlt:
-            hinweise.append(f"Mindestbestellwert {eur(l.mindestbestellwert)} € – es fehlen {eur(fehlt)} €")
+            hinweise.append(f"Mindestbestellwert: noch {eur(fehlt)} €")
         if a["bestand"] is not None and not lieferbar:
-            hinweise.append(f"nur {a['bestand']} auf Lager" if a["bestand"] > 0 else "nicht auf Lager")
+            hinweise.append(f"nur {a['bestand']} lieferbar" if a["bestand"] > 0 else "nicht lieferbar")
         if offen:
-            hinweise.append("Versandkosten nicht hinterlegt")
+            hinweise.append("Versand nicht hinterlegt")
+        elif v_neu and not zusatz:
+            hinweise.append("Versand schon im Entwurf")
         elif l.versandkostenfrei_ab is not None and nachher < l.versandkostenfrei_ab:
-            hinweise.append(f"versandkostenfrei ab {eur(l.versandkostenfrei_ab)} € – es fehlen {eur(l.versandkostenfrei_ab - nachher)} €")
+            hinweise.append(f"noch {eur(l.versandkostenfrei_ab - nachher)} € bis versandfrei")
         if vorher:
-            hinweise.append(f"Entwurf {b.nummer} über {eur(vorher)} € wird ergänzt")
-        zeilen.append({**a, "ware": ware, "versand": zusatz, "versand_offen": offen, "gesamt": ware + zusatz,
+            hinweise.append(f"kommt in Entwurf {b.nummer}")
+        zeilen.append({**a, "ware": ware, "versand": zusatz, "versand_offen": offen, "gesamt": ware + zusatz, "versandfrei": not offen and not v_neu,
                        "je_stueck": ((ware + zusatz) / menge).quantize(CENT), "fehlt": fehlt, "lieferbar": lieferbar,
                        "hinweise": hinweise, "entwurf": b})
     zeilen.sort(key=lambda z: (not z["lieferbar"], bool(z["fehlt"]), z["gesamt"], z["lieferzeit"] if z["lieferzeit"] is not None else 999))
@@ -128,9 +131,9 @@ def vergleich(mandant, menge, artikel=None, eintrag=None, ohne_position=None, be
 
 
 @transaction.atomic
-def bestellen(mandant, lieferant_id, menge, artikel=None, eintrag=None, position=None, bevorzugt=None) -> Bestellung:
+def bestellen(mandant, lieferant_id, menge, artikel=None, eintrag=None, position=None, bevorzugt=None, ek=None) -> Bestellung:
     """Legt das gewählte Angebot in den offenen Entwurf des Lieferanten (oder einen neuen) – mit dem Preis aus dem Vergleich.
-    Mit position wird eine Entwurfsposition zum neuen Lieferanten verschoben."""
+    Mit position wird eine Entwurfsposition zum neuen Lieferanten verschoben; ek ersetzt den Preis aus dem Vergleich."""
     if menge <= 0:
         raise ValueError("Die Menge muss größer als 0 sein.")
     angebot = next((a for a in angebote(artikel, eintrag, menge) if a["lieferant"].pk == lieferant_id), None)
@@ -144,11 +147,11 @@ def bestellen(mandant, lieferant_id, menge, artikel=None, eintrag=None, position
         if position.bestellung.lieferant_id == lieferant_id:
             return position.bestellung  # steht schon beim gewählten Lieferanten
     ziel = entwurf(mandant, lieferant, bevorzugt) or services.bestellung_anlegen(mandant, lieferant, "Aus Lieferantenvergleich")
-    pl = angebot["pl"]
+    pl, preis = angebot["pl"], angebot["ek"] if ek is None else ek
     if artikel is None and pl is not None and pl.artikel_id is None:
-        neu = services.bestellposition(ziel, None, menge, angebot["ek"], preisliste_artikel=pl)
+        neu = services.bestellposition(ziel, None, menge, preis, preisliste_artikel=pl)
     else:
-        neu = services.bestellposition(ziel, artikel or pl.artikel, menge, angebot["ek"])
+        neu = services.bestellposition(ziel, artikel or pl.artikel, menge, preis)
     if angebot["bestellnummer"] and neu.bestellnummer != angebot["bestellnummer"]:
         neu.bestellnummer = angebot["bestellnummer"]
         neu.save(update_fields=["bestellnummer"])
