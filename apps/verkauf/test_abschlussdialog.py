@@ -63,6 +63,16 @@ class AbschlussDialogTest(TestCase):
         self.assertContains(r, "Abschließen + Drucken")
         self.assertContains(r, 'name="danach"')
 
+    def test_kopieren_als_klappt_die_auswahl_auf(self):
+        b = self.beleg()
+        r = self.client.get(reverse("verkauf:beleg", args=[b.pk]))
+        self.assertContains(r, 'class="untermehr"')
+        self.assertContains(r, 'name="art" value="AB">Auftrag</button>')
+        self.assertNotContains(r, 'aria-label="Kopieren als"')
+        r = self.client.post(reverse("verkauf:beleg_kopieren", args=[b.pk]), {"art": "AB", "urbeleg_abschliessen": "1"})
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(Beleg.objects.filter(art=Belegart.AUFTRAG, kunde=self.kunde).exists())
+
     def test_keine_browser_dialoge_mehr_in_den_vorlagen(self):
         for datei in pathlib.Path(settings.BASE_DIR, "templates").rglob("*.html"):
             inhalt = datei.read_text(encoding="utf-8")
