@@ -41,7 +41,7 @@
 <div class="karte">
   <h2>Deutsche Post – Brief</h2>
   {% if briefprodukte %}
-  <form method="post" class="zeile" onsubmit="var s=this.briefprodukt; if(!confirm('Briefmarke ' + s.options[s.selectedIndex].text + ' aus der Portokasse kaufen?')) return false; this.querySelector('button').disabled=true;">{% csrf_token %}
+  <form method="post" class="zeile" data-frage="Briefmarke aus der Portokasse kaufen?" data-frage-auswahl="briefprodukt" onsubmit="this.querySelector('button').disabled=true;">{% csrf_token %}
     <input type="hidden" name="aktion" value="brief">
     <div><label for="bp">Produkt</label><select id="bp" name="briefprodukt">
       {% for p in briefprodukte %}<option value="{{ p.pk }}" {% if p == briefprodukt %}selected{% endif %}>{{ p }} · bis {{ p.max_gewicht_g }} g{% if p.masse %} · {{ p.masse }}{% endif %}</option>{% endfor %}</select></div>
@@ -66,8 +66,8 @@
         <a class="knopf leise" target="_blank" href="{% url 'verkauf:versand_aufkleber' beleg.pk v.pk %}">{% if v.dienst == 'dp' %}Etikett (PDF){% elif v.dhl_erzeugt %}DHL-Label (PDF){% else %}Aufkleber (PDF){% endif %}</a>
         <input name="an" value="{{ mailadresse }}" size="24" aria-label="Mail an">
         <button name="aktion" value="mail" class="leise" type="submit">Versand-Mail</button>
-        {% if v.dienst == 'dp' and v.shop_order_id %}{% if not v.erstattung_beantragt %}<button name="aktion" value="erstatten" class="gefahr" type="submit" onclick="return confirm('Briefmarke erstatten lassen? Sie darf danach nicht mehr verwendet werden.')">Erstatten</button>{% endif %}
-        {% else %}<button name="aktion" value="loeschen" class="gefahr" type="submit" onclick="return confirm('Versandeintrag löschen?')">Löschen</button>{% endif %}</form></td>
+        {% if v.dienst == 'dp' and v.shop_order_id %}{% if not v.erstattung_beantragt %}<button name="aktion" value="erstatten" class="gefahr" type="submit" data-frage="Briefmarke erstatten lassen? Sie darf danach nicht mehr verwendet werden.">Erstatten</button>{% endif %}
+        {% else %}<button name="aktion" value="loeschen" class="gefahr" type="submit" data-frage="Versandeintrag löschen?">Löschen</button>{% endif %}</form></td>
     </tr>{% endfor %}</tbody></table></div>
 </div>
 {% endif %}

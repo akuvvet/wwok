@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block titel %}{{ beleg }} – wwok{% endblock %}
+{% block skript %}
+<script>
+  (function () {
+    var rahmen = document.getElementById('pdfrahmen');
+    function drucken() { rahmen.contentWindow.focus(); rahmen.contentWindow.print(); }
+    document.getElementById('drucken').addEventListener('click', drucken);
+    {% if druck %}rahmen.addEventListener('load', function () { setTimeout(drucken, 300); });{% endif %}
+  })();
+</script>
+{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:kunde' beleg.kunde_id %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <div class="zeile" style="justify-content:space-between;margin-bottom:10px">
+    <h1 style="margin:0">{{ beleg.get_art_display }} {{ beleg.nummer|default:"(Entwurf)" }} · {{ beleg.kunde.name1 }}</h1>
+    <div class="zeile">
+      <button type="button" id="drucken">Drucken</button>
+      {% if beleg.nummer %}<a class="knopf leise" href="{% url 'verkauf:beleg_mail' beleg.pk %}">Per E-Mail</a>{% endif %}
+      <a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Zum Beleg</a>
+      <a class="knopf leise" href="{% url 'verkauf:kunde' beleg.kunde_id %}">Zum Kunden</a>
+    </div>
+  </div>
+  <iframe id="pdfrahmen" src="{% url 'verkauf:beleg_pdf' beleg.pk %}" title="{{ beleg }}" style="width:100%;height:calc(100vh - 210px);min-height:420px;border:1px solid var(--rand);border-radius:6px"></iframe>
+</div>
+{% endblock %}

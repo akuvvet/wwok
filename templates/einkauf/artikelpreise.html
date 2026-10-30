@@ -38,7 +38,7 @@
     </div>
     <p style="margin-top:12px"><label style="display:flex;gap:8px;align-items:center;opacity:1"><input type="checkbox" name="brutto" value="1" {% if brutto %}checked{% endif %}> Die Verkaufspreise in der Datei sind Bruttopreise (werden mit dem Steuersatz des Artikels auf netto umgerechnet; der EK bleibt netto)</label></p>
     <p class="zeile"><button type="submit" name="aktion" value="vorschau" class="leise">Vorschau der Änderungen</button>
-      {% if ergebnis and not angewendet %}<button type="submit" name="aktion" value="anwenden" onclick="return confirm('{{ ergebnis.geaendert }} Artikel wirklich aktualisieren?')">{{ ergebnis.geaendert }} Änderungen übernehmen</button>{% endif %}</p>
+      {% if ergebnis and not angewendet %}<button type="submit" name="aktion" value="anwenden" data-frage="{{ ergebnis.geaendert }} Artikel wirklich aktualisieren?">{{ ergebnis.geaendert }} Änderungen übernehmen</button>{% endif %}</p>
   </form>
 </div>
 

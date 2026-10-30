@@ -13,7 +13,7 @@
      {% if plan.letzter_lauf %}· letzter Lauf {{ plan.letzter_lauf|date:"d.m.Y H:i" }}: {{ plan.letzte_meldung }}{% endif %}
      {% if user.is_superuser or user.is_staff %}· <a href="{% url 'admin:einkauf_bestpreisplan_changelist' %}">Zeitplan ändern (Verwaltung)</a>{% endif %}</p>
   {% if e.aenderungen %}
-  <form method="post" onsubmit="return confirm('{{ e.aenderungen|length }} Artikel mit dem günstigsten EK aktualisieren?')">{% csrf_token %}
+  <form method="post" data-frage="{{ e.aenderungen|length }} Artikel mit dem günstigsten EK aktualisieren?">{% csrf_token %}
     <button type="submit">Jetzt übernehmen</button></form>
   <div class="scroll" style="margin-top:12px"><table>
     <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">bisher</th><th class="zahl">neu (günstigster)</th><th>Lieferant</th></tr></thead>

@@ -19,6 +19,10 @@
     border-right:1px solid var(--rand); position:sticky; top:58px; min-height:calc(100vh - 58px); max-height:calc(100vh - 58px); overflow-y:auto; }
   .bereichsmenue .knopf { box-sizing:border-box; width:100%; display:flex; align-items:center; }
   .firma { font-weight:700; color:inherit; white-space:nowrap; }
+  dialog.hinweisdialog { border:1px solid var(--rand); border-radius:10px; padding:20px; width:min(520px,92vw); background:var(--karte); color:var(--text); }
+  dialog.hinweisdialog::backdrop { background:rgba(0,0,0,.5); }
+  dialog.hinweisdialog p { margin:0 0 16px; white-space:pre-line; line-height:1.4; }
+  .hinweisknoepfe { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
   .mandantwahl .mehr { left:0; right:auto; }
   .fein { font-size:12px; opacity:.75; }
   .posfeld { width:84px; text-align:right; }
@@ -124,7 +128,7 @@
   button.leise, .knopf.leise { background:transparent; color:var(--akzent); }
   button.gefahr { background:transparent; color:var(--warn); border-color:var(--warn); }
   .meldung { padding:8px 12px; border-radius:6px; margin-bottom:12px; border:1px solid var(--rand); background:var(--karte); }
-  .meldung.error { border-color:var(--warn); color:var(--warn); } .meldung.success { border-color:var(--ok); color:var(--ok); }
+  .meldung.error, .meldung.warning { border-color:var(--warn); color:var(--warn); } .meldung.success { border-color:var(--ok); color:var(--ok); }
   .warnung { border:1px solid var(--warn); color:var(--warn); padding:8px 12px; border-radius:6px; margin-bottom:12px; }
   .raster { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
   label { display:block; font-size:13px; opacity:.8; margin-bottom:2px; }
@@ -197,6 +201,44 @@
   {% block inhalt %}{% endblock %}
 </main>
 </div>
+<script>
+  // Eigene Dialoge statt der Browser-Fenster: wwokDialog(Text, Knöpfe) liefert den Wert des gewählten Knopfes, Escape = null
+  window.wwokDialog = function (text, knoepfe) {
+    return new Promise(function (fertig) {
+      var d = document.createElement('dialog'), absatz = document.createElement('p'), leiste = document.createElement('div');
+      d.className = 'hinweisdialog'; leiste.className = 'hinweisknoepfe'; absatz.textContent = text;
+      function ende(wert) { d.close(); d.remove(); fertig(wert); }
+      knoepfe.forEach(function (k) {
+        var b = document.createElement('button');
+        b.type = 'button'; b.textContent = k.text; if (!k.haupt) b.className = 'leise';
+        b.addEventListener('click', function () { ende(k.wert); });
+        leiste.appendChild(b);
+      });
+      d.addEventListener('cancel', function (e) { e.preventDefault(); ende(null); });
+      d.appendChild(absatz); d.appendChild(leiste); document.body.appendChild(d); d.showModal();
+      var haupt = leiste.querySelector('button:not(.leise)'); if (haupt) haupt.focus();
+    });
+  };
+  window.wwokMeldung = function (text) { return wwokDialog(text, [{text: 'OK', wert: true, haupt: true}]); };
+  // Rückfrage vor dem Absenden: data-frage am Formular oder am Knopf
+  document.addEventListener('submit', function (e) {
+    var f = e.target, knopf = e.submitter, frage = (knopf && knopf.dataset.frage) || f.dataset.frage;
+    if (!frage) return;
+    if (f.dataset.bestaetigt) { delete f.dataset.bestaetigt; return; }
+    e.preventDefault(); e.stopPropagation();
+    if (f.dataset.frageAuswahl) { var s = f.elements[f.dataset.frageAuswahl]; frage += ' ' + s.options[s.selectedIndex].text; }
+    wwokDialog(frage, [{text: 'Ja', wert: true, haupt: true}, {text: 'Abbrechen', wert: false}]).then(function (ja) {
+      if (!ja) return;
+      f.dataset.bestaetigt = '1';
+      f.requestSubmit(knopf || undefined);
+    });
+  }, true);
+  // Fehler und Warnungen des Systems erscheinen als Dialog
+  document.addEventListener('DOMContentLoaded', function () {
+    var texte = Array.prototype.map.call(document.querySelectorAll('.meldung.error, .meldung.warning'), function (m) { return m.textContent; });
+    if (texte.length) wwokMeldung(texte.join('\n'));
+  });
+</script>
 <script>
   // Escape schließt die Maske und führt zur übergeordneten Seite
   document.addEventListener('keydown', function (e) {
@@ -373,7 +415,7 @@
             if (d.ok) { if (d.ziel && d.ziel !== location.pathname) { location.href = d.ziel; } else { location.reload(); } return; }
           }
           dlg.innerHTML = await r.text(); bereit();
-        } catch (fehlermeldung) { alert('Speichern nicht möglich: ' + fehlermeldung); knopf.disabled = false; }
+        } catch (fehlermeldung) { wwokMeldung('Speichern nicht möglich: ' + fehlermeldung); knopf.disabled = false; }
       });
     }
     async function oeffnen(url) {

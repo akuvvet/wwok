@@ -16,7 +16,7 @@
       <td><form method="post" action="{% url 'verkauf:abo_aktion' a.pk %}" class="zeile" style="gap:4px">{% csrf_token %}
         <button name="aktion" value="jetzt" class="leise" type="submit">Entwurf jetzt</button>
         <button name="aktion" value="pause" class="leise" type="submit">{% if a.aktiv %}Pausieren{% else %}Aktivieren{% endif %}</button>
-        <button name="aktion" value="loeschen" class="gefahr" type="submit" onclick="return confirm('Wiederkehrende Rechnung löschen?')">Löschen</button></form></td>
+        <button name="aktion" value="loeschen" class="gefahr" type="submit" data-frage="Wiederkehrende Rechnung löschen?">Löschen</button></form></td>
     </tr>{% endfor %}</tbody></table></div>
   {% else %}<p>Noch keine wiederkehrende Rechnung eingerichtet.</p>{% endif %}
 </div>

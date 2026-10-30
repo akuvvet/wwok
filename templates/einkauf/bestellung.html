@@ -90,8 +90,8 @@
   <a class="knopf leise" href="{% url 'einkauf:bestellung_pdf' b.pk %}" target="_blank">PDF</a>
   {% if not wareneingaenge %}<details class="menue-mehr"><summary class="symbol" data-tip="Mehr" aria-label="Mehr"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg></summary>
     <div class="mehr">
-      {% if b.status != 'storniert' %}<form method="post" action="{% url 'einkauf:bestellung_stornieren' b.pk %}" onsubmit="return confirm('Bestellung stornieren?')">{% csrf_token %}<button class="gefahr" type="submit">Stornieren</button></form>{% endif %}
-      <form method="post" action="{% url 'einkauf:bestellung_loeschen' b.pk %}" onsubmit="return confirm('Bestellung wirklich löschen?')">{% csrf_token %}<button class="gefahr" type="submit">Löschen</button></form>
+      {% if b.status != 'storniert' %}<form method="post" action="{% url 'einkauf:bestellung_stornieren' b.pk %}" data-frage="Bestellung stornieren?">{% csrf_token %}<button class="gefahr" type="submit">Stornieren</button></form>{% endif %}
+      <form method="post" action="{% url 'einkauf:bestellung_loeschen' b.pk %}" data-frage="Bestellung wirklich löschen?">{% csrf_token %}<button class="gefahr" type="submit">Löschen</button></form>
     </div></details>{% endif %}
   {% if wareneingaenge %}<span class="fein">Wareneingänge: {% for w in wareneingaenge %}<a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</span>{% endif %}
 </div>

@@ -8,7 +8,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_POST
 
 from apps.kern.kontext import MANDANT_COOKIE, mandant_oder_none
@@ -452,6 +454,12 @@ def beleg_abschliessen(request, beleg_id):
                 "beleg": beleg, "lieferbar": lieferbar, "knapp": knapp, "meldung": str(fehler)})
         raise
     messages.success(request, f"{beleg} abgeschlossen.")
+    danach = request.POST.get("danach")
+    if danach == "mail":
+        return redirect("verkauf:beleg_mail", beleg_id=beleg.pk)
+    if danach in ("pdf", "druck"):
+        ziel = reverse("verkauf:beleg_ansicht", args=[beleg.pk])
+        return redirect(ziel + "?druck=1" if danach == "druck" else ziel)
     return redirect("verkauf:kunde", kunde_id=beleg.kunde_id)
 
 
@@ -547,6 +555,19 @@ def beleg_xrechnung(request, beleg_id):
 
 
 @mit_mandant
+def beleg_ansicht(request, beleg_id):
+    """PDF in der Seite anzeigen; mit ?druck=1 öffnet sich gleich der Druckdialog des Browsers."""
+    from apps.lager.services import druckhindernis
+    beleg = beleg_holen(request, beleg_id)
+    hindernis = druckhindernis(beleg)
+    if hindernis:
+        messages.error(request, hindernis)
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    return render(request, "verkauf/beleg_ansicht.html", {"beleg": beleg, "druck": request.GET.get("druck") == "1"})
+
+
+@mit_mandant
+@xframe_options_sameorigin
 def beleg_pdf_ansicht(request, beleg_id):
     from apps.lager.services import druckhindernis
     beleg = beleg_holen(request, beleg_id)
