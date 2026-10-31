@@ -1,0 +1,5 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+{% if darf_importieren %}<li><a href="{% url 'admin:stammdaten_leistungsartikel_import' %}" class="addlink">Importieren</a></li>{% endif %}
+{{ block.super }}
+{% endblock %}

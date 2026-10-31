@@ -13,9 +13,10 @@
     <div>VK1 netto<br><strong style="font-size:22px">{{ artikel.vk1|floatformat:2 }} €</strong></div>
     <div>VK2 netto<br><strong>{{ artikel.vk2|floatformat:2 }} €</strong></div>
     <div>VK3 netto<br><strong>{{ artikel.vk3|floatformat:2 }} €</strong></div>
+    <div>Kosten (EK) netto<br><strong>{% if artikel.kosten is not None %}{{ artikel.kosten|floatformat:2 }} €{% else %}–{% endif %}</strong></div>
     <div>Steuersatz<br>{{ artikel.steuersatz.prozent|floatformat:"-2" }} %</div>
     <div>Einheit<br>{{ artikel.mengeneinheit }}</div>
-    <div>Kategorie<br>{{ artikel.kategorie|default:"–" }}</div>
+    <div>Leistungskategorie<br>{{ artikel.leistungskategorie|default:"–" }}</div>
   </div>
 </div>
 {% else %}

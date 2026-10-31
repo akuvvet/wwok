@@ -363,7 +363,7 @@ class Beleg(Zeitstempel):
     def ek_und_marge(self):
         """(EK netto, Marge in % vom Netto-VK, unvollständig) für die interne Anzeige; None bei Belegarten ohne Anzeige.
         EK je Position: Lagerartikel/Gruppen über Wareneingang bzw. günstigste Preisliste, Preislistenartikel mit ihrem EK;
-        Gruppen zählen über ihre Unterpositionen. Leistungen und freie Positionen haben keinen EK (unvollständig = True)."""
+        Leistungen mit ihren Kosten; Gruppen zählen über ihre Unterpositionen. Leistungen ohne Kosten und freie Positionen haben keinen EK (unvollständig = True)."""
         if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG, Belegart.RECHNUNG, Belegart.PROFORMA):
             return None
         ek, vk, luecke = Decimal("0"), Decimal("0"), False
@@ -376,7 +376,7 @@ class Beleg(Zeitstempel):
         def einzel_ek(p):
             if p.preisliste_artikel_id:
                 return p.preisliste_artikel.ek
-            if p.artikel_id and p.artikel.typ in ("A", "G"):
+            if p.artikel_id and p.artikel.typ in ("A", "G", "L"):
                 return p.artikel.ek_errechnet
             return None
 
@@ -824,7 +824,7 @@ class Position(Zeitstempel):
                 summe = Decimal("0")
                 for t in teile:
                     e = t.ek_stueck
-                    if e is None and t.typ == "L":  # Leistung in der Gruppe: zählt mit 0 € EK
+                    if e is None and t.typ == "L":  # Leistung ohne Kosten in der Gruppe: zählt mit 0 € EK
                         continue
                     if e is None:
                         return None
@@ -832,7 +832,7 @@ class Position(Zeitstempel):
                 return (summe / self.menge) if self.menge else None
         if self.preisliste_artikel_id:
             return self.preisliste_artikel.ek
-        if self.artikel_id and self.artikel.typ in ("A", "G"):
+        if self.artikel_id and self.artikel.typ in ("A", "G", "L"):
             return self.artikel.ek_errechnet
         return None
 

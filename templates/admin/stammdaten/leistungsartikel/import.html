@@ -1,0 +1,19 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Start</a> › <a href="{% url 'admin:stammdaten_leistungsartikel_changelist' %}">Leistungsartikel</a> › Import</div>
+{% endblock %}
+{% block content %}
+<p>CSV- oder Excel-Datei mit Kopfzeile. Die Spalten werden an ihrem Namen erkannt:<br>
+<strong>Nummer; Bezeichnung</strong> sind Pflicht, dazu wahlweise <strong>Kategorie; Kosten; VK1; VK2; VK3; Einheit; Steuersatz; Erweiterte Benennung; nicht aktiv</strong>.<br>
+Beispiel: <code>40098;Montage PC;Werkstatt;20,00;35,00;;;Std.;19</code></p>
+<ul>
+  <li>Vorhandene Nummer: Die Leistung wird aktualisiert, leere Zellen lassen den alten Wert stehen. Lagerartikel und Gruppen werden nicht verändert.</li>
+  <li>Fehlende Kategorien werden angelegt. Ohne Steuersatz gilt der höchste Satz.</li>
+  <li>Bei einem Fehler in einer Zeile wird nichts importiert.</li>
+</ul>
+{% if fehler %}<ul class="errorlist">{% for f in fehler %}<li>{{ f }}</li>{% endfor %}</ul>{% endif %}
+<form method="post" enctype="multipart/form-data">{% csrf_token %}
+  <p><input type="file" name="datei" accept=".csv,.txt,.xlsx,.xls" required></p>
+  <input type="submit" value="Importieren" class="default">
+</form>
+{% endblock %}

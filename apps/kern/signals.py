@@ -45,7 +45,7 @@ def _protokolliere_speichern(sender, instance, created, **kwargs):
 
     AenderungsProtokoll.objects.create(
         benutzer=_benutzer(),
-        tabelle=sender._meta.label,
+        tabelle=sender._meta.concrete_model._meta.label,
         datensatz_id=str(instance.pk),
         aktion="anlegen" if created else "aendern",
         vorher=None if created else getattr(instance, "_protokoll_vorher", None),
@@ -61,7 +61,7 @@ def _protokolliere_loeschen(sender, instance, **kwargs):
 
     AenderungsProtokoll.objects.create(
         benutzer=_benutzer(),
-        tabelle=sender._meta.label,
+        tabelle=sender._meta.concrete_model._meta.label,
         datensatz_id=str(instance.pk),
         aktion="loeschen",
         vorher=_als_dict(instance),

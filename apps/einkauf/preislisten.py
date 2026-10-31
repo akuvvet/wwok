@@ -2,6 +2,7 @@
 import csv
 import ftplib
 import io
+import math
 import os
 import urllib.error
 import urllib.request
@@ -112,13 +113,24 @@ def tabelle(profil, inhalt: bytes) -> list:
         return [["" if v is None else v for v in z] for z in blatt.iter_rows(values_only=True)]
     if profil.dateityp == Dateityp.XLS:
         import xlrd
-        blatt = xlrd.open_workbook(file_contents=inhalt, encoding_override="cp1252").sheet_by_index(0)
-        return [blatt.row_values(i) for i in range(blatt.nrows)]
+        buch = xlrd.open_workbook(file_contents=inhalt, encoding_override="cp1252")
+        blatt = buch.sheet_by_index(0)
+
+        def zelle(wert, typ):  # Fehlerzellen, Wahrheitswerte und Daten wie bei xlsx, nicht als interne Zahl
+            if typ == xlrd.XL_CELL_ERROR:
+                return xlrd.biffh.error_text_from_code.get(wert, "#N/A")
+            if typ == xlrd.XL_CELL_BOOLEAN:
+                return bool(wert)
+            if typ == xlrd.XL_CELL_DATE:
+                return xlrd.xldate_as_datetime(wert, buch.datemode)
+            return wert
+
+        return [[zelle(w, t) for w, t in zip(blatt.row_values(i), blatt.row_types(i))] for i in range(blatt.nrows)]
     raise PreislistenFehler("Unbekannter Dateityp.")
 
 
 def text(wert) -> str:
-    if isinstance(wert, float):
+    if isinstance(wert, float) and math.isfinite(wert):
         return str(int(wert)) if wert == int(wert) else str(wert)
     return "" if wert is None else str(wert).strip()
 

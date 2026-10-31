@@ -78,6 +78,21 @@ class Kategorie(Zeitstempel):
         return f"{self.eltern} › {self.name}" if self.eltern_id else self.name
 
 
+class Leistungskategorie(Zeitstempel):
+    """Eigene Kategorien für Leistungsartikel (Typ L), getrennt von den Artikelkategorien."""
+
+    nummer = models.CharField("Nummer", max_length=20, unique=True, null=True, blank=True)
+    name = models.CharField("Name", max_length=150, unique=True)
+
+    class Meta:
+        verbose_name = "Leistungskategorie"
+        verbose_name_plural = "Leistungskategorien"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class Hersteller(Zeitstempel):
     kennzeichen = models.CharField("ID / Kennzeichen", max_length=20, unique=True, null=True, blank=True)
     name = models.CharField("Name", max_length=150)
@@ -332,6 +347,10 @@ class Artikel(Zeitstempel):
         "erweiterte Bezeichnung", blank=True,
         help_text="Wird zugleich als Langbeschreibung im Shop verwendet.")
     kategorie = models.ForeignKey(Kategorie, on_delete=models.PROTECT, null=True, blank=True)
+    leistungskategorie = models.ForeignKey(Leistungskategorie, on_delete=models.PROTECT, null=True, blank=True, related_name="artikel",
+                                           verbose_name="Leistungskategorie")
+    kosten = models.DecimalField("Kosten (EK) netto", null=True, blank=True, validators=[MinValueValidator(0)],
+                                 help_text="Eigener Aufwand je Einheit; zählt als EK für die Marge, steht nie auf dem Beleg.", **GELD)
     hersteller = models.ForeignKey(Hersteller, on_delete=models.PROTECT, null=True, blank=True)
     herstellernummer = models.CharField("Herstellernummer", max_length=100, blank=True, db_index=True)
     ean = models.CharField("EAN", max_length=14, blank=True, db_index=True)
@@ -357,6 +376,9 @@ class Artikel(Zeitstempel):
             self.laenge_cm = self.breite_cm = self.hoehe_cm = self.gewicht_kg = None
             self.sperrgut, self.esd_key, self.online = False, False, False
             self.zolltarifnummer = ""
+            self.kategorie = None  # Leistungen haben eigene Kategorien
+        else:
+            self.leistungskategorie, self.kosten = None, None
         super().save(*args, **kwargs)
 
     @property
@@ -384,6 +406,15 @@ class Artikel(Zeitstempel):
 
     def __str__(self):
         return f"{self.nummer} – {self.bezeichnung}"
+
+
+class Leistungsartikel(Artikel):
+    """Sicht auf die Artikel vom Typ L für die Verwaltung."""
+
+    class Meta:
+        proxy = True
+        verbose_name = "Leistungsartikel"
+        verbose_name_plural = "Leistungsartikel"
 
 
 class ArtikelMandant(Zeitstempel):
@@ -445,13 +476,16 @@ def keine_leistung(artikel):
         raise ValueError(f"{artikel.nummer} ist eine Leistung – dafür gibt es weder Lagerbestand noch Bestellung oder Wareneingang.")
 
 
-def _ek_quelle(artikel):
+def _ek_quelle(artikel, mit_kosten=True):
     """(EK, Quelle): Wareneingang (Durchschnitts-EK) hat Vorrang, sonst günstigster EK aus den Lieferantenpreislisten;
-    bei Gruppenartikeln (Typ G) die Summe der Komponenten."""
+    bei Gruppenartikeln (Typ G) die Summe der Komponenten, bei Leistungen (Typ L) die eingetragenen Kosten.
+    mit_kosten=False lässt Leistungskosten weg: Sie zählen für die Marge, aber nicht als Grundlage für Aufschläge."""
+    if artikel.typ == Artikeltyp.L:
+        return (artikel.kosten, "Kosten der Leistung") if artikel.kosten is not None else (None, "")
     if artikel.typ == Artikeltyp.G and artikel.pk:
         summe, quellen = Decimal("0"), set()
         for k in artikel.komponenten.select_related("komponente"):
-            if k.komponente.typ == Artikeltyp.L:  # Leistung: keine Ware, zählt mit 0 € EK
+            if k.komponente.typ == Artikeltyp.L and (k.komponente.kosten is None or not mit_kosten):  # zählt mit 0 € EK
                 quellen.add("Leistung")
                 continue
             ek, quelle = _ek_quelle(k.komponente)

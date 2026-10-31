@@ -417,6 +417,15 @@
         ['hersteller', 'herstellernummer', 'ean'].forEach(function (name) {
           var feld = dlg.querySelector('[name=' + name + ']'); if (feld) feld.closest('.mfeld').style.display = leistung ? 'none' : '';
         });
+        function nurWenn(namen, sichtbar) {  // geleert, damit kein ausgeblendetes Feld das Speichern ohne sichtbare Meldung blockiert
+          namen.forEach(function (name) {
+            var feld = dlg.querySelector('[name=' + name + ']'); if (!feld) return;
+            feld.closest('.mfeld').style.display = sichtbar ? '' : 'none';
+            if (!sichtbar) feld.value = '';
+          });
+        }
+        nurWenn(['kategorie', 'aufschlag_vk1', 'aufschlag_vk2', 'aufschlag_vk3'], !leistung);
+        nurWenn(['leistungskategorie', 'kosten'], leistung);
       }
       if (typ) { typ.addEventListener('change', typAnwenden); typAnwenden(); }
       var bereich = dlg.querySelector('[data-komponenten]'); if (bereich) komponentenBereich(bereich);

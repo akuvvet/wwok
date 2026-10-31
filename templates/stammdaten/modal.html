@@ -32,7 +32,7 @@
           <button type="button" class="leise" data-preis-uebernehmen>In VK1–VK3 übernehmen</button>
           <span class="fein" data-preis-meldung></span>
         </div>
-        <p class="fein" style="margin:6px 0 0">EK und VK je Stück; Marge in % vom VK. Der EK der Gruppe ist die Summe der Komponenten, Leistungen zählen mit 0 €. * = bei einer Komponente fehlt EK oder VK.</p>
+        <p class="fein" style="margin:6px 0 0">EK und VK je Stück; Marge in % vom VK. Der EK der Gruppe ist die Summe der Komponenten, Leistungen zählen mit ihren Kosten (ohne Kosten 0 €). * = bei einer Komponente fehlt EK oder VK.</p>
       </div>
     {% elif t.form %}
       <div class="mraster">{% for name in t.felder %}{% for f in t.form %}{% if f.name == name %}{% include "stammdaten/_feld.html" %}{% endif %}{% endfor %}{% endfor %}</div>

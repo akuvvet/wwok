@@ -8,7 +8,7 @@ Reihenfolge: Sonderpreis des Kunden -> fest eingetragener VK der Stufe -> EK + A
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from .models import Kundenpreis, PreisVorgabe
+from .models import Kundenpreis, PreisVorgabe, _ek_quelle
 
 CENT = Decimal("0.01")
 
@@ -31,10 +31,10 @@ def aufschlag(artikel, stufe: int):
 def stufenpreis(artikel, stufe: int):
     """Netto-VK der Stufe (fest eingetragen oder aus EK + Aufschlag); None, wenn nicht ermittelbar."""
     fest = getattr(artikel, f"vk{stufe}", None)
-    if fest is not None:
+    if fest is not None or artikel.typ == "L":  # die Kosten einer Leistung zählen nur für die Marge, nicht für den Preis
         return fest
     prozent = aufschlag(artikel, stufe)
-    ek = artikel.ek_errechnet
+    ek = _ek_quelle(artikel, mit_kosten=False)[0]
     if prozent is not None and ek:
         return (ek * (Decimal("100") + prozent) / 100).quantize(CENT, rounding=ROUND_HALF_UP)
     return None
@@ -97,7 +97,7 @@ def gruppen_kalkulation(gruppe) -> dict:
         ek = Decimal(z["ek"]) if z["ek"] else None
         vk = Decimal(z["vk"]) if z["vk"] else None
         z.update(ek=ek, vk=vk, menge=k.menge, marge=marge(ek, vk), artikel=k.komponente)
-        if vk is None or (ek is None and k.komponente.typ != "L"):  # Leistungen haben keinen EK, das ist keine Lücke
+        if vk is None or (ek is None and k.komponente.typ != "L"):  # Leistungen ohne Kosten sind keine Lücke
             vollstaendig = False
         ek_summe += (ek or Decimal("0")) * k.menge
         vk_summe += (vk or Decimal("0")) * k.menge

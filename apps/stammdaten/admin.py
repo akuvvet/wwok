@@ -1,6 +1,11 @@
 """Vorläufige Pflegemasken über den Django-Admin – bis die eigenen Masken stehen."""
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import redirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
 
+from . import leistung_import
 from . import models as m
 
 
@@ -102,6 +107,15 @@ class ArtikelAdmin(admin.ModelAdmin):
     readonly_fields = ["ek_anzeige", "angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [ArtikelMandantInline, ArtikelLieferantInline, GruppenKomponenteInline, ArtikelBildInline]
 
+    def get_readonly_fields(self, request, obj=None):
+        felder = [*super().get_readonly_fields(request, obj), *(["typ"] if obj else [])]  # Typwechsel würde Bestand und Belege verfälschen
+        return [*felder, "kategorie"] if obj and obj.typ == m.Artikeltyp.L else felder  # Leistungen: Verwaltung → Leistungsartikel
+
+    def formfield_for_choice_field(self, db_field, request, **kwargs):
+        if db_field.name == "typ":  # neue Leistungen entstehen unter Leistungsartikel, mit Kategorie und Kosten
+            kwargs["choices"] = [(w, n) for w, n in m.Artikeltyp.choices if w != m.Artikeltyp.L]
+        return super().formfield_for_choice_field(db_field, request, **kwargs)
+
     @admin.display(description="EK netto (errechnet)")
     def ek_anzeige(self, obj):
         ek, quelle = m._ek_quelle(obj) if obj.pk else (None, "")
@@ -115,6 +129,68 @@ class ArtikelAdmin(admin.ModelAdmin):
         ("Online", {"fields": ["online", "kurzbeschreibung", "keywords", "meta_titel",
                                "meta_description", "meta_keywords"]}),
     ]
+
+
+@admin.register(m.Leistungskategorie)
+class LeistungskategorieAdmin(admin.ModelAdmin):
+    list_display = ["name", "nummer"]
+    search_fields = ["name", "nummer"]
+
+
+@admin.register(m.Leistungsartikel)
+class LeistungsartikelAdmin(admin.ModelAdmin):
+    """Leistungen (Typ L) mit eigenen Kategorien und Kosten, dazu der Import aus CSV oder Excel."""
+
+    list_display = ["nummer", "bezeichnung", "leistungskategorie", "kosten", "vk1", "mengeneinheit", "nicht_aktiv"]
+    list_filter = ["leistungskategorie", "nicht_aktiv"]
+    search_fields = ["nummer", "bezeichnung"]
+    list_select_related = ["leistungskategorie"]
+    change_list_template = "admin/stammdaten/leistungsartikel/change_list.html"
+    fieldsets = [
+        ("Grunddaten", {"fields": ["nummer", "bezeichnung", "bezeichnung_erweitert", "leistungskategorie",
+                                   ("mengeneinheit", "steuersatz"), "nicht_aktiv"]}),
+        ("Preise", {"fields": ["kosten", ("vk1", "vk2", "vk3")]}),
+    ]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(typ=m.Artikeltyp.L)
+
+    def get_changeform_initial_data(self, request):
+        from .masken import naechste_nummer
+        return {**super().get_changeform_initial_data(request), "nummer": naechste_nummer(m.Artikel),
+                "steuersatz": m.Steuersatz.objects.first()}
+
+    def save_model(self, request, obj, form, change):
+        obj.typ = m.Artikeltyp.L
+        super().save_model(request, obj, form, change)
+
+    def get_urls(self):
+        return [path("import/", self.admin_site.admin_view(self.datei_import), name="stammdaten_leistungsartikel_import")] + super().get_urls()
+
+    def darf_importieren(self, request):
+        return (self.has_add_permission(request) and self.has_change_permission(request)
+                and request.user.has_perm("stammdaten.add_leistungskategorie"))
+
+    def changelist_view(self, request, extra_context=None):
+        return super().changelist_view(request, {**(extra_context or {}), "darf_importieren": self.darf_importieren(request)})
+
+    def datei_import(self, request):
+        if not self.darf_importieren(request):
+            raise PermissionDenied
+        fehler = []
+        if request.method == "POST":
+            datei = request.FILES.get("datei")
+            if datei is None or datei.size > 5 * 1024 * 1024:
+                fehler = ["Bitte eine CSV- oder Excel-Datei bis 5 MB auswählen."]
+            else:
+                try:
+                    neu, geaendert, gleich, kategorien = leistung_import.importieren(datei.name, datei.read())
+                    messages.success(request, f"{neu} neu, {geaendert} geändert, {gleich} unverändert, {kategorien} neue Kategorie(n).")
+                    return redirect(reverse("admin:stammdaten_leistungsartikel_changelist"))
+                except leistung_import.ImportFehler as e:
+                    fehler = [str(e)] + e.fehler[:30] + (["…"] if len(e.fehler) > 30 else [])
+        return TemplateResponse(request, "admin/stammdaten/leistungsartikel/import.html", {
+            **self.admin_site.each_context(request), "title": "Leistungsartikel importieren", "fehler": fehler})
 
 
 admin.site.register([m.Zahlungsbedingung, m.Steuersatz, m.Kategorie, m.Hersteller])

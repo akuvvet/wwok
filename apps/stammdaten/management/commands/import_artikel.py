@@ -78,8 +78,7 @@ class Command(BaseCommand):
             online_wert = z[spalte["online"]]
             if online_wert not in (0.0, 1.0, ""):
                 nicht_online.append(f"{nummer}: {online_wert}")
-            artikel, angelegt = Artikel.objects.update_or_create(nummer=nummer, defaults={
-                "typ": Artikeltyp.A,
+            felder = {
                 "bezeichnung": text(z[spalte["bezeichnung"]]),
                 "bezeichnung_erweitert": text(z[spalte["erweitert"]]),
                 "kategorie": kategorie, "hersteller": h,
@@ -93,7 +92,10 @@ class Command(BaseCommand):
                 "meta_titel": text(z[spalte["meta_titel"]]),
                 "keywords": text(z[spalte["keywords"]]),
                 "meta_description": text(z[spalte["meta_description"]]),
-            })
+            }
+            # der Typ gilt nur für neue Artikel: eine vorhandene Leistung oder Gruppe bleibt, was sie ist
+            artikel, angelegt = Artikel.objects.update_or_create(nummer=nummer, defaults=felder,
+                                                                 create_defaults={**felder, "typ": Artikeltyp.A})
             neu += angelegt
             aktualisiert += not angelegt
             if ordner:
