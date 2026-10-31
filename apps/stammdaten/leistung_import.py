@@ -45,12 +45,12 @@ class ImportFehler(Exception):
         self.fehler = list(fehler)
 
 
-def _kopfname(wert) -> str:
+def kopfname(wert) -> str:
     return "".join(c for c in text(wert).lower() if c.isalnum())
 
 
 def spalten_finden(kopf) -> dict:
-    namen = [_kopfname(k) for k in kopf]
+    namen = [kopfname(k) for k in kopf]
     spalten = {}
     for feld, moegliche in SPALTEN.items():
         for name in moegliche:

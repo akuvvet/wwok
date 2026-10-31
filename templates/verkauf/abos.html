@@ -5,7 +5,8 @@
 <div class="karte">
   <h1>Wiederkehrende Rechnungen · Mandant {{ request.mandant }}</h1>
   <p style="opacity:.85">Zum Termin legt das System (täglicher Lauf) einen <strong>Rechnungsentwurf</strong> an. Der Entwurf wird von Hand geprüft und abgeschlossen.
-     Neu einrichten: eine abgeschlossene Rechnung öffnen → Mehr → „Wiederkehrend einrichten“. Positionen ändern: Verwaltung → Wiederkehrende Rechnungen.</p>
+     Neu einrichten: eine Rechnung öffnen → Mehr → „Wiederkehrend einrichten“. Positionen ändern: Verwaltung → Wiederkehrende Rechnungen.
+     Halbmonatlich entsteht der Entwurf am 15. und am Monatsletzten; die Mengen zählt das Programm je Position aus dem Kalender (Feiertage NRW). Netto zeigt die Positionen der nächsten Rechnung, vor Belegrabatt und ohne Versand, Verpackung und Versicherung.</p>
   {% if abos %}
   <div class="scroll"><table>
     <thead><tr><th>Bezeichnung</th><th>Kunde</th><th>Rhythmus</th><th class="zahl">netto</th><th>nächste Rechnung</th><th>Ende</th><th>Status</th><th></th></tr></thead>

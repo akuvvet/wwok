@@ -7,15 +7,18 @@ Gutschriften sind gesperrt (GoBD); Korrektur nur per Storno/Gutschrift.
 import calendar
 import json
 import logging
-from datetime import date, timedelta
+import re
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, ROUND_UP, Decimal
 
 from django.conf import settings
 from django.core import serializers
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 from django.utils.functional import cached_property
 
+from apps.kern.kalender import ganzer_monat, halbmonat, naechster_stichtag, stichtag, tage_zaehlen
 from apps.kern.models import Mandant, Zeitstempel
 from apps.stammdaten.models import Ansprechpartner, Artikel, Artikeltyp, Kunde, Zahlungsbedingung
 
@@ -888,11 +891,13 @@ class Abo(Zeitstempel):
     """Wiederkehrende Rechnung (Wartungsvertrag, Hosting, Miete …): erzeugt zum Termin einen Rechnungsentwurf."""
 
     INTERVALLE = [(1, "monatlich"), (3, "vierteljährlich"), (6, "halbjährlich"), (12, "jährlich")]
+    HALBMONATLICH = 15  # keine Monatszahl: Rechnung am 15. und am Monatsletzten, Mengen nach Mengenregel
+    RHYTHMEN = [(HALBMONATLICH, "halbmonatlich (15. und Monatsende)"), *INTERVALLE]
 
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="abos")
     kunde = models.ForeignKey(Kunde, on_delete=models.PROTECT, related_name="abos")
     bezeichnung = models.CharField("Bezeichnung", max_length=100, help_text="z. B. Wartungsvertrag 2026")
-    monate = models.PositiveSmallIntegerField("Rhythmus", choices=INTERVALLE, default=1)
+    monate = models.PositiveSmallIntegerField("Rhythmus", choices=RHYTHMEN, default=1)
     naechster_termin = models.DateField("nächste Rechnung am")
     ende = models.DateField("Ende (optional)", null=True, blank=True)
     aktiv = models.BooleanField(default=True)
@@ -916,20 +921,57 @@ class Abo(Zeitstempel):
     def __str__(self):
         return f"{self.bezeichnung} – {self.kunde.name1} ({self.get_monate_display()})"
 
+    def clean(self):
+        """Abgerechnet wird nachträglich je Halbmonat; ein Ende dazwischen ließe die letzten Tage unberechnet."""
+        if self.halbmonatlich and self.ende and self.ende != stichtag(self.ende):
+            raise ValidationError({"ende": "Halbmonatlich muss das Ende ein Stichtag sein (15. oder Monatsletzter)."})
+
+    def save(self, *args, **kwargs):
+        if self.halbmonatlich:
+            self.naechster_termin = stichtag(self.naechster_termin)
+        super().save(*args, **kwargs)
+
+    @property
+    def halbmonatlich(self) -> bool:
+        return self.monate == self.HALBMONATLICH
+
+    def zeilen(self, termin=None) -> list:
+        """(Position, Menge, Zusatztext) der Rechnung zum Termin. Halbmonatlich zählen die Tage des Halbmonats, bei
+        „nur am Monatsende“ die des ganzen Monats; was auf 0 kommt, entfällt."""
+        if not self.halbmonatlich:
+            return [(p, p.menge, "") for p in self.positionen.all()]
+        termin = termin or self.naechster_termin
+        zeilen = []
+        for p in self.positionen.all():
+            if p.nur_monatsende and termin.day <= 15:
+                continue
+            von, bis = ganzer_monat(termin) if p.nur_monatsende else halbmonat(termin)
+            menge = p.menge_im_zeitraum(von, bis)
+            if menge:
+                zeilen.append((p, menge, f"Abrechnungszeitraum {von:%d.%m.%Y} - {bis:%d.%m.%Y}"))
+        return zeilen
+
     @property
     def netto(self):
-        return sum((p.menge * p.einzelpreis * (1 - p.rabatt_prozent / 100) for p in self.positionen.all()), Decimal("0"))
+        return sum((menge * p.einzelpreis * (1 - p.rabatt_prozent / 100) for p, menge, _ in self.zeilen()), Decimal("0"))
 
     @transaction.atomic
-    def rechnung_erzeugen(self, heute=None) -> "Beleg":
-        """Legt den Rechnungsentwurf an (nummeriert und abgeschlossen wird von Hand), rückt den Termin weiter."""
+    def rechnung_erzeugen(self, heute=None):
+        """Legt den Rechnungsentwurf an (nummeriert und abgeschlossen wird von Hand), rückt den Termin weiter. Halbmonatlich
+        kann ein Stichtag leer bleiben (nur Positionen zum Monatsende): Dann rückt nur der Termin, Rückgabe None."""
         from apps.verkauf.views import adresse_text
         from apps.stammdaten.models import Anschriftart
         heute = heute or timezone.localdate()
-        if not self.positionen.exists():
+        termin = self.naechster_termin
+        zeilen = self.zeilen(termin)
+        if not zeilen and self.halbmonatlich and self.positionen.exists():
+            self._termin_weiter(termin)
+            self.save()
+            return None
+        if not zeilen:
             raise ValueError(f"{self}: keine Positionen hinterlegt.")
         beleg = Beleg.objects.create(
-            mandant=self.mandant, art=Belegart.RECHNUNG, kunde=self.kunde, belegdatum=heute,
+            mandant=self.mandant, art=Belegart.RECHNUNG, kunde=self.kunde, belegdatum=max(heute, termin) if self.halbmonatlich else heute,
             ansprechpartner=self.kunde.ansprechpartner.filter(hauptkontakt=True).first(),
             zahlungsbedingung=self.zahlungsbedingung or self.kunde.zahlungsbedingung,
             rechnungsanschrift=adresse_text(self.kunde, Anschriftart.RECHNUNG),
@@ -937,26 +979,45 @@ class Abo(Zeitstempel):
             rabatt_prozent=self.rabatt_prozent, versandkosten=self.versandkosten, verpackung=self.verpackung,
             versicherung=self.versicherung,
             vortext=self.vortext, schlusstext=self.schlusstext, bemerkung=f"Wiederkehrende Rechnung: {self.bezeichnung}")
-        for p in self.positionen.all():
+        for p, menge, zusatztext in zeilen:
             Position.objects.create(
-                beleg=beleg, typ=("A" if p.artikel_id else "L"), artikel=p.artikel, bezeichnung=p.bezeichnung, menge=p.menge,
-                einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent)
+                beleg=beleg, typ=("L" if not p.artikel_id or p.artikel.typ == "L" else "A"), artikel=p.artikel, bezeichnung=p.bezeichnung,
+                zusatztext=zusatztext, menge=menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent)
         beleg.berechne()
         self.letzter_lauf, self.letzte_rechnung = heute, beleg
-        wunschtag = self.starttag or self.naechster_termin.day
-        weiter = monate_addieren(self.naechster_termin.replace(day=1), self.monate)
-        self.naechster_termin = weiter.replace(day=min(wunschtag, calendar.monthrange(weiter.year, weiter.month)[1]))
-        if self.ende and self.naechster_termin > self.ende:
-            self.aktiv = False
+        self._termin_weiter(termin)
         self.save()
         return beleg
+
+    def _termin_weiter(self, termin):
+        if self.halbmonatlich:
+            self.naechster_termin = naechster_stichtag(termin)
+        else:
+            wunschtag = self.starttag or termin.day
+            weiter = monate_addieren(termin.replace(day=1), self.monate)
+            self.naechster_termin = weiter.replace(day=min(wunschtag, calendar.monthrange(weiter.year, weiter.month)[1]))
+        if self.ende and self.naechster_termin > self.ende:
+            self.aktiv = False
+
+
+class Mengenregel(models.TextChoices):
+    """Woraus sich die Menge bei halbmonatlicher Abrechnung ergibt."""
+    FEST = "F", "feste Menge"
+    WOCHENTAGE = "W", "Wochentage (Mo–Fr ohne Feiertag)"
+    FREI = "E", "Wochenende und Feiertage"
+    ALLE = "A", "alle Kalendertage"
 
 
 class AboPosition(models.Model):
     abo = models.ForeignKey(Abo, on_delete=models.CASCADE, related_name="positionen")
     artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT, null=True, blank=True)
     bezeichnung = models.CharField("Bezeichnung", max_length=255)
-    menge = models.DecimalField("Menge", max_digits=10, decimal_places=3, default=Decimal("1"))
+    menge = models.DecimalField("Menge", max_digits=10, decimal_places=3, default=Decimal("1"),
+                                help_text="Gilt bei der Mengenregel „feste Menge“.")
+    regel = models.CharField("Mengenregel", max_length=1, choices=Mengenregel.choices, default=Mengenregel.FEST,
+                             help_text="Nur bei halbmonatlichem Rhythmus: Die Menge zählt das Programm aus dem Kalender (Feiertage NRW).")
+    nur_monatsende = models.BooleanField("nur am Monatsende", default=False,
+                                         help_text="Nur bei halbmonatlichem Rhythmus: Die Position steht in der Rechnung zum Monatsende, Zeitraum ist der ganze Monat.")
     einzelpreis = models.DecimalField("Einzelpreis netto", max_digits=12, decimal_places=2)
     rabatt_prozent = models.DecimalField("Rabatt %", max_digits=5, decimal_places=2, default=Decimal("0"))
     steuer_prozent = models.DecimalField("Steuer %", max_digits=5, decimal_places=2, default=Decimal("19"))
@@ -965,6 +1026,37 @@ class AboPosition(models.Model):
         verbose_name = "Position"
         verbose_name_plural = "Positionen"
         ordering = ["id"]
+
+    def menge_im_zeitraum(self, von, bis) -> Decimal:
+        wochentage, frei = tage_zaehlen(von, bis)
+        tage = {Mengenregel.WOCHENTAGE: wochentage, Mengenregel.FREI: frei, Mengenregel.ALLE: wochentage + frei}.get(self.regel)
+        return self.menge if tage is None else Decimal(tage)
+
+
+ZEITRAUM = re.compile(r"(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})")
+
+
+def regel_vorschlag(menge, zusatztext) -> tuple:
+    """(Mengenregel, nur am Monatsende) für eine Rechnungsposition: Der Zeitraum im Zusatztext und die Menge werden
+    mit dem Kalender verglichen. Ein ganzer Monat zählt für die Rechnung zum Monatsende; stimmt die Menge dort mit allen
+    Tagen der zweiten Monatshälfte überein, läuft die Position in beiden Hälften. Was nicht aufgeht, bleibt feste Menge."""
+    treffer = ZEITRAUM.search(zusatztext or "")
+    if not treffer:
+        return Mengenregel.FEST, False
+    try:
+        von, bis = (datetime.strptime(t, "%d.%m.%Y").date() for t in treffer.groups())
+    except ValueError:
+        return Mengenregel.FEST, False
+    if (von, bis) == ganzer_monat(von):
+        if menge == sum(tage_zaehlen(*halbmonat(bis))):
+            return Mengenregel.ALLE, False
+        wochentage, frei = tage_zaehlen(von, bis)
+        regel = {wochentage: Mengenregel.WOCHENTAGE, frei: Mengenregel.FREI, wochentage + frei: Mengenregel.ALLE}.get(menge, Mengenregel.FEST)
+        return regel, True
+    if (von, bis) == halbmonat(von):
+        wochentage, frei = tage_zaehlen(von, bis)
+        return {wochentage: Mengenregel.WOCHENTAGE, frei: Mengenregel.FREI, wochentage + frei: Mengenregel.ALLE}.get(menge, Mengenregel.FEST), False
+    return Mengenregel.FEST, False
 
 
 def faellige_abos(heute=None):

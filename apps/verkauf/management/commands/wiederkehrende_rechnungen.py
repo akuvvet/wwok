@@ -16,6 +16,8 @@ class Command(BaseCommand):
             except Exception as fehler:  # ein fehlerhaftes Abo darf die übrigen nicht aufhalten
                 self.stderr.write(f"{abo}: {fehler}")
                 continue
+            if beleg is None:  # Stichtag ohne fällige Position, nur der Termin ist weitergerückt
+                continue
             anzahl += 1
             self.stdout.write(f"{abo}: Entwurf für {abo.kunde.name1} angelegt (Beleg {beleg.pk})")
         if not anzahl:

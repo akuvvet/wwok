@@ -18,8 +18,8 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import (STAND_OFFEN, runden, Abo, AboPosition, Beleg, BelegArbeitsstand, BelegGesperrt, Belegart, Briefprodukt, Position, Ruecknahme, Versand, Versandart,
-                     Wiedervorlage, letzte_preise)
+from .models import (STAND_OFFEN, runden, Abo, AboPosition, Beleg, BelegArbeitsstand, BelegGesperrt, Belegart, Briefprodukt, Mengenregel, Position, Ruecknahme, Versand, Versandart,
+                     Wiedervorlage, letzte_preise, regel_vorschlag)
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
 from .pdf import beleg_pdf
@@ -477,6 +477,26 @@ def position_neu(request, beleg_id):
 @require_POST
 @sperr_schutz
 @bearbeitung
+def positionen_import(request, beleg_id):
+    """Positionen aus einer CSV- oder Excel-Datei anhängen. Wie jede Positionsänderung gelten sie erst nach dem Speichern."""
+    from apps.stammdaten.leistung_import import ImportFehler
+    from .position_import import positionen_importieren
+    beleg = beleg_holen(request, beleg_id)
+    datei = request.FILES.get("datei")
+    if datei is None or datei.size > 5 * 1024 * 1024:
+        raise ValueError("Bitte eine CSV- oder Excel-Datei bis 5 MB auswählen.")
+    try:
+        anzahl, netto = positionen_importieren(beleg, datei.name, datei.read())
+    except ImportFehler as fehler:
+        raise ValueError("\n".join([str(fehler), *fehler.fehler[:20], *(["…"] if len(fehler.fehler) > 20 else [])]))
+    messages.success(request, f"{anzahl} Position(en) importiert, netto {str(netto).replace('.', ',')} €. Bitte prüfen und speichern.")
+    return redirect("verkauf:beleg", beleg_id=beleg.pk)
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+@bearbeitung
 def gruppenpreis(request, beleg_id, position_id):
     """Gesamtpreis der Gruppe festlegen; leer = Summe der Unterpositionen (bei Menge der Gruppe pro Stück)."""
     beleg = beleg_holen(request, beleg_id)
@@ -844,17 +864,25 @@ def abos(request):
 @require_POST
 @sperr_schutz
 def abo_aus_rechnung(request, beleg_id):
-    """Aus einer Rechnung einen wiederkehrenden Auftrag machen: Positionen werden übernommen, die erste Folgerechnung ist am Starttermin."""
+    """Aus einer Rechnung einen wiederkehrenden Auftrag machen: Positionen werden übernommen, die erste Folgerechnung ist am Starttermin.
+    Halbmonatlich schlägt das Programm je Position die Mengenregel aus Zeitraum und Menge vor."""
     from datetime import date
     beleg = beleg_holen(request, beleg_id)
     if beleg.art != Belegart.RECHNUNG:
         raise ValueError("Wiederkehrend einrichten geht nur aus einer Rechnung.")
+    beleg.stand_pruefen()
+    if not beleg.positionen.exists():
+        raise ValueError("Die Rechnung hat noch keine Position.")
+    if beleg.p_positionen().exists():
+        raise ValueError("Die Rechnung enthält Preislistenartikel (P) – erst Wareneingang buchen, dann wiederkehrend einrichten.")
+    if beleg.positionen.filter(gruppe__isnull=False, artikel__typ="A").exists():
+        raise ValueError("Die Rechnung enthält eine Gruppe mit Lagerartikeln – die Folgerechnung würde das Lager nicht abbuchen.")
     try:
         monate = int(request.POST.get("monate", "1"))
     except ValueError:
         monate = 0
-    if monate not in dict(Abo.INTERVALLE):
-        raise ValueError("Bitte einen gültigen Rhythmus wählen (monatlich, vierteljährlich, halbjährlich oder jährlich).")
+    if monate not in dict(Abo.RHYTHMEN):
+        raise ValueError("Bitte einen gültigen Rhythmus wählen (halbmonatlich, monatlich, vierteljährlich, halbjährlich oder jährlich).")
     try:
         start = date.fromisoformat(request.POST.get("start", ""))
     except ValueError:
@@ -864,10 +892,14 @@ def abo_aus_rechnung(request, beleg_id):
         monate=monate, naechster_termin=start, starttag=start.day, zahlungsbedingung=beleg.zahlungsbedingung,
         rabatt_prozent=beleg.rabatt_prozent, versandkosten=beleg.versandkosten, verpackung=beleg.verpackung,
         versicherung=beleg.versicherung, vortext=beleg.vortext, schlusstext=beleg.schlusstext)
+    kalender = 0
     for p in beleg.positionen.filter(gruppe__isnull=True).order_by("pos", "id"):
+        regel, nur_monatsende = regel_vorschlag(p.menge, p.zusatztext) if abo.halbmonatlich else (Mengenregel.FEST, False)
+        kalender += regel != Mengenregel.FEST
         AboPosition.objects.create(abo=abo, artikel=p.artikel, bezeichnung=p.bezeichnung, menge=p.menge, einzelpreis=p.einzelpreis,
-                                   rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent)
-    messages.success(request, f"Wiederkehrende Rechnung „{abo.bezeichnung}“ angelegt: nächste Rechnung am {abo.naechster_termin:%d.%m.%Y}.")
+                                   rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent, regel=regel, nur_monatsende=nur_monatsende)
+    hinweis = f" {kalender} Position(en) rechnen nach dem Kalender, Mengenregeln bitte in der Verwaltung prüfen." if abo.halbmonatlich else ""
+    messages.success(request, f"Wiederkehrende Rechnung „{abo.bezeichnung}“ angelegt: nächste Rechnung am {abo.naechster_termin:%d.%m.%Y}.{hinweis}")
     return redirect("verkauf:abos")
 
 
@@ -881,6 +913,9 @@ def abo_aktion(request, abo_id):
             beleg = abo.rechnung_erzeugen()
         except ValueError as fehler:
             messages.error(request, str(fehler))
+            return redirect("verkauf:abos")
+        if beleg is None:
+            messages.info(request, "Zu diesem Stichtag ist nichts abzurechnen" + (f", nächste Rechnung am {abo.naechster_termin:%d.%m.%Y}." if abo.aktiv else "; die wiederkehrende Rechnung ist damit beendet."))
             return redirect("verkauf:abos")
         messages.success(request, f"Rechnungsentwurf für {abo.kunde.name1} angelegt.")
         return redirect("verkauf:beleg", beleg_id=beleg.pk)

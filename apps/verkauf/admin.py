@@ -1,7 +1,9 @@
 from django.contrib import admin
+from django.core.exceptions import ValidationError
+from django.forms import BaseInlineFormSet
 
-from .models import (Abo, AboPosition, Beleg, Briefprodukt, MailVersand, Mailvorlage, Nummernkreis, Position, Versandart,
-                     Wiedervorlage)
+from .models import (Abo, AboPosition, Beleg, Briefprodukt, MailVersand, Mailvorlage, Mengenregel, Nummernkreis, Position,
+                     Versandart, Wiedervorlage)
 
 
 class PositionInline(admin.TabularInline):
@@ -64,10 +66,26 @@ class NummernkreisAdmin(admin.ModelAdmin):
     list_filter = ["mandant"]
 
 
+class AboPositionFormset(BaseInlineFormSet):
+    def clean(self):
+        """Mengenregeln rechnen nur halbmonatlich; sonst stünde die Regel da und es gälte still die feste Menge."""
+        super().clean()
+        for form in self.forms:
+            daten = getattr(form, "cleaned_data", None) or {}
+            if daten.get("DELETE"):
+                continue
+            if not self.instance.halbmonatlich and (daten.get("regel", Mengenregel.FEST) != Mengenregel.FEST or daten.get("nur_monatsende")):
+                raise ValidationError("Mengenregel und „nur am Monatsende“ gibt es nur beim Rhythmus halbmonatlich.")
+            if self.instance.halbmonatlich and daten.get("nur_monatsende") and self.instance.ende and self.instance.ende.day <= 15:
+                raise ValidationError("Mit Positionen „nur am Monatsende“ muss das Ende ein Monatsletzter sein, sonst bliebe dieser Monat unberechnet.")
+
+
 class AboPositionInline(admin.TabularInline):
     model = AboPosition
+    formset = AboPositionFormset
     extra = 1
     autocomplete_fields = ["artikel"]
+    fields = ["artikel", "bezeichnung", "regel", "menge", "nur_monatsende", "einzelpreis", "rabatt_prozent", "steuer_prozent"]
 
 
 @admin.register(Abo)
