@@ -7,6 +7,7 @@ from django.urls import path, reverse
 
 from . import leistung_import
 from . import models as m
+from .forms import VkVorschlagForm
 
 
 class KundeMandantInline(admin.TabularInline):
@@ -118,6 +119,7 @@ class GruppenKomponenteInline(admin.TabularInline):
 
 @admin.register(m.Artikel)
 class ArtikelAdmin(admin.ModelAdmin):
+    form = VkVorschlagForm
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "online", "nicht_aktiv"]
     list_filter = ["typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
     search_fields = ["nummer", "bezeichnung", "herstellernummer", "ean"]
@@ -141,7 +143,7 @@ class ArtikelAdmin(admin.ModelAdmin):
         ("Grunddaten", {"fields": [("nummer", "typ"), "bezeichnung", "bezeichnung_erweitert", "kategorie",
                                    ("hersteller", "herstellernummer", "ean"), ("garantie_monate", "nicht_aktiv"), "esd_key"]}),
         ("Maße", {"fields": [("laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg")]}),
-        ("Preise", {"fields": ["steuersatz", "ek_anzeige", ("vk1", "aufschlag_vk1"),
+        ("Preise", {"fields": ["steuersatz", ("ek_anzeige", "vk1_fuer_alle"), ("vk1", "aufschlag_vk1"),
                                ("vk2", "aufschlag_vk2"), ("vk3", "aufschlag_vk3")]}),
         ("Online", {"fields": ["online", "kurzbeschreibung", "keywords", "meta_titel",
                                "meta_description", "meta_keywords"]}),

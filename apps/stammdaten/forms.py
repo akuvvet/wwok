@@ -4,6 +4,8 @@ from django.forms import inlineformset_factory
 
 from .models import (Ansprechpartner, Artikel, ArtikelMandant, Artikeltyp, Kunde, KundeMandant, Kundenanschrift, Lieferant, LieferantMandant)
 
+from .preise import stufenpreis
+
 DATUM = forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"})
 
 
@@ -86,14 +88,49 @@ AnschriftSet = inlineformset_factory(
 ARTIKEL_TABS = [
     ("grund", "Stammdaten", ["nummer", "typ", "bezeichnung", "bezeichnung_erweitert", "kategorie", "leistungskategorie", "hersteller", "herstellernummer",
                              "ean", "mengeneinheit", "steuersatz", "nicht_aktiv"]),
-    ("preise", "Preise", ["kosten", "vk1", "vk2", "vk3", "aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3"]),
+    ("preise", "Preise", ["kosten", "vk1_fuer_alle", "vk1", "vk2", "vk3", "aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3"]),
     ("logistik", "Maße & Versand", ["laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg", "sperrgut", "zolltarifnummer",
                                     "garantie_monate", "eol_datum", "nachfolger", "esd_key"]),
     ("online", "Online & Texte", ["online", "kurzbeschreibung", "keywords", "meta_titel", "meta_description", "meta_keywords"]),
 ]
 
 
-class ArtikelForm(forms.ModelForm):
+class VkVorschlagForm(forms.ModelForm):
+    """Leere VK zeigen den Vorschlag aus EK und Aufschlag. Bleibt er unverändert, wird nichts Festes gespeichert und der
+    VK folgt weiter dem EK; erst ein selbst eingetippter Preis ist fest."""
+
+    vk1_fuer_alle = forms.BooleanField(label="VK1 für alle VKs übernehmen", required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and self.instance.typ != Artikeltyp.L:
+            for stufe in (1, 2, 3):
+                feld, preis = f"vk{stufe}", stufenpreis(self.instance, stufe)
+                if feld in self.fields and getattr(self.instance, feld) is None and preis is not None:
+                    self.initial[feld] = preis
+                    self.fields[feld].show_hidden_initial = True  # beim Speichern zählt, was angezeigt war, nicht der aktuelle Vorschlag
+                    self.fields[feld].widget.attrs["data-vorschlag"] = str(preis)
+                    self.fields[feld].help_text = "Vorschlag aus EK und Aufschlag, folgt dem EK. Ein eigener Preis bleibt fest."
+
+    def clean(self):
+        daten = super().clean()
+        if daten.get("vk1_fuer_alle"):
+            if daten.get("vk1") is None:
+                self.add_error("vk1_fuer_alle", "Bitte zuerst VK1 eintragen.")
+            else:
+                daten["vk2"] = daten["vk3"] = daten["vk1"]
+            return daten
+        for feld in ("vk1", "vk2", "vk3"):
+            if self.instance.pk and feld in self.fields and getattr(self.instance, feld) is None:
+                try:
+                    if daten.get(feld) == self.fields[feld].to_python(self.data.get(self.add_initial_prefix(feld))):
+                        daten[feld] = None
+                except forms.ValidationError:
+                    pass
+        return daten
+
+
+class ArtikelForm(VkVorschlagForm):
     TABS = ARTIKEL_TABS
 
     class Meta:

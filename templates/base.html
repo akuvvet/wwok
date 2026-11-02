@@ -307,7 +307,9 @@
           if ((tr.dataset.ek === '' && tr.dataset.typ !== 'L') || tr.dataset.vk === '') luecke = true;
           ek += m * zahl(tr.dataset.ek); vk += m * zahl(tr.dataset.vk);
         });
-        var feld = dlg.querySelector('[name=vk1]'), preis = feld && feld.value.trim() ? zahl(feld.value) : null;
+        var feld = dlg.querySelector('[name=vk1]'), alleVk = dlg.querySelector('[name=vk1_fuer_alle]');
+        var vorschlag = feld && feld.value === feld.dataset.vorschlag && !(alleVk && alleVk.checked);  // unveränderter Vorschlag ist kein fester Preis
+        var preis = feld && feld.value.trim() && !vorschlag ? zahl(feld.value) : null;
         bereich.querySelector('[data-summe-ek]').textContent = euro(ek) + (luecke ? ' *' : '');
         bereich.querySelector('[data-summe-vk]').textContent = euro(vk) + (luecke ? ' *' : '');
         var stern = luecke ? ' *' : '';
@@ -341,6 +343,7 @@
           var feld = dlg.querySelector('[name=' + name + ']'); if (!feld) return;
           feld.value = feld.type === 'number' ? wert.toFixed(2) : euro(wert);
         });
+        var alleVk = dlg.querySelector('[name=vk1_fuer_alle]'); if (alleVk) alleVk.checked = true;  // sonst bliebe ein Betrag gleich dem Vorschlag nicht fest
         preisModus = 'summe'; rechnen();
         meldung.textContent = 'Übernommen – mit „Speichern“ festhalten.';
       });
