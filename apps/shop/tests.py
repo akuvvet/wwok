@@ -81,6 +81,15 @@ class FakeClient(ShopwareClient):
     def produktbild_ids(self, produkt_id):
         return getattr(self, "shop_bilder", [])
 
+    def kundenpreise_loeschen(self, preis_ids):
+        self.preis_weg = getattr(self, "preis_weg", []) + preis_ids
+
+    def regel_vorhanden(self, regel_id):
+        return getattr(self, "regel_da", True)
+
+    def produktpreise(self, produkt_ids):
+        return [z for z in getattr(self, "shop_preise", []) if z["productId"] in produkt_ids]
+
     def produkt_vorhanden(self, produkt_id):
         return produkt_id in self.produkte.values()
 

@@ -48,6 +48,13 @@ def netto(brutto, steuersatz) -> Decimal:
     return (dez(brutto) / (1 + dez(steuersatz) / 100)).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
+def shop_netto(wert, steuersatz, steuerstatus: str) -> Decimal:
+    """Netto eines Shop-Betrags: Bestellungen von Netto-Kunden tragen ihre Preise bereits ohne Steuer."""
+    if steuerstatus in ("net", "tax-free"):
+        return dez(wert).quantize(CENT, rounding=ROUND_HALF_UP)
+    return netto(wert, steuersatz)
+
+
 # ---- Bestellimport -----------------------------------------------------------------------------------
 
 def adresse_text(a: dict) -> str:
@@ -127,21 +134,23 @@ def bestellung_importieren(shop, b: dict):
     hinweise = []
     if neu:
         hinweise.append(f"Neukunde {kunde.nummer} angelegt")
+    steuerstatus = b.get("taxStatus") or g(b, "price", "taxStatus") or "gross"
+    ohne_steuer = steuerstatus == "tax-free"
     for z in b.get("lineItems") or []:
         if z.get("type") not in (None, "product"):
             continue  # Gutscheine, Rabatte usw. werden nicht übernommen
-        steuer = dez(g(z, "price", "calculatedTaxes", 0, "taxRate", standard=19))
+        steuer = Decimal("0") if ohne_steuer else dez(g(z, "price", "calculatedTaxes", 0, "taxRate", standard=19))
         produktnummer = g(z, "payload", "productNumber")
         artikel = Artikel.objects.filter(nummer=produktnummer).first() if produktnummer else None
         if artikel is None:
             hinweise.append(f"Artikel {produktnummer or z.get('label')} nicht im ERP")
         Position.objects.create(
             beleg=beleg, typ=artikel.typ if artikel else "L", artikel=artikel, bezeichnung=str(z.get("label") or produktnummer)[:255],
-            menge=dez(z.get("quantity") or 1), einzelpreis=netto(z.get("unitPrice"), steuer), steuer_prozent=steuer,
+            menge=dez(z.get("quantity") or 1), einzelpreis=shop_netto(z.get("unitPrice"), steuer, steuerstatus), steuer_prozent=steuer,
             zusatztext="" if artikel else f"Artikelnummer im Shop: {produktnummer}")
     versandkosten = g(lieferung, "shippingCosts", "totalPrice", standard=g(b, "shippingCosts", "totalPrice", standard=0))
     if dez(versandkosten):
-        beleg.versandkosten = netto(versandkosten, g(lieferung, "shippingCosts", "calculatedTaxes", 0, "taxRate", standard=19))
+        beleg.versandkosten = shop_netto(versandkosten, g(lieferung, "shippingCosts", "calculatedTaxes", 0, "taxRate", standard=19), steuerstatus)
         beleg.save()
     if not beleg.positionen.exists():
         raise ValueError(f"Bestellung {nummer} enthält keine Produktpositionen.")
@@ -199,9 +208,9 @@ def meldebestand(shop, artikel):
     return None
 
 
-def verkaufspreis(shop, artikel):
-    """Netto und brutto der Preisstufe des Shops; ohne Preis (None, None)."""
-    netto_preis = stufenpreis(artikel, shop.preisstufe)
+def verkaufspreis(shop, artikel, stufe=None):
+    """Netto und brutto der Preisstufe (ohne Angabe die des Shops); ohne Preis (None, None)."""
+    netto_preis = stufenpreis(artikel, stufe or shop.preisstufe)
     if netto_preis is None:
         return None, None
     return netto_preis, (netto_preis * (1 + artikel.steuersatz.prozent / 100)).quantize(CENT, rounding=ROUND_HALF_UP)
@@ -209,6 +218,28 @@ def verkaufspreis(shop, artikel):
 
 def preisliste(netto_preis, brutto) -> list:
     return [{"currencyId": STANDARD_WAEHRUNG_EUR, "gross": float(brutto), "net": float(netto_preis), "linked": True}]
+
+
+def kundenpreis(shop, artikel) -> tuple:
+    """Eigener Preis für angemeldete Kunden als Shopware-Staffelpreis mit Regel; (Eintrag, Brutto) oder (None, None)."""
+    if not shop.preisstufe_kunden or not shop.regel_kunden_id:
+        return None, None
+    preis_netto, preis_brutto = verkaufspreis(shop, artikel, shop.preisstufe_kunden)
+    if not preis_brutto:
+        return None, None
+    return {"id": feste_id(shop, "kundenpreis", artikel.pk), "ruleId": shop.regel_kunden_id, "quantityStart": 1, "quantityEnd": None,
+            "price": preisliste(preis_netto, preis_brutto)}, preis_brutto
+
+
+def regel_pruefen(shop, client) -> bool:
+    """Eine falsche Regel-ID würde jeden Schreibvorgang samt Bestand scheitern lassen, deshalb vorher prüfen."""
+    if not shop.preisstufe_kunden or not shop.regel_kunden_id:
+        return True
+    if client.regel_vorhanden(shop.regel_kunden_id):
+        return True
+    SyncProtokoll.objects.create(shop=shop, art="abgleich", erfolgreich=False, meldung=(
+        f"Die Regel {shop.regel_kunden_id} gibt es im Shop nicht. Kundenpreise wurden nicht gesendet, Bestand und Standardpreis schon."))
+    return False
 
 
 def nicht_mehr_online(shop, client, alle=False) -> list:
@@ -240,6 +271,7 @@ def abgleichen(shop, client=None, alle=False) -> dict:
     except ShopFehler as fehler:  # Bestand und Preise müssen trotzdem raus; beim nächsten Abgleich wird erneut deaktiviert
         deaktiviert = []
         SyncProtokoll.objects.create(shop=shop, art="abgleich", erfolgreich=False, meldung=f"Deaktivieren fehlgeschlagen: {fehler}"[:500])
+    regel_ok = regel_pruefen(shop, client)
     artikel = list(Artikel.objects.filter(online=True, nicht_aktiv=False, typ__in=["A", "G"]).select_related("steuersatz"))
     ids = client.produkt_ids([a.nummer for a in artikel])
     payload, vorgemerkt, nicht_im_shop = [], [], 0
@@ -252,7 +284,10 @@ def abgleichen(shop, client=None, alle=False) -> dict:
         bestand_neu = meldebestand(shop, a)
         preis_netto, preis_brutto = verkaufspreis(shop, a)
         wieder_online = not zuordnung.im_shop_aktiv
-        geaendert = alle or wieder_online or zuordnung.gemeldeter_bestand != bestand_neu or zuordnung.gemeldeter_preis != preis_brutto
+        preis_kunde, brutto_kunde = kundenpreis(shop, a) if regel_ok else (None, zuordnung.gemeldeter_kundenpreis)
+        geaendert = alle or wieder_online or zuordnung.gemeldeter_bestand != bestand_neu or zuordnung.gemeldeter_preis != preis_brutto \
+            or zuordnung.gemeldeter_kundenpreis != brutto_kunde or zuordnung.produkt_id != produkt_id \
+            or (preis_kunde is not None and zuordnung.gemeldete_regel != shop.regel_kunden_id)
         if not geaendert:
             continue
         eintrag = {"id": produkt_id}
@@ -262,19 +297,41 @@ def abgleichen(shop, client=None, alle=False) -> dict:
             eintrag["stock"] = bestand_neu
         if preis_brutto is not None:
             eintrag["price"] = preisliste(preis_netto, preis_brutto)
+        if preis_kunde:
+            eintrag["prices"] = [preis_kunde]
         payload.append(eintrag)
-        vorgemerkt.append((zuordnung, produkt_id, bestand_neu, preis_brutto))
+        vorgemerkt.append((zuordnung, produkt_id, bestand_neu, preis_brutto, brutto_kunde))
+    # Fremde Preise im Shop bleiben unberührt: Neben ihnen entschiede die Menge zufällig, welcher Preis gilt
+    eigene = {feste_id(shop, "kundenpreis", a.pk) for a in artikel}
+    mit_preis = [e["id"] for e in payload if "prices" in e]
+    belegt = {z["productId"] for z in client.produktpreise(mit_preis) if z["id"] not in eigene} if mit_preis else set()
+    for e in payload:
+        if e["id"] in belegt:
+            del e["prices"]
     if payload:
         client.produkte_aktualisieren(payload)
     jetzt = timezone.now()
-    for zuordnung, produkt_id, bestand_neu, preis_brutto in vorgemerkt:
+    entfallen = []
+    for zuordnung, produkt_id, bestand_neu, preis_brutto, brutto_kunde in vorgemerkt:
+        if brutto_kunde is None and zuordnung.gemeldeter_kundenpreis is not None:  # VK der Stufe entfallen: alten Kundenpreis nicht stehen lassen
+            entfallen.append(zuordnung)
+        elif produkt_id not in belegt:
+            zuordnung.gemeldeter_kundenpreis = brutto_kunde
+            zuordnung.gemeldete_regel = shop.regel_kunden_id if brutto_kunde is not None else ""
         zuordnung.produkt_id, zuordnung.gemeldeter_bestand, zuordnung.gemeldeter_preis, zuordnung.gesendet_am = produkt_id, bestand_neu, preis_brutto, jetzt
         zuordnung.im_shop_aktiv = True
-        zuordnung.save(update_fields=["produkt_id", "gemeldeter_bestand", "gemeldeter_preis", "gesendet_am", "im_shop_aktiv"])
+        zuordnung.save(update_fields=["produkt_id", "gemeldeter_bestand", "gemeldeter_preis", "gemeldeter_kundenpreis", "gemeldete_regel", "gesendet_am", "im_shop_aktiv"])
+    if entfallen:
+        try:
+            client.kundenpreise_loeschen([feste_id(shop, "kundenpreis", z.artikel_id) for z in entfallen])
+            ShopArtikel.objects.filter(pk__in=[z.pk for z in entfallen]).update(gemeldeter_kundenpreis=None, gemeldete_regel="")
+        except ShopFehler as fehler:  # gemeldeter Preis bleibt stehen, der nächste Abgleich versucht es erneut
+            SyncProtokoll.objects.create(shop=shop, art="abgleich", erfolgreich=False, meldung=f"Kundenpreise nicht entfernt: {fehler}"[:500])
     shop.letzter_abgleich = jetzt
     shop.save(update_fields=["letzter_abgleich"])
-    ergebnis = {"gesendet": len(payload), "nicht_im_shop": nicht_im_shop, "geprueft": len(artikel), "deaktiviert": len(deaktiviert)}
-    SyncProtokoll.objects.create(shop=shop, art="abgleich", meldung=f"{ergebnis['gesendet']} Artikel gesendet, {nicht_im_shop} nicht im Shop gefunden, {len(artikel)} geprüft, {len(deaktiviert)} deaktiviert")
+    ergebnis = {"gesendet": len(payload), "nicht_im_shop": nicht_im_shop, "geprueft": len(artikel), "deaktiviert": len(deaktiviert), "kundenpreis_belegt": len(belegt)}
+    SyncProtokoll.objects.create(shop=shop, art="abgleich", meldung=f"{ergebnis['gesendet']} Artikel gesendet, {nicht_im_shop} nicht im Shop gefunden, {len(artikel)} geprüft, {len(deaktiviert)} deaktiviert"
+                                 + (f", {len(belegt)} ohne Kundenpreis, weil im Shop schon ein Preis mit Regel steht" if belegt else ""))
     return ergebnis
 
 
@@ -380,6 +437,9 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
                         "isCloseout": True,  # nur verfügbarer Bestand ist bestellbar, Schutz vor Doppelverkauf
                         "price": preisliste(preis_netto, preis_brutto),
                         "visibilities": [{"id": feste_id(shop, "sichtbar", a.pk), "salesChannelId": client.verkaufskanal(), "visibility": 30}]})
+        preis_kunde, brutto_kunde = kundenpreis(shop, a) if lauf["regel_ok"] else (None, None)
+        if preis_kunde:
+            eintrag["prices"] = [preis_kunde]
     bisher = list(z.bild_ids) if z and not anderes_produkt else []
     neue_bilder, hinweise = bisher, []
     bilder_erledigt, teilweise = True, False
@@ -420,7 +480,8 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
              "bilder_stand": teilstand if teilweise else bilder_stand if bilder_erledigt else (z.bilder_stand if z else ""),
              "kategorie_id": kategorie_id or bisherige_kategorie}
     if not produkt_id:
-        werte.update(gemeldeter_bestand=bestand_neu, gemeldeter_preis=preis_brutto)
+        werte.update(gemeldeter_bestand=bestand_neu, gemeldeter_preis=preis_brutto, gemeldeter_kundenpreis=brutto_kunde,
+                     gemeldete_regel=shop.regel_kunden_id if brutto_kunde is not None else "")
     ShopArtikel.objects.update_or_create(shop=shop, artikel=a, defaults=werte)
     lauf["ergebnis"]["fehler"] += [f"{a.nummer}: {h}" for h in hinweise]
     return "aktualisiert" if produkt_id else "neu"
@@ -451,7 +512,8 @@ def artikeldaten_senden(shop, client=None, alle=False, nummer="", zeitlimit=ZEIT
         ids = client.produkt_ids([a.nummer for a in artikel])
         ergebnis = {"neu": 0, "aktualisiert": 0, "unveraendert": 0, "ohne_preis": 0, "offen": 0, "fehler": [], "kategorie_fehlt": set()}
         lauf = {"kategorien": _nach_name(client.kategorien()), "hersteller": _nach_name(client.hersteller()), "ergebnis": ergebnis,
-                "steuern": {Decimal(str(s["taxRate"])).normalize(): s["id"] for s in client.steuern()}, "ende": ende}
+                "steuern": {Decimal(str(s["taxRate"])).normalize(): s["id"] for s in client.steuern()}, "ende": ende,
+                "regel_ok": regel_pruefen(shop, client)}
     except ShopFehler as fehler:
         SyncProtokoll.objects.create(shop=shop, art="artikeldaten", erfolgreich=False, meldung=str(fehler)[:500])
         raise

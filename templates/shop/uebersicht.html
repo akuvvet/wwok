@@ -7,7 +7,7 @@
   {% for s in shops %}
   <div class="karte" style="background:var(--grund)">
     <h2>{{ s.name }} {% if not s.aktiv %}<span class="marke">inaktiv</span>{% endif %}</h2>
-    <p>{{ s.url }} · Sicherheitsbestand {{ s.bestand_puffer }} · Preisstufe VK{{ s.preisstufe }}<br>
+    <p>{{ s.url }} · Sicherheitsbestand {{ s.bestand_puffer }} · Preisstufe VK{{ s.preisstufe }}{% if s.preisstufe_kunden %}, angemeldete Kunden VK{{ s.preisstufe_kunden }}{% endif %}<br>
        Letzter Bestellimport: {{ s.letzter_bestellimport|date:"d.m.Y H:i"|default:"noch nie" }} · Letzter Abgleich: {{ s.letzter_abgleich|date:"d.m.Y H:i"|default:"noch nie" }}</p>
     {% if s.aktiv %}
     <div class="zeile">

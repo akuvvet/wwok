@@ -148,6 +148,30 @@ class ShopwareClient:
             if fehler.status != 404:  # schon im Shop entfernt: erledigt
                 raise
 
+    def regel_vorhanden(self, regel_id: str) -> bool:
+        return bool(self.api("POST", "/api/search/rule", {
+            "limit": 1, "filter": [{"type": "equals", "field": "id", "value": regel_id}], "includes": {"rule": ["id"]}}).get("data"))
+
+    def produktpreise(self, produkt_ids: list) -> list:
+        """Alle Preise mit Regel dieser Produkte."""
+        ergebnis = []
+        for i in range(0, len(produkt_ids), 100):
+            seite = 1
+            while True:
+                daten = self.api("POST", "/api/search/product-price", {
+                    "page": seite, "limit": 500, "filter": [{"type": "equalsAny", "field": "productId", "value": "|".join(produkt_ids[i:i + 100])}],
+                    "includes": {"product_price": ["id", "productId"]}}).get("data", [])
+                ergebnis += daten
+                if len(daten) < 500:
+                    break
+                seite += 1
+        return ergebnis
+
+    def kundenpreise_loeschen(self, preis_ids: list):
+        for i in range(0, len(preis_ids), 100):
+            self.api("POST", "/api/_action/sync", {"delete-preise": {
+                "entity": "product_price", "action": "delete", "payload": [{"id": p} for p in preis_ids[i:i + 100]]}})
+
     def produktbild_loeschen(self, produkt_id: str, bild_id: str):
         self._zuordnung_loesen(f"/api/product/{produkt_id}/media/{bild_id}")
 

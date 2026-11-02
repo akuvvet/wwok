@@ -2,6 +2,9 @@
 Shop-Anbindung (Pflichtenheft Abschnitt 13): Shopware 6, je Shop einem Mandanten zugeordnet.
 Bestellimport als Beleg Bestellung, Bestands- und Preisabgleich (nur verfügbarer Bestand wird gemeldet).
 """
+import re
+
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -19,6 +22,12 @@ class Shop(Zeitstempel):
     bestand_puffer = models.PositiveIntegerField("Sicherheitsbestand", default=0,
                                                  help_text="Dieser Bestand wird nicht an den Shop gemeldet (Schutz vor Doppelverkauf).")
     preisstufe = models.PositiveSmallIntegerField("Preisstufe für den Shop", default=1, choices=[(1, "VK1"), (2, "VK2"), (3, "VK3")])
+    preisstufe_kunden = models.PositiveSmallIntegerField(
+        "Preisstufe für angemeldete Kunden", default=0, choices=[(0, "kein eigener Preis"), (1, "VK1"), (2, "VK2"), (3, "VK3")],
+        help_text="Gilt für Kunden, auf die die Regel unten zutrifft; alle anderen sehen die Preisstufe für den Shop.")
+    regel_kunden_id = models.CharField(
+        "Regel-ID für angemeldete Kunden", max_length=64, blank=True,
+        help_text="ID der Regel aus dem Rule Builder in Shopware (steht in der Adresse, wenn die Regel geöffnet ist).")
     standard_zahlungsbedingung = models.ForeignKey(Zahlungsbedingung, on_delete=models.SET_NULL, null=True, blank=True,
                                                    related_name="+", help_text="Falls die Zahlart nicht zugeordnet ist")
     zahlungszuordnung = models.JSONField(
@@ -41,6 +50,10 @@ class Shop(Zeitstempel):
 
     def __str__(self):
         return f"{self.name} ({self.mandant})"
+
+    def clean(self):
+        if self.preisstufe_kunden and not re.fullmatch(r"[0-9a-f]{32}", self.regel_kunden_id.strip()):
+            raise ValidationError({"regel_kunden_id": "Für den Preis angemeldeter Kunden braucht Shopware eine Regel: 32 Zeichen, nur 0-9 und a-f."})
 
     @property
     def secret_variable(self) -> str:
@@ -75,6 +88,8 @@ class ShopArtikel(models.Model):
     produkt_id = models.CharField(max_length=64)
     gemeldeter_bestand = models.IntegerField(null=True, blank=True)
     gemeldeter_preis = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    gemeldeter_kundenpreis = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    gemeldete_regel = models.CharField(max_length=64, blank=True)
     gesendet_am = models.DateTimeField(null=True, blank=True)
     daten_stand = models.CharField(max_length=64, blank=True, help_text="Prüfsumme der zuletzt gesendeten Artikeldaten")
     bild_ids = models.JSONField(default=list, blank=True, help_text="Von wwok gesendete Produktbilder im Shop")

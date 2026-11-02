@@ -7,6 +7,7 @@ from decimal import Decimal as D
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.management import call_command
 from django.test import TestCase, override_settings
@@ -19,7 +20,7 @@ from apps.lager.services import buche_manuell
 from apps.stammdaten.models import Artikel, ArtikelBild, Hersteller, Kategorie, Steuersatz
 
 from . import services
-from .models import Shop, ShopArtikel, SyncProtokoll
+from .models import Shop, ShopArtikel, ShopBestellung, SyncProtokoll
 from .shopware import ShopFehler, ShopwareClient
 from .tests import FakeClient
 
@@ -390,6 +391,156 @@ class BilderTest(Basis):
         self.assertEqual(len(c.hochgeladen), 1)
         self.assertIn("media", c.gesendet[0])
         self.assertFalse(hasattr(c, "geloescht"))
+
+
+class KundenpreisTest(Basis):
+    def setUp(self):
+        super().setUp()
+        self.regel = "a" * 32
+        self.shop.preisstufe_kunden, self.shop.regel_kunden_id = 3, self.regel
+        self.shop.save()
+        self.a.vk3 = D("80")
+        self.a.save()
+
+    def test_abgleich_sendet_vk1_fuer_gaeste_und_vk3_fuer_angemeldete(self):
+        c = self.client_fuer(A1="p")
+        services.abgleichen(self.shop, c)
+        e = c.gesendet[0]
+        self.assertEqual((e["price"][0]["gross"], e["price"][0]["net"]), (119.0, 100.0))
+        p = e["prices"][0]
+        self.assertEqual((p["ruleId"], p["quantityStart"], p["quantityEnd"]), (self.regel, 1, None))
+        self.assertEqual((p["price"][0]["net"], p["price"][0]["gross"]), (80.0, 95.2))
+        self.assertEqual(ShopArtikel.objects.get().gemeldeter_kundenpreis, D("95.20"))
+
+    def test_nur_aenderungen_und_preisaenderung_wird_gesendet(self):
+        services.abgleichen(self.shop, self.client_fuer(A1="p"))
+        c = self.client_fuer(A1="p")
+        self.assertEqual(services.abgleichen(self.shop, c)["gesendet"], 0)
+        self.a.vk3 = D("90")
+        self.a.save()
+        d = self.client_fuer(A1="p")
+        services.abgleichen(self.shop, d)
+        self.assertEqual(d.gesendet[0]["prices"][0]["price"][0]["net"], 90.0)
+        self.assertEqual(d.gesendet[0]["prices"][0]["id"], services.feste_id(self.shop, "kundenpreis", self.a.pk))
+
+    def test_entfallener_vk3_loescht_den_kundenpreis(self):
+        services.abgleichen(self.shop, self.client_fuer(A1="p"))
+        self.a.vk3 = None
+        self.a.save()
+        c = self.client_fuer(A1="p")
+        services.abgleichen(self.shop, c)
+        self.assertNotIn("prices", c.gesendet[0])
+        self.assertEqual(c.preis_weg, [services.feste_id(self.shop, "kundenpreis", self.a.pk)])
+        self.assertIsNone(ShopArtikel.objects.get().gemeldeter_kundenpreis)
+
+    def test_ohne_einstellung_kein_kundenpreis(self):
+        self.shop.preisstufe_kunden = 0
+        self.shop.save()
+        c = self.client_fuer(A1="p")
+        services.abgleichen(self.shop, c)
+        self.assertNotIn("prices", c.gesendet[0])
+
+    def test_neuer_artikel_bekommt_den_kundenpreis_und_wird_nicht_nochmal_gesendet(self):
+        c = self.client_fuer()
+        services.artikeldaten_senden(self.shop, c)
+        self.assertEqual(c.gesendet[0]["prices"][0]["price"][0]["net"], 80.0)
+        d = self.client_fuer(A1=ShopArtikel.objects.get().produkt_id)
+        self.assertEqual(services.abgleichen(self.shop, d)["gesendet"], 0)
+
+    def test_stufe_ohne_gueltige_regel_wird_abgelehnt(self):
+        for wert in ("", "regel1", "A" * 32):
+            self.shop.regel_kunden_id = wert
+            with self.assertRaises(ValidationError):
+                self.shop.clean()
+
+    def test_fremder_preis_im_shop_bleibt_und_wird_gemeldet(self):
+        c = self.client_fuer(A1="p")
+        c.shop_preise = [{"id": "fremd", "productId": "p"}]
+        erg = services.abgleichen(self.shop, c)
+        self.assertNotIn("prices", c.gesendet[0])
+        self.assertEqual(c.gesendet[0]["price"][0]["gross"], 119.0)  # Standardpreis geht trotzdem raus
+        self.assertEqual(erg["kundenpreis_belegt"], 1)
+        self.assertIsNone(ShopArtikel.objects.get().gemeldeter_kundenpreis)
+        self.assertIn("schon ein Preis mit Regel", SyncProtokoll.objects.filter(art="abgleich").first().meldung)
+
+    def test_eigener_preis_im_shop_zaehlt_nicht_als_fremd(self):
+        services.abgleichen(self.shop, self.client_fuer(A1="p"))
+        self.a.vk3 = D("90")
+        self.a.save()
+        c = self.client_fuer(A1="p")
+        c.shop_preise = [{"id": services.feste_id(self.shop, "kundenpreis", self.a.pk), "productId": "p"}]
+        services.abgleichen(self.shop, c)
+        self.assertIn("prices", c.gesendet[0])
+
+    def test_fehlende_regel_haelt_bestand_und_standardpreis_nicht_auf(self):
+        c = self.client_fuer(A1="p")
+        c.regel_da = False
+        erg = services.abgleichen(self.shop, c)
+        self.assertEqual(erg["gesendet"], 1)
+        self.assertNotIn("prices", c.gesendet[0])
+        self.assertTrue(SyncProtokoll.objects.filter(erfolgreich=False, meldung__contains="gibt es im Shop nicht").exists())
+        d = self.client_fuer()
+        d.regel_da = False
+        Artikel.objects.create(nummer="A2", bezeichnung="x", steuersatz=self.st, vk1=D("1"), vk3=D("1"), online=True)
+        services.artikeldaten_senden(self.shop, d, nummer="A2")
+        self.assertNotIn("prices", d.gesendet[0])
+
+    def test_regelwechsel_wird_gesendet(self):
+        services.abgleichen(self.shop, self.client_fuer(A1="p"))
+        self.shop.regel_kunden_id = "b" * 32
+        self.shop.save()
+        c = self.client_fuer(A1="p")
+        services.abgleichen(self.shop, c)
+        self.assertEqual(c.gesendet[0]["prices"][0]["ruleId"], "b" * 32)
+        self.assertEqual(ShopArtikel.objects.get().gemeldete_regel, "b" * 32)
+
+    def test_neu_angelegtes_produkt_bekommt_den_preis_wieder(self):
+        services.abgleichen(self.shop, self.client_fuer(A1="p"))
+        c = self.client_fuer(A1="neu")
+        services.abgleichen(self.shop, c)
+        self.assertIn("prices", c.gesendet[0])
+
+    def test_fehler_beim_entfernen_wird_beim_naechsten_abgleich_wiederholt(self):
+        services.abgleichen(self.shop, self.client_fuer(A1="p"))
+        self.a.vk3 = None
+        self.a.save()
+        c = self.client_fuer(A1="p")
+        c.kundenpreise_loeschen = mock.Mock(side_effect=ShopFehler("Shop antwortet mit 500"))
+        services.abgleichen(self.shop, c)
+        self.assertIsNotNone(ShopArtikel.objects.get().gemeldeter_kundenpreis)
+        self.assertTrue(SyncProtokoll.objects.filter(erfolgreich=False, meldung__contains="nicht entfernt").exists())
+        d = self.client_fuer(A1="p")
+        services.abgleichen(self.shop, d)
+        self.assertEqual(len(d.preis_weg), 1)
+        self.assertIsNone(ShopArtikel.objects.get().gemeldeter_kundenpreis)
+
+
+class NettoBestellungTest(Basis):
+    def bestellung(self, status, **extra):
+        from .tests import bestellung
+        b = bestellung(produkt="A1", menge=1)
+        b["lineItems"] = [z for z in b["lineItems"] if z["type"] == "product"]
+        b["lineItems"][0]["unitPrice"] = 80.0
+        b["deliveries"][0]["shippingCosts"]["totalPrice"] = 5.0
+        b.update(taxStatus=status, **extra)
+        return b
+
+    def test_netto_kunde_wird_nicht_nochmal_heruntergerechnet(self):
+        b = self.bestellung("net", amountTotal=101.15)
+        beleg = services.bestellung_importieren(self.shop, b).beleg
+        self.assertEqual(beleg.positionen.get().einzelpreis, D("80.00"))
+        self.assertEqual(beleg.versandkosten, D("5.00"))
+        self.assertEqual(beleg.summe_brutto, D("101.15"))
+        self.assertEqual(ShopBestellung.objects.get().hinweis.count("weicht"), 0)
+
+    def test_brutto_kunde_bleibt_wie_bisher(self):
+        beleg = services.bestellung_importieren(self.shop, self.bestellung("gross", amountTotal=85.0)).beleg
+        self.assertEqual(beleg.positionen.get().einzelpreis, D("67.23"))
+
+    def test_steuerfrei_ohne_steuer(self):
+        beleg = services.bestellung_importieren(self.shop, self.bestellung("tax-free", amountTotal=85.0)).beleg
+        p = beleg.positionen.get()
+        self.assertEqual((p.einzelpreis, p.steuer_prozent), (D("80.00"), D("0")))
 
 
 class OfflineTest(Basis):

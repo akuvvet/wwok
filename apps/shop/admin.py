@@ -13,7 +13,7 @@ class ShopAdmin(admin.ModelAdmin):
     fieldsets = [
         ("Shop", {"fields": ["name", "mandant", "url", "aktiv"]}),
         ("Zugang", {"fields": ["client_id", "geheimnis"]}),
-        ("Abgleich", {"fields": ["bestand_puffer", "preisstufe", "artikeldaten_takt", "verkaufskanal_id", "senden"]}),
+        ("Abgleich", {"fields": ["bestand_puffer", "preisstufe", "preisstufe_kunden", "regel_kunden_id", "artikeldaten_takt", "verkaufskanal_id", "senden"]}),
         ("Bestellungen", {"fields": ["standard_zahlungsbedingung", "zahlungszuordnung"]}),
     ]
 
