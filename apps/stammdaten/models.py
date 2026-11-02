@@ -7,6 +7,7 @@ Ansprechpartner, letzter EK.
 """
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -604,3 +605,65 @@ class Preislistenartikel(models.Model):
     def nummer(self) -> str:
         """Nummer für die Anzeige: MSKU, sonst Bestellnummer des Lieferanten."""
         return self.herstellernummer or self.bestellnummer
+
+
+# ---------------------------------------------------------------------------
+# USt-ID-Prüfung
+# ---------------------------------------------------------------------------
+
+class UstIdPruefung(models.Model):
+    """Nachweis einer Online-Prüfung mit den tatsächlich gesendeten Daten; bleibt erhalten, auch wenn Kunde oder Lieferant gelöscht wird."""
+
+    ABGLEICH = {"A": "stimmt", "B": "weicht ab", "C": "nicht angefragt", "D": "vom EU-Land nicht mitgeteilt"}
+
+    class Dienst(models.TextChoices):
+        BZST = "bzst", "BZSt"
+        VIES = "vies", "VIES"
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT)
+    kunde = models.ForeignKey(Kunde, on_delete=models.SET_NULL, null=True, blank=True, related_name="ust_pruefungen")
+    lieferant = models.ForeignKey(Lieferant, on_delete=models.SET_NULL, null=True, blank=True, related_name="ust_pruefungen")
+    zeitpunkt = models.DateTimeField("geprüft am", auto_now_add=True, db_index=True)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    ust_id = models.CharField("USt-ID", max_length=20)
+    anfragende_ust_id = models.CharField("eigene USt-ID", max_length=20, blank=True)
+    firmenname = models.CharField("angefragter Name", max_length=150, blank=True)
+    strasse = models.CharField("angefragte Straße", max_length=200, blank=True)
+    plz = models.CharField("angefragte PLZ", max_length=10, blank=True)
+    ort = models.CharField("angefragter Ort", max_length=100, blank=True)
+    dienst = models.CharField("Dienst", max_length=4, choices=Dienst.choices)
+    gueltig = models.BooleanField("gültig")
+    status = models.CharField("Status des Dienstes", max_length=20)
+    meldung = models.CharField("Meldung", max_length=200)
+    referenz = models.CharField("Abfragenummer", max_length=100, blank=True)
+    erg_name = models.CharField("Name", max_length=1, blank=True)
+    erg_strasse = models.CharField("Straße", max_length=1, blank=True)
+    erg_plz = models.CharField("PLZ", max_length=1, blank=True)
+    erg_ort = models.CharField("Ort", max_length=1, blank=True)
+    auskunft = models.TextField("Auskunft des Dienstes", blank=True)
+
+    class Meta:
+        verbose_name = "USt-ID-Prüfung"
+        verbose_name_plural = "USt-ID-Prüfungen"
+        ordering = ["-zeitpunkt", "-pk"]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise PermissionError("Der Nachweis einer USt-ID-Prüfung ist unveränderlich.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionError("Der Nachweis einer USt-ID-Prüfung ist unveränderlich.")
+
+    def __str__(self):
+        return f"{self.ust_id} – {'gültig' if self.gueltig else 'nicht gültig'}"
+
+    @property
+    def abgleich(self) -> list:
+        """Vergleich der angefragten Daten als Text, nur bei der qualifizierten Abfrage."""
+        felder = (("Name", self.erg_name), ("Straße", self.erg_strasse), ("PLZ", self.erg_plz), ("Ort", self.erg_ort))
+        return [f"{name}: {self.ABGLEICH.get(wert, wert)}" for name, wert in felder if wert and wert != "C"]
+
+    @property
+    def abweichung(self) -> bool:
+        return "B" in (self.erg_name, self.erg_strasse, self.erg_plz, self.erg_ort)

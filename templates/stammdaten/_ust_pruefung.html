@@ -1,0 +1,10 @@
+{% comment %}Online-Prüfung der USt-ID im Reiter Steuer & Bank; das Datum im Feld darüber setzt die Prüfung, „Speichern“ hält es fest{% endcomment %}
+<div style="grid-column:1/-1">
+  {% if ust_url %}
+  <button type="button" class="leise" data-ustpruefen="{{ ust_url }}">USt-ID online prüfen</button>
+  <div data-ustergebnis role="status" style="margin-top:8px" hidden></div>
+  {% for p in ust_pruefungen %}<p class="fein" style="margin:6px 0 0">{{ p.zeitpunkt|date:"d.m.Y H:i" }} · {{ p.ust_id }} · {{ p.get_dienst_display }} · {% if p.gueltig %}gültig{% else %}nicht gültig{% endif %}{% for a in p.abgleich %} · {{ a }}{% endfor %}{% if p.benutzer %} · {{ p.benutzer }}{% endif %}</p>{% endfor %}
+  {% else %}
+  <small class="fein">Die Online-Prüfung steht nach dem ersten Speichern bereit.</small>
+  {% endif %}
+</div>

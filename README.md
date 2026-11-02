@@ -851,7 +851,8 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Rechte: Admin (is_staff/Superuser) und Mitarbeiter; Storno, Lastschrift aufheben und Preislisten-Einrichtung nur Admin
 - [x] Artikelmaske mit Registerkarten (Lager → „+ Neuer Artikel“), neue Artikelfelder, Artikelansicht mit bestellt/letztem Wareneingang/Lieferanten
 - [x] Alle Belege (kundenübergreifende Liste), Versandarten-Stammtabelle mit Standardkosten, Wiedervorlage mit Startseiten-Übersicht, Belegkopf (Bearbeiter, Bezugnahme, Liefertermin, Angebot gültig bis)
-- [ ] Deutsche Post, eBay, Kaufland, Newsletter mit Double-Opt-in, USt-ID-Prüfung, Kategorien-Sync mit Shopware
+- [x] USt-ID online prüfen bei Kunden und Lieferanten (BZSt und VIES) mit dauerhaftem Nachweis
+- [ ] Deutsche Post, eBay, Kaufland, Newsletter mit Double-Opt-in, Kategorien-Sync mit Shopware
 - [ ] Auswertungen (Umsatz, Marge, Topseller) und Startseiten-Übersicht mit Wiedervorlagen und fälligen Mahnungen
 
 **Einrichtung**
@@ -874,7 +875,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 4. **Ausgehende E-Rechnung** (ZUGFeRD/XRechnung) vor 2027
 5. Startseite mit Wiedervorlagen, fälligen Mahnungen und **Auswertungen**
 6. Proforma-Rechnung, Nachlieferschein, wiederkehrende Rechnungen
-7. Versand (DHL, Deutsche Post), danach eBay, Kaufland, Newsletter, USt-ID-Prüfung
+7. Versand (DHL, Deutsche Post), danach eBay, Kaufland, Newsletter
 8. Backup und Wiederherstellung einmal real durchspielen
 
 ## 17. Regeln für das Repository
@@ -919,6 +920,7 @@ Diese Regeln sind mit dem Nutzer abgestimmt und im Code umgesetzt. Änderungen n
 | Gutschrift | entsteht nur aus einer abgeschlossenen Rechnung (Mehr → „Storno / Gutschrift“), nicht frei und nicht per Kopieren |
 | Beleg kopieren | jeder Beleg lässt sich als beliebige Belegart (außer Gutschrift) kopieren; beim Angebot wird gefragt, ob es danach abgeschlossen werden soll |
 | Belegrabatt | Prozent je Beleg, wirkt auf alle Positionen netto vor der Steuer (je Steuersatz auf Cent gerundet); Versand, Verpackung und Versicherung bleiben unberührt. Wird in Folgebelege, Gutschrift, PDF, ZUGFeRD und DATEV übernommen; Sammelrechnung nur bei gleichem Rabatt |
+| USt-ID-Prüfung | Reiter „Steuer & Bank“ bei Kunde und Lieferant, ab dem ersten Speichern. Ausländische EU-Nummern prüft das BZSt mit Name (Name 1 und 2), Ort, Straße und PLZ; dafür braucht der Mandant seine deutsche USt-ID. Deutsche Nummern prüft VIES, nur die Gültigkeit. Nummern außerhalb der EU sind nicht prüfbar. Ein Ergebnis trägt das Datum in die Maske ein (ungültig: leert es), festgehalten erst mit „Speichern“; das Ändern der Nummer leert das Datum. Weicht Name oder Anschrift ab, bleibt die Nummer gültig und das Programm warnt. Jede Antwort mit Aussage bleibt als unveränderlicher Nachweis erhalten (Verwaltung → USt-ID-Prüfungen, je Mandant), Störungen nicht |
 | Lieferantenrechnung löschen | Nur offene Rechnungen, mit Pflichtnotiz. Die Zuordnung zum Wareneingang entfällt, der Wareneingang lässt sich neu verknüpfen, Lager und EK bleiben unverändert. Die Rechnungsnummer ist wieder frei. Notiz und Benutzer stehen im Änderungsprotokoll. Bezahlte Rechnungen erst nach dem Zahlungsstorno (Admin), exportierte (SEPA) nicht; ist eine exportierte Zahlung nicht ausgeführt worden, führt der Weg über Als bezahlt buchen und Zahlungsstorno |
 | Lieferantenrechnung | Weicht das Netto vom Wareneingang um mehr als 1 Cent ab, wird es gemeldet; Zahlung und SEPA-Export sind gesperrt, bis die Beträge korrigiert oder die Abweichung mit Begründung bestätigt ist (Verlauf mit Benutzer und Zeit; ändert sich die Differenz, muss neu bestätigt werden). Dazu ein Notizfeld |
 | Menü | Verkauf, Einkauf, Artikel (früher „Lager“), Werkstatt, Finanzen |

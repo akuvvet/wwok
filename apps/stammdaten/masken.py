@@ -7,11 +7,14 @@ from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
+from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from apps.verkauf.views import dezimal, mit_mandant
 
 from . import forms as f
-from .models import Artikel, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant, Lieferant, LieferantMandant
+from . import ustid
+from .models import Artikel, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant, Lieferant, LieferantMandant, UstIdPruefung
 from .preise import komponenten_zeile
 
 
@@ -170,7 +173,9 @@ def bearbeiten(request, art: str, pk=None):
              else f"Neuer {'Kunde' if kunde else 'Lieferant'}")
     antwort = render(request, "stammdaten/modal.html", {
         "titel": titel, "tabs": baue_tabs(art, form, formsets, mandantform), "form": form, "neu": not pk, "warnung": warnung,
-        "aktion": request.path, "kunde": kunde, "mandant": mandant})
+        "aktion": request.path, "kunde": kunde, "mandant": mandant,
+        "ust_url": reverse(f"stammdaten:{art}_ust_id_pruefen", args=[pk]) if pk else None,
+        "ust_pruefungen": UstIdPruefung.objects.filter(mandant=mandant, **{art: instanz}).select_related("benutzer")[:5] if pk else []})
     antwort.status_code = status
     return antwort
 
@@ -183,6 +188,34 @@ def kunde_bearbeiten(request, pk=None):
 @mit_mandant
 def lieferant_bearbeiten(request, pk=None):
     return bearbeiten(request, "lieferant", pk)
+
+
+def ust_id_pruefen(request, art: str, pk):
+    """Prüft die Eingaben der offenen Maske. Das Datum setzt erst „Speichern“, der Nachweis entsteht sofort, auch bei ungültiger Nummer."""
+    partner = get_object_or_404(Kunde if art == "kunde" else Lieferant, pk=pk)
+    p = request.POST
+    name = f"{p.get('name1', '').strip()} {p.get('name2', '').strip()}".strip()  # lange Firmennamen stehen oft auf zwei Zeilen
+    try:
+        ergebnis = ustid.pruefen(request.mandant, p.get("ust_id"), p.get("land") or partner.land, firmenname=name[:150],
+                                 strasse=p.get("strasse", "").strip()[:200], plz=p.get("plz", "").strip()[:10], ort=p.get("ort", "").strip()[:100])
+    except ustid.UstIdFehler as fehler:
+        return JsonResponse({"ok": False, "text": str(fehler)})
+    pruefung = UstIdPruefung.objects.create(mandant=request.mandant, benutzer=request.user, **{art: partner}, **ergebnis)
+    return JsonResponse({"ok": True, "gueltig": pruefung.gueltig, "ust_id": pruefung.ust_id, "text": pruefung.meldung, "abgleich": pruefung.abgleich,
+                         "abweichung": pruefung.abweichung, "datum": timezone.localdate().isoformat()})
+
+
+@mit_mandant
+@require_POST
+def kunde_ust_id_pruefen(request, pk):
+    return ust_id_pruefen(request, "kunde", pk)
+
+
+@mit_mandant
+@require_POST
+def lieferant_ust_id_pruefen(request, pk):
+    return ust_id_pruefen(request, "lieferant", pk)
+
 
 @mit_mandant
 def artikel_bearbeiten(request, pk=None):

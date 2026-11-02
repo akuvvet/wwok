@@ -398,8 +398,28 @@
       marker.type = 'hidden'; marker.name = 'komp_geladen'; marker.value = '1'; bereich.appendChild(marker);
       rechnen();
     }
+    function ustPruefung(knopf) {  // USt-ID online prüfen: das Datum kommt nur in die Maske, „Speichern“ hält es fest
+      var formular = knopf.closest('form'), nummer = formular.elements.ust_id, datum = formular.elements.ust_id_geprueft_am;
+      var ausgabe = formular.querySelector('[data-ustergebnis]'), speichern = formular.querySelector('button[type=submit]');
+      function zeige(text, warnung) { ausgabe.textContent = text; ausgabe.className = warnung ? 'warnung' : ''; ausgabe.hidden = false; }
+      nummer.addEventListener('input', function () { datum.value = ''; ausgabe.hidden = true; });  // das Datum galt der alten Nummer
+      knopf.addEventListener('click', async function () {
+        var daten = new FormData();
+        ['csrfmiddlewaretoken', 'ust_id', 'land', 'name1', 'name2', 'strasse', 'plz', 'ort'].forEach(function (n) { daten.append(n, formular.elements[n].value); });
+        knopf.disabled = true; speichern.disabled = true; nummer.readOnly = true; zeige('Prüfe …', false);
+        try {
+          var r = await fetch(knopf.dataset.ustpruefen, {method: 'POST', body: daten, credentials: 'same-origin', headers: {'X-Requested-With': 'fetch'}});
+          var d = await r.json();
+          if (!d.ok) { zeige(d.text, true); return; }
+          nummer.value = d.ust_id; datum.value = d.gueltig ? d.datum : '';
+          zeige([d.text].concat(d.abgleich).join(' · ') + (d.gueltig ? ' – mit „Speichern“ festhalten.' : ''), !d.gueltig || d.abweichung);
+        } catch (fehlermeldung) { zeige('Prüfung nicht möglich: ' + fehlermeldung, true); }
+        finally { knopf.disabled = false; speichern.disabled = false; nummer.readOnly = false; }
+      });
+    }
     function bereit() {
       dlg.querySelectorAll('[data-modaltab]').forEach(function (b) { b.addEventListener('click', function () { zeigeTab(b.dataset.modaltab); }); });
+      var ustKnopf = dlg.querySelector('[data-ustpruefen]'); if (ustKnopf) ustPruefung(ustKnopf);
       dlg.querySelectorAll('[data-schliessen]').forEach(function (b) { b.addEventListener('click', schliessen); });
       dlg.querySelectorAll('[data-zeile-mehr]').forEach(function (b) {
         b.addEventListener('click', function () {
