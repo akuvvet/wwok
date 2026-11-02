@@ -16,7 +16,7 @@ STANDARD_TEXT = (
     "Bei Fragen melden Sie sich gerne.\n\n"
     "Mit freundlichen Grüßen\n{firma}"
 )
-ARTIKEL = {Belegart.ANGEBOT: "unser Angebot", Belegart.AUFTRAG: "die Auftragsbestätigung",
+ARTIKEL = {Belegart.ANGEBOT: "unser Angebot", Belegart.AUFTRAG: "die Bestellbestätigung",
            Belegart.LIEFERSCHEIN: "den Lieferschein", Belegart.RECHNUNG: "die Rechnung",
            Belegart.GUTSCHRIFT: "die Gutschrift", Belegart.NACHLIEFERSCHEIN: "den Nachlieferschein",
            Belegart.PROFORMA: "die Proforma-Rechnung"}

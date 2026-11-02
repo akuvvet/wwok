@@ -128,7 +128,7 @@ def mahnung_erstellen(beleg, stufe_nr, benutzer=None, heute=None) -> Mahnung:
 @transaction.atomic
 def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, storno_zu=None, storno_grund="") -> Zahlung:
     if beleg.art not in (Belegart.RECHNUNG, Belegart.AUFTRAG) or (beleg.art == Belegart.RECHNUNG and not beleg.abgeschlossen):
-        raise ValueError("Zahlungen können nur auf abgeschlossene Rechnungen oder Aufträge gebucht werden.")
+        raise ValueError("Zahlungen können nur auf abgeschlossene Rechnungen oder Bestellungen gebucht werden.")
     if betrag == 0:
         raise ValueError("Betrag darf nicht 0 sein.")
     zahlung = Zahlung.objects.create(mandant=beleg.mandant, beleg=beleg, betrag=betrag, datum=datum, zahlart=zahlart,

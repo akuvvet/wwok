@@ -23,7 +23,7 @@ class Zahlart(models.TextChoices):
 class Zahlung(models.Model):
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="zahlungen")
     beleg = models.ForeignKey("verkauf.Beleg", on_delete=models.PROTECT, related_name="zahlungen",
-                              help_text="Rechnung (oder Auftrag bei Anzahlung)")
+                              help_text="Rechnung (oder Bestellung bei Anzahlung)")
     datum = models.DateField("Zahlungsdatum", default=timezone.localdate)
     betrag = models.DecimalField("Betrag brutto", max_digits=12, decimal_places=2,
                                  help_text="Negativ = Gegenbuchung/Rückzahlung")

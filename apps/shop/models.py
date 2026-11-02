@@ -1,6 +1,6 @@
 """
 Shop-Anbindung (Pflichtenheft Abschnitt 13): Shopware 6, je Shop einem Mandanten zugeordnet.
-Bestellimport als Auftrag, Bestands- und Preisabgleich (nur verfügbarer Bestand wird gemeldet).
+Bestellimport als Beleg Bestellung, Bestands- und Preisabgleich (nur verfügbarer Bestand wird gemeldet).
 """
 from django.db import models
 from django.utils import timezone

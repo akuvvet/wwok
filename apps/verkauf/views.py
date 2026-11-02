@@ -182,7 +182,7 @@ def beleg_neu(request, kunde_id):
         messages.error(request, "Ein Nachlieferschein entsteht aus einer abgeschlossenen Rechnung: dort unter „Mehr“ → „Kopieren als Nachlieferschein“.")
         return redirect("verkauf:kunde", kunde_id=kunde.pk)
     if art == Belegart.LIEFERSCHEIN:
-        messages.error(request, "Ein Lieferschein entsteht aus einem Auftrag: erst den Auftrag erfassen, "
+        messages.error(request, "Ein Lieferschein entsteht aus einer Bestellung: erst die Bestellung erfassen, "
                                 "dann dort „Als Lieferschein übernehmen“.")
         return redirect("verkauf:kunde", kunde_id=kunde.pk)
     beleg = Beleg.objects.create(
@@ -864,7 +864,7 @@ def abos(request):
 @require_POST
 @sperr_schutz
 def abo_aus_rechnung(request, beleg_id):
-    """Aus einer Rechnung einen wiederkehrenden Auftrag machen: Positionen werden übernommen, die erste Folgerechnung ist am Starttermin.
+    """Aus einer Rechnung eine wiederkehrende Rechnung machen: Positionen werden übernommen, die erste Folgerechnung ist am Starttermin.
     Halbmonatlich schlägt das Programm je Position die Mengenregel aus Zeitraum und Menge vor."""
     from datetime import date
     beleg = beleg_holen(request, beleg_id)

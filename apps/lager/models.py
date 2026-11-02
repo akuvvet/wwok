@@ -2,7 +2,7 @@
 Lager: Bestandsbewegungen pro Mandant (Pflichtenheft Abschnitt 8, Lager).
 
 Der Bestand ist die Summe aller Bewegungen; Bewegungen sind unveränderlich (Historie mit Datum,
-Menge, Grund und Beleg). Reserviert sind Mengen aus Aufträgen, die noch keinen Folgebeleg haben.
+Menge, Grund und Beleg). Reserviert sind Mengen aus Kundenbestellungen, die noch keinen Folgebeleg haben.
 """
 from decimal import Decimal
 
@@ -75,7 +75,7 @@ def bestand(mandant, artikel) -> Decimal:
 
 
 def reserviert(mandant, artikel) -> Decimal:
-    """Menge in Aufträgen ohne Folgebeleg (Lieferschein/Rechnung noch nicht erstellt)."""
+    """Menge in Kundenbestellungen ohne Folgebeleg (Lieferschein/Rechnung noch nicht erstellt)."""
     from apps.verkauf.models import Belegart, Position
     return Position.objects.filter(
         artikel=artikel, beleg__mandant=mandant, beleg__art=Belegart.AUFTRAG, beleg__folgebelege__isnull=True

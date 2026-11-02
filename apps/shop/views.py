@@ -22,7 +22,7 @@ def bestellungen(request, shop_id):
     shop = get_object_or_404(Shop, pk=shop_id, mandant=request.mandant, aktiv=True)
     try:
         erg = services.bestellungen_abrufen(shop)
-        messages.success(request, f"{erg['neu']} neue Bestellung(en) als Auftrag importiert, {erg['bekannt']} waren schon bekannt.")
+        messages.success(request, f"{erg['neu']} neue Bestellung(en) importiert, {erg['bekannt']} waren schon bekannt.")
         for fehler in erg["fehler"]:
             messages.error(request, fehler)
     except ShopFehler as fehler:

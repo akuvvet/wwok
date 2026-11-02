@@ -32,7 +32,7 @@ class Bestellung(Zeitstempel):
     status = models.CharField(max_length=10, choices=BestellStatus.choices, default=BestellStatus.ENTWURF, db_index=True)
     bemerkung = models.TextField("Bemerkung", blank=True)
     aus_beleg = models.ForeignKey("verkauf.Beleg", on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
-                                  help_text="Angebot/Auftrag, aus dem die Bestellung kopiert wurde")
+                                  help_text="Angebot oder Kundenbestellung, aus dem die Lieferantenbestellung kopiert wurde")
 
     class Meta:
         verbose_name = "Lieferantenbestellung"

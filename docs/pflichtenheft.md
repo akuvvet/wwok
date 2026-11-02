@@ -53,7 +53,7 @@ Hinweis: Gemeinsame Nutzung der Kundendaten durch zwei Firmen rechtlich absicher
 5. Werkstatt
 6. Auswertungen
 7. Voreinstellungen
-8. Startseite (fällige Wiedervorlagen, offene Aufträge, fällige Mahnungen)
+8. Startseite (fällige Wiedervorlagen, offene Bestellungen, fällige Mahnungen)
 
 ## 5. Verkaufsabwicklung
 
@@ -66,7 +66,7 @@ Hinweis: Gemeinsame Nutzung der Kundendaten durch zwei Firmen rechtlich absicher
 ### Ablauf nach Kundenauswahl
 
 1. Ansprechpartnerfenster → Ansprechpartner wählen
-2. Belegfenster mit Filter: Alle, Angebote, Aufträge, Lieferscheine, Nachlieferscheine, Rechnungen, Gutschriften, offene Belege; Mehrfachauswahl zum gemeinsamen Senden/Drucken; verlassen per Auswahl, Schließen oder Escape
+2. Belegfenster mit Filter: Alle, Angebote, Bestellungen, Lieferscheine, Nachlieferscheine, Rechnungen, Gutschriften, offene Belege; Mehrfachauswahl zum gemeinsamen Senden/Drucken; verlassen per Auswahl, Schließen oder Escape
 3. Abwicklungsmaske des Kunden
 
 ### Abwicklungsmaske
@@ -105,7 +105,7 @@ Positionsdetails (z. B. Doppelklick): Zusatztext, Seriennummern, Rabatt.
 
 ### Belegfluss
 
-- Angebot → Auftrag/Kundenbestellung → Lieferschein → Rechnung (per Klick)
+- Angebot → Bestellung → Lieferschein → Rechnung (per Klick)
 - Angebot in Lieferantenbestellung kopieren (P-Artikel automatisch dem Lieferanten zugeordnet)
 - Proforma-Rechnung (ohne Buchung)
 - Teillieferung: Geliefertes wird berechnet, Rest bleibt als offene Bestellung verknüpft

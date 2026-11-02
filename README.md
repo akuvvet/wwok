@@ -146,7 +146,7 @@ Hinweis: Die gemeinsame Nutzung der Kundendaten durch zwei Firmen muss rechtlich
 5. Werkstatt
 6. Auswertungen
 7. Voreinstellungen
-8. Startseite (fällige Wiedervorlagen, offene Aufträge, fällige Mahnungen)
+8. Startseite (fällige Wiedervorlagen, offene Bestellungen, fällige Mahnungen)
 
 ### 4.5 Verkaufsabwicklung
 
@@ -161,7 +161,7 @@ Hinweis: Die gemeinsame Nutzung der Kundendaten durch zwei Firmen muss rechtlich
 
 1. **Ansprechpartnerfenster** öffnet sich → Ansprechpartner wählen
 2. **Belegfenster** mit den gespeicherten Belegen des Kunden
-   - Filter: alle, Angebote, Aufträge, Lieferscheine, Nachlieferscheine, Rechnungen, Gutschriften, **offene Belege**
+   - Filter: alle, Angebote, Bestellungen, Lieferscheine, Nachlieferscheine, Rechnungen, Gutschriften, **offene Belege**
    - Mehrfachauswahl, um mehrere Belege gemeinsam zu **senden oder zu drucken**
    - Verlassen per Auswahl, Fenster schließen oder **Escape**
 3. **Abwicklungsmaske** des Kunden
@@ -205,7 +205,7 @@ Positionsdetails (z. B. per Doppelklick): **Zusatztext**, **Seriennummern**, **R
 
 **Belegfluss**
 
-- Angebot → Auftrag/Kundenbestellung → Lieferschein → Rechnung, jeweils **per Klick** übernehmen
+- Angebot → Bestellung → Lieferschein → Rechnung, jeweils **per Klick** übernehmen
 - Angebot in eine **Lieferantenbestellung** kopieren (P-Artikel werden automatisch dem Lieferanten zugeordnet)
 - **Proforma-Rechnung** (ohne Buchung)
 - **Teillieferung:** Geliefertes wird berechnet, der Rest bleibt als offene Kundenbestellung verknüpft
@@ -325,7 +325,7 @@ Die vollständigen Feldlisten stehen in [Abschnitt 5](#5-feldlisten-stammdaten).
 ### 4.16 Auswertungen und Startseite
 
 - Umsatz, Marge, Topseller **pro Mandant und Zeitraum**, Excel-Export
-- Startseite: fällige Wiedervorlagen, offene Aufträge, fällige Mahnungen
+- Startseite: fällige Wiedervorlagen, offene Bestellungen, fällige Mahnungen
 
 ### 4.17 Voreinstellungen
 
@@ -485,7 +485,7 @@ Die Pflege läuft zusätzlich über die Django-Verwaltungsoberfläche unter **`/
 
 | App | Inhalt |
 | --- | --- |
-| `verkauf` | Startseite mit Kundensuche und offenen Belegen; Kundenkarte mit Belegliste (Filter, Seiten); Angebot → Auftrag → Lieferschein → Rechnung per Klick; **Beleg kopieren als …** (beliebige Belegart, Angebot wird auf Wunsch abgeschlossen); Sammelrechnung aus mehreren Lieferscheinen; Gruppen (G) mit Unterpositionen; Teillieferung; Gutschrift/Storno; PDF mit Seriennummern; Mailversand je Mandant mit Protokoll |
+| `verkauf` | Startseite mit Kundensuche und offenen Belegen; Kundenkarte mit Belegliste (Filter, Seiten); Angebot → Bestellung → Lieferschein → Rechnung per Klick; **Beleg kopieren als …** (beliebige Belegart, Angebot wird auf Wunsch abgeschlossen); Sammelrechnung aus mehreren Lieferscheinen; Gruppen (G) mit Unterpositionen; Teillieferung; Gutschrift/Storno; PDF mit Seriennummern; Mailversand je Mandant mit Protokoll |
 | `lager` | Bestand je Mandant, unveränderliche Lagerbewegungen, Reservierung, Inventur, Seriennummern, Retoure; Bestand darf nie unter 0 fallen |
 | `finanzen` | Offene Posten, Zahlungen und Stornos mit Grund, Kontoauszug, Mahnwesen mit PDF/Mail, Bankimport (CAMT.053/CSV), Kassenbuch (gesperrt), DATEV-Export |
 | `einkauf` | Lieferantenbestellungen (Suche über Lieferanten- und eigene Artikel), Wareneingang mit Scan, Lieferantenrechnungen (auch ZUGFeRD/XRechnung), SEPA-Export (pain.001), RMA, Bestellvorschlag, **Preislisten-Import** (FTP/SFTP/URL, Zeitplan, Assistent), Lieferantenliste mit Dialog |
@@ -833,6 +833,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Verkaufsabwicklung: Belegfluss, Gruppen (G), Sammelrechnung, Teillieferung, Kopieren, Gutschrift, PDF, Mailversand
 - [x] Gutschrift: Abfrage und Spalte B (Reparaturbestand, Lagerbestand, keine Ware), Buchung beim Abschließen; Reparaturbestand am Artikel mit Umbuchen und Ausbuchen
 - [x] Leistungsartikel: eigene Kategorien, Kosten als EK, Anlegen und Import (CSV, Excel) in der Verwaltung
+- [x] Belegart Auftrag heißt überall Bestellung (Kundenbestellung im Verkauf); Lieferantenbestellungen im Einkauf und Werkstattaufträge bleiben
 - [x] Positionen aus CSV oder Excel in einen Beleg importieren; wiederkehrende Rechnung halbmonatlich mit Mengen aus dem Kalender (Feiertage NRW)
 - [x] Beleg: Positionsänderungen erst nach „Speichern“ gültig, sonst verwerfbar; Kreditlimit-Warnung in der Kopfkarte unter Netto, auf der Kundenkarte direkt neben dem Kreditlimit
 - [x] Position nachträglich in eine Gruppe verschieben (Position → „bearbeiten“ → Gruppe), auch in eine andere oder heraus; abgelehnt, wenn sich dadurch Belegwert oder Steuer ändern würden (Steuersatz, Rabatt der Gruppe, nicht centgenauer Rabatt, anderer Lieferschein, negativer Gruppenpreis)
@@ -896,11 +897,11 @@ Diese Regeln sind mit dem Nutzer abgestimmt und im Code umgesetzt. Änderungen n
 | Rechnung aus Lieferschein | erst nach **abgeschlossenem** Lieferschein (der bucht das Lager ab) |
 | Teillieferung | bei mehreren Positionen und teilweisem Bestand: Rückfrage; lieferbare Positionen werden als eigener Beleg abgeschlossen, der Rest bleibt unverändert als Entwurf. Versandkosten laufen mit der Teillieferung |
 | Beleg ohne Position | kann nicht abgeschlossen, versendet oder weitergeführt werden |
-| Löschen | Angebot, Auftrag und noch nicht nummerierte Rechnungs-/Gutschriftentwürfe dürfen gelöscht werden, sofern keine Folgebelege, Mails, Zahlungen oder Lagerbuchungen daran hängen; Lieferscheine und abgeschlossene Rechnungen nicht |
+| Löschen | Angebot, Bestellung und noch nicht nummerierte Rechnungs-/Gutschriftentwürfe dürfen gelöscht werden, sofern keine Folgebelege, Mails, Zahlungen oder Lagerbuchungen daran hängen; Lieferscheine und abgeschlossene Rechnungen nicht |
 | Sammelrechnung | die Auswahl „Ausgewählte Lieferscheine in Rechnung umwandeln“ erscheint nur bei **mindestens zwei** offenen Lieferscheinen; das Lieferscheindatum steht bei der Position |
 | ESD-Keys | nur für Artikel der Kategorie **Software** |
 | Positionsänderungen | Hinzufügen, Ändern und Löschen von Positionen sind vorläufig, bis „Speichern“ sie übernimmt; „Verwerfen“ stellt den gespeicherten Stand wieder her. Beim Verlassen des Belegs fragt ein Modal, Abschließen und Weiterführen übernehmen die Änderungen. Solange Änderungen offen sind, sperrt das Programm Mailversand, Versandlabel, Lieferantenbestellung, Seriennummern und ESD-Keys. Nach 8 Stunden ohne Änderung werden offene Änderungen verworfen; bei einem neuen Beleg ohne gespeicherten Stand bleiben die Positionen stehen |
-| Positionsimport | Angebot, Auftrag, Rechnung und Proforma: „Positionen aus Datei importieren“ (CSV, XLS, XLSX bis 5 MB, höchstens 1000 Zeilen). Pflicht sind die Überschriften nummer und menge, dazu benennung, netto, gesamtnetto, Zusatz_pos, Kennzeichen, Rabatt; die Spalte pos zählt nicht. Der Preis kommt aus der Zeile, ohne netto gilt der Kundenpreis; dieselbe Nummer darf mit mehreren Preisen vorkommen. Die Nummer muss angelegt und aktiv sein, keine Gruppe. gesamtnetto wird geprüft. Alles oder nichts; die Positionen werden angehängt und gelten wie jede Positionsänderung erst nach dem Speichern |
+| Positionsimport | Angebot, Bestellung, Rechnung und Proforma: „Positionen aus Datei importieren“ (CSV, XLS, XLSX bis 5 MB, höchstens 1000 Zeilen). Pflicht sind die Überschriften nummer und menge, dazu benennung, netto, gesamtnetto, Zusatz_pos, Kennzeichen, Rabatt; die Spalte pos zählt nicht. Der Preis kommt aus der Zeile, ohne netto gilt der Kundenpreis; dieselbe Nummer darf mit mehreren Preisen vorkommen. Die Nummer muss angelegt und aktiv sein, keine Gruppe. gesamtnetto wird geprüft. Alles oder nichts; die Positionen werden angehängt und gelten wie jede Positionsänderung erst nach dem Speichern |
 | Halbmonatliche Rechnung | Rhythmus der wiederkehrenden Rechnung: Entwurf am 15. für den 1.–15. und am Monatsletzten für den 16.–Monatsende, Zeitraum als Zusatztext je Position. Mengenregel je Position: feste Menge, Wochentage (Mo–Fr ohne Feiertag), Wochenende und Feiertage, alle Kalendertage. Feiertage sind die gesetzlichen in NRW, ein Feiertag am Wochenende zählt einmal. „Nur am Monatsende“ rechnet über den ganzen Monat. Das Belegdatum liegt nie vor dem Stichtag, ein versäumter Termin rechnet seinen Zeitraum ab. Das Ende muss ein Stichtag sein, mit Positionen „nur am Monatsende“ ein Monatsletzter. Einrichten aus einer Rechnung (auch Entwurf): Das Programm schlägt die Regeln aus Zeitraum im Zusatztext und Menge vor, Monatszeitraum mit fremder Menge wird „feste Menge, nur am Monatsende“; Preise und Regeln pflegt man in der Verwaltung. Nicht aus Rechnungen mit Preislistenartikeln oder Gruppen mit Lagerartikeln |
 | Positionsnummern | lückenlos 1, 2, 3 …, nach Löschen automatisch neu vergeben; Gruppen-Unterpositionen tragen die Nummer ihrer Gruppe |
 | Gruppe (Typ G) | Komponenten pflegt man in der Artikelmaske (Reiter „Komponenten“, auch beim Neuanlegen): Lagerartikel und Leistungen, keine Gruppen. EK der Gruppe = Summe der Komponenten, Leistungen zählen mit ihren Kosten, ohne Kosten mit 0 €; Marge in % vom VK. Im Reiter lässt sich der Gruppenpreis oder pauschal ein Aufschlag auf den EK setzen und in VK1–VK3 übernehmen. Die Artikelseite zeigt Komponenten mit EK, VK, Marge und den Gruppenpreis. Eine Position kommt nur in eine Gruppe mit demselben Steuersatz, denn versteuert wird der Gruppenkopf |

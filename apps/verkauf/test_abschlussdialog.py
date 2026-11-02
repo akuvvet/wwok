@@ -74,7 +74,7 @@ class AbschlussDialogTest(TestCase):
         b = self.beleg()
         r = self.client.get(reverse("verkauf:beleg", args=[b.pk]))
         self.assertContains(r, 'class="untermehr"')
-        self.assertContains(r, 'name="art" value="AB">Auftrag</button>')
+        self.assertContains(r, 'name="art" value="AB">Bestellung</button>')
         self.assertNotContains(r, 'aria-label="Kopieren als"')
         r = self.client.post(reverse("verkauf:beleg_kopieren", args=[b.pk]), {"art": "AB", "urbeleg_abschliessen": "1"})
         self.assertEqual(r.status_code, 302)

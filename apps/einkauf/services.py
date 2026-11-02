@@ -96,7 +96,7 @@ def guenstigster_lieferant(artikel):
 
 @transaction.atomic
 def bestellungen_aus_beleg(beleg) -> list:
-    """Angebot/Auftrag in Lieferantenbestellungen kopieren: je Lieferant eine Bestellung (günstigster Lieferant)."""
+    """Angebot oder Kundenbestellung in Lieferantenbestellungen kopieren: je Lieferant eine Bestellung (günstigster Lieferant)."""
     je_lieferant = defaultdict(list)
     ohne = []
     for p in beleg.positionen.select_related("artikel", "preisliste_artikel__lieferant"):

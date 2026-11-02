@@ -80,7 +80,7 @@ class ShopTest(TestCase):
         self.assertEqual(kunde.ansprechpartner.get().nachname, "Muster")
         self.assertIn("Solingen", b.rechnungsanschrift)
         self.assertIn("Kundenkommentar", b.bemerkung)
-        self.assertEqual(fin.bezahlt(b), Decimal("242.80"))  # PayPal bereits bezahlt → Anzahlung auf den Auftrag
+        self.assertEqual(fin.bezahlt(b), Decimal("242.80"))  # PayPal bereits bezahlt → Anzahlung auf die Bestellung
         self.assertEqual(ShopBestellung.objects.get().hinweis, "Neukunde 40001 angelegt")
         self.assertIsNotNone(Shop.objects.get().letzter_bestellimport)
 
@@ -121,7 +121,7 @@ class ShopTest(TestCase):
         self.assertEqual((eintrag["price"][0]["gross"], eintrag["price"][0]["net"]), (119.0, 100.0))
         zweiter = FakeClient(self.shop, produkte={"WIN11": "prod-1"})
         self.assertEqual(services.abgleichen(self.shop, zweiter)["gesendet"], 0)  # nichts geändert
-        # Reservierung durch einen Auftrag senkt den gemeldeten Bestand
+        # Reservierung durch eine Bestellung senkt den gemeldeten Bestand
         kunde = Kunde.objects.create(nummer="1", name1="K")
         from apps.verkauf.models import Position
         ab = Beleg.objects.create(mandant=self.m, art=Belegart.AUFTRAG, kunde=kunde)

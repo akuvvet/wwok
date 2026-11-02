@@ -3,7 +3,7 @@
 {% block inhalt %}
 <div class="karte">
   <h1>Shops · Mandant {{ request.mandant }}</h1>
-  <p style="opacity:.8">Shops legst du unter <a href="/verwaltung/shop/shop/">Verwaltung → Shops</a> an. Online-Artikel (Häkchen „online“) werden mit verfügbarem Bestand und Preis an den Shop gemeldet; Bestellungen kommen als Auftrag ins System.</p>
+  <p style="opacity:.8">Shops legst du unter <a href="/verwaltung/shop/shop/">Verwaltung → Shops</a> an. Online-Artikel (Häkchen „online“) werden mit verfügbarem Bestand und Preis an den Shop gemeldet; Online-Bestellungen kommen als Beleg Bestellung ins System.</p>
   {% for s in shops %}
   <div class="karte" style="background:var(--grund)">
     <h2>{{ s.name }} {% if not s.aktiv %}<span class="marke">inaktiv</span>{% endif %}</h2>
@@ -22,7 +22,7 @@
 <div class="karte">
   <h2>Zuletzt importierte Bestellungen</h2>
   <table>
-    <tr><th>Importiert</th><th>Shop</th><th>Bestellung</th><th>Auftrag</th><th>Kunde</th><th>Hinweis</th></tr>
+    <tr><th>Importiert</th><th>Shop</th><th>Shop-Nummer</th><th>Bestellung</th><th>Kunde</th><th>Hinweis</th></tr>
     {% for b in bestellungen %}<tr><td>{{ b.importiert_am|date:"d.m.Y H:i" }}</td><td>{{ b.shop.name }}</td><td>{{ b.bestellnummer }}</td>
       <td>{% if b.beleg %}<a href="{% url 'verkauf:beleg' b.beleg.pk %}">{{ b.beleg }}</a>{% endif %}</td><td>{{ b.beleg.kunde.name1 }}</td><td>{{ b.hinweis }}</td></tr>
     {% empty %}<tr><td colspan="6">Noch keine Bestellungen importiert.</td></tr>{% endfor %}

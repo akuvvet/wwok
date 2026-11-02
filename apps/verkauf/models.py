@@ -1,5 +1,5 @@
 """
-Verkauf: Belege (Angebot -> Auftrag -> Lieferschein -> Rechnung, Gutschrift) - Pflichtenheft Abschnitt 5.
+Verkauf: Belege (Angebot -> Bestellung -> Lieferschein -> Rechnung, Gutschrift) - Pflichtenheft Abschnitt 5.
 
 Belege und Nummernkreise sind pro Mandant getrennt. Abgeschlossene Rechnungen und
 Gutschriften sind gesperrt (GoBD); Korrektur nur per Storno/Gutschrift.
@@ -35,7 +35,7 @@ def runden(wert: Decimal) -> Decimal:
 
 class Belegart(models.TextChoices):
     ANGEBOT = "AN", "Angebot"
-    AUFTRAG = "AB", "Auftrag"
+    AUFTRAG = "AB", "Bestellung"
     LIEFERSCHEIN = "LS", "Lieferschein"
     RECHNUNG = "RE", "Rechnung"
     NACHLIEFERSCHEIN = "NL", "Nachlieferschein"
@@ -141,7 +141,7 @@ class Beleg(Zeitstempel):
     rabatt_prozent = models.DecimalField("Belegrabatt %", max_digits=5, decimal_places=2, default=Decimal("0"),
                                          help_text="Wirkt auf alle Positionen (netto, vor der Steuer); Versand, Verpackung und Versicherung bleiben unberührt.")
     bezugnahme = models.CharField("Bezugnahme", max_length=60, blank=True,
-                                  help_text="Wie kam der Auftrag zustande? z. B. telefonisch, schriftlich, E-Mail, eBay, Shop.")
+                                  help_text="Wie kam die Bestellung zustande? z. B. telefonisch, schriftlich, E-Mail, eBay, Shop.")
     bearbeiter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="+", verbose_name="Bearbeiter")
     gueltig_bis = models.DateField("Angebot gültig bis", null=True, blank=True)
@@ -196,12 +196,12 @@ class Beleg(Zeitstempel):
 
     def loeschhindernis(self):
         """Grund, warum der Beleg nicht gelöscht werden darf (None = löschbar).
-        Löschbar sind Angebote, Kundenbestellungen (Aufträge, auch nach dem Übernehmen in einen Folgebeleg) und noch nicht
+        Löschbar sind Angebote, Bestellungen (auch nach dem Übernehmen in einen Folgebeleg) und noch nicht
         nummerierte Rechnungs-/Gutschriftentwürfe."""
         if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG, Belegart.PROFORMA) and not (
                 self.art in GESPERRT_NACH_ABSCHLUSS and not self.abgeschlossen and not self.nummer):
             return f"{self.get_art_display()} kann nicht gelöscht werden – Korrektur nur per Storno/Gutschrift."
-        if self.rechnungen.exists():  # nur bei Lieferscheinen möglich; Angebote/Aufträge dürfen nach dem Übernehmen gelöscht werden
+        if self.rechnungen.exists():  # nur bei Lieferscheinen möglich; Angebote/Bestellungen dürfen nach dem Übernehmen gelöscht werden
             return "Der Beleg wird in einer Rechnung abgerechnet – bitte zuerst diese entfernen."
         if self.mails.exists():
             return "Der Beleg wurde per E-Mail versendet; der Versandnachweis muss erhalten bleiben."
@@ -214,12 +214,12 @@ class Beleg(Zeitstempel):
         return None
 
     def p_positionen(self):
-        """Positionen mit Preislistenartikel (Typ P) ohne eigenen Artikel: in Auftrag, Lieferschein und Rechnung gelten sie nur als Angebot."""
+        """Positionen mit Preislistenartikel (Typ P) ohne eigenen Artikel: in Bestellung, Lieferschein und Rechnung gelten sie nur als Angebot."""
         return self.positionen.filter(preisliste_artikel__isnull=False, artikel__isnull=True)
 
     @property
     def p_hinweis(self) -> str:
-        """Text, solange Auftrag/Lieferschein/Rechnung noch Preislistenartikel (P) enthält; leer = in Ordnung."""
+        """Text, solange Bestellung/Lieferschein/Rechnung noch Preislistenartikel (P) enthält; leer = in Ordnung."""
         if self.art not in (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) or self.gesperrt:
             return ""
         if self.art != Belegart.AUFTRAG and self.abgeschlossen:
@@ -619,7 +619,7 @@ class Beleg(Zeitstempel):
         if art not in Belegart.values or art == Belegart.GUTSCHRIFT:
             raise ValueError("Diese Belegart kann nicht als Kopie angelegt werden.")
         if art == Belegart.LIEFERSCHEIN and self.art != Belegart.AUFTRAG:
-            raise ValueError("Ein Lieferschein entsteht nur aus einem Auftrag.")
+            raise ValueError("Ein Lieferschein entsteht nur aus einer Bestellung.")
         if art == Belegart.NACHLIEFERSCHEIN and (self.art != Belegart.RECHNUNG or not self.abgeschlossen):
             raise ValueError("Ein Nachlieferschein entsteht nur aus einer abgeschlossenen Rechnung.")
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abgeschlossen:

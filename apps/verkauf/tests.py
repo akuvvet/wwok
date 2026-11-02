@@ -403,7 +403,7 @@ class LieferscheinNurAusAuftragTest(TestCase):
         self.assertFalse(Beleg.objects.filter(art=Belegart.LIEFERSCHEIN).exists())
         angebot = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
         Position.objects.create(beleg=angebot, bezeichnung="X", menge=1, einzelpreis=Decimal("1"))
-        with self.assertRaisesMessage(ValueError, "nur aus einem Auftrag"):
+        with self.assertRaisesMessage(ValueError, "nur aus einer Bestellung"):
             angebot.kopieren_als("LS")
         auftrag = angebot.folgebeleg_erzeugen()
         self.assertEqual(auftrag.art, Belegart.AUFTRAG)

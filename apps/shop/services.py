@@ -99,7 +99,7 @@ def zahlart_von(name: str) -> str:
 
 @transaction.atomic
 def bestellung_importieren(shop, b: dict):
-    """Eine Shopware-Bestellung als Auftrag anlegen; Rückgabe: ShopBestellung."""
+    """Eine Shopware-Bestellung als Beleg Bestellung anlegen; Rückgabe: ShopBestellung."""
     extern_id, nummer = b["id"], str(b.get("orderNumber", ""))
     if ShopBestellung.objects.filter(shop=shop, shop_id_extern=extern_id).exists():
         return None
@@ -145,7 +145,7 @@ def bestellung_importieren(shop, b: dict):
     if abs(beleg.summe_brutto - dez(b.get("amountTotal"))) > Decimal("0.05"):
         hinweise.append(f"Summe ERP {beleg.summe_brutto} € weicht vom Shop ({dez(b.get('amountTotal'))} €) ab")
     status = g((b.get("transactions") or [{}])[0], "stateMachineState", "technicalName")
-    if status == "paid":  # bereits bezahlt (z. B. PayPal) → Anzahlung auf den Auftrag
+    if status == "paid":  # bereits bezahlt (z. B. PayPal) → Anzahlung auf die Bestellung
         zahlung_buchen(beleg, dez(b.get("amountTotal")), beleg.belegdatum, zahlart_von(zahlart_name or ""),
                        f"Shop {nummer}: {zahlart_name}"[:200])
     return ShopBestellung.objects.create(shop=shop, shop_id_extern=extern_id, bestellnummer=nummer, beleg=beleg,
