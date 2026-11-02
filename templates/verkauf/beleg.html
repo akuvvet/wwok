@@ -6,6 +6,7 @@
 <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}" data-escape style="display:none">zurück</a>
 {% if beleg.p_hinweis %}<div class="warnung">{{ beleg.p_hinweis }}</div>{% endif %}
 
+<div class="belegkopf">
 <div class="karte kopfkarte">
   <div>
     <h1>{{ beleg.get_art_display }} {{ beleg.nummer|default:"(Entwurf)" }}</h1>
@@ -84,11 +85,12 @@
   <button type="button" class="tab" data-tab="versand">Versand &amp; Zahlung</button>
   <button type="button" class="tab" data-tab="texte">Texte &amp; Notizen</button>
 </div>
+</div>
 
 <div class="karte tabinhalt" id="tab-positionen">
-  <table>
-    <tr><th>Pos.</th><th>Artikel / Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">Preis</th><th class="zahl">Rabatt</th><th class="zahl">Netto</th>{% if beleg.art == 'GS' %}<th title="Bestand: R = Reparaturbestand, B = Lagerbestand, – = keine Ware zurück">B</th>{% endif %}<th></th></tr>
-    {% for p in positionen %}
+  <div class="scroll" id="positionsliste"><table>
+    <thead><tr><th>Pos.</th><th>Artikel / Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">Preis</th><th class="zahl">Rabatt</th><th class="zahl">Netto</th>{% if beleg.art == 'GS' %}<th title="Bestand: R = Reparaturbestand, B = Lagerbestand, – = keine Ware zurück">B</th>{% endif %}<th></th></tr></thead>
+    <tbody>{% for p in positionen %}
     <tr data-ekstk="{% with ek=p.ek_stueck %}{% if ek is not None %}{{ ek|unlocalize }}{% endif %}{% endwith %}" data-preis="{{ p.einzelpreis|unlocalize }}" data-sub="{{ p.gruppe_id|default_if_none:'' }}"{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}>
       <td>{{ p.pos }}</td>
       <td>
@@ -125,8 +127,8 @@
       {% if beleg.art == 'GS' %}<td>{% if p.artikel and p.artikel.typ == 'A' %}{% if beleg.positionen_gesperrt %}<span title="{{ p.get_ruecknahme_display }}">{% if p.ruecknahme == 'K' %}–{% else %}{{ p.ruecknahme }}{% endif %}</span>{% else %}<form method="post" action="{% url 'verkauf:position_ruecknahme' beleg.pk p.pk %}">{% csrf_token %}<button class="leise" type="submit" title="{{ p.get_ruecknahme_display|default:'Noch nicht gewählt' }} – klicken zum Wechseln">{% if p.ruecknahme == 'K' %}–{% else %}{{ p.ruecknahme|default:"?" }}{% endif %}</button></form>{% endif %}{% endif %}</td>{% endif %}
       <td>{% if not beleg.positionen_gesperrt %}<form method="post" action="{% url 'verkauf:position_loeschen' beleg.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit" title="Position löschen">×</button></form>{% endif %}</td>
     </tr>
-    {% empty %}<tr><td colspan="8" style="padding:20px;text-align:center;opacity:.7">Noch keine Positionen – unten einen Artikel suchen und mit Enter übernehmen.</td></tr>{% endfor %}
-  </table>
+    {% empty %}<tr><td colspan="8" style="padding:20px;text-align:center;opacity:.7">Noch keine Positionen – unten einen Artikel suchen und mit Enter übernehmen.</td></tr>{% endfor %}</tbody>
+  </table></div>
 
   {% if not beleg.positionen_gesperrt %}
   <form method="post" action="{% url 'verkauf:position_neu' beleg.pk %}" id="positionsform" class="erfassung zeile" autocomplete="off">{% csrf_token %}
@@ -323,15 +325,33 @@
 <script>
   (function () {
     var tabs = document.querySelectorAll('.tab'), speichern = document.getElementById('speichern');
+    var liste = document.getElementById('positionsliste'), kopf = document.querySelector('.belegkopf'), merker = 'wwokListe{{ beleg.pk }}', stand = null;
+    function messen() {  // Die Zeilen sind verschieden hoch: Die Liste endet genau unter der 6. Position, der Rest scrollt
+      document.documentElement.style.scrollPaddingTop = getComputedStyle(kopf).position === 'sticky' ? kopf.getBoundingClientRect().bottom + 8 + 'px' : '';  // Felder nicht unter den festen Kopf scrollen
+      kopf.style.setProperty('--mehroben', kopf.querySelector('.aktionen').getBoundingClientRect().bottom + 'px');
+      if (!liste.offsetHeight) return;
+      var zeilen = liste.querySelectorAll('tbody > tr');
+      liste.style.maxHeight = zeilen.length > 6 ? (zeilen[5].getBoundingClientRect().bottom - liste.getBoundingClientRect().top + liste.scrollTop + 2) + 'px' : 'none';
+    }
     function zeige(name) {
       tabs.forEach(function (t) { t.classList.toggle('aktiv', t.dataset.tab === name); });
       document.querySelectorAll('.tabinhalt').forEach(function (p) { p.hidden = p.id !== 'tab-' + name; });
       speichern.hidden = name === 'positionen';
       try { history.replaceState(null, '', '#' + name); } catch (e) {}
+      messen();
     }
     tabs.forEach(function (t) { t.addEventListener('click', function () { zeige(t.dataset.tab); }); });
     var start = (location.hash || '').replace('#', '');
     if (['versand', 'texte'].indexOf(start) >= 0) zeige(start);
+    messen();
+    window.addEventListener('resize', messen);
+    try { stand = sessionStorage.getItem(merker); sessionStorage.removeItem(merker); } catch (e) {}
+    if (stand !== null) liste.scrollTop = stand === 'unten' ? liste.scrollHeight : Number(stand);
+    document.getElementById('tab-positionen').addEventListener('submit', function (e) {  // nach dem Neuladen an derselben Stelle, neue Positionen im Blick
+      var f = e.target, ansEnde = f.matches('[enctype]') || f.id === 'positionsform' && !(f.gruppe && f.gruppe.value);  // Unterpositionen stehen bei ihrer Gruppe
+      try { sessionStorage.setItem(merker, ansEnde ? 'unten' : liste.scrollTop); } catch (x) {}
+    });
+    liste.addEventListener('toggle', function (e) { if (e.target.open) e.target.scrollIntoView({block: 'nearest'}); }, true);
   })();
 </script>
 {% if not beleg.positionen_gesperrt %}

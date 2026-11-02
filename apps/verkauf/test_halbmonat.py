@@ -334,6 +334,13 @@ class HalbmonatTest(Grundlage):
         self.assertEqual(abo.naechster_termin, date(2026, 11, 30))
         self.assertEqual(abo.rechnung_erzeugen(date(2026, 11, 30)).summe_netto, Decimal("3850.00"))
         self.assertEqual(abo.naechster_termin, date(2026, 12, 15))
+        self.assertContains(self.client.get(reverse("verkauf:abos")), "Entwurf bearbeiten")
+        entwurf = abo.letzte_rechnung
+        r = self.client.post(reverse("verkauf:abo_aktion", args=[abo.pk]), {"aktion": "jetzt"})  # offener Entwurf: nicht noch einmal abrechnen
+        self.assertRedirects(r, reverse("verkauf:beleg", args=[entwurf.pk]), fetch_redirect_response=False)
+        abo.refresh_from_db()
+        self.assertEqual(abo.naechster_termin, date(2026, 12, 15))
+        Beleg.objects.filter(pk=entwurf.pk).update(abgeschlossen=True)
         r = self.client.post(reverse("verkauf:abo_aktion", args=[abo.pk]), {"aktion": "jetzt"}, follow=True)
         self.assertContains(r, "nächste Rechnung am 31.12.2026")
         Abo.objects.filter(pk=abo.pk).update(naechster_termin=date(2026, 1, 15))

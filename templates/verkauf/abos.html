@@ -15,7 +15,7 @@
       <td>{{ a.naechster_termin|date:"d.m.Y" }}</td><td>{{ a.ende|date:"d.m.Y"|default:"–" }}</td>
       <td>{% if a.aktiv %}aktiv{% else %}pausiert/beendet{% endif %}</td>
       <td><form method="post" action="{% url 'verkauf:abo_aktion' a.pk %}" class="zeile" style="gap:4px">{% csrf_token %}
-        <button name="aktion" value="jetzt" class="leise" type="submit">Entwurf jetzt</button>
+        <button name="aktion" value="jetzt" class="leise" type="submit" title="Öffnet den offenen Rechnungsentwurf; gibt es keinen, wird der Entwurf zum nächsten Termin angelegt">Entwurf bearbeiten</button>
         <button name="aktion" value="pause" class="leise" type="submit">{% if a.aktiv %}Pausieren{% else %}Aktivieren{% endif %}</button>
         <button name="aktion" value="loeschen" class="gefahr" type="submit" data-frage="Wiederkehrende Rechnung löschen?">Löschen</button></form></td>
     </tr>{% endfor %}</tbody></table></div>

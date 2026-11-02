@@ -99,6 +99,13 @@
   .summe { text-align:right; } .summe .betrag { font-size:26px; font-weight:600; font-variant-numeric:tabular-nums; }
   .marke { display:inline-block; padding:1px 8px; border-radius:10px; border:1px solid var(--rand); font-size:12px; }
   .marke.ok { border-color:var(--ok); color:var(--ok); } .marke.gesperrt { border-color:var(--warn); color:var(--warn); }
+  .belegkopf { background:var(--grund); }
+  @media (min-width:901px) and (min-height:560px) {  /* Kopf und Symbole des Belegs bleiben beim Scrollen stehen */
+    .belegkopf { position:sticky; top:54px; z-index:20; margin-top:-12px; padding-top:12px; }
+    .belegkopf .karte { margin-bottom:8px; }
+    .belegkopf .aktionen { margin-bottom:8px; }
+    .belegkopf .menue-mehr .mehr { max-height:calc(100vh - var(--mehroben, 280px) - 12px); overflow-y:auto; }  /* sonst wäre das Ende des Menüs nicht erreichbar */
+  }
   .aktionen { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
   .aktionen form { margin:0; }
   .aktionen .symbol { width:38px; height:38px; }

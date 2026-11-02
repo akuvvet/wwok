@@ -909,6 +909,9 @@ def abo_aktion(request, abo_id):
     abo = get_object_or_404(Abo, pk=abo_id, mandant=request.mandant)
     aktion = request.POST.get("aktion")
     if aktion == "jetzt":
+        offen = abo.letzte_rechnung
+        if offen and not offen.abgeschlossen:  # sonst würde schon der nächste Zeitraum abgerechnet
+            return redirect("verkauf:beleg", beleg_id=offen.pk)
         try:
             beleg = abo.rechnung_erzeugen()
         except ValueError as fehler:

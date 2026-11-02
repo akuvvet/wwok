@@ -81,6 +81,9 @@ class VerkaufTest(TestCase):
         s = self.client.session
         s["mandant_id"] = self.m.pk
         s.save()
+        r = self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk]))
+        self.assertContains(r, 'name="art" value="AB"')
+        self.assertNotContains(r, 'name="art" value="RE"')  # Rechnungen entstehen aus dem Beleg davor, nicht aus dem Menü
         r = self.client.post(reverse("verkauf:beleg_neu", args=[self.kunde.pk]), {"art": "AB"})
         b = Beleg.objects.get(art="AB")
         self.assertRedirects(r, reverse("verkauf:beleg", args=[b.pk]))
