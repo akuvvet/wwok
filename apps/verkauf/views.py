@@ -181,6 +181,9 @@ def beleg_neu(request, kunde_id):
     if art == Belegart.NACHLIEFERSCHEIN:
         messages.error(request, "Ein Nachlieferschein entsteht aus einer abgeschlossenen Rechnung: dort unter „Mehr“ → „Kopieren als Nachlieferschein“.")
         return redirect("verkauf:kunde", kunde_id=kunde.pk)
+    if art == Belegart.GUTSCHRIFT:
+        messages.error(request, "Eine Gutschrift entsteht nur aus einer abgeschlossenen Rechnung: dort unter „Mehr“ → „Storno / Gutschrift“.")
+        return redirect("verkauf:kunde", kunde_id=kunde.pk)
     if art == Belegart.LIEFERSCHEIN:
         messages.error(request, "Ein Lieferschein entsteht aus einer Bestellung: erst die Bestellung erfassen, "
                                 "dann dort „Als Lieferschein übernehmen“.")

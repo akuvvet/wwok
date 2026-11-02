@@ -83,7 +83,11 @@ class VerkaufTest(TestCase):
         s.save()
         r = self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk]))
         self.assertContains(r, 'name="art" value="AB"')
-        self.assertNotContains(r, 'name="art" value="RE"')  # Rechnungen entstehen aus dem Beleg davor, nicht aus dem Menü
+        for art in ("RE", "PF", "GS"):  # entstehen aus dem Beleg davor, nicht aus dem Menü
+            self.assertNotContains(r, f'name="art" value="{art}"')
+        r = self.client.post(reverse("verkauf:beleg_neu", args=[self.kunde.pk]), {"art": "GS"}, follow=True)
+        self.assertContains(r, "nur aus einer abgeschlossenen Rechnung")
+        self.assertFalse(Beleg.objects.filter(art="GS").exists())
         r = self.client.post(reverse("verkauf:beleg_neu", args=[self.kunde.pk]), {"art": "AB"})
         b = Beleg.objects.get(art="AB")
         self.assertRedirects(r, reverse("verkauf:beleg", args=[b.pk]))

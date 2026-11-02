@@ -1,4 +1,4 @@
 {% if kunde.gesperrt %}<small style="color:var(--warn)">Kunde gesperrt</small>{% else %}<small style="opacity:.7">Neuer Beleg für {{ kunde.name1|truncatechars:22 }}</small>
 <form method="post" action="{% url 'verkauf:beleg_neu' kunde.pk %}">{% csrf_token %}
-  {% for wert, name in arten %}{% if wert != 'LS' and wert != 'NL' and wert != 'RE' %}<button name="art" value="{{ wert }}" type="submit" class="leise">{{ name }}</button>{% endif %}{% endfor %}
+  {% for wert, name in arten %}{% if wert == 'AN' or wert == 'AB' %}<button name="art" value="{{ wert }}" type="submit" class="leise">{{ name }}</button>{% endif %}{% endfor %}
 </form>{% endif %}
