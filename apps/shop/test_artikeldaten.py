@@ -603,3 +603,6 @@ class MaskeTest(Basis):
     def test_einstellung_in_der_verwaltung(self):
         seite = self.client.get(reverse("admin:shop_shop_change", args=[self.shop.pk]))
         self.assertContains(seite, "Artikeldaten automatisch senden")
+        self.assertContains(seite, f"SHOP_SECRET_{self.shop.pk}")
+        self.assertContains(seite, f'href="{reverse("shop:uebersicht")}"')
+        self.assertEqual(self.client.get(reverse("admin:shop_shop_add")).status_code, 200)

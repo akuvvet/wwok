@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.urls import reverse
+from django.utils.html import format_html
 
 from .models import Shop, ShopBestellung, SyncProtokoll
 
@@ -7,12 +9,21 @@ from .models import Shop, ShopBestellung, SyncProtokoll
 class ShopAdmin(admin.ModelAdmin):
     list_display = ["name", "mandant", "url", "aktiv", "letzter_bestellimport", "letzter_abgleich"]
     list_filter = ["mandant", "aktiv"]
+    readonly_fields = ["geheimnis", "senden"]
     fieldsets = [
         ("Shop", {"fields": ["name", "mandant", "url", "aktiv"]}),
-        ("Zugang", {"fields": ["client_id"], "description": "Das Geheimnis (Secret Access Key) steht nicht hier, sondern in der .env als SHOP_SECRET_<ID des Shops>."}),
-        ("Abgleich", {"fields": ["bestand_puffer", "preisstufe", "artikeldaten_takt", "verkaufskanal_id"]}),
+        ("Zugang", {"fields": ["client_id", "geheimnis"]}),
+        ("Abgleich", {"fields": ["bestand_puffer", "preisstufe", "artikeldaten_takt", "verkaufskanal_id", "senden"]}),
         ("Bestellungen", {"fields": ["standard_zahlungsbedingung", "zahlungszuordnung"]}),
     ]
+
+    @admin.display(description="Secret Access Key")
+    def geheimnis(self, obj):
+        return f"steht nicht hier, sondern in der .env als {obj.secret_variable}" if obj.pk else "steht nach dem ersten Sichern hier"
+
+    @admin.display(description="Jetzt senden")
+    def senden(self, obj):
+        return format_html('<a href="{}">Zur Shop-Seite: Bestand, Preise und Artikeldaten senden</a>', reverse("shop:uebersicht"))
 
 
 class NurLesen(admin.ModelAdmin):
