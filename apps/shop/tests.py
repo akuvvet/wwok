@@ -54,6 +54,36 @@ class FakeClient(ShopwareClient):
     def produkte_aktualisieren(self, payload):
         self.gesendet.extend(payload)
 
+    def kategorien(self):
+        return getattr(self, "shop_kategorien", [])
+
+    def hersteller(self):
+        return getattr(self, "shop_hersteller", [])
+
+    def steuern(self):
+        return [{"id": "tax19", "taxRate": 19.0}]
+
+    def verkaufskanal(self):
+        return "kanal1"
+
+    def hersteller_anlegen(self, hersteller_id, name):
+        self.neue_hersteller = getattr(self, "neue_hersteller", []) + [name]
+
+    def bild_hochladen(self, medien_id, dateiname, endung, inhalt):
+        self.hochgeladen = getattr(self, "hochgeladen", []) + [(dateiname, endung)]
+
+    def produktbild_loeschen(self, produkt_id, bild_id):
+        self.geloescht = getattr(self, "geloescht", []) + [bild_id]
+
+    def kategorie_entfernen(self, produkt_id, kategorie_id):
+        self.kategorie_weg = getattr(self, "kategorie_weg", []) + [kategorie_id]
+
+    def produktbild_ids(self, produkt_id):
+        return getattr(self, "shop_bilder", [])
+
+    def produkt_vorhanden(self, produkt_id):
+        return produkt_id in self.produkte.values()
+
 
 class ShopTest(TestCase):
     def setUp(self):

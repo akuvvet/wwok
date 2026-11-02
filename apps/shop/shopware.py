@@ -1,4 +1,5 @@
 """Schlanker Client für die Shopware-6-Admin-API (OAuth client_credentials, JSON)."""
+import http.client
 import json
 import os
 import time
@@ -6,10 +7,14 @@ import urllib.error
 import urllib.request
 
 STANDARD_WAEHRUNG_EUR = "b7d2554b0ce847cd82f3ac9bd1c0dfca"  # feste ID der Standardwährung in Shopware 6
+STOREFRONT_TYP = "8a243080f92e4c719546314b577cf82b"  # feste ID des Verkaufskanal-Typs Storefront
+BILDTYPEN = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
 
 
 class ShopFehler(Exception):
-    pass
+    def __init__(self, meldung="", status=None):
+        super().__init__(meldung)
+        self.status = status
 
 
 class ShopwareClient:
@@ -18,19 +23,22 @@ class ShopwareClient:
         self.basis = shop.url.rstrip("/")
         self._token = None
         self._ablauf = 0
+        self.wartezeit = 60
+        self._medienordner = False
 
     # -- HTTP (in Tests ersetzt) ---------------------------------------------------------------------
     def _anfrage(self, methode: str, pfad: str, daten=None, kopf=None):
         header = {"Accept": "application/json", "Content-Type": "application/json", **(kopf or {})}
+        roh = isinstance(daten, bytes)  # Bilder gehen unverändert als Dateiinhalt hinaus
         anfrage = urllib.request.Request(self.basis + pfad, method=methode, headers=header,
-                                         data=json.dumps(daten).encode() if daten is not None else None)
+                                         data=daten if roh else json.dumps(daten).encode() if daten is not None else None)
         try:
-            with urllib.request.urlopen(anfrage, timeout=60) as antwort:
+            with urllib.request.urlopen(anfrage, timeout=self.wartezeit) as antwort:
                 inhalt = antwort.read()
                 return json.loads(inhalt) if inhalt else {}
         except urllib.error.HTTPError as fehler:
-            raise ShopFehler(f"Shop antwortet mit {fehler.code}: {fehler.read()[:300].decode('utf-8', 'replace')}")
-        except (urllib.error.URLError, OSError, ValueError) as fehler:
+            raise ShopFehler(f"Shop antwortet mit {fehler.code}: {fehler.read()[:300].decode('utf-8', 'replace')}", fehler.code)
+        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as fehler:
             raise ShopFehler(f"Shop nicht erreichbar: {fehler}")
 
     def _zugang(self) -> str:
@@ -46,8 +54,18 @@ class ShopwareClient:
         self._token, self._ablauf = antwort["access_token"], time.time() + int(antwort.get("expires_in", 600))
         return self._token
 
-    def api(self, methode: str, pfad: str, daten=None):
-        return self._anfrage(methode, pfad, daten, {"Authorization": f"Bearer {self._zugang()}"})
+    def api(self, methode: str, pfad: str, daten=None, kopf=None):
+        return self._anfrage(methode, pfad, daten, {"Authorization": f"Bearer {self._zugang()}", **(kopf or {})})
+
+    def _alle(self, entitaet: str, felder: list) -> list:
+        """Alle Datensätze einer Entität, seitenweise."""
+        ergebnis, seite = [], 1
+        while True:
+            daten = self.api("POST", f"/api/search/{entitaet.replace('_', '-')}", {"page": seite, "limit": 500, "includes": {entitaet: felder}}).get("data", [])
+            ergebnis += daten
+            if len(daten) < 500:
+                return ergebnis
+            seite += 1
 
     # -- Fachfunktionen -----------------------------------------------------------------------------
     def bestellungen(self, seit=None, seite: int = 1, limit: int = 50) -> dict:
@@ -76,3 +94,62 @@ class ShopwareClient:
     def produkte_aktualisieren(self, payload: list):
         for i in range(0, len(payload), 100):
             self.api("POST", "/api/_action/sync", {"write-products": {"entity": "product", "action": "upsert", "payload": payload[i:i + 100]}})
+
+    def kategorien(self) -> list:
+        return self._alle("category", ["id", "name"])
+
+    def hersteller(self) -> list:
+        return self._alle("product_manufacturer", ["id", "name"])
+
+    def steuern(self) -> list:
+        return self._alle("tax", ["id", "taxRate"])
+
+    def hersteller_anlegen(self, hersteller_id: str, name: str):
+        self.api("POST", "/api/_action/sync", {"write-hersteller": {"entity": "product_manufacturer", "action": "upsert", "payload": [{"id": hersteller_id, "name": name}]}})
+
+    def verkaufskanal(self) -> str:
+        """Verkaufskanal für neue Artikel: der eingetragene oder der einzige Storefront-Kanal des Shops."""
+        if self.shop.verkaufskanal_id:
+            return self.shop.verkaufskanal_id
+        kanaele = self.api("POST", "/api/search/sales-channel", {
+            "filter": [{"type": "equals", "field": "typeId", "value": STOREFRONT_TYP}, {"type": "equals", "field": "active", "value": True}],
+            "includes": {"sales_channel": ["id"]}}).get("data", [])
+        if len(kanaele) != 1:
+            raise ShopFehler(f"Der Shop hat {len(kanaele)} aktive Verkaufskanäle: bitte in der Verwaltung die Verkaufskanal-ID eintragen.")
+        return kanaele[0]["id"]
+
+    def bild_hochladen(self, medien_id: str, dateiname: str, endung: str, inhalt: bytes):
+        ordner = self.medienordner()
+        self.api("POST", "/api/_action/sync", {"write-medien": {"entity": "media", "action": "upsert", "payload": [
+            {"id": medien_id, **({"mediaFolderId": ordner} if ordner else {})}]}})
+        self.api("POST", f"/api/_action/media/{medien_id}/upload?extension={endung}&fileName={dateiname}", inhalt,
+                 {"Content-Type": BILDTYPEN[endung]})
+
+    def medienordner(self):
+        """Ordner für Produktbilder; ohne Ordner erzeugt Shopware keine Vorschaubilder."""
+        if self._medienordner is False:
+            daten = self.api("POST", "/api/search/media-default-folder", {
+                "filter": [{"type": "equals", "field": "entity", "value": "product"}], "associations": {"folder": {}}}).get("data", [])
+            self._medienordner = (daten[0].get("folder") or {}).get("id") if daten else None
+        return self._medienordner
+
+    def produktbild_ids(self, produkt_id: str) -> list:
+        return [m["id"] for m in self.api("POST", "/api/search/product-media", {
+            "limit": 500, "filter": [{"type": "equals", "field": "productId", "value": produkt_id}], "includes": {"product_media": ["id"]}}).get("data", [])]
+
+    def produkt_vorhanden(self, produkt_id: str) -> bool:
+        return bool(self.api("POST", "/api/search/product", {
+            "limit": 1, "filter": [{"type": "equals", "field": "id", "value": produkt_id}], "includes": {"product": ["id"]}}).get("data"))
+
+    def _zuordnung_loesen(self, pfad: str):
+        try:
+            self.api("DELETE", pfad)
+        except ShopFehler as fehler:
+            if fehler.status != 404:  # schon im Shop entfernt: erledigt
+                raise
+
+    def produktbild_loeschen(self, produkt_id: str, bild_id: str):
+        self._zuordnung_loesen(f"/api/product/{produkt_id}/media/{bild_id}")
+
+    def kategorie_entfernen(self, produkt_id: str, kategorie_id: str):
+        self._zuordnung_loesen(f"/api/product/{produkt_id}/categories/{kategorie_id}")

@@ -10,7 +10,7 @@ class ShopAdmin(admin.ModelAdmin):
     fieldsets = [
         ("Shop", {"fields": ["name", "mandant", "url", "aktiv"]}),
         ("Zugang", {"fields": ["client_id"], "description": "Das Geheimnis (Secret Access Key) steht nicht hier, sondern in der .env als SHOP_SECRET_<ID des Shops>."}),
-        ("Abgleich", {"fields": ["bestand_puffer", "preisstufe"]}),
+        ("Abgleich", {"fields": ["bestand_puffer", "preisstufe", "artikeldaten_takt", "verkaufskanal_id"]}),
         ("Bestellungen", {"fields": ["standard_zahlungsbedingung", "zahlungszuordnung"]}),
     ]
 

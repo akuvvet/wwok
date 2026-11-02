@@ -1,8 +1,15 @@
+import hashlib
+import json
+import os
+import re
+import time
+import uuid
 from datetime import datetime, timedelta, timezone as tz
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
 from django.utils import timezone
+from django.utils.html import linebreaks
 
 from apps.finanzen.models import Zahlart
 from apps.finanzen.services import zahlung_buchen
@@ -12,9 +19,11 @@ from apps.stammdaten.preise import stufenpreis
 from apps.verkauf.models import Beleg, Belegart, Position
 
 from .models import ShopArtikel, ShopBestellung, SyncProtokoll
-from .shopware import STANDARD_WAEHRUNG_EUR, ShopFehler, ShopwareClient
+from .shopware import BILDTYPEN, STANDARD_WAEHRUNG_EUR, ShopFehler, ShopwareClient
 
 CENT = Decimal("0.01")
+MAX_DEAKTIVIEREN = 50  # mehr auf einmal nur nach ausdrücklichem Auslösen
+ZEITLIMIT_TAKT = 480  # Sekunden; der Zeitplan startet alle 10 Minuten
 
 
 def g(daten, *pfad, standard=""):
@@ -190,9 +199,47 @@ def meldebestand(shop, artikel):
     return None
 
 
+def verkaufspreis(shop, artikel):
+    """Netto und brutto der Preisstufe des Shops; ohne Preis (None, None)."""
+    netto_preis = stufenpreis(artikel, shop.preisstufe)
+    if netto_preis is None:
+        return None, None
+    return netto_preis, (netto_preis * (1 + artikel.steuersatz.prozent / 100)).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def preisliste(netto_preis, brutto) -> list:
+    return [{"currencyId": STANDARD_WAEHRUNG_EUR, "gross": float(brutto), "net": float(netto_preis), "linked": True}]
+
+
+def nicht_mehr_online(shop, client, alle=False) -> list:
+    """Zuvor gemeldete Artikel, die offline sind, im Shop deaktivieren. Gelöscht wird nichts; Artikel, die wwok nie
+    gemeldet hat, bleiben unberührt, auch wenn sie im Shop stehen."""
+    zuordnungen = list(ShopArtikel.objects.filter(shop=shop, im_shop_aktiv=True).exclude(
+        artikel__online=True, artikel__nicht_aktiv=False).select_related("artikel"))
+    if not zuordnungen:
+        return []
+    if len(zuordnungen) > MAX_DEAKTIVIEREN and not alle:  # z. B. Importfehler: nicht den ganzen Shop abschalten
+        SyncProtokoll.objects.create(shop=shop, art="abgleich", erfolgreich=False, meldung=(
+            f"{len(zuordnungen)} Artikel wären im Shop zu deaktivieren, das ist ungewöhnlich viel. Nichts deaktiviert. "
+            "Stimmt es, „Bestand & Preise senden“ mit „alle Artikel“ auslösen."))
+        return []
+    vorhanden = [z.produkt_id for z in zuordnungen if client.produkt_vorhanden(z.produkt_id)]  # nie über die Nummer: sie kann inzwischen einem fremden Produkt gehören
+    if vorhanden:
+        client.produkte_aktualisieren([{"id": produkt_id, "active": False} for produkt_id in vorhanden])
+    for z in zuordnungen:  # im Shop gelöschte Produkte sind ebenso erledigt
+        z.im_shop_aktiv = False
+        z.save(update_fields=["im_shop_aktiv"])
+    return vorhanden
+
+
 def abgleichen(shop, client=None, alle=False) -> dict:
     """Bestände und Preise der Online-Artikel an den Shop melden; ohne 'alle' nur Änderungen seit dem letzten Abgleich."""
     client = client or ShopwareClient(shop)
+    try:
+        deaktiviert = nicht_mehr_online(shop, client, alle)
+    except ShopFehler as fehler:  # Bestand und Preise müssen trotzdem raus; beim nächsten Abgleich wird erneut deaktiviert
+        deaktiviert = []
+        SyncProtokoll.objects.create(shop=shop, art="abgleich", erfolgreich=False, meldung=f"Deaktivieren fehlgeschlagen: {fehler}"[:500])
     artikel = list(Artikel.objects.filter(online=True, nicht_aktiv=False, typ__in=["A", "G"]).select_related("steuersatz"))
     ids = client.produkt_ids([a.nummer for a in artikel])
     payload, vorgemerkt, nicht_im_shop = [], [], 0
@@ -203,16 +250,18 @@ def abgleichen(shop, client=None, alle=False) -> dict:
             continue
         zuordnung, _ = ShopArtikel.objects.get_or_create(shop=shop, artikel=a, defaults={"produkt_id": produkt_id})
         bestand_neu = meldebestand(shop, a)
-        preis_netto = stufenpreis(a, shop.preisstufe)
-        preis_brutto = (preis_netto * (1 + a.steuersatz.prozent / 100)).quantize(CENT, rounding=ROUND_HALF_UP) if preis_netto is not None else None
-        geaendert = alle or zuordnung.gemeldeter_bestand != bestand_neu or zuordnung.gemeldeter_preis != preis_brutto
+        preis_netto, preis_brutto = verkaufspreis(shop, a)
+        wieder_online = not zuordnung.im_shop_aktiv
+        geaendert = alle or wieder_online or zuordnung.gemeldeter_bestand != bestand_neu or zuordnung.gemeldeter_preis != preis_brutto
         if not geaendert:
             continue
         eintrag = {"id": produkt_id}
+        if wieder_online:
+            eintrag["active"] = True
         if bestand_neu is not None:
             eintrag["stock"] = bestand_neu
         if preis_brutto is not None:
-            eintrag["price"] = [{"currencyId": STANDARD_WAEHRUNG_EUR, "gross": float(preis_brutto), "net": float(preis_netto), "linked": True}]
+            eintrag["price"] = preisliste(preis_netto, preis_brutto)
         payload.append(eintrag)
         vorgemerkt.append((zuordnung, produkt_id, bestand_neu, preis_brutto))
     if payload:
@@ -220,9 +269,223 @@ def abgleichen(shop, client=None, alle=False) -> dict:
     jetzt = timezone.now()
     for zuordnung, produkt_id, bestand_neu, preis_brutto in vorgemerkt:
         zuordnung.produkt_id, zuordnung.gemeldeter_bestand, zuordnung.gemeldeter_preis, zuordnung.gesendet_am = produkt_id, bestand_neu, preis_brutto, jetzt
-        zuordnung.save()
+        zuordnung.im_shop_aktiv = True
+        zuordnung.save(update_fields=["produkt_id", "gemeldeter_bestand", "gemeldeter_preis", "gesendet_am", "im_shop_aktiv"])
     shop.letzter_abgleich = jetzt
     shop.save(update_fields=["letzter_abgleich"])
-    ergebnis = {"gesendet": len(payload), "nicht_im_shop": nicht_im_shop, "geprueft": len(artikel)}
-    SyncProtokoll.objects.create(shop=shop, art="abgleich", meldung=f"{ergebnis['gesendet']} Artikel gesendet, {nicht_im_shop} nicht im Shop gefunden, {len(artikel)} geprüft")
+    ergebnis = {"gesendet": len(payload), "nicht_im_shop": nicht_im_shop, "geprueft": len(artikel), "deaktiviert": len(deaktiviert)}
+    SyncProtokoll.objects.create(shop=shop, art="abgleich", meldung=f"{ergebnis['gesendet']} Artikel gesendet, {nicht_im_shop} nicht im Shop gefunden, {len(artikel)} geprüft, {len(deaktiviert)} deaktiviert")
     return ergebnis
+
+
+# ---- Artikeldaten (Texte, Bilder, neue Artikel) ------------------------------------------------------
+
+def feste_id(shop, art: str, schluessel) -> str:
+    """Gleichbleibende Shopware-ID, damit ein wiederholter oder abgebrochener Lauf nichts doppelt anlegt."""
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"wwok/{shop.pk}/{art}/{schluessel}").hex
+
+
+def beschreibung(artikel) -> str:
+    """Shopware erwartet HTML; reiner Text bekommt Absätze."""
+    text = artikel.bezeichnung_erweitert or artikel.kurzbeschreibung
+    return text if re.search(r"<[a-zA-Z]", text) else linebreaks(text, autoescape=True) if text else ""
+
+
+def produktdaten(artikel) -> dict:
+    """Felder fürs Produkt. Was in wwok leer ist, fehlt hier und bleibt im Shop, wie es ist."""
+    werte = {
+        "name": artikel.bezeichnung, "description": beschreibung(artikel), "ean": artikel.ean,
+        "manufacturerNumber": artikel.herstellernummer, "metaTitle": artikel.meta_titel[:255],
+        "metaDescription": artikel.meta_description[:255], "keywords": artikel.meta_keywords[:255],
+        "customSearchKeywords": [w.strip() for w in re.split(r"[,;\n]", artikel.keywords) if w.strip()],
+    }
+    if artikel.gewicht_kg is not None:
+        werte["weight"] = float(artikel.gewicht_kg)
+    for feld, wert in (("length", artikel.laenge_cm), ("width", artikel.breite_cm), ("height", artikel.hoehe_cm)):
+        if wert is not None:
+            werte[feld] = float(wert * 10)  # Shopware rechnet in Millimetern
+    return {feld: wert for feld, wert in werte.items() if wert not in ("", [])}
+
+
+def _nach_name(eintraege) -> dict:
+    """Name klein → IDs; ein doppelter Name bleibt erkennbar, damit nichts falsch zugeordnet wird."""
+    karte = {}
+    for e in eintraege:
+        if (e.get("name") or "").strip():
+            karte.setdefault(e["name"].strip().casefold(), []).append(e["id"])
+    return karte
+
+
+def _hersteller_id(shop, client, karte, name) -> str:
+    schluessel = name.strip().casefold()
+    if schluessel not in karte:
+        hersteller_id = feste_id(shop, "hersteller", schluessel)
+        client.hersteller_anlegen(hersteller_id, name)
+        karte[schluessel] = [hersteller_id]
+    return karte[schluessel][0]
+
+
+def _bilder_lesen(artikel):
+    """Dateien der Bilder. Fehlt eine, gibt es None: Dann bleibt im Shop alles, wie es ist, statt Bilder zu verlieren."""
+    dateien, hinweise = [], []
+    for b in artikel.bilder.all():
+        endung = os.path.splitext(b.bild.name)[1].lstrip(".").lower()
+        if endung not in BILDTYPEN:
+            hinweise.append(f"Bild {b.bild.name}: Dateityp nicht unterstützt")
+            continue
+        try:
+            with b.bild.open("rb") as datei:
+                dateien.append((b, endung, datei.read()))
+        except OSError:
+            return None, [f"Bild {b.bild.name}: Datei fehlt, Bilder bleiben im Shop unverändert"]
+    return dateien, hinweise
+
+
+def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
+    """Sendet einen Artikel und gibt zurück, was geschehen ist (Schlüssel im Ergebnis des Laufs)."""
+    nummer_geaendert = False
+    if not produkt_id and z and client.produkt_vorhanden(z.produkt_id):  # Artikelnummer wurde in wwok geändert
+        produkt_id, nummer_geaendert = z.produkt_id, True
+    anderes_produkt = bool(z) and z.produkt_id != produkt_id  # im Shop gelöscht oder neu angelegt: seine Bilder sind weg
+    daten = produktdaten(a)
+    if nummer_geaendert:
+        daten["productNumber"] = a.nummer
+    name = a.kategorie.name if a.kategorie_id else ""
+    treffer = lauf["kategorien"].get(name.strip().casefold(), []) if name else []
+    kategorie_id = treffer[0] if len(treffer) == 1 else ""
+    if name and not kategorie_id:
+        lauf["ergebnis"]["kategorie_fehlt"].add(name)
+    herstellername = a.hersteller.name if a.hersteller_id else ""
+    stand = hashlib.sha256(json.dumps([daten, kategorie_id, herstellername], sort_keys=True).encode()).hexdigest()
+    bilder_stand = hashlib.sha256(json.dumps([(b.pk, b.bild.name) for b in a.bilder.all()]).encode()).hexdigest()
+    teilstand = "~" + bilder_stand[:63]  # Zeitlimit mitten in den Bildern: Der nächste Lauf lädt nur den Rest
+    bilder_neu = alle or not z or anderes_produkt or z.bilder_stand != bilder_stand
+    if produkt_id and z and z.daten_stand == stand and not bilder_neu:
+        return "unveraendert"
+    preis_netto, preis_brutto = verkaufspreis(shop, a)
+    if not produkt_id and not preis_brutto:  # ohne Preis oder mit 0 € nicht sichtbar anlegen
+        return "ohne_preis"
+    eintrag = {**daten, "id": produkt_id or feste_id(shop, "produkt", a.pk)}
+    if herstellername:
+        eintrag["manufacturerId"] = _hersteller_id(shop, client, lauf["hersteller"], herstellername)
+    if kategorie_id:
+        eintrag["categories"] = [{"id": kategorie_id}]
+    bestand_neu = None
+    if not produkt_id:  # Neuanlage: Shopware verlangt Steuer, Preis, Bestand und Nummer
+        steuer_id = lauf["steuern"].get(a.steuersatz.prozent.normalize())
+        if not steuer_id:
+            raise ShopFehler(f"Steuersatz {a.steuersatz.prozent} % fehlt im Shop.")
+        bestand_neu = meldebestand(shop, a) or 0
+        eintrag.update({"productNumber": a.nummer, "taxId": steuer_id, "stock": bestand_neu, "active": True,
+                        "isCloseout": True,  # nur verfügbarer Bestand ist bestellbar, Schutz vor Doppelverkauf
+                        "price": preisliste(preis_netto, preis_brutto),
+                        "visibilities": [{"id": feste_id(shop, "sichtbar", a.pk), "salesChannelId": client.verkaufskanal(), "visibility": 30}]})
+    bisher = list(z.bild_ids) if z and not anderes_produkt else []
+    neue_bilder, hinweise = bisher, []
+    bilder_erledigt, teilweise = True, False
+    if bilder_neu and a.bilder.all() and produkt_id and not bisher:
+        eigene = {feste_id(shop, "produktbild", b.pk) for b in a.bilder.all()}
+        if set(client.produktbild_ids(produkt_id)) - eigene:
+            bilder_neu = False  # im Shop gepflegte Galerie nicht verdoppeln
+    if bilder_neu:
+        dateien, hinweise = _bilder_lesen(a)
+        bilder_erledigt = dateien is not None
+        if bilder_erledigt:
+            eintraege, hochgeladen = [], 0
+            fortsetzen = bool(z) and z.bilder_stand == teilstand
+            for b, endung, inhalt in dateien:
+                if hochgeladen and time.monotonic() > lauf["ende"]:  # mindestens ein Bild je Lauf, sonst käme der Artikel nie durch
+                    teilweise = True
+                    break
+                bild_id, medien_id = feste_id(shop, "produktbild", b.pk), feste_id(shop, "medien", b.pk)
+                if not (fortsetzen and bild_id in bisher):
+                    client.bild_hochladen(medien_id, f"wwok-{shop.pk}-{b.pk}", endung, inhalt)
+                    hochgeladen += 1
+                eintraege.append({"id": bild_id, "mediaId": medien_id, "position": b.position})
+            if eintraege:
+                eintrag["media"], eintrag["coverId"] = eintraege, eintraege[0]["id"]
+            neue_bilder = [e["id"] for e in eintraege]
+    client.produkte_aktualisieren([eintrag])
+    if not teilweise:
+        for bild_id in bisher:
+            if bild_id not in neue_bilder:
+                client.produktbild_loeschen(eintrag["id"], bild_id)
+    else:
+        neue_bilder = neue_bilder + [bild_id for bild_id in bisher if bild_id not in neue_bilder]
+        lauf["ergebnis"]["offen"] += 1
+    bisherige_kategorie = z.kategorie_id if z else ""
+    if kategorie_id and bisherige_kategorie and bisherige_kategorie != kategorie_id:
+        client.kategorie_entfernen(eintrag["id"], bisherige_kategorie)  # nur die, die wwok selbst zugeordnet hat
+    werte = {"produkt_id": eintrag["id"], "daten_stand": stand, "bild_ids": neue_bilder, "gesendet_am": timezone.now(),
+             "bilder_stand": teilstand if teilweise else bilder_stand if bilder_erledigt else (z.bilder_stand if z else ""),
+             "kategorie_id": kategorie_id or bisherige_kategorie}
+    if not produkt_id:
+        werte.update(gemeldeter_bestand=bestand_neu, gemeldeter_preis=preis_brutto)
+    ShopArtikel.objects.update_or_create(shop=shop, artikel=a, defaults=werte)
+    lauf["ergebnis"]["fehler"] += [f"{a.nummer}: {h}" for h in hinweise]
+    return "aktualisiert" if produkt_id else "neu"
+
+
+def artikeldaten_senden(shop, client=None, alle=False, nummer="", zeitlimit=ZEITLIMIT_TAKT) -> dict:
+    """Texte, Maße, Hersteller, Kategorie und Bilder der Online-Artikel senden und fehlende Artikel sichtbar anlegen.
+    Ohne 'alle' nur Geänderte. Nach dem Zeitlimit endet der Lauf; der nächste macht beim Rest weiter."""
+    client = client or ShopwareClient(shop)
+    client.wartezeit = min(zeitlimit, client.wartezeit)
+    ende = time.monotonic() + zeitlimit
+    shop.letzter_artikelabgleich = timezone.now()  # gleich zu Beginn, damit der nächste Zeitplan-Aufruf nicht parallel startet
+    shop.save(update_fields=["letzter_artikelabgleich"])
+    artikel = Artikel.objects.filter(online=True, nicht_aktiv=False, typ__in=["A", "G"]) \
+        .select_related("steuersatz", "kategorie", "hersteller").prefetch_related("bilder")
+    if nummer:
+        artikel = artikel.filter(nummer=nummer)
+        if not artikel:
+            raise ShopFehler(f"Artikel {nummer} gibt es nicht oder er ist nicht online.")
+    artikel = list(artikel)
+    zuordnungen = {z.artikel_id: z for z in ShopArtikel.objects.filter(shop=shop)}
+    if alle:  # zuletzt Gesendete ans Ende, damit wiederholte Läufe mit Zeitlimit alle Artikel erreichen
+        def zuletzt(a):
+            z = zuordnungen.get(a.pk)
+            return (1, z.gesendet_am) if z and z.gesendet_am else (0, timezone.now())
+        artikel.sort(key=zuletzt)
+    try:
+        ids = client.produkt_ids([a.nummer for a in artikel])
+        ergebnis = {"neu": 0, "aktualisiert": 0, "unveraendert": 0, "ohne_preis": 0, "offen": 0, "fehler": [], "kategorie_fehlt": set()}
+        lauf = {"kategorien": _nach_name(client.kategorien()), "hersteller": _nach_name(client.hersteller()), "ergebnis": ergebnis,
+                "steuern": {Decimal(str(s["taxRate"])).normalize(): s["id"] for s in client.steuern()}, "ende": ende}
+    except ShopFehler as fehler:
+        SyncProtokoll.objects.create(shop=shop, art="artikeldaten", erfolgreich=False, meldung=str(fehler)[:500])
+        raise
+    for stelle, a in enumerate(artikel):
+        if time.monotonic() > ende:
+            ergebnis["offen"] += len(artikel) - stelle
+            break
+        try:
+            with transaction.atomic():
+                ergebnis[_artikel_senden(shop, client, a, zuordnungen.get(a.pk), ids.get(a.nummer), lauf, alle)] += 1
+        except ShopFehler as fehler:
+            ergebnis["fehler"].append(f"{a.nummer}: {fehler}")
+    if ergebnis["offen"] and shop.artikeldaten_takt:  # beim nächsten Zeitplan-Aufruf weitermachen, nicht erst nach dem Takt
+        shop.letzter_artikelabgleich = timezone.now() - timedelta(minutes=shop.artikeldaten_takt)
+        shop.save(update_fields=["letzter_artikelabgleich"])
+    SyncProtokoll.objects.create(shop=shop, art="artikeldaten", erfolgreich=not ergebnis["fehler"], meldung=artikeldaten_meldung(ergebnis)[:500])
+    return ergebnis
+
+
+def artikeldaten_meldung(e: dict) -> str:
+    teile = [f"{e['neu']} neu angelegt, {e['aktualisiert']} aktualisiert, {e['unveraendert']} unverändert"]
+    if e["ohne_preis"]:
+        teile.append(f"{e['ohne_preis']} ohne Preis nicht angelegt")
+    if e["offen"]:
+        teile.append(f"{e['offen']} noch offen, nächster Lauf macht weiter")
+    if e["kategorie_fehlt"]:
+        teile.append("Kategorie im Shop nicht eindeutig gefunden: " + ", ".join(sorted(e["kategorie_fehlt"])))
+    if e["fehler"]:
+        teile.append(f"{len(e['fehler'])} Probleme: " + "; ".join(e["fehler"][:3]))
+    return ", ".join(teile)
+
+
+def artikeldaten_faellig(shop, jetzt=None) -> bool:
+    if not shop.artikeldaten_takt:
+        return False
+    jetzt = jetzt or timezone.now()
+    return not shop.letzter_artikelabgleich or jetzt - shop.letzter_artikelabgleich >= timedelta(minutes=shop.artikeldaten_takt)

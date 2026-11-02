@@ -26,6 +26,13 @@ class Shop(Zeitstempel):
         help_text='z. B. {"Vorkasse": 8, "PayPal": 10, "Lastschrift": 12}: Name der Zahlart im Shop → Nummer der Zahlungsbedingung')
     letzter_bestellimport = models.DateTimeField(null=True, blank=True, editable=False)
     letzter_abgleich = models.DateTimeField(null=True, blank=True, editable=False)
+    artikeldaten_takt = models.PositiveIntegerField(
+        "Artikeldaten automatisch senden", default=0, choices=[(0, "nur per Knopf"), (10, "alle 10 Minuten"), (60, "stündlich"), (1440, "täglich")],
+        help_text="Texte, Bilder und neue Artikel. Bestand und Preise laufen davon unabhängig bei jedem Abgleich.")
+    verkaufskanal_id = models.CharField(
+        "Verkaufskanal-ID", max_length=64, blank=True,
+        help_text="Nur nötig, wenn der Shop mehrere Verkaufskanäle hat: Dort werden neue Artikel sichtbar geschaltet.")
+    letzter_artikelabgleich = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = "Shop"
@@ -69,6 +76,11 @@ class ShopArtikel(models.Model):
     gemeldeter_bestand = models.IntegerField(null=True, blank=True)
     gemeldeter_preis = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     gesendet_am = models.DateTimeField(null=True, blank=True)
+    daten_stand = models.CharField(max_length=64, blank=True, help_text="Prüfsumme der zuletzt gesendeten Artikeldaten")
+    bild_ids = models.JSONField(default=list, blank=True, help_text="Von wwok gesendete Produktbilder im Shop")
+    bilder_stand = models.CharField(max_length=64, blank=True, help_text="Prüfsumme der zuletzt gesendeten Bilder")
+    kategorie_id = models.CharField(max_length=64, blank=True, help_text="Von wwok zugeordnete Kategorie im Shop")
+    im_shop_aktiv = models.BooleanField(default=True)
 
     class Meta:
         verbose_name = "Shop-Artikel"

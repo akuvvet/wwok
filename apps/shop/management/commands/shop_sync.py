@@ -23,5 +23,7 @@ class Command(BaseCommand):
                 if not nur_bestellungen:
                     e = services.abgleichen(shop, alle=alle)
                     self.stdout.write(f"{shop}: {e['gesendet']} Artikel gesendet")
+                    if services.artikeldaten_faellig(shop):
+                        self.stdout.write(f"{shop}: {services.artikeldaten_meldung(services.artikeldaten_senden(shop))}")
             except ShopFehler as fehler:
                 self.stderr.write(f"{shop}: {fehler}")
