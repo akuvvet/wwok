@@ -7,7 +7,7 @@ from django.utils import timezone
 from apps.finanzen.models import Zahlart
 from apps.finanzen.services import zahlung_buchen
 from apps.lager.models import bestand, gruppen_verfuegbar, reserviert
-from apps.stammdaten.models import Anschriftart, Ansprechpartner, Artikel, Kunde, Kundenanschrift, Zahlungsbedingung
+from apps.stammdaten.models import Anschriftart, Ansprechpartner, Artikel, Kunde, Kundenanschrift, Stammnummer, Zahlungsbedingung
 from apps.stammdaten.preise import stufenpreis
 from apps.verkauf.models import Beleg, Belegart, Position
 
@@ -51,11 +51,6 @@ def adresse_text(a: dict) -> str:
     return "\n".join(z for z in zeilen if z)
 
 
-def naechste_kundennummer() -> str:
-    zahlen = [int(n) for n in Kunde.objects.values_list("nummer", flat=True) if n.isdigit()]
-    return str(max(zahlen, default=40000) + 1)
-
-
 def kunde_finden_oder_anlegen(shop, bestellung: dict, rechnung: dict, versand: dict):
     email = (g(bestellung, "orderCustomer", "email") or "").strip()
     kunde = None
@@ -71,7 +66,7 @@ def kunde_finden_oder_anlegen(shop, bestellung: dict, rechnung: dict, versand: d
     nachname = g(bestellung, "orderCustomer", "lastName") or g(rechnung, "lastName")
     person = f"{vorname} {nachname}".strip()
     kunde = Kunde.objects.create(
-        nummer=naechste_kundennummer(), name1=(firma or person)[:150], name2=(person if firma else "")[:150],
+        nummer=Stammnummer.naechste(Stammnummer.Art.KUNDE), name1=(firma or person)[:150], name2=(person if firma else "")[:150],
         strasse=g(rechnung, "street")[:200], plz=g(rechnung, "zipcode")[:10], ort=g(rechnung, "city")[:100],
         land=(g(rechnung, "country", "iso") or "DE")[:2], email=email[:254], telefon=(g(rechnung, "phoneNumber") or "")[:50],
         kundenart="gewerblich" if firma else "endkunde", gesellschaftsform="" if firma else "privat",

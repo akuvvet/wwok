@@ -9,7 +9,7 @@ from apps.finanzen import services as fin
 from apps.kern.models import Mandant
 from apps.lager.models import Bewegungsart
 from apps.lager.services import buche_manuell
-from apps.stammdaten.models import Artikel, Kunde, Steuersatz, Zahlungsbedingung
+from apps.stammdaten.models import Artikel, Kunde, Stammnummer, Steuersatz, Zahlungsbedingung
 from apps.verkauf.models import Beleg, Belegart
 
 from . import services
@@ -65,6 +65,7 @@ class ShopTest(TestCase):
         self.win = Artikel.objects.create(nummer="WIN11", bezeichnung="Windows 11 Pro", steuersatz=self.st, vk1=Decimal("100"), online=True)
 
     def test_import_neukunde_auftrag_versand_und_zahlung(self):
+        Stammnummer.setzen(Stammnummer.Art.KUNDE, 40001)
         client = FakeClient(self.shop, [bestellung(bezahlt=True)])
         erg = services.bestellungen_abrufen(self.shop, client)
         self.assertEqual((erg["neu"], erg["bekannt"], erg["fehler"]), (1, 0, []))

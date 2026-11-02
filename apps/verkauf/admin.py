@@ -1,6 +1,12 @@
-from django.contrib import admin
-from django.core.exceptions import ValidationError
+from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.forms import BaseInlineFormSet
+from django.shortcuts import redirect
+from django.template.response import TemplateResponse
+from django.utils import timezone
+
+from apps.kern.models import Mandant
+from apps.stammdaten.models import Stammnummer
 
 from .models import (Abo, AboPosition, Beleg, Briefprodukt, MailVersand, Mailvorlage, Mengenregel, Nummernkreis, Position,
                      Versandart, Wiedervorlage)
@@ -62,8 +68,67 @@ class MailVersandAdmin(admin.ModelAdmin):
 
 @admin.register(Nummernkreis)
 class NummernkreisAdmin(admin.ModelAdmin):
-    list_display = ["mandant", "art", "jahr", "letzte_nummer"]
-    list_filter = ["mandant"]
+    """Eine Seite für alle laufenden Nummern; ein freies Bearbeiten des Zählers würde die Prüfungen in naechste_setzen umgehen."""
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        return redirect("admin:verkauf_nummernkreis_changelist")
+
+    def zeilen(self, mandanten):
+        stand = {(k.mandant_id, k.art): k.letzte_nummer for k in Nummernkreis.objects.all()}
+        jahr = timezone.localdate().year
+        belege = [{"titel": titel, "zellen": [
+            {"name": f"beleg-{m.pk}-{art}", "wert": stand.get((m.pk, art), 0) + 1, "gesperrt": Nummernkreis.gesperrt(m, art, jahr),
+             "muster": f"{art}{jahr}-{stand.get((m.pk, art), 0) + 1:05d}", "mandant": m, "art": art} for m in mandanten]}
+            for art, titel in Nummernkreis.ARTEN.items()]
+        stamm = [{"titel": titel, "name": f"stamm-{art}", "wert": Stammnummer.vorschlag(art), "art": art} for art, titel in Stammnummer.Art.choices]
+        return belege, stamm
+
+    def einstellen(self, request, titel, name, bisher, setzen) -> bool:
+        """Setzt eine Zeile nur, wenn der Nutzer sie geändert hat: Die Seite kann veraltet sein und sendet immer alle Felder.
+        Fehler stehen als Meldung über der Seite."""
+        text, angezeigt = request.POST.get(name, "").strip(), request.POST.get(f"alt-{name}")
+        if not text or text == angezeigt:
+            return False
+        if not (text.isascii() and text.isdigit() and len(text) <= 18):
+            messages.error(request, f"{titel}: „{text[:30]}“ ist keine Nummer.")
+            return False
+        if int(text) == int(bisher):
+            return False
+        if angezeigt != str(bisher):
+            messages.error(request, f"{titel}: Der Stand hat sich inzwischen geändert (jetzt {bisher}). Bitte neu eintragen.")
+            return False
+        try:
+            setzen(int(text))
+        except ValueError as fehler:
+            messages.error(request, f"{titel}: {fehler}")
+            return False
+        return True
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        mandanten = list(Mandant.objects.order_by("kurzname"))
+        belege, stamm = self.zeilen(mandanten)
+        if request.method == "POST":
+            geaendert = 0
+            for zeile in belege:
+                for z in zeile["zellen"]:
+                    geaendert += self.einstellen(request, f"{zeile['titel']} {z['mandant'].kurzname}", z["name"], z["wert"],
+                                                 lambda n: Nummernkreis.naechste_setzen(z["mandant"], z["art"], n))
+            for z in stamm:
+                geaendert += self.einstellen(request, z["titel"], z["name"], z["wert"], lambda n: Stammnummer.setzen(z["art"], n))
+            if geaendert:
+                messages.success(request, f"{geaendert} laufende Nummer(n) eingestellt.")
+            return redirect("admin:verkauf_nummernkreis_changelist")
+        return TemplateResponse(request, "admin/verkauf/nummernkreis/laufende_nummern.html", {
+            **self.admin_site.each_context(request), "title": "Laufende Nummern", "opts": self.model._meta, "mandanten": mandanten,
+            "belege": belege, "stamm": stamm, "jahr": timezone.localdate().year})
 
 
 class AboPositionFormset(BaseInlineFormSet):

@@ -14,7 +14,7 @@ from apps.verkauf.models import Beleg, Belegart
 from . import services
 from .models import Bankumsatz, Zahlart
 
-RECHNUNGSNR = re.compile(r"RE\s?(\d{4})\s?-?\s?(\d{5})", re.IGNORECASE)
+RECHNUNGSNR = re.compile(r"RE\s?(\d{4})\s?-?\s?(\d{5,})", re.IGNORECASE)
 
 # mögliche Spaltennamen in Bank-CSV-Dateien (klein geschrieben, Umlaute wie in der Datei)
 SPALTEN = {

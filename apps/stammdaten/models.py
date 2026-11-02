@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 
 from apps.kern.models import Mandant, Zeitstempel
 
@@ -605,6 +605,71 @@ class Preislistenartikel(models.Model):
     def nummer(self) -> str:
         """Nummer für die Anzeige: MSKU, sonst Bestellnummer des Lieferanten."""
         return self.herstellernummer or self.bestellnummer
+
+
+# ---------------------------------------------------------------------------
+# Laufende Nummern der Stammdaten
+# ---------------------------------------------------------------------------
+
+class Stammnummer(models.Model):
+    """Zähler für Nummern, die beide Mandanten teilen. Belegte Nummern werden übersprungen, auch eingetippte oder importierte."""
+
+    class Art(models.TextChoices):
+        ARTIKEL = "A", "Artikel (Typ A)"
+        LEISTUNG = "L", "Leistungen (Typ L)"
+        GRUPPE = "G", "Gruppenartikel (Typ G)"
+        KUNDE = "K", "Kunden"
+        LIEFERANT = "LF", "Lieferanten"
+
+    HOECHSTWERT = 10 ** 18 - 1
+
+    art = models.CharField("Art", max_length=2, choices=Art.choices, unique=True)
+    letzte_nummer = models.PositiveBigIntegerField("zuletzt vergeben", default=0)
+
+    class Meta:
+        verbose_name = "Stammnummer"
+        verbose_name_plural = "Stammnummern"
+
+    def __str__(self):
+        return f"{self.get_art_display()}: {self.letzte_nummer}"
+
+    @classmethod
+    def vorschlag(cls, art: str) -> str:
+        """Nächste freie Nummer, ohne sie zu verbrauchen: Eine geöffnete und wieder abgebrochene Maske kostet keine Nummer."""
+        modell = {cls.Art.KUNDE: Kunde, cls.Art.LIEFERANT: Lieferant}.get(art, Artikel)
+        belegt = set(modell.objects.values_list("nummer", flat=True))
+        zahl = (cls.objects.filter(art=art).values_list("letzte_nummer", flat=True).first() or 0) + 1
+        while str(zahl) in belegt:
+            zahl += 1
+        return str(zahl)
+
+    @classmethod
+    def belegen(cls, art: str, nummer: str):
+        """Vor dem Speichern aufrufen: Der Zähler rückt nur bei der vorgeschlagenen Nummer vor, eine eingetippte lässt ihn stehen."""
+        with transaction.atomic():
+            zaehler, _ = cls.objects.select_for_update().get_or_create(art=art)
+            if str(nummer) == cls.vorschlag(art):
+                zaehler.letzte_nummer = int(nummer)
+                zaehler.save(update_fields=["letzte_nummer"])
+
+    @classmethod
+    def naechste(cls, art: str) -> str:
+        """Vergibt sofort die nächste Nummer, für Abläufe ohne Maske."""
+        with transaction.atomic():
+            zaehler, _ = cls.objects.select_for_update().get_or_create(art=art)
+            nummer = cls.vorschlag(art)
+            zaehler.letzte_nummer = int(nummer)
+            zaehler.save(update_fields=["letzte_nummer"])
+        return nummer
+
+    @classmethod
+    def setzen(cls, art: str, naechste: int):
+        if not 1 <= naechste <= cls.HOECHSTWERT:
+            raise ValueError("Die Nummer muss größer als 0 und höchstens 18-stellig sein.")
+        with transaction.atomic():
+            zaehler, _ = cls.objects.select_for_update().get_or_create(art=art)
+            zaehler.letzte_nummer = naechste - 1
+            zaehler.save(update_fields=["letzte_nummer"])
 
 
 # ---------------------------------------------------------------------------

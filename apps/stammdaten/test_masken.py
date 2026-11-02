@@ -7,7 +7,7 @@ from django.urls import reverse
 
 from apps.kern.models import Mandant
 
-from .models import Ansprechpartner, Kunde, KundeMandant, Lieferant, LieferantMandant
+from .models import Ansprechpartner, Kunde, KundeMandant, Lieferant, LieferantMandant, Stammnummer
 
 
 def verwaltung(praefix, **felder):
@@ -76,6 +76,7 @@ class StammdatenMaskenTest(TestCase):
         self.assertContains(r, "mit-fehler", status_code=422)
 
     def test_neukunde_nummer_und_dublettenwarnung(self):
+        Stammnummer.setzen(Stammnummer.Art.KUNDE, 1000)  # 1000 ist belegt und wird übersprungen
         url = reverse("stammdaten:kunde_neu")
         r = self.client.get(url)
         self.assertContains(r, 'value="1001"')

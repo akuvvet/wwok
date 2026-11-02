@@ -11,6 +11,7 @@ import re
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, ROUND_UP, Decimal
 
+from django.apps import apps
 from django.conf import settings
 from django.core import serializers
 from django.core.exceptions import ValidationError
@@ -65,40 +66,85 @@ class BelegGesperrt(Exception):
 
 
 class Nummernkreis(models.Model):
+    """Zähler je Mandant und Art; er läuft über den Jahreswechsel weiter, das Jahr steht nur in der Nummer."""
+
+    # Reihenfolge der Verwaltungsseite; Einkauf und Werkstatt zählen über denselben Kreis, ihre Belege liegen in eigenen Tabellen
+    ARTEN = {"RE": "Rechnungen", "GS": "Gutschriften", "LS": "Lieferscheine", "AN": "Angebote", "PF": "Proforma-Rechnungen",
+             "WS": "Werkstattaufträge", "AB": "Bestellungen", "NL": "Nachlieferscheine", "BE": "Lieferantenbestellungen",
+             "WE": "Wareneingänge", "RM": "RMA"}
+    QUELLEN = {"WS": "werkstatt.Reparatur", "BE": "einkauf.Bestellung", "WE": "einkauf.Wareneingang", "RM": "einkauf.Rma"}
+    NUR_VOR_DEM_START = {"RE", "GS"}  # steuerlich lückenlos: einstellbar nur, solange im Jahr noch keine Nummer vergeben ist
+    HOECHSTWERT = 999_999_999
+
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT)
     art = models.CharField("Belegart", max_length=2, choices=Belegart.choices)
-    jahr = models.PositiveSmallIntegerField("Jahr")
     letzte_nummer = models.PositiveIntegerField("zuletzt vergeben", default=0)
+    letzte_vergabe = models.DateField("zuletzt vergeben am", null=True, blank=True, editable=False)
 
     class Meta:
-        verbose_name = "Nummernkreis"
-        verbose_name_plural = "Nummernkreise"
-        constraints = [models.UniqueConstraint(fields=["mandant", "art", "jahr"], name="nummernkreis_eindeutig")]
+        verbose_name = "Laufende Nummer"
+        verbose_name_plural = "Laufende Nummern"
+        constraints = [models.UniqueConstraint(fields=["mandant", "art"], name="nummernkreis_je_art")]
+
+    @classmethod
+    def vergebene(cls, mandant: Mandant, art: str) -> list:
+        """Alle vergebenen Nummern der Art, aus den Belegen selbst und nicht aus dem Zähler."""
+        modell = apps.get_model(cls.QUELLEN.get(art, "verkauf.Beleg"))
+        filter_ = {"mandant": mandant, "nummer__startswith": art, **({} if art in cls.QUELLEN else {"art": art})}
+        return list(modell.objects.filter(**filter_).values_list("nummer", flat=True))
+
+    @classmethod
+    def gesperrt(cls, mandant: Mandant, art: str, jahr=None) -> bool:
+        """Maßgeblich ist das Jahr der Vergabe: Eine im Januar abgeschlossene Dezemberrechnung trägt noch das alte Jahr in der Nummer."""
+        if art not in cls.NUR_VOR_DEM_START:
+            return False
+        jahr = jahr or timezone.localdate().year
+        return (cls.objects.filter(mandant=mandant, art=art, letzte_vergabe__year=jahr).exists()
+                or any(n.startswith(f"{art}{jahr}-") for n in cls.vergebene(mandant, art)))
+
+    @classmethod
+    def naechste_setzen(cls, mandant: Mandant, art: str, naechste: int):
+        """Stellt die nächste Nummer ein. Bereits vergebene Nummern kommen nie wieder, auch wenn der Zähler vorher zu hoch stand."""
+        if not 1 <= naechste <= cls.HOECHSTWERT:
+            raise ValueError(f"Die Nummer muss zwischen 1 und {cls.HOECHSTWERT} liegen.")
+        with transaction.atomic():
+            kreis, _ = cls.objects.select_for_update().get_or_create(mandant=mandant, art=art)
+            if kreis.letzte_nummer + 1 == naechste:
+                return
+            if cls.gesperrt(mandant, art):
+                raise ValueError(f"Im Jahr {timezone.localdate().year} sind schon Nummern vergeben; sie müssen lückenlos weiterlaufen.")
+            zaehler = [int(n.rsplit("-", 1)[-1]) for n in cls.vergebene(mandant, art) if n.rsplit("-", 1)[-1].isdigit()]
+            if naechste <= max(zaehler, default=0):
+                raise ValueError(f"Die Nummer muss größer sein als die höchste vergebene ({max(zaehler)}).")
+            kreis.letzte_nummer = naechste - 1
+            kreis.save(update_fields=["letzte_nummer"])
 
     @classmethod
     def naechste(cls, mandant: Mandant, art: str, jahr: int) -> str:
         with transaction.atomic():
-            kreis, _ = cls.objects.select_for_update().get_or_create(mandant=mandant, art=art, jahr=jahr)
+            kreis, _ = cls.objects.select_for_update().get_or_create(mandant=mandant, art=art)
             kreis.letzte_nummer += 1
-            kreis.save(update_fields=["letzte_nummer"])
+            kreis.letzte_vergabe = timezone.localdate()
+            kreis.save(update_fields=["letzte_nummer", "letzte_vergabe"])
         return f"{art}{jahr}-{kreis.letzte_nummer:05d}"
 
     @classmethod
     def freigeben(cls, mandant: Mandant, art: str, nummer: str):
         """Gibt die zuletzt vergebene Nummer wieder frei (nur wenn sie noch die letzte ist), damit keine Lücke entsteht."""
         try:
-            jahr, zaehler = nummer[len(art):].split("-")
-            jahr, zaehler = int(jahr), int(zaehler)
-        except ValueError:
+            zaehler = int(nummer[len(art):].split("-")[1])
+        except (ValueError, IndexError):
             return
         with transaction.atomic():
-            kreis = cls.objects.select_for_update().filter(mandant=mandant, art=art, jahr=jahr).first()
-            if kreis and kreis.letzte_nummer == zaehler:
+            kreis = cls.objects.select_for_update().filter(mandant=mandant, art=art).first()
+            # aus der Zeit der Jahreszähler kann derselbe Zählerstand in einem anderen Jahr noch vergeben sein
+            andere = [n for n in cls.vergebene(mandant, art) if n != nummer and n.rsplit("-", 1)[-1].lstrip("0") == str(zaehler)]
+            if kreis and kreis.letzte_nummer == zaehler and not andere:
                 kreis.letzte_nummer -= 1
                 kreis.save(update_fields=["letzte_nummer"])
 
     def __str__(self):
-        return f"{self.mandant} {self.art} {self.jahr}: {self.letzte_nummer}"
+        return f"{self.mandant} {self.art}: {self.letzte_nummer}"
 
 
 class Versandart(Zeitstempel):

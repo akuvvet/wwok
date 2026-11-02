@@ -1,5 +1,6 @@
 """Bearbeiten und Neuanlegen von Kunden und Lieferanten im Dialog (Registerkarten). Die Ansichten liefern ein HTML-Fragment
 für den Dialog; gespeichert wird per fetch, bei Fehlern kommt das Fragment mit den Meldungen zurück (Status 422)."""
+import json
 from decimal import Decimal
 
 from django.db import transaction
@@ -14,13 +15,9 @@ from apps.verkauf.views import dezimal, mit_mandant
 
 from . import forms as f
 from . import ustid
-from .models import Artikel, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant, Lieferant, LieferantMandant, UstIdPruefung
+from .models import (Artikel, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant, Lieferant, LieferantMandant, Stammnummer,
+                     UstIdPruefung)
 from .preise import komponenten_zeile
-
-
-def naechste_nummer(modell) -> str:
-    zahlen = [int(n) for n in modell.objects.values_list("nummer", flat=True) if n.isdigit()]
-    return str(max(zahlen, default=0) + 1)
 
 
 def alle_gueltig(*objekte) -> bool:
@@ -114,7 +111,8 @@ def bearbeiten(request, art: str, pk=None):
     """art: 'kunde' oder 'lieferant'; ohne pk wird neu angelegt."""
     kunde = art == "kunde"
     modell = Kunde if kunde else Lieferant
-    instanz = get_object_or_404(modell, pk=pk) if pk else modell(nummer=naechste_nummer(modell))
+    zaehler = Stammnummer.Art.KUNDE if kunde else Stammnummer.Art.LIEFERANT
+    instanz = get_object_or_404(modell, pk=pk) if pk else modell(nummer=Stammnummer.vorschlag(zaehler))
     FormKlasse = f.KundeForm if kunde else f.LieferantForm
     mandant = request.mandant
     daten = request.POST if request.method == "POST" else None
@@ -147,6 +145,8 @@ def bearbeiten(request, art: str, pk=None):
                            "Wirklich einen weiteren anlegen?")
         if alle_gueltig(form, ap_set, an_set, mandantform) and not warnung:
             with transaction.atomic():
+                if not pk:
+                    Stammnummer.belegen(zaehler, form.cleaned_data["nummer"])
                 objekt = form.save()
                 for fs in (ap_set, an_set):
                     if fs is None:
@@ -221,9 +221,11 @@ def lieferant_ust_id_pruefen(request, pk):
 def artikel_bearbeiten(request, pk=None):
     """Artikelstamm im Dialog mit Registerkarten; Lagerplatz und Bestandsgrenzen gelten je Mandant."""
     mandant = request.mandant
-    instanz = get_object_or_404(Artikel, pk=pk) if pk else Artikel(nummer=naechste_nummer(Artikel))
+    instanz = get_object_or_404(Artikel, pk=pk) if pk else Artikel(nummer=Stammnummer.vorschlag(Artikeltyp.A))
     daten = request.POST if request.method == "POST" else None
     form = f.ArtikelForm(daten, instance=instanz)
+    if not pk:  # jede Art hat ihren Zähler, die Maske tauscht die Nummer beim Wechsel des Typs
+        form.fields["nummer"].widget.attrs["data-vorschlaege"] = json.dumps({t: Stammnummer.vorschlag(t) for t in (Artikeltyp.A, Artikeltyp.L, Artikeltyp.G)})
     komponenten = [komponenten_zeile(k.komponente, k.menge) for k in instanz.komponenten.select_related("komponente")] if pk else []
     md_instanz = (ArtikelMandant.objects.filter(artikel=instanz, mandant=mandant).first() if pk else None) or ArtikelMandant(mandant=mandant)
     mandantform = f.ArtikelMandantForm(daten, instance=md_instanz, prefix="md")
@@ -238,6 +240,8 @@ def artikel_bearbeiten(request, pk=None):
             form.add_error(None, text)
         if gueltig and not fehler:
             with transaction.atomic():
+                if not pk:
+                    Stammnummer.belegen(form.cleaned_data["typ"], form.cleaned_data["nummer"])
                 objekt = form.save()
                 md = mandantform.save(commit=False)
                 md.artikel, md.mandant = objekt, mandant

@@ -173,12 +173,13 @@ class LeistungsartikelAdmin(admin.ModelAdmin):
         return super().get_queryset(request).filter(typ=m.Artikeltyp.L)
 
     def get_changeform_initial_data(self, request):
-        from .masken import naechste_nummer
-        return {**super().get_changeform_initial_data(request), "nummer": naechste_nummer(m.Artikel),
+        return {**super().get_changeform_initial_data(request), "nummer": m.Stammnummer.vorschlag(m.Stammnummer.Art.LEISTUNG),
                 "steuersatz": m.Steuersatz.objects.first()}
 
     def save_model(self, request, obj, form, change):
         obj.typ = m.Artikeltyp.L
+        if not change:
+            m.Stammnummer.belegen(m.Stammnummer.Art.LEISTUNG, obj.nummer)
         super().save_model(request, obj, form, change)
 
     def get_urls(self):

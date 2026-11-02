@@ -7,7 +7,7 @@ from django.urls import reverse
 
 from apps.kern.models import Mandant
 
-from .models import Artikel, ArtikelMandant, Kategorie, Steuersatz
+from .models import Artikel, ArtikelMandant, Kategorie, Stammnummer, Steuersatz
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -32,6 +32,7 @@ class ArtikelMaskeTest(TestCase):
 
     def test_neuer_artikel_bekommt_naechste_nummer_und_registerkarten(self):
         Artikel.objects.create(nummer="24007", bezeichnung="Alt", steuersatz=self.st)
+        Stammnummer.setzen(Stammnummer.Art.ARTIKEL, 24007)
         r = self.client.get(reverse("stammdaten:artikel_neu"))
         self.assertContains(r, "24008")
         for titel in ("Stammdaten", "Preise", "Maße &amp; Versand", "Online &amp; Texte", "Mandant"):

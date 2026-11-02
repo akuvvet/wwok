@@ -18,7 +18,7 @@ from openpyxl import Workbook
 from apps.kern.models import AenderungsProtokoll, Mandant
 from apps.stammdaten.leistung_import import ImportFehler, geld, importieren, zelle_pruefen
 from apps.stammdaten.management.commands.import_artikel import SPALTEN
-from apps.stammdaten.models import Artikel, GruppenKomponente, Kategorie, Kunde, Leistungsartikel, Leistungskategorie, PreisVorgabe, Steuersatz
+from apps.stammdaten.models import Artikel, GruppenKomponente, Kategorie, Kunde, Leistungsartikel, Leistungskategorie, PreisVorgabe, Stammnummer, Steuersatz
 from apps.stammdaten.preise import gruppen_kalkulation, stufenpreis, verkaufspreis
 from apps.verkauf.models import Beleg, Position
 
@@ -273,6 +273,7 @@ class VerwaltungTest(TestCase):
 
     def test_vorbelegung(self):
         Artikel.objects.create(nummer="500", bezeichnung="Ware", steuersatz=self.st)
+        Stammnummer.setzen(Stammnummer.Art.LEISTUNG, 500)
         r = self.client.get(reverse("admin:stammdaten_leistungsartikel_add"))
         self.assertContains(r, 'value="501"')
 

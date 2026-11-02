@@ -454,7 +454,16 @@
         nurWenn(['kategorie', 'aufschlag_vk1', 'aufschlag_vk2', 'aufschlag_vk3'], !leistung);
         nurWenn(['leistungskategorie', 'kosten'], leistung);
       }
-      if (typ) { typ.addEventListener('change', typAnwenden); typAnwenden(); }
+      var typVorher = typ && typ.value;
+      function nummerTauschen() {  // jede Art hat ihren Zähler; eine eingetippte Nummer bleibt stehen
+        var feld = dlg.querySelector('[name=nummer][data-vorschlaege]');
+        if (feld) {
+          var vorschlaege = JSON.parse(feld.dataset.vorschlaege);
+          if (feld.value === vorschlaege[typVorher] && vorschlaege[typ.value]) feld.value = vorschlaege[typ.value];
+        }
+        typVorher = typ.value;
+      }
+      if (typ) { typ.addEventListener('change', function () { nummerTauschen(); typAnwenden(); }); typAnwenden(); }
       var bereich = dlg.querySelector('[data-komponenten]'); if (bereich) komponentenBereich(bereich);
       var fehler = dlg.querySelector('[data-modaltab].mit-fehler'); if (fehler) zeigeTab(fehler.dataset.modaltab);
       var formular = dlg.querySelector('form'); if (!formular) return;

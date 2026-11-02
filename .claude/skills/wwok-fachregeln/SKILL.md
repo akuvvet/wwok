@@ -11,6 +11,6 @@ Maßgeblich ist README Abschnitt 18 (nicht kopieren, dort lesen und pflegen). Ke
 - Beleg ohne Position: nicht abschließen, versenden, weiterführen.
 - Zahlungen unveränderlich, Korrektur nur per Storno mit Grund; abgeschlossene Rechnung/Gutschrift gesperrt, Korrektur per Gutschrift.
 - Typ P (Preislistenartikel) getrennt von Typ A; beim Wareneingang entsteht Artikel A.
-- Positionsnummern lückenlos; Nummernkreise pro Mandant und Jahr ohne Lücken.
+- Positionsnummern lückenlos; Nummernkreise pro Mandant durchlaufend über den Jahreswechsel, Rechnung und Gutschrift ohne Lücken.
 - Mandanten (OKAY Computer, ZONE Handel) strikt getrennt: offene Posten, Bestand, Kassenbuch, ESD-Keys, Werkstatt.
 - Änderungen an diesen Regeln nur nach Rücksprache mit dem Nutzer.

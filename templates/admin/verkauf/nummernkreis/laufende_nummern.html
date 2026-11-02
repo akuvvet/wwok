@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Start</a> › Laufende Nummern</div>{% endblock %}
+{% block content %}
+<form method="post">{% csrf_token %}
+  <h2>Belege</h2>
+  <p>Eingetragen wird die nächste Nummer. Die Zählung läuft über den Jahreswechsel weiter und liegt immer über der höchsten vergebenen Nummer. Rechnungen und Gutschriften sind nur einstellbar, solange in {{ jahr|stringformat:"d" }} noch keine vergeben ist.</p>
+  <table>
+    <thead><tr><th>Nummernkreis</th>{% for m in mandanten %}<th>{{ m.kurzname }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for zeile in belege %}<tr><th scope="row">{{ zeile.titel }}</th>{% for z in zeile.zellen %}
+      <td><input type="hidden" name="alt-{{ z.name }}" value="{{ z.wert|stringformat:"d" }}"><input type="number" min="1" name="{{ z.name }}" value="{{ z.wert|stringformat:"d" }}" aria-label="{{ zeile.titel }} {{ z.mandant.kurzname }}"{% if z.gesperrt %} disabled{% endif %}>
+        <div class="help">{{ z.muster }}{% if z.gesperrt %} · gesperrt, Nummern laufen lückenlos{% endif %}</div></td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table>
+  <h2 style="margin-top:24px">Stammdaten</h2>
+  <p>Gelten für beide Firmen. Belegte Nummern werden übersprungen.</p>
+  <table>
+    <thead><tr><th>Art</th><th>Nächste Nummer</th></tr></thead>
+    <tbody>{% for z in stamm %}<tr><th scope="row">{{ z.titel }}</th><td><input type="hidden" name="alt-{{ z.name }}" value="{{ z.wert }}"><input type="number" min="1" name="{{ z.name }}" value="{{ z.wert }}" aria-label="{{ z.titel }}"></td></tr>{% endfor %}</tbody>
+  </table>
+  <div class="submit-row" style="margin-top:16px"><input type="submit" class="default" value="Speichern"></div>
+</form>
+{% endblock %}
