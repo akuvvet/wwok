@@ -833,6 +833,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Verkaufsabwicklung: Belegfluss, Gruppen (G), Sammelrechnung, Teillieferung, Kopieren, Gutschrift, PDF, Mailversand
 - [x] Gutschrift: Abfrage und Spalte B (Reparaturbestand, Lagerbestand, keine Ware), Buchung beim Abschließen; Reparaturbestand am Artikel mit Umbuchen und Ausbuchen
 - [x] Leistungsartikel: eigene Kategorien, Kosten als EK, Anlegen und Import (CSV, Excel) in der Verwaltung
+- [x] Lieferantenrechnung löschen mit Pflichtnotiz, Zuordnung zum Wareneingang wird aufgehoben
 - [x] Beleg: Kopf und Symbole bleiben beim Scrollen stehen, die Positionsliste zeigt 6 Positionen und scrollt danach; unter „Neuer Beleg“ nur noch Angebot und Bestellung, Rechnung und Proforma entstehen per Übernehmen oder Kopieren, Gutschrift nur aus einer Rechnung
 - [x] Belegart Auftrag heißt überall Bestellung (Kundenbestellung im Verkauf); Lieferantenbestellungen im Einkauf und Werkstattaufträge bleiben
 - [x] Positionen aus CSV oder Excel in einen Beleg importieren; wiederkehrende Rechnung halbmonatlich mit Mengen aus dem Kalender (Feiertage NRW)
@@ -918,6 +919,7 @@ Diese Regeln sind mit dem Nutzer abgestimmt und im Code umgesetzt. Änderungen n
 | Gutschrift | entsteht nur aus einer abgeschlossenen Rechnung (Mehr → „Storno / Gutschrift“), nicht frei und nicht per Kopieren |
 | Beleg kopieren | jeder Beleg lässt sich als beliebige Belegart (außer Gutschrift) kopieren; beim Angebot wird gefragt, ob es danach abgeschlossen werden soll |
 | Belegrabatt | Prozent je Beleg, wirkt auf alle Positionen netto vor der Steuer (je Steuersatz auf Cent gerundet); Versand, Verpackung und Versicherung bleiben unberührt. Wird in Folgebelege, Gutschrift, PDF, ZUGFeRD und DATEV übernommen; Sammelrechnung nur bei gleichem Rabatt |
+| Lieferantenrechnung löschen | Nur offene Rechnungen, mit Pflichtnotiz. Die Zuordnung zum Wareneingang entfällt, der Wareneingang lässt sich neu verknüpfen, Lager und EK bleiben unverändert. Die Rechnungsnummer ist wieder frei. Notiz und Benutzer stehen im Änderungsprotokoll. Bezahlte Rechnungen erst nach dem Zahlungsstorno (Admin), exportierte (SEPA) nicht; ist eine exportierte Zahlung nicht ausgeführt worden, führt der Weg über Als bezahlt buchen und Zahlungsstorno |
 | Lieferantenrechnung | Weicht das Netto vom Wareneingang um mehr als 1 Cent ab, wird es gemeldet; Zahlung und SEPA-Export sind gesperrt, bis die Beträge korrigiert oder die Abweichung mit Begründung bestätigt ist (Verlauf mit Benutzer und Zeit; ändert sich die Differenz, muss neu bestätigt werden). Dazu ein Notizfeld |
 | Menü | Verkauf, Einkauf, Artikel (früher „Lager“), Werkstatt, Finanzen |
 

@@ -212,6 +212,13 @@ class Lieferantenrechnung(Zeitstempel):
     def __str__(self):
         return f"{self.lieferant.name1} {self.rechnungsnummer}"
 
+    def save(self, *args, **kwargs):
+        if not self._state.adding:  # sonst entstünde eine inzwischen gelöschte Rechnung beim Speichern neu
+            if not type(self).objects.filter(pk=self.pk).exists():
+                raise ValueError("Die Rechnung wurde inzwischen gelöscht.")
+            kwargs["force_update"] = True
+        super().save(*args, **kwargs)
+
     def zahlung_stornieren(self, grund, benutzer=None):
         """Zahlungsausgang rückgängig machen: Rechnung ist wieder offen; Grund und Benutzer bleiben in der Historie."""
         grund = (grund or "").strip()

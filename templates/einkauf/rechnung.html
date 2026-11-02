@@ -43,6 +43,11 @@
     <div><label>Zahlung stornieren – Grund (Pflicht)</label><input name="grund" size="40" required></div>
     <button type="submit" class="gefahr">Zahlung stornieren</button>
   </form>{% endif %}
+  {% if r.status == 'offen' %}
+  <form method="post" action="{% url 'einkauf:rechnung_loeschen' r.pk %}" class="zeile" style="margin-top:12px" data-frage="Rechnung {{ r.rechnungsnummer }} wirklich löschen?{% if verknuepft %} Die Zuordnung zum Wareneingang wird aufgehoben.{% endif %}">{% csrf_token %}
+    <div><label>Beleg löschen – Notiz (Pflicht)</label><input name="notiz" size="40" maxlength="200" required></div>
+    <button type="submit" class="gefahr">Beleg löschen</button>
+  </form>{% endif %}
   {% if r.historie %}<p style="margin-top:12px;opacity:.8;white-space:pre-line">{{ r.historie }}</p>{% endif %}
 </div>
 <div class="karte">

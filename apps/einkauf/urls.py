@@ -38,6 +38,7 @@ urlpatterns = [
     path("rechnungen/<int:rechnung_id>/korrigieren/", views.rechnung_korrigieren, name="rechnung_korrigieren"),
     path("rechnungen/<int:rechnung_id>/bezahlt/", views.rechnung_bezahlt, name="rechnung_bezahlt"),
     path("rechnungen/<int:rechnung_id>/zahlung-storno/", views.rechnung_zahlung_storno, name="rechnung_zahlung_storno"),
+    path("rechnungen/<int:rechnung_id>/loeschen/", views.rechnung_loeschen, name="rechnung_loeschen"),
     path("preislisten/", views.preislisten_liste, name="preislisten"),
     path("preislistenartikel/", views.preislistenartikel, name="preislistenartikel"),
     path("bestpreise/", views.bestpreise_ansicht, name="bestpreise"),

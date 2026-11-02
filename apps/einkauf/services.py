@@ -351,6 +351,25 @@ def rechnung_erfassen(mandant, lieferant, rechnungsnummer, datum, netto, brutto,
     return r
 
 
+def rechnung_loeschen(rechnung, notiz, benutzer=None) -> list:
+    """Offene Rechnung löschen, die Zuordnung der Wareneingänge entfällt damit. Notiz und Benutzer stehen vor dem Löschen in
+    der Historie und bleiben so im Änderungsprotokoll. Gibt die Nummern der frei gewordenen Wareneingänge zurück."""
+    notiz = (notiz or "").strip()
+    if not notiz:
+        raise ValueError("Bitte eine Notiz angeben, warum die Rechnung gelöscht wird.")
+    with transaction.atomic():
+        r = Lieferantenrechnung.objects.select_for_update().get(pk=rechnung.pk)  # der Status kann sich in einem anderen Tab geändert haben
+        if r.status == RechnungStatus.BEZAHLT:
+            raise ValueError("Bezahlte Rechnungen lassen sich nicht löschen – erst die Zahlung stornieren.")
+        if r.status == RechnungStatus.EXPORTIERT:
+            raise ValueError("Die Rechnung wurde schon zur Zahlung exportiert (SEPA-Datei) und lässt sich nicht löschen. Bitte erst mit der Bank klären.")
+        nummern = list(r.wareneingaenge.values_list("nummer", flat=True))
+        r.historie_eintrag(f"Rechnung gelöscht – {notiz}" + (f" (Zuordnung aufgehoben: {', '.join(nummern)})" if nummern else ""), benutzer)
+        r.save(update_fields=["historie"])
+        r.delete()
+    return nummern
+
+
 def rma_anlegen(mandant, lieferant, bezeichnung, fehler, artikel=None, seriennummer="", reparatur=None) -> Rma:
     rma = Rma.objects.create(mandant=mandant, lieferant=lieferant, nummer=nummer(mandant, "RM"), bezeichnung=bezeichnung,
                              fehler=fehler, artikel=artikel, seriennummer=seriennummer, reparatur=reparatur)

@@ -617,6 +617,21 @@ def rechnung_zahlung_storno(request, rechnung_id):
 @mit_mandant
 @require_POST
 @schutz("einkauf:rechnung", "rechnung_id")
+def rechnung_loeschen(request, rechnung_id):
+    r = get_object_or_404(Lieferantenrechnung.objects.select_related("lieferant"), pk=rechnung_id, mandant=request.mandant)
+    name = str(r)
+    try:
+        nummern = services.rechnung_loeschen(r, request.POST.get("notiz"), request.user)
+    except Lieferantenrechnung.DoesNotExist:  # zweiter Klick oder anderer Tab
+        messages.info(request, f"Rechnung {name} wurde bereits gelöscht.")
+        return redirect("einkauf:rechnungen")
+    messages.success(request, f"Rechnung {name} gelöscht." + (f" Zuordnung aufgehoben: {', '.join(nummern)}." if nummern else ""))
+    return redirect("einkauf:rechnungen")
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:rechnung", "rechnung_id")
 def rechnung_notiz(request, rechnung_id):
     r = get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
     r.bemerkung = request.POST.get("bemerkung", "").strip()[:200]
@@ -650,15 +665,16 @@ def rechnung_korrigieren(request, rechnung_id):
 @require_POST
 @schutz("einkauf:rechnungen")
 def sepa_export(request):
-    auswahl = Lieferantenrechnung.objects.filter(pk__in=request.POST.getlist("auswahl"), mandant=request.mandant) \
-        .exclude(status=RechnungStatus.BEZAHLT).select_related("lieferant")
-    for r in auswahl:
-        r.freigabe_pruefen()
-    if any(r.status == RechnungStatus.EXPORTIERT for r in auswahl):
-        messages.warning(request, "Achtung: Die Auswahl enthält Rechnungen, die schon einmal exportiert wurden – nicht doppelt bei der Bank einreichen.")
     ausfuehrung = tag(request.POST.get("ausfuehrung"))
-    daten = sepa.erzeuge(request.mandant, list(auswahl), ausfuehrung)
-    auswahl.update(status=RechnungStatus.EXPORTIERT)
+    with transaction.atomic():  # keine Überweisung für eine Rechnung, die gerade gelöscht wird
+        auswahl = list(Lieferantenrechnung.objects.select_for_update().filter(pk__in=request.POST.getlist("auswahl"), mandant=request.mandant)
+                       .exclude(status=RechnungStatus.BEZAHLT).select_related("lieferant"))
+        for r in auswahl:
+            r.freigabe_pruefen()
+        if any(r.status == RechnungStatus.EXPORTIERT for r in auswahl):
+            messages.warning(request, "Achtung: Die Auswahl enthält Rechnungen, die schon einmal exportiert wurden – nicht doppelt bei der Bank einreichen.")
+        daten = sepa.erzeuge(request.mandant, auswahl, ausfuehrung)
+        Lieferantenrechnung.objects.filter(pk__in=[r.pk for r in auswahl]).update(status=RechnungStatus.EXPORTIERT)
     antwort = HttpResponse(daten, content_type="application/xml")
     antwort["Content-Disposition"] = f'attachment; filename="SEPA_{request.mandant.kurzname}_{ausfuehrung:%Y%m%d}.xml"'
     return antwort
