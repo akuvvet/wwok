@@ -16,7 +16,7 @@ from apps.verkauf.views import mit_mandant
 from . import bank as bankmodul
 from . import datev as datevmodul
 from . import services
-from .mahntext import text_fuer
+from .mahntext import mail_fuer
 from . import lastschrift as lastschriftmodul
 from .models import Lastschrift, Mahnung, Zahlart
 from .pdf import mahnung_pdf
@@ -155,8 +155,7 @@ def mahnung_mail(request, mahnung_id):
     ap = beleg.ansprechpartner
     an = ", ".join(dict.fromkeys(
         a for a in [(ap.email if ap and ap.email else beleg.kunde.email)] + adressen(beleg.kunde.email_weitere) if a))
-    betreff = f"{mahnung.bezeichnung} zu Rechnung {beleg.nummer}"
-    text = text_fuer(mahnung)
+    betreff, text = mail_fuer(mahnung)
     if request.method == "POST":
         an, betreff, text = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
         try:

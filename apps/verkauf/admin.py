@@ -1,6 +1,6 @@
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.forms import BaseInlineFormSet
+from django.forms import BaseInlineFormSet, ModelForm
 from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.utils import timezone
@@ -8,8 +8,9 @@ from django.utils import timezone
 from apps.kern.models import Mandant
 from apps.stammdaten.models import Stammnummer
 
-from .models import (Abo, AboPosition, Beleg, Briefprodukt, MailVersand, Mailvorlage, Mengenregel, Nummernkreis, Position,
-                     Versandart, Wiedervorlage)
+from .mail import PLATZHALTER, STANDARD, vorlage_fehler, vorlagen_anlegen
+from .models import (Abo, AboPosition, Beleg, Briefprodukt, Mailart, MailVersand, Mailvorlage, Mengenregel, Nummernkreis,
+                     Position, Versandart, Wiedervorlage)
 
 
 class PositionInline(admin.TabularInline):
@@ -42,10 +43,49 @@ class BelegAdmin(admin.ModelAdmin):
         return False
 
 
+class MailvorlageForm(ModelForm):
+    def clean(self):
+        daten = super().clean()
+        fehler = vorlage_fehler(self.instance.art, daten.get("betreff", ""), daten.get("text", ""))
+        if fehler:
+            raise ValidationError(fehler)
+        return daten
+
+
 @admin.register(Mailvorlage)
 class MailvorlageAdmin(admin.ModelAdmin):
+    """Je Mandant steht jede Mailart genau einmal in der Liste; fehlende entstehen beim Öffnen mit dem Standardtext."""
+
+    form = MailvorlageForm
     list_display = ["mandant", "art", "betreff"]
     list_filter = ["mandant"]
+    ordering = ["mandant", "art"]
+    fields = ["mandant", "art", "betreff", "text", "platzhalter"]
+    readonly_fields = ["mandant", "art", "platzhalter"]
+    actions = ["standard_setzen"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        if self.has_change_permission(request):
+            vorlagen_anlegen()
+        return super().changelist_view(request, extra_context)
+
+    @admin.display(description="Mögliche Platzhalter")
+    def platzhalter(self, obj):
+        liste = " ".join("{" + name + "}" for name in PLATZHALTER[obj.art])
+        return liste + " – {mahntext} ist der Text der Mahnstufe" if obj.art == Mailart.MAHNUNG else liste
+
+    @admin.action(description="Auf Standardtext zurücksetzen", permissions=["change"])
+    def standard_setzen(self, request, queryset):
+        for vorlage in queryset:
+            vorlage.betreff, vorlage.text = STANDARD[vorlage.art]
+            vorlage.save()
+        self.message_user(request, f"{len(queryset)} Vorlagen zurückgesetzt.", messages.SUCCESS)
 
 
 @admin.register(MailVersand)

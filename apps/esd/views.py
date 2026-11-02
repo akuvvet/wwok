@@ -158,13 +158,12 @@ def mail(request, beleg_id):
     if not gruppen:
         messages.error(request, "Zu diesem Beleg wurden noch keine Keys vergeben.")
         return redirect("esd:beleg", beleg_id=b.pk)
-    from apps.verkauf.mail import adressen, anrede
+    from apps.verkauf.mail import ausfuellen, platzhalter
+    from apps.verkauf.models import Mailart
     ap = b.ansprechpartner
     an = (ap.email if ap and ap.email else b.kunde.email) or ""
-    betreff = f"Ihre Lizenzschlüssel zu {b.get_art_display()} {b.nummer or ''}".strip()
     zeilen = "\n".join(f"{name}:\n  " + "\n  ".join(keys) for name, keys in gruppen)
-    text = (f"{anrede(b)},\n\nanbei Ihre Lizenzschlüssel zu {b.get_art_display()} {b.nummer or ''}:\n\n{zeilen}\n\n"
-            f"Mit freundlichen Grüßen\n{b.mandant.firmenname}")
+    betreff, text = ausfuellen(b.mandant, Mailart.ESD, {**platzhalter(b), "keys": zeilen})
     if request.method == "POST":
         an, betreff, text = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
         try:

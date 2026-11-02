@@ -4,15 +4,15 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.lager.models import Bewegungsart, Lagerbewegung
-from apps.verkauf.mail import MailFehler, senden_an
-from apps.verkauf.models import Beleg, Belegart, Nummernkreis, Position
+from apps.verkauf.mail import MailFehler, ausfuellen, senden_an
+from apps.verkauf.models import Beleg, Belegart, Mailart, Nummernkreis, Position
 
 from .models import STATUS_MIT_MAIL, Reparatur, ReparaturPosition, Status
 
-MAILTEXT = {
-    Status.ANGENOMMEN: "wir haben Ihr Gerät {geraet} unter der Auftragsnummer {nummer} angenommen und kümmern uns darum.",
-    Status.IN_REPARATUR: "Ihr Gerät {geraet} (Auftrag {nummer}) ist jetzt in Reparatur.",
-    Status.FERTIG: "Ihr Gerät {geraet} (Auftrag {nummer}) ist fertig und kann bei uns abgeholt werden.",
+MAILART = {
+    Status.ANGENOMMEN: Mailart.REPARATUR_ANGENOMMEN,
+    Status.IN_REPARATUR: Mailart.REPARATUR_LAEUFT,
+    Status.FERTIG: Mailart.REPARATUR_FERTIG,
 }
 
 
@@ -26,17 +26,17 @@ def annehmen(mandant, kunde, geraet, fehler, seriennummer="", zubehoer="", artik
 
 def statusmail(reparatur, benutzer=None):
     """Statusmail an den Kunden; gibt eine Meldung zurück (oder None, wenn keine Mail nötig/möglich war)."""
-    text = MAILTEXT.get(reparatur.status)
+    art = MAILART.get(reparatur.status)
     kunde = reparatur.kunde
-    if text is None or not kunde.email:
+    if art is None or not kunde.email:
         return None
     from apps.verkauf.mail import anrede_text
     m = reparatur.mandant
-    body = f"{anrede_text(kunde)},\n\n" + text.format(geraet=reparatur.geraet, nummer=reparatur.nummer) + \
-        f"\n\nMit freundlichen Grüßen\n{m.firmenname}"
+    betreff, text = ausfuellen(m, art, {
+        "anrede": anrede_text(kunde), "geraet": reparatur.geraet, "nummer": reparatur.nummer,
+        "status": reparatur.get_status_display(), "firma": m.firmenname, "kunde": kunde.name1})
     try:
-        senden_an(m, kunde.email, f"Reparatur {reparatur.nummer}: {reparatur.get_status_display()}", body,
-                  bezug=reparatur.nummer, benutzer=benutzer)
+        senden_an(m, kunde.email, betreff, text, bezug=reparatur.nummer, benutzer=benutzer)
         return f"Statusmail an {kunde.email} gesendet."
     except MailFehler as fehler:
         return f"Statusmail nicht gesendet: {fehler}"

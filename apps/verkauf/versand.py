@@ -7,6 +7,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
 from .mail import senden_an
+from .models import Mailart
 
 
 def empfaenger_zeilen(beleg) -> list:
@@ -48,18 +49,14 @@ def aufkleber_pdf(versand) -> bytes:
 
 
 def versandmail_text(versand):
-    from .mail import anrede
+    from .mail import ausfuellen, platzhalter
     beleg = versand.beleg
     link = f"\nSendungsverfolgung: {versand.tracking_url}" if versand.tracking_url else ""
     # Brief: die Marken-ID ist keine Sendungsnummer, eine Verfolgung gibt es nicht
-    nummer = "" if versand.dienst == "dp" else f"Sendungsnummer: {versand.sendungsnummer or '–'}{link}\n"
-    betreff = f"Ihre Bestellung wurde versendet – {beleg.mandant.firmenname}"
-    text = (f"{anrede(beleg)},\n\n"
-            f"Ihre Ware zu {beleg.get_art_display()} {beleg.nummer or ''} wurde am {versand.versendet_am:%d.%m.%Y} mit "
-            f"{versand.get_dienst_display()} versendet.\n"
-            f"{nummer}\n"
-            f"Mit freundlichen Grüßen\n{beleg.mandant.firmenname}")
-    return betreff, text
+    sendung = "" if versand.dienst == "dp" else f"Sendungsnummer: {versand.sendungsnummer or '–'}{link}"
+    return ausfuellen(beleg.mandant, Mailart.VERSAND, {
+        **platzhalter(beleg), "versanddatum": f"{versand.versendet_am:%d.%m.%Y}",
+        "dienst": versand.get_dienst_display(), "sendung": sendung})
 
 
 def versandmail_senden(versand, an: str, benutzer=None):

@@ -1,25 +1,59 @@
 """Versand von Belegen per E-Mail (PDF im Anhang) mit Protokoll."""
 import os
 import re
+from string import Formatter
 
 from django.core.mail import EmailMessage, get_connection
 from django.utils import timezone
 
-from .models import Belegart, MailVersand, Mailvorlage
+from apps.kern.models import Mandant
+
+from .models import Belegart, Mailart, MailVersand, Mailvorlage
 from .pdf import beleg_pdf
 
-STANDARD_BETREFF = "{art} {nummer} von {firma}"
-STANDARD_TEXT = (
-    "{anrede},\n\n"
-    "anbei erhalten Sie {art_mit_artikel} {nummer}.\n"
-    "{zahlungstext}\n\n"
-    "Bei Fragen melden Sie sich gerne.\n\n"
-    "Mit freundlichen Grüßen\n{firma}"
-)
 ARTIKEL = {Belegart.ANGEBOT: "unser Angebot", Belegart.AUFTRAG: "die Bestellbestätigung",
            Belegart.LIEFERSCHEIN: "den Lieferschein", Belegart.RECHNUNG: "die Rechnung",
            Belegart.GUTSCHRIFT: "die Gutschrift", Belegart.NACHLIEFERSCHEIN: "den Nachlieferschein",
            Belegart.PROFORMA: "die Proforma-Rechnung"}
+GRUSS = "Mit freundlichen Grüßen\n{firma}"
+BELEG_TEXT = "{anrede},\n\nanbei erhalten Sie %s {nummer}.\n{zahlungstext}\n\nBei Fragen melden Sie sich gerne.\n\n" + GRUSS
+
+# Standardtexte: Erstbefüllung der Mailvorlagen und Rückfall bei fehlender Zeile oder fehlerhaften Klammern
+STANDARD = {
+    **{art: ("{art} {nummer} von {firma}", BELEG_TEXT % text) for art, text in ARTIKEL.items()},
+    Mailart.LIEFERANT: ("Bestellung {nummer} von {firma}",
+                        "{anrede},\n\nanbei unsere Bestellung {nummer}. Bitte bestätigen Sie den Eingang und den "
+                        "voraussichtlichen Liefertermin.\n\n" + GRUSS),
+    Mailart.ESD: ("Ihre Lizenzschlüssel zu {art} {nummer}",
+                  "{anrede},\n\nanbei Ihre Lizenzschlüssel zu {art} {nummer}:\n\n{keys}\n\n" + GRUSS),
+    Mailart.VERSAND: ("Ihre Bestellung wurde versendet – {firma}",
+                      "{anrede},\n\nIhre Ware zu {art} {nummer} wurde am {versanddatum} mit {dienst} versendet.\n"
+                      "{sendung}\n\n" + GRUSS),
+    Mailart.MAHNUNG: ("{bezeichnung} zu Rechnung {nummer}", "{mahntext}"),
+    Mailart.REPARATUR_ANGENOMMEN: ("Reparatur {nummer}: {status}",
+                                   "{anrede},\n\nwir haben Ihr Gerät {geraet} unter der Auftragsnummer {nummer} "
+                                   "angenommen und kümmern uns darum.\n\n" + GRUSS),
+    Mailart.REPARATUR_LAEUFT: ("Reparatur {nummer}: {status}",
+                               "{anrede},\n\nIhr Gerät {geraet} (Auftrag {nummer}) ist jetzt in Reparatur.\n\n" + GRUSS),
+    Mailart.REPARATUR_FERTIG: ("Reparatur {nummer}: {status}",
+                               "{anrede},\n\nIhr Gerät {geraet} (Auftrag {nummer}) ist fertig und kann bei uns "
+                               "abgeholt werden.\n\n" + GRUSS),
+}
+BELEG_WERTE = ("anrede", "art", "art_mit_artikel", "nummer", "firma", "kunde", "datum", "faelligkeit", "zahlungstext", "betrag")
+REPARATUR_WERTE = ("anrede", "geraet", "nummer", "status", "firma", "kunde")
+PLATZHALTER = {
+    **{art: BELEG_WERTE for art in Belegart},
+    Mailart.LIEFERANT: ("anrede", "nummer", "firma", "lieferant"),
+    Mailart.ESD: BELEG_WERTE + ("keys",),
+    Mailart.VERSAND: BELEG_WERTE + ("versanddatum", "dienst", "sendung"),
+    Mailart.MAHNUNG: ("anrede", "kunde", "nummer", "datum", "faelligkeit", "offen", "gebuehr", "gesamt", "frist", "firma",
+                      "bezeichnung", "mahntext"),
+    Mailart.REPARATUR_ANGENOMMEN: REPARATUR_WERTE,
+    Mailart.REPARATUR_LAEUFT: REPARATUR_WERTE,
+    Mailart.REPARATUR_FERTIG: REPARATUR_WERTE,
+}
+PFLICHT = {Mailart.ESD: ("keys",)}  # ohne diesen Platzhalter wäre die Mail nutzlos
+FORMATFEHLER = (ValueError, IndexError, KeyError, AttributeError, TypeError)
 
 
 class MailFehler(Exception):
@@ -55,22 +89,58 @@ def platzhalter(beleg) -> dict:
     }
 
 
+def ausfuellen(mandant, art, werte: dict):
+    """Betreff und Text aus der Mailvorlage des Mandanten (oder dem Standard) mit eingesetzten Platzhaltern."""
+    vorlage = Mailvorlage.objects.filter(mandant=mandant, art=art).first()
+    betreff, text = (vorlage.betreff, vorlage.text) if vorlage else STANDARD[art]
+    try:
+        betreff, text = betreff.format_map(_Leer(werte)), text.format_map(_Leer(werte))
+    except FORMATFEHLER:  # fehlerhafte Klammern in der Mailvorlage
+        betreff, text = (teil.format_map(_Leer(werte)) for teil in STANDARD[art])
+    return " ".join(betreff.split())[:200], re.sub(r"\n{3,}", "\n\n", text.replace("\r\n", "\n"))
+
+
+def vorlagen_anlegen():
+    """Legt fehlende Mailvorlagen je Mandant mit dem Standardtext an; vorhandene bleiben unverändert."""
+    vorhanden = set(Mailvorlage.objects.values_list("mandant_id", "art"))
+    for m in Mandant.objects.all():
+        for art, (betreff, text) in STANDARD.items():
+            if (m.pk, art) not in vorhanden:  # einzeln, damit das Änderungsprotokoll den Eintrag sieht
+                Mailvorlage.objects.get_or_create(mandant=m, art=art, defaults={"betreff": betreff, "text": text})
+
+
+def _platzhalter_in(teil: str) -> set:
+    benutzt = set()
+    for _, name, format_angabe, umwandlung in Formatter().parse(teil):
+        if name is not None:
+            benutzt.add(name + (f":{format_angabe}" if format_angabe else "") + (f"!{umwandlung}" if umwandlung else ""))
+    return benutzt
+
+
+def vorlage_fehler(art, betreff: str, text: str) -> str:
+    """Grund, warum Betreff oder Text nicht einsetzbar sind: Klammern, unbekannte oder fehlende Platzhalter."""
+    try:
+        im_betreff, im_text = _platzhalter_in(betreff), _platzhalter_in(text)
+    except ValueError:
+        return "Die geschweiften Klammern passen nicht zusammen."
+    unbekannt = sorted((im_betreff | im_text) - set(PLATZHALTER[art]))
+    if unbekannt:
+        return "Unbekannter Platzhalter: " + " ".join("{" + name + "}" for name in unbekannt)
+    fehlend = [name for name in PFLICHT.get(art, ()) if name not in im_text]  # der Betreff wird gekürzt
+    if fehlend:
+        return "Dieser Platzhalter muss im Text vorkommen: " + " ".join("{" + name + "}" for name in fehlend)
+    return ""
+
+
 def vorschlag(beleg):
     """Empfänger, Betreff und Text aus Vorlage (oder Standard) mit eingesetzten Platzhaltern."""
-    vorlage = Mailvorlage.objects.filter(mandant=beleg.mandant, art=beleg.art).first()
-    werte = platzhalter(beleg)
-    try:
-        betreff = (vorlage.betreff if vorlage else STANDARD_BETREFF).format_map(_Leer(werte))
-        text = (vorlage.text if vorlage else STANDARD_TEXT).format_map(_Leer(werte))
-    except (ValueError, IndexError, KeyError, AttributeError):  # fehlerhafte Klammern in der Mailvorlage
-        betreff = STANDARD_BETREFF.format_map(_Leer(werte))
-        text = STANDARD_TEXT.format_map(_Leer(werte))
+    betreff, text = ausfuellen(beleg.mandant, beleg.art, platzhalter(beleg))
     ap = beleg.ansprechpartner
     empfaenger = [(ap.email if ap and ap.email else beleg.kunde.email) or ""]
     if beleg.art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT):
         empfaenger += adressen(beleg.kunde.email_weitere)
     an = ", ".join(dict.fromkeys(a for a in empfaenger if a))  # ohne Dubletten, Reihenfolge bleibt
-    return an, betreff, re.sub(r"\n{3,}", "\n\n", text)
+    return an, betreff, text
 
 
 class _Leer(dict):

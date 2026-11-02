@@ -1,6 +1,9 @@
-from apps.verkauf.mail import _Leer, anrede
+from apps.verkauf.mail import FORMATFEHLER, _Leer, anrede, ausfuellen
+from apps.verkauf.models import Mailart
 
 from .models import Mahnstufe
+
+STANDARD = "{anrede},\n\nbitte begleichen Sie die Rechnung {nummer} ({gesamt} €) bis zum {frist}.\n\nMit freundlichen Grüßen\n{firma}"
 
 
 def werte(mahnung) -> dict:
@@ -14,5 +17,14 @@ def werte(mahnung) -> dict:
 
 def text_fuer(mahnung) -> str:
     stufe = Mahnstufe.objects.filter(mandant=mahnung.beleg.mandant, stufe=mahnung.stufe).first()
-    vorlage = stufe.text if stufe and stufe.text else "{anrede},\n\nbitte begleichen Sie die Rechnung {nummer} ({gesamt} €) bis zum {frist}.\n\nMit freundlichen Grüßen\n{firma}"
-    return vorlage.format_map(_Leer(werte(mahnung)))
+    try:
+        return (stufe.text if stufe and stufe.text else STANDARD).format_map(_Leer(werte(mahnung)))
+    except FORMATFEHLER:  # fehlerhafte Klammern in der Mahnstufe
+        return STANDARD.format_map(_Leer(werte(mahnung)))
+
+
+def mail_fuer(mahnung):
+    """Betreff und Text der Mahnmail; {mahntext} ist der Text der Mahnstufe, der auch im PDF steht."""
+    b = mahnung.beleg
+    return ausfuellen(b.mandant, Mailart.MAHNUNG, {
+        **werte(mahnung), "kunde": b.kunde.name1, "bezeichnung": mahnung.bezeichnung, "mahntext": text_fuer(mahnung)})

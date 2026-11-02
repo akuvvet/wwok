@@ -11,8 +11,8 @@ from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel
 from apps.kern.rechte import admin_bei_aenderung, nur_admin
-from apps.verkauf.mail import MailFehler, senden_an
-from apps.verkauf.models import Beleg
+from apps.verkauf.mail import MailFehler, ausfuellen, senden_an
+from apps.verkauf.models import Beleg, Mailart
 from apps.verkauf.views import mit_mandant
 from apps.werkstatt.models import Reparatur
 
@@ -358,9 +358,9 @@ def bestellung_mail(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
     ap = b.lieferant.ansprechpartner.filter(Q(mandant=request.mandant) | Q(mandant__isnull=True)).exclude(email="").first()
     an = (ap.email if ap else b.lieferant.email) or ""
-    betreff = f"Bestellung {b.nummer} von {request.mandant.firmenname}"
-    text = (f"Sehr geehrte Damen und Herren,\n\nanbei unsere Bestellung {b.nummer}. Bitte bestätigen Sie den Eingang "
-            f"und den voraussichtlichen Liefertermin.\n\nMit freundlichen Grüßen\n{request.mandant.firmenname}")
+    betreff, text = ausfuellen(request.mandant, Mailart.LIEFERANT, {
+        "anrede": "Sehr geehrte Damen und Herren", "nummer": b.nummer, "firma": request.mandant.firmenname,
+        "lieferant": b.lieferant.name1})
     if request.method == "POST":
         an, betreff, text = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
         try:

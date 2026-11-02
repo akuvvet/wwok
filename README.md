@@ -853,6 +853,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Alle Belege (kundenübergreifende Liste), Versandarten-Stammtabelle mit Standardkosten, Wiedervorlage mit Startseiten-Übersicht, Belegkopf (Bearbeiter, Bezugnahme, Liefertermin, Angebot gültig bis)
 - [x] Laufende Nummern in der Verwaltung einstellbar, Belegnummern durchlaufend über den Jahreswechsel
 - [x] USt-ID online prüfen bei Kunden und Lieferanten (BZSt und VIES) mit dauerhaftem Nachweis
+- [x] Alle Mailtexte an Kunden und Lieferanten unter Verwaltung → Mailvorlagen je Mandant (Tabelle `verkauf_mailvorlage`): Belege, Bestellung an Lieferanten, Lizenzschlüssel, Versandmitteilung, Mahnung, drei Werkstatt-Statusmails. Fehlende Zeilen entstehen beim Öffnen der Liste mit dem Standardtext aus `apps/verkauf/mail.py`, vorhandene bleiben unverändert; Anlegen und Löschen gesperrt, unbekannte Platzhalter werden beim Speichern abgelehnt. Der Mahntext bleibt an der Mahnstufe, weil er auch im PDF steht, und kommt über `{mahntext}` in die Mail
 - [ ] Deutsche Post, eBay, Kaufland, Newsletter mit Double-Opt-in, Kategorien-Sync mit Shopware
 - [ ] Auswertungen (Umsatz, Marge, Topseller) und Startseiten-Übersicht mit Wiedervorlagen und fälligen Mahnungen
 
@@ -878,6 +879,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 6. Proforma-Rechnung, Nachlieferschein, wiederkehrende Rechnungen
 7. Versand (DHL, Deutsche Post), danach eBay, Kaufland, Newsletter
 8. Backup und Wiederherstellung einmal real durchspielen
+9. Bestehende Mailvorlagen auf dem Server auf alten Wortlaut prüfen (z. B. „Auftrag“ statt „Bestellung“)
 
 ## 17. Regeln für das Repository
 

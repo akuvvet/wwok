@@ -44,6 +44,25 @@ class Belegart(models.TextChoices):
     GUTSCHRIFT = "GS", "Gutschrift"
 
 
+class Mailart(models.TextChoices):
+    """Belegarten behalten ihr Kürzel, damit die Vorlage direkt über beleg.art gefunden wird."""
+
+    ANGEBOT = "AN", "Angebot"
+    AUFTRAG = "AB", "Bestellung"
+    LIEFERSCHEIN = "LS", "Lieferschein"
+    RECHNUNG = "RE", "Rechnung"
+    NACHLIEFERSCHEIN = "NL", "Nachlieferschein"
+    PROFORMA = "PF", "Proforma-Rechnung"
+    GUTSCHRIFT = "GS", "Gutschrift"
+    LIEFERANT = "BE", "Bestellung an Lieferanten"
+    ESD = "ES", "Lizenzschlüssel"
+    VERSAND = "VS", "Versandmitteilung"
+    MAHNUNG = "MA", "Mahnung"
+    REPARATUR_ANGENOMMEN = "RA", "Reparatur angenommen"
+    REPARATUR_LAEUFT = "RR", "Gerät in Reparatur"
+    REPARATUR_FERTIG = "RF", "Reparatur fertig"
+
+
 # Nächste Stufe im Belegfluss ("per Klick")
 FOLGEBELEG = {
     Belegart.ANGEBOT: Belegart.AUFTRAG,
@@ -729,11 +748,10 @@ class Beleg(Zeitstempel):
 
 
 class Mailvorlage(Zeitstempel):
-    """Betreff und Text je Mandant und Belegart. Platzhalter: {anrede} {art} {nummer} {firma} {kunde} {datum}
-    {faelligkeit} {zahlungstext} {betrag}"""
+    """Betreff und Text je Mandant und Mailart. Platzhalter je Art: PLATZHALTER in mail.py"""
 
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT)
-    art = models.CharField("Belegart", max_length=2, choices=Belegart.choices)
+    art = models.CharField("Art", max_length=2, choices=Mailart.choices)
     betreff = models.CharField("Betreff", max_length=200)
     text = models.TextField("Text")
 
