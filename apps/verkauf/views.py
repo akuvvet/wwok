@@ -127,11 +127,13 @@ def kunde_detail(request, kunde_id):
     except ValueError:
         ab = ""
     ohne_storno = request.GET.get("ohne_storno") == "1"
-    if ohne_storno:  # Gutschriften und vollständig gutgeschriebene Rechnungen ausblenden
-        storniert = [b.vorgaenger_id for b in Beleg.objects.filter(
-            kunde=kunde, mandant=request.mandant, art=Belegart.GUTSCHRIFT, abgeschlossen=True).select_related("vorgaenger")
-            if b.vorgaenger_id and b.summe_brutto >= b.vorgaenger.summe_brutto]
-        belege = belege.exclude(art=Belegart.GUTSCHRIFT).exclude(pk__in=storniert)
+    if ohne_storno:  # erledigte Gutschriften und ihre voll gutgeschriebenen Rechnungen ausblenden; Offenes bleibt sichtbar
+        erledigt = [g for g in Beleg.objects.filter(kunde=kunde, mandant=request.mandant, art=Belegart.GUTSCHRIFT,
+                                                    abgeschlossen=True).select_related("vorgaenger")
+                    if abs(fin.gutschrift_rest(g)) < fin.CENT]
+        storniert = [g.vorgaenger_id for g in erledigt if g.vorgaenger_id and g.summe_brutto >= g.vorgaenger.summe_brutto
+                     and abs(fin.offen(g.vorgaenger)) < fin.CENT]
+        belege = belege.exclude(pk__in=[g.pk for g in erledigt] + storniert).exclude(art=Belegart.GUTSCHRIFT, abgeschlossen=False)
     parameter = request.GET.copy()
     parameter.pop("seite", None)
     seite = Paginator(belege, 25).get_page(request.GET.get("seite"))
@@ -139,10 +141,11 @@ def kunde_detail(request, kunde_id):
     seite.object_list = Beleg.versand_markieren(seite.object_list)
     for b in seite.object_list:
         rechnung = b.art == Belegart.RECHNUNG and b.abgeschlossen
+        gutschrift = b.art == Belegart.GUTSCHRIFT and b.abgeschlossen
         zeilen.append({
             "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None,
             "bezahlt": fin.bezahlt(b) + fin.gutgeschrieben(b) if rechnung else None,
-            "offen": fin.offen(b) if rechnung else None,
+            "offen": fin.offen(b) if rechnung else -fin.gutschrift_rest(b) if gutschrift else None,
             "bezug": b.vorgaenger.nummer if b.vorgaenger_id and b.vorgaenger.nummer else "",
             "positionen": list(b.positionen.select_related("artikel")[:15])})
     offene_lieferscheine = sum(1 for b in Beleg.objects.filter(kunde=kunde, mandant=request.mandant, art=Belegart.LIEFERSCHEIN,

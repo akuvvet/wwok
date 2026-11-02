@@ -18,7 +18,7 @@ from . import datev as datevmodul
 from . import services
 from .mahntext import mail_fuer
 from . import lastschrift as lastschriftmodul
-from .models import Lastschrift, Mahnung, Zahlart
+from .models import Gutschriftverrechnung, Lastschrift, Mahnung, Zahlart
 from .pdf import mahnung_pdf
 
 
@@ -49,7 +49,8 @@ def datum(text):
 def offene_posten(request):
     kunde_id = request.GET.get("kunde", "")
     kunde = Kunde.objects.filter(pk=kunde_id if kunde_id.isdigit() else None).first()
-    zeilen = services.offene_rechnungen(request.mandant, kunde)
+    zeilen = sorted(services.offene_rechnungen(request.mandant, kunde) + services.offene_gutschriften(request.mandant, kunde),
+                    key=lambda z: (z["beleg"].belegdatum, z["beleg"].pk))
     if request.GET.get("nur") == "ueberfaellig":
         zeilen = [z for z in zeilen if z["ueberfaellig"] > 0]
     summe = sum((z["offen"] for z in zeilen), Decimal("0"))
@@ -63,9 +64,17 @@ def offene_posten(request):
 @mit_mandant
 def beleg_op(request, beleg_id):
     beleg = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
+    offen = services.offen(beleg)
+    gutschriften = []
+    if beleg.art == Belegart.RECHNUNG and beleg.abgeschlossen:
+        for z in services.offene_gutschriften(request.mandant, beleg.kunde):  # Gutschriften zu dieser Rechnung zuerst
+            rest = -z["offen"]
+            gutschriften.append({"beleg": z["beleg"], "rest": rest, "vorschlag": min(rest, offen) if offen > 0 else rest})
+        gutschriften.sort(key=lambda g: g["beleg"].vorgaenger_id != beleg.pk)
     return render(request, "finanzen/beleg_op.html", {
         "beleg": beleg, "zahlungen": beleg.zahlungen.all(), "bezahlt": services.bezahlt(beleg),
-        "gutschrift": services.gutgeschrieben(beleg), "offen": services.offen(beleg),
+        "gutschrift": services.gutgeschrieben(beleg), "offen": offen, "gutschriften": gutschriften,
+        "verrechnungen": beleg.gutschrift_verrechnungen.select_related("gutschrift", "storniert_durch"),
         "faellig": services.faellig_am(beleg), "mahnungen": beleg.mahnungen.all(), "zahlarten": Zahlart.choices,
         "heute": date.today().isoformat()})
 
@@ -96,6 +105,34 @@ def zahlung_storno(request, zahlung_id):
     except ValueError as fehler:
         messages.error(request, str(fehler))
     return redirect("finanzen:beleg", beleg_id=zahlung.beleg_id)
+
+
+@mit_mandant
+@require_POST
+def gutschrift_verrechnen(request, beleg_id):
+    rechnung = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
+    nummer = request.POST.get("gutschrift", "")
+    gutschrift = get_object_or_404(Beleg, pk=nummer if nummer.isdigit() else None, mandant=request.mandant)
+    try:
+        services.gutschrift_verrechnen(gutschrift, rechnung, betrag(request.POST.get("betrag")), request.user,
+                                       betrag(request.POST.get("offen_bisher")))
+        messages.success(request, f"{gutschrift} verrechnet.")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("finanzen:beleg", beleg_id=rechnung.pk)
+
+
+@mit_mandant
+@require_POST
+@nur_admin
+def verrechnung_aufheben(request, verrechnung_id):
+    verrechnung = get_object_or_404(Gutschriftverrechnung, pk=verrechnung_id, mandant=request.mandant)
+    try:
+        services.verrechnung_aufheben(verrechnung, request.POST.get("grund"), request.user)
+        messages.success(request, "Verrechnung aufgehoben (Gegenbuchung erstellt).")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("finanzen:beleg", beleg_id=verrechnung.rechnung_id)
 
 
 @mit_mandant
@@ -261,6 +298,8 @@ def lastschrift(request):
     gezogen = set(Lastschrift.objects.filter(mandant=request.mandant, aufgehoben=False).values_list("beleg_id", flat=True))
     zeilen = []
     for z in services.offene_rechnungen(request.mandant):
+        if z["offen"] <= 0:  # Überzahlung lässt sich nicht einziehen
+            continue
         z["fehlt"] = lastschriftmodul.mandat_fehlt(z["beleg"].kunde)
         z["gezogen"] = z["beleg"].pk in gezogen
         zeilen.append(z)

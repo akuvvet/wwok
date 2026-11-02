@@ -1,8 +1,8 @@
 """
 Finanzen: Zahlungen auf Rechnungen (offene Posten), Mahnstufen und Mahnungen - Pflichtenheft Abschnitt 8.
 
-Offen = Rechnungsbetrag - Zahlungen - abgeschlossene Gutschriften zur Rechnung.
-Zahlungen sind unveränderlich; ein Fehler wird mit einer Gegenbuchung (negativer Betrag) korrigiert.
+Offen = Rechnungsbetrag - Zahlungen - von Hand verrechnete Gutschriften.
+Zahlungen und Verrechnungen sind unveränderlich; ein Fehler wird mit einer Gegenbuchung (negativer Betrag) korrigiert.
 """
 from django.conf import settings
 from django.db import models
@@ -52,6 +52,38 @@ class Zahlung(models.Model):
 
     def __str__(self):
         return f"{self.beleg}: {self.betrag} € am {self.datum:%d.%m.%Y}"
+
+
+class Gutschriftverrechnung(models.Model):
+    """Von Hand verrechneter Teil einer Gutschrift mit einer Rechnung desselben Kunden. Eine abgeschlossene Gutschrift
+    mindert die Rechnung nicht von selbst: Der Kunde kann schon bezahlt haben, ohne dass die Zahlung gebucht ist."""
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="+")
+    gutschrift = models.ForeignKey("verkauf.Beleg", on_delete=models.PROTECT, related_name="verrechnungen")
+    rechnung = models.ForeignKey("verkauf.Beleg", on_delete=models.PROTECT, related_name="gutschrift_verrechnungen")
+    datum = models.DateField("Datum", default=timezone.localdate)
+    betrag = models.DecimalField("Betrag brutto", max_digits=12, decimal_places=2, help_text="Negativ = Aufhebung")
+    erfasst_am = models.DateTimeField(default=timezone.now)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    storno_zu = models.OneToOneField("self", on_delete=models.PROTECT, null=True, blank=True, related_name="storniert_durch",
+                                     help_text="Gesetzt bei einer Aufhebung: die ursprüngliche Verrechnung")
+    storno_grund = models.CharField("Grund der Aufhebung", max_length=300, blank=True)
+
+    class Meta:
+        verbose_name = "Gutschriftverrechnung"
+        verbose_name_plural = "Gutschriftverrechnungen"
+        ordering = ["-datum", "-id"]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise PermissionError("Verrechnungen sind unveränderlich; bitte die Verrechnung aufheben.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionError("Verrechnungen sind unveränderlich; bitte die Verrechnung aufheben.")
+
+    def __str__(self):
+        return f"{self.gutschrift} auf {self.rechnung}: {self.betrag} €"
 
 
 class Mahnstufe(models.Model):

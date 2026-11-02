@@ -10,9 +10,9 @@
   </p>
   <p>Offen gesamt: <strong>{{ summe|floatformat:2 }} €</strong> · davon überfällig: <strong style="color:var(--warn)">{{ ueberfaellig|floatformat:2 }} €</strong></p>
   <table>
-    <tr><th>Rechnung</th><th>Kunde</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">bezahlt</th><th class="zahl">offen</th><th class="zahl">überfällig</th><th>Mahnstufe</th></tr>
+    <tr><th>Beleg</th><th>Kunde</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">bezahlt/verrechnet</th><th class="zahl">offen</th><th class="zahl">überfällig</th><th>Mahnstufe</th></tr>
     {% for z in zeilen %}
-    <tr><td><a href="{% url 'finanzen:beleg' z.beleg.pk %}">{{ z.beleg.nummer }}</a>{% include "verkauf/versand_marke.html" with b=z.beleg %}</td>
+    <tr><td>{% if z.ist_gutschrift %}<a href="{% if z.beleg.vorgaenger_id %}{% url 'finanzen:beleg' z.beleg.vorgaenger_id %}{% else %}{% url 'verkauf:beleg' z.beleg.pk %}{% endif %}">{{ z.beleg.nummer }}</a>{% else %}<a href="{% url 'finanzen:beleg' z.beleg.pk %}">{{ z.beleg.nummer }}</a>{% include "verkauf/versand_marke.html" with b=z.beleg %}{% endif %}</td>
         <td><a href="{% url 'finanzen:offene_posten' %}?kunde={{ z.beleg.kunde.pk }}">{{ z.beleg.kunde.name1 }}</a></td>
         <td>{{ z.beleg.belegdatum|date:"d.m.Y" }}</td><td>{{ z.faellig|date:"d.m.Y" }}</td>
         <td class="zahl">{{ z.beleg.summe_brutto|floatformat:2 }}</td><td class="zahl">{{ z.erledigt|floatformat:2 }}</td>

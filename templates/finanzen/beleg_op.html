@@ -7,7 +7,7 @@
   <div class="raster">
     <div>Rechnungsbetrag<br><strong>{{ beleg.summe_brutto|floatformat:2 }} €</strong></div>
     <div>bezahlt<br><strong>{{ bezahlt|floatformat:2 }} €</strong></div>
-    <div>Gutschriften<br><strong>{{ gutschrift|floatformat:2 }} €</strong></div>
+    <div>verrechnete Gutschriften<br><strong>{{ gutschrift|floatformat:2 }} €</strong></div>
     <div>offen<br><strong style="font-size:20px">{{ offen|floatformat:2 }} €</strong></div>
     <div>fällig am<br>{{ faellig|date:"d.m.Y" }}</div>
   </div>
@@ -31,6 +31,27 @@
     {% empty %}<tr><td colspan="6">Noch keine Zahlungen.</td></tr>{% endfor %}
   </table>
 </div>
+
+{% if gutschriften or verrechnungen %}
+<div class="karte">
+  <h2>Gutschriften verrechnen</h2>
+  <p>Eine Gutschrift mindert die Rechnung erst, wenn sie hier verrechnet ist. Hat der Kunde schon bezahlt, bitte zuerst die Zahlung buchen.</p>
+  {% if gutschriften %}<table>
+    <tr><th>Gutschrift</th><th>Datum</th><th class="zahl">noch offen</th><th>verrechnen</th></tr>
+    {% for g in gutschriften %}<tr><td><a href="{% url 'verkauf:beleg' g.beleg.pk %}">{{ g.beleg.nummer }}</a>{% if not g.beleg.vorgaenger_id %} <em>(ohne Rechnung)</em>{% elif g.beleg.vorgaenger_id != beleg.pk %} <em>(andere Rechnung)</em>{% endif %}</td>
+      <td>{{ g.beleg.belegdatum|date:"d.m.Y" }}</td><td class="zahl">{{ g.rest|floatformat:2 }}</td>
+      <td><form method="post" action="{% url 'finanzen:gutschrift_verrechnen' beleg.pk %}" class="zeile">{% csrf_token %}
+        <input type="hidden" name="gutschrift" value="{{ g.beleg.pk|stringformat:"d" }}"><input type="hidden" name="offen_bisher" value="{{ offen|floatformat:2 }}"><input name="betrag" value="{{ g.vorschlag|floatformat:2 }}" size="10" aria-label="Betrag"><button type="submit">Verrechnen</button></form></td></tr>{% endfor %}
+  </table>{% endif %}
+  {% if verrechnungen %}<table style="margin-top:12px">
+    <tr><th>Datum</th><th>Gutschrift</th><th class="zahl">Betrag</th><th>Grund der Aufhebung</th><th>Benutzer</th><th></th></tr>
+    {% for v in verrechnungen %}<tr><td>{{ v.datum|date:"d.m.Y" }}</td><td>{{ v.gutschrift.nummer }}</td><td class="zahl">{{ v.betrag }}</td><td>{{ v.storno_grund }}{% if v.storno_zu_id %} <em>(Aufhebung)</em>{% endif %}</td><td>{{ v.benutzer|default:"" }}</td>
+      <td>{% if v.storno_zu_id %}{% elif v.storniert_durch %}<span style="opacity:.6">aufgehoben</span>
+        {% else %}<form method="post" action="{% url 'finanzen:verrechnung_aufheben' v.pk %}" class="zeile">{% csrf_token %}
+          <input name="grund" placeholder="Grund (Pflicht)" size="22" required><button type="submit" class="gefahr">Aufheben</button></form>{% endif %}</td></tr>{% endfor %}
+  </table>{% endif %}
+</div>
+{% endif %}
 
 {% if mahnungen %}
 <div class="karte">

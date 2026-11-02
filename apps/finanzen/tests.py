@@ -40,6 +40,8 @@ class FinanzenTest(TestCase):
         g = b.gutschrift_erzeugen()
         self.assertEqual(services.offen(b), Decimal("100.00"))  # Entwurf zählt nicht
         g.abschliessen()
+        self.assertEqual(services.offen(b), Decimal("100.00"))  # die Gutschrift allein mindert die Rechnung nicht
+        services.gutschrift_verrechnen(g, b, Decimal("119.00"))
         self.assertEqual(services.offen(b), Decimal("-19.00"))  # Gutschrift über alles: 19 € zu viel gezahlt
         self.assertEqual(len(services.offene_rechnungen(self.m)), 1)
 

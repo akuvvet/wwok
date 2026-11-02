@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Bankumsatz, Kassenbuch, Mahnstufe, Mahnung, Zahlung
+from .models import Bankumsatz, Gutschriftverrechnung, Kassenbuch, Mahnstufe, Mahnung, Zahlung
 
 
 class NurLesen(admin.ModelAdmin):
@@ -21,6 +21,15 @@ class ZahlungAdmin(NurLesen):
     list_display = ["datum", "mandant", "beleg", "betrag", "zahlart", "benutzer"]
     list_filter = ["mandant", "zahlart"]
     search_fields = ["beleg__nummer", "beleg__kunde__name1", "bemerkung"]
+
+
+@admin.register(Gutschriftverrechnung)
+class GutschriftverrechnungAdmin(NurLesen):
+    """Verrechnet wird auf der Zahlungsseite der Rechnung; Verrechnungen sind unveränderlich."""
+
+    list_display = ["datum", "mandant", "gutschrift", "rechnung", "betrag", "benutzer"]
+    list_filter = ["mandant"]
+    search_fields = ["gutschrift__nummer", "rechnung__nummer", "rechnung__kunde__name1"]
 
 
 @admin.register(Mahnung)

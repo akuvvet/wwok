@@ -8,7 +8,7 @@ from apps.verkauf.models import Beleg, Belegart
 
 from apps.kern.models import Mandant
 
-from .models import Kassenbuch, Mahnstufe, Mahnung, Zahlart, Zahlung
+from .models import Gutschriftverrechnung, Kassenbuch, Mahnstufe, Mahnung, Zahlart, Zahlung
 
 CENT = Decimal("0.01")
 STANDARD_STUFEN = [
@@ -43,8 +43,13 @@ def bezahlt(beleg) -> Decimal:
 
 
 def gutgeschrieben(beleg) -> Decimal:
-    return Beleg.objects.filter(vorgaenger=beleg, art=Belegart.GUTSCHRIFT, abgeschlossen=True).aggregate(
-        s=models.Sum("summe_brutto"))["s"] or Decimal("0")
+    """Auf die Rechnung verrechnete Gutschriften; eine Gutschrift allein mindert die Rechnung nicht."""
+    return beleg.gutschrift_verrechnungen.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0")
+
+
+def gutschrift_rest(gutschrift) -> Decimal:
+    """Noch nicht verrechneter Betrag einer Gutschrift."""
+    return gutschrift.summe_brutto - (gutschrift.verrechnungen.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0"))
 
 
 def offen(beleg) -> Decimal:
@@ -76,12 +81,66 @@ def offene_rechnungen(mandant, kunde=None):
         faellig = faellig_am(b)
         letzte = b.mahnungen.order_by("-stufe").first()
         zeilen.append({"beleg": b, "bezahlt": bezahlt(b), "gutschrift": gutgeschrieben(b), "erledigt": bezahlt(b) + gutgeschrieben(b), "offen": rest,
-                       "faellig": faellig, "ueberfaellig": max((heute - faellig).days, 0), "mahnstufe": letzte.stufe if letzte else 0})
+                       "faellig": faellig, "ueberfaellig": max((heute - faellig).days, 0) if rest > 0 else 0,  # Überzahlung ist nie überfällig
+                       "mahnstufe": letzte.stufe if letzte else 0})
+    return zeilen
+
+
+def offene_gutschriften(mandant, kunde=None):
+    """Abgeschlossene Gutschriften mit unverrechnetem Betrag als Minusposten, in der Form von offene_rechnungen."""
+    belege = Beleg.objects.filter(mandant=mandant, art=Belegart.GUTSCHRIFT, abgeschlossen=True) \
+        .select_related("kunde").order_by("belegdatum", "id")
+    if kunde is not None:
+        belege = belege.filter(kunde=kunde)
+    zeilen = []
+    for g in belege:
+        rest = gutschrift_rest(g)
+        if rest >= CENT:
+            zeilen.append({"beleg": g, "ist_gutschrift": True, "bezahlt": Decimal("0"), "gutschrift": Decimal("0"),
+                           "erledigt": g.summe_brutto - rest, "offen": -rest, "faellig": None, "ueberfaellig": 0, "mahnstufe": 0})
     return zeilen
 
 
 def kunde_offen(mandant, kunde) -> Decimal:
-    return sum((z["offen"] for z in offene_rechnungen(mandant, kunde)), Decimal("0"))
+    return sum((z["offen"] for z in offene_rechnungen(mandant, kunde) + offene_gutschriften(mandant, kunde)), Decimal("0"))
+
+
+@transaction.atomic
+def gutschrift_verrechnen(gutschrift, rechnung, betrag, benutzer=None, offen_bisher=None) -> Gutschriftverrechnung:
+    """Verrechnet einen Teil der Gutschrift. Die Rechnung darf dabei ins Minus gehen: Hat der Kunde schon bezahlt,
+    wird die Überzahlung danach als Rückzahlung gebucht. offen_bisher ist der offene Betrag, den die Maske gezeigt
+    hat; weicht er ab, wurde schon gebucht (Doppelklick, veraltete Seite) und es passiert nichts."""
+    Beleg.objects.select_for_update().get(pk=gutschrift.pk)  # Sperre, damit nichts doppelt verrechnet wird
+    if offen_bisher is not None and offen_bisher != offen(rechnung):
+        raise ValueError("Der offene Betrag hat sich inzwischen geändert. Bitte prüfen und neu verrechnen.")
+    if gutschrift.art != Belegart.GUTSCHRIFT or not gutschrift.abgeschlossen:
+        raise ValueError("Verrechnet werden nur abgeschlossene Gutschriften.")
+    if rechnung.art != Belegart.RECHNUNG or not rechnung.abgeschlossen:
+        raise ValueError("Verrechnet wird nur mit abgeschlossenen Rechnungen.")
+    if (gutschrift.mandant_id, gutschrift.kunde_id) != (rechnung.mandant_id, rechnung.kunde_id):
+        raise ValueError("Gutschrift und Rechnung gehören nicht zum selben Kunden.")
+    if betrag <= 0:
+        raise ValueError("Der Betrag muss größer als 0 sein.")
+    if betrag > gutschrift_rest(gutschrift):
+        raise ValueError(f"Von {gutschrift} sind nur noch {gutschrift_rest(gutschrift):.2f} € offen.".replace(".", ",", 1))
+    return Gutschriftverrechnung.objects.create(mandant=rechnung.mandant, gutschrift=gutschrift, rechnung=rechnung,
+                                                betrag=betrag, benutzer=benutzer)
+
+
+@transaction.atomic
+def verrechnung_aufheben(verrechnung, grund, benutzer=None) -> Gutschriftverrechnung:
+    """Hebt eine Verrechnung per Gegenbuchung auf; der Grund ist Pflicht."""
+    grund = (grund or "").strip()
+    if not grund:
+        raise ValueError("Bitte einen Grund angeben.")
+    Gutschriftverrechnung.objects.select_for_update().get(pk=verrechnung.pk)  # Sperre gegen doppeltes Aufheben
+    if verrechnung.storno_zu_id:
+        raise ValueError("Eine Aufhebung kann nicht erneut aufgehoben werden.")
+    if Gutschriftverrechnung.objects.filter(storno_zu=verrechnung).exists():
+        raise ValueError("Diese Verrechnung ist bereits aufgehoben.")
+    return Gutschriftverrechnung.objects.create(
+        mandant=verrechnung.mandant, gutschrift=verrechnung.gutschrift, rechnung=verrechnung.rechnung,
+        betrag=-verrechnung.betrag, benutzer=benutzer, storno_zu=verrechnung, storno_grund=grund[:300])
 
 
 def mahnvorschlag(mandant, heute=None):

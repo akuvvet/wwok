@@ -91,6 +91,9 @@ class MaskeTest(TestCase):
         neu = self.client.get(url, {"ab": (heute - timedelta(days=10)).isoformat(), "art": "RE"})
         self.assertEqual([z["beleg"] for z in neu.context["zeilen"]], [])  # Rechnung ist älter
         gs.abschliessen()
-        ohne = self.client.get(url, {"ohne_storno": "1", "art": ""}).context["seite"].paginator.count
         mit = self.client.get(url).context["seite"].paginator.count
-        self.assertEqual(mit - ohne, 2)  # Rechnung und ihre Gutschrift verschwinden
+        ohne = lambda: self.client.get(url, {"ohne_storno": "1", "art": ""}).context["seite"].paginator.count
+        self.assertEqual(mit - ohne(), 0)  # unverrechnet: Rechnung und Gutschrift bleiben sichtbar
+        services.gutschrift_verrechnen(gs, alt, gs.summe_brutto)
+        services.zahlung_buchen(alt, Decimal("-19"), heute, "ue", "Rückzahlung")
+        self.assertEqual(mit - ohne(), 2)  # erledigt: Rechnung und ihre Gutschrift verschwinden
