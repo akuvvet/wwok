@@ -1,4 +1,4 @@
-"""EK-Preis netto beim Anlegen: Basis, solange es weder Preisliste noch Wareneingang gibt; der Preisimport überschreibt ihn."""
+"""EK-Preis netto beim Anlegen: Basis, solange es keinen Import-EK gibt; der Preisimport ist maßgebend, der Wareneingang ändert den EK nicht."""
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -12,7 +12,7 @@ from apps.einkauf.test_preislisten import profil
 from apps.kern.models import Mandant
 from apps.lager.models import Bewegungsart, Lagerbewegung
 
-from .models import Artikel, ArtikelLieferant, EkHerkunft, Lieferant, Steuersatz, _ek_quelle
+from .models import Artikel, ArtikelLieferant, EkHerkunft, Lieferant, Steuersatz, _ek_quelle, ek_je_artikel
 from .preise import stufenpreis
 
 D = Decimal
@@ -96,16 +96,30 @@ class EkManuellTest(TestCase):
         a.refresh_from_db()
         self.assertEqual((a.durchschnitts_ek, a.ek_herkunft), (D("11.0000"), EkHerkunft.IMPORT))
 
-    def test_nach_wareneingang_nur_anzeige(self):
+    def test_alter_wareneingangs_ek_ist_nur_letzter_ersatz(self):
+        # Altdaten: Ø-EK aus dem Wareneingang ohne Preisliste; das Feld bleibt änderbar, ein eingetragener EK ersetzt ihn
+        a = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, durchschnitts_ek=D("10"), ek_herkunft="wareneingang")
+        Lagerbewegung.objects.create(mandant=self.m, artikel=a, art=Bewegungsart.WARENEINGANG, menge=D("1"))
+        self.assertEqual(_ek_quelle(a), (D("10"), "Wareneingang"))
+        url = reverse("stammdaten:artikel_bearbeiten", args=[a.pk])
+        r = self.client.get(url)
+        self.assertContains(r, "alter EK aus einem Wareneingang; ein eingetragener EK-Preis ersetzt ihn.")
+        self.assertNotRegex(r.content.decode(), r'name="ek_manuell"[^>]*disabled')
+        r = self.client.post(url, self.daten(ek_manuell="12,50", vk1="", aufschlag_vk1="20", fix_vk1="aufschlag"))
+        self.assertEqual(r.status_code, 200, r.content[:300])
+        a.refresh_from_db()
+        self.assertEqual((a.ek_manuell, a.durchschnitts_ek, a.ek_herkunft), (D("12.50"), None, EkHerkunft.MANUELL))
+        self.assertEqual(_ek_quelle(a), (D("12.50"), "manuell"))
+        self.assertEqual(stufenpreis(a, 1), D("15.00"))  # VK aus dem eingetippten EK
+
+    def test_eingetragener_ek_vor_altem_wareneingangs_ek_und_preisliste_davor(self):
         a = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, ek_manuell=D("12.50"),
                                    durchschnitts_ek=D("10"), ek_herkunft="wareneingang")
-        Lagerbewegung.objects.create(mandant=self.m, artikel=a, art=Bewegungsart.WARENEINGANG, menge=D("1"))
-        r = self.client.get(reverse("stammdaten:artikel_bearbeiten", args=[a.pk]))
-        self.assertContains(r, "nach dem Wareneingang gilt der Ø-EK, das Feld ist gesperrt.")
-        self.client.post(reverse("stammdaten:artikel_bearbeiten", args=[a.pk]), self.daten(ek_manuell="99"))
-        a.refresh_from_db()
-        self.assertEqual((a.ek_manuell, a.ek_herkunft), (D("12.50"), "wareneingang"))  # gesperrtes Feld bleibt unverändert
-        self.assertEqual(_ek_quelle(a), (D("10"), "Wareneingang"))
+        self.assertEqual(_ek_quelle(a), (D("12.50"), "manuell"))
+        self.assertEqual(ek_je_artikel([a])[a.pk], (D("12.50"), "manuell"))
+        ArtikelLieferant.objects.create(artikel=a, lieferant=self.lf, bestellnummer="TD-1", ek=D("9.80"))
+        self.assertEqual(_ek_quelle(a), (D("9.80"), "Preisliste Techdata GmbH"))
+        self.assertEqual(ek_je_artikel([a])[a.pk], (D("9.80"), "Preisliste Techdata GmbH"))
 
     def test_manuelles_speichern_nach_import_laesst_quelle_preisimport(self):
         a = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, durchschnitts_ek=D("9.80"), ek_herkunft="import")
@@ -118,13 +132,28 @@ class EkManuellTest(TestCase):
         self.assertEqual(_ek_quelle(alt), (D("5"), "Durchschnitts-EK"))
         self.assertIsNone(alt.ek_datum("Durchschnitts-EK"))
 
-    def test_preisimport_aendert_herkunft_nicht_nach_altem_wareneingang(self):
-        a = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, herstellernummer="MX-100", durchschnitts_ek=D("10"))
+    def test_preisimport_gilt_auch_nach_wareneingang(self):
+        a = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, herstellernummer="MX-100",
+                                   durchschnitts_ek=D("10"), ek_herkunft="wareneingang")
         Lagerbewegung.objects.create(mandant=self.m, artikel=a, art=Bewegungsart.WARENEINGANG, menge=D("1"))
         preislisten.importieren(profil(self.lf), "Best.-Nr.;Herst.-Nr.;EAN;Bezeichnung;Hersteller;EK;Bestand;Lieferzeit\n"
                                                  "TD-1;MX-100;;Maus;Logitech;9,80;40;2\n".encode(), "liste.csv")
         a.refresh_from_db()
-        self.assertEqual(a.ek_herkunft, "")
+        self.assertEqual((a.ek_herkunft, a.durchschnitts_ek), (EkHerkunft.IMPORT, None))  # alter Wareneingangs-EK weicht
+        self.assertEqual(_ek_quelle(a)[0], D("9.80"))
+
+    def test_preisimport_ersetzt_mention_ek_und_laesst_uebernommenen_import_ek(self):
+        liste = "Best.-Nr.;Herst.-Nr.;EAN;Bezeichnung;Hersteller;EK;Bestand;Lieferzeit\nTD-1;MX-100;;Maus;Logitech;9,80;40;2\nTD-2;MX-200;;Pad;Logitech;3,00;5;2\n"
+        mention = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, herstellernummer="MX-100", durchschnitts_ek=D("12"))
+        uebernommen = Artikel.objects.create(nummer="5001", bezeichnung="Pad", steuersatz=self.st, herstellernummer="MX-200",
+                                             durchschnitts_ek=D("3.50"), ek_herkunft="import")
+        datum = uebernommen.ek_geaendert_am
+        preislisten.importieren(profil(self.lf), liste.encode(), "liste.csv")
+        mention.refresh_from_db()
+        uebernommen.refresh_from_db()
+        self.assertEqual((mention.durchschnitts_ek, mention.ek_herkunft, _ek_quelle(mention)[0]), (None, "import", D("9.80")))
+        # übernommener Import-EK bleibt bis zum Zeitplan „Günstigster EK“, ohne neues Datum
+        self.assertEqual((uebernommen.durchschnitts_ek, uebernommen.ek_geaendert_am), (D("3.50"), datum))
 
     def test_maske_liefert_ek_fuer_live_umrechnung_vk_und_aufschlag(self):
         a = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, ek_manuell=D("12.50"), ek_herkunft="manuell")
@@ -231,3 +260,35 @@ class EkManuellTest(TestCase):
     def test_nur_fuer_lagerartikel(self):
         self.assertEqual(self.anlegen(typ="L", ek_manuell="5", nummer="L1").status_code, 200)
         self.assertIsNone(Artikel.objects.get(nummer="L1").ek_manuell)
+
+    def test_lagerwert_rechnet_mit_demselben_ek_wie_der_vk(self):
+        importiert = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, durchschnitts_ek=D("10"), ek_herkunft="import")
+        liste = Artikel.objects.create(nummer="5001", bezeichnung="Tastatur", steuersatz=self.st)
+        ArtikelLieferant.objects.create(artikel=liste, lieferant=self.lf, bestellnummer="TD-2", ek=D("4"))
+        manuell = Artikel.objects.create(nummer="5002", bezeichnung="Kabel", steuersatz=self.st, ek_manuell=D("1.50"))
+        ohne = Artikel.objects.create(nummer="5003", bezeichnung="Ohne EK", steuersatz=self.st)
+        for a, menge in ((importiert, "2"), (liste, "3"), (manuell, "4"), (ohne, "5")):
+            Lagerbewegung.objects.create(mandant=self.m, artikel=a, art=Bewegungsart.WARENEINGANG, menge=D(menge))
+        r = self.client.get(reverse("lager:uebersicht"))
+        self.assertContains(r, "Lagerwert (EK × Bestand): <strong>38,00 €</strong>")  # 2 × 10 + 3 × 4 + 4 × 1,50
+
+    def test_migration_stellt_wareneingangs_ek_auf_preisliste_um(self):
+        import importlib
+
+        from django.apps import apps as registry
+        migration = importlib.import_module("apps.stammdaten.migrations.0023_import_ek_massgebend")
+        we = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, durchschnitts_ek=D("10"), ek_herkunft="wareneingang")
+        mention = Artikel.objects.create(nummer="5001", bezeichnung="Alt", steuersatz=self.st, durchschnitts_ek=D("7"))
+        ohne_liste = Artikel.objects.create(nummer="5002", bezeichnung="Ohne", steuersatz=self.st, durchschnitts_ek=D("6"), ek_herkunft="wareneingang")
+        manuell = Artikel.objects.create(nummer="5003", bezeichnung="Hand", steuersatz=self.st, ek_manuell=D("3"), ek_herkunft="manuell")
+        aus_liste = Artikel.objects.create(nummer="5004", bezeichnung="Ohne Ø-EK", steuersatz=self.st)  # EK folgt direkt der Preisliste
+        for a, bn, ek in ((we, "A", "9.50"), (we, "B", "8.90"), (mention, "C", "6.20"), (manuell, "D", "2"), (aus_liste, "E", "5")):
+            ArtikelLieferant.objects.create(artikel=a, lieferant=self.lf, bestellnummer=bn, ek=D(ek))
+        migration.auf_preisliste_umstellen(registry, None)
+        for a in (we, mention, ohne_liste, manuell, aus_liste):
+            a.refresh_from_db()
+        self.assertEqual((aus_liste.durchschnitts_ek, aus_liste.ek_herkunft), (None, ""))  # nicht festgeschrieben
+        self.assertEqual((we.durchschnitts_ek, we.ek_herkunft), (D("8.90"), "import"))
+        self.assertEqual((mention.durchschnitts_ek, mention.ek_herkunft), (D("6.20"), "import"))
+        self.assertEqual((ohne_liste.durchschnitts_ek, ohne_liste.ek_herkunft), (D("6"), "wareneingang"))  # bleibt bis zum Import
+        self.assertEqual((manuell.durchschnitts_ek, manuell.ek_herkunft), (None, "manuell"))  # manuell bleibt (Preisliste gilt ohnehin)

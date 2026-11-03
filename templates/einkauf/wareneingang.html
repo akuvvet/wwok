@@ -43,7 +43,7 @@
     <button type="submit" name="aktion" value="kosten" class="leise">Kosten speichern</button>
     <button type="submit">Ins Lager buchen</button>
   </form>
-  <p style="opacity:.8;margin:6px 0 0">Nebenkosten werden nach Warenwert auf die Positionen verteilt. Der Kalkulations-EK ist der eigentliche EK: Er geht beim Buchen in den Durchschnitts-EK ein (Lagerwert, Marge, VK per Aufschlag). Die Bestellung und der nächste Bestellvorschlag rechnen weiter mit dem Lieferantenpreis.</p>
+  <p style="opacity:.8;margin:6px 0 0">Nebenkosten werden nach Warenwert auf die Positionen verteilt. Der Kalkulations-EK wird an der Position festgehalten; den EK des Artikels ändert der Wareneingang nicht – maßgebend für VK, Marge und Lagerwert ist der Import-EK. Die Bestellung und der nächste Bestellvorschlag rechnen weiter mit dem Lieferantenpreis.</p>
   {% endif %}
 </div>
 {% endblock %}

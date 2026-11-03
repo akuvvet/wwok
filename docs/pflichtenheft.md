@@ -166,7 +166,7 @@ Aufbau wie Verkauf, mit Lieferanten: Lieferantensuche, „Neuer Lieferant“, Be
 - Bestandshistorie pro Artikel (Datum, Menge, Grund, Beleg)
 - Reservierung für offene Bestellungen; Anzeige Gesamt/reserviert/verfügbar
 - Inventur: Zählliste, Erfassung, automatische Differenzbuchung
-- Lagerbewertung über Durchschnitts-EK
+- Lagerbewertung mit dem maßgebenden Import-EK (Wareneingang ändert den EK nicht)
 - Lagerplätze (Regal/Fach)
 - Seriennummern durchgängig vom Wareneingang bis Werkstatt
 
@@ -183,7 +183,7 @@ Aufbau wie Verkauf, mit Lieferanten: Lieferantensuche, „Neuer Lieferant“, Be
 | --- | --- |
 | Grunddaten | Bezeichnung, erweiterte Bezeichnung (zugleich Langbeschreibung im Shop, keine separate Langbeschreibung), Kategorie, Hersteller, Herstellernummer, EAN, Checkbox „nicht aktiv“, Garantie in Monaten |
 | Maße | Länge, Breite, Höhe, Gewicht in kg |
-| Preise | letzter EK pro Mandant, Durchschnitts-EK, VK1–VK3 mit Aufschlag, Steuersatz |
+| Preise | letzter EK pro Mandant, EK netto (Import-EK maßgebend), VK1–VK3 mit Aufschlag, Steuersatz |
 | Online | bis zu 10 Bilder (erstes = Hauptbild, für Shop/eBay/Kaufland), eine Checkbox „online“ für alle Kanäle, Kurzbeschreibung, Keywords, Metatitel, Meta-Description, Meta-Keywords |
 | Lieferanten | Liste je Lieferant: Preis, Bestand, Herkunfts-Preisliste, Bestellnummer des Lieferanten; Verknüpfung über Herstellernummer; Bestellnummer wird automatisch in die Lieferantenbestellung übernommen |
 

@@ -377,11 +377,12 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
             if len(fehler) < 200:
                 fehler.append({"zeile": nr, "grund": str(grund), "daten": z})
     schreiben()
-    if ek_importiert:  # der Preisimport überschreibt den manuellen EK; Wareneingang behält Vorrang
-        from apps.lager.models import Bewegungsart, Lagerbewegung
-        mit_wareneingang = Lagerbewegung.objects.filter(art=Bewegungsart.WARENEINGANG).values("artikel_id")
-        Artikel.objects.filter(pk__in=ek_importiert, typ="A").exclude(ek_herkunft="wareneingang").exclude(pk__in=mit_wareneingang).update(
-            ek_herkunft="import", ek_geaendert_am=jetzt)
+    if ek_importiert:  # der Preisimport ist maßgebend und überschreibt den manuellen EK (README 18)
+        # ein bereits übernommener Import-EK bleibt (Zeitplan „Günstigster EK“ aktualisiert ihn); alter Ø-EK aus Wareneingang
+        # oder Mention weicht der Preisliste, die dann direkt gilt
+        neu_import = Artikel.objects.filter(pk__in=ek_importiert, typ="A").exclude(ek_herkunft="import")
+        neu_import.filter(ek_herkunft__in=["wareneingang", ""]).update(durchschnitts_ek=None)
+        neu_import.update(ek_herkunft="import", ek_geaendert_am=jetzt)
     hinweis = ""
     if profil.entfernen_veraltete:
         veraltet = [bn for bn, alt in vorhanden.items() if alt["id"] is not None and bn not in gesehen]

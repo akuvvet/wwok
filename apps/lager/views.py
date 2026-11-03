@@ -77,9 +77,11 @@ def uebersicht(request):
         ek, quelle = eks[a.pk]
         zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": b - r, "reparatur": reparatur.get(a.pk, Decimal("0")),
                        "ek": ek, "ek_quelle": quelle})
-    lagerwert = Decimal("0")
-    for a in Artikel.objects.filter(pk__in=[k for k, s in summen.items() if s], durchschnitts_ek__isnull=False):
-        lagerwert += summen[a.pk] * a.durchschnitts_ek
+    lagerwert = Decimal("0")  # mit demselben EK wie der VK: Import-EK, sonst manueller EK (README 18)
+    mit_bestand = list(Artikel.objects.filter(pk__in=[k for k, s in summen.items() if s]))
+    for pk, (ek, _) in ek_je_artikel(mit_bestand).items():
+        if ek is not None:
+            lagerwert += summen[pk] * ek
     parameter = request.GET.copy()
     parameter.pop("seite", None)
     return render(request, "lager/uebersicht.html", {

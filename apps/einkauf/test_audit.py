@@ -33,24 +33,24 @@ class AuditEinkaufTest(TestCase):
             services.wareneingang_anlegen(mandant or self.m, self.lf)
 
     # Wareneingang
-    def test_zwei_zeilen_desselben_artikels_ergeben_richtigen_durchschnitts_ek(self):
+    def test_zwei_zeilen_desselben_artikels_buchen_bestand_ohne_ek_aenderung(self):
+        self.a.durchschnitts_ek, self.a.ek_herkunft = Decimal("18"), "import"
+        self.a.save()
         we = self.we()
         services.wareneingang_erfassen(we, self.a, Decimal("10"), Decimal("20"), seriennummern="\n".join(f"S{i}" for i in range(10)))
         services.wareneingang_erfassen(we, self.a, Decimal("10"), Decimal("30"), seriennummern="\n".join(f"T{i}" for i in range(10)))
         services.wareneingang_buchen(we)
         self.a.refresh_from_db()
-        self.assertEqual(self.a.durchschnitts_ek, Decimal("25.0000"))
+        self.assertEqual((self.a.durchschnitts_ek, self.a.ek_herkunft), (Decimal("18"), "import"))  # Import-EK ist maßgebend
         self.assertEqual(bestand(self.m, self.a), Decimal("20"))
 
-    def test_durchschnitts_ek_zaehlt_bestand_aller_mandanten(self):
+    def test_wareneingang_ohne_import_ek_setzt_keinen_ek(self):
         zone = self.we(self.m2)
         services.wareneingang_erfassen(zone, self.a, Decimal("100"), Decimal("10"))
         services.wareneingang_buchen(zone)
-        okay = self.we()
-        services.wareneingang_erfassen(okay, self.a, Decimal("1"), Decimal("20"))
-        services.wareneingang_buchen(okay)
         self.a.refresh_from_db()
-        self.assertEqual(self.a.durchschnitts_ek, Decimal("10.0990"))  # (100*10 + 1*20) / 101
+        self.assertIsNone(self.a.durchschnitts_ek)
+        self.assertNotEqual(self.a.ek_herkunft, "wareneingang")
 
     def test_liefermenge_der_bestellung_summiert_mehrere_zeilen(self):
         b = Bestellung.objects.create(mandant=self.m, lieferant=self.lf, status="bestellt")

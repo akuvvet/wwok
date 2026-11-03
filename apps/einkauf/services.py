@@ -305,17 +305,12 @@ def wareneingang_buchen(we, benutzer=None) -> int:
         p.kalk_ek = kalkulation[p.pk]  # eigentlicher EK: inkl. anteiliger Versand-, Versicherungs- und Verpackungskosten
         p.save(update_fields=["kalk_ek"])
         a = Artikel.objects.select_for_update().get(pk=p.artikel_id)  # frisch laden: mehrere Zeilen desselben Artikels
-        vorher = Lagerbewegung.objects.filter(artikel=a).aggregate(s=Sum("menge"))["s"] or Decimal("0")  # Ø-EK gilt für alle Mandanten
         Lagerbewegung.objects.create(mandant=we.mandant, artikel=a, art=Bewegungsart.WARENEINGANG, menge=p.menge,
                                      bemerkung=f"{we.nummer} {we.lieferant.name1}", benutzer=benutzer)
         am, _ = ArtikelMandant.objects.get_or_create(artikel=a, mandant=we.mandant)
         am.letzter_ek, am.letzter_ek_datum = p.ek, heute  # Lieferantenpreis: Vorschlag für die nächste Bestellung, ohne Nebenkosten
         am.save()
-        if a.durchschnitts_ek is not None and vorher > 0:  # gleitender Durchschnitt über den Bestand
-            a.durchschnitts_ek = ((a.durchschnitts_ek * vorher + p.kalk_ek * p.menge) / (vorher + p.menge)).quantize(Decimal("0.0001"))
-        else:
-            a.durchschnitts_ek = p.kalk_ek
-        a.ek_herkunft_setzen("wareneingang")  # ab jetzt gilt der Ø-EK, der manuelle EK ist nur noch Anzeige
+        # Der EK des Artikels bleibt unberührt: maßgebend ist der Import-EK (README 18), der Kalkulations-EK steht an der Position
         if a.typ == "P":  # Lieferantenprodukt wird bei Wareneingang zum Lagerartikel
             a.typ = "A"
         a.save()

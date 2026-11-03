@@ -115,6 +115,16 @@ class AssistentTest(TestCase):
         again = assistent.artikelpreise(profil, text, "herstellernummer", "Art-Nr", {"ek": "EK"}, anwenden=True)
         self.assertEqual(again["geaendert"], 0)
 
+    def test_gleicher_betrag_wird_trotzdem_massgebender_import_ek(self):
+        # alter Wareneingangs-EK mit gleichem Betrag: der importierte EK muss trotzdem als Import gelten (vor dem manuellen EK)
+        self.maus.durchschnitts_ek, self.maus.ek_herkunft, self.maus.ek_manuell = Decimal("8.40"), "wareneingang", Decimal("12")
+        self.maus.save()
+        profil = assistent.muster_profil(None, {"trennzeichen": ";"})
+        r = assistent.artikelpreise(profil, "Art-Nr;EK\nMX-100;8,40\n".encode(), "herstellernummer", "Art-Nr", {"ek": "EK"}, anwenden=True)
+        self.assertEqual(r["geaendert"], 1)
+        self.maus.refresh_from_db()
+        self.assertEqual((self.maus.durchschnitts_ek, self.maus.ek_herkunft, self.maus.ek_errechnet), (Decimal("8.4"), "import", Decimal("8.4")))
+
     def test_artikelpreise_maske(self):
         text = "Artikelnummer;EK;VK1\nM1;7,00;19,90\n".encode()
         r = self.client.post(reverse("einkauf:artikelpreise"), {"aktion": "datei", "datei": SimpleUploadedFile("p.csv", text)})

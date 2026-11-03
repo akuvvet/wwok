@@ -149,7 +149,7 @@ class VkVorschlagForm(forms.ModelForm):
             self.fields[vk].widget.attrs["data-fix"] = gewaehlt  # Verwaltung baut daraus die „fix“-Auswahl
 
     def ek_feld_einrichten(self):
-        """EK-Preis netto mit Komma; nach dem ersten Wareneingang gilt der Ø-EK und das Feld ist nur Anzeige."""
+        """EK-Preis netto mit Komma; gilt, solange kein Import-EK vorliegt (der Wareneingang ändert den EK nicht)."""
         feld = self.fields["ek_manuell"]
         feld.localize, feld.widget = True, forms.TextInput(attrs={"inputmode": "decimal", "autocomplete": "off"})
         feld.widget.is_localized = True
@@ -157,9 +157,6 @@ class VkVorschlagForm(forms.ModelForm):
         a = self.instance
         if not a.pk:
             return
-        from apps.lager.models import Bewegungsart, Lagerbewegung
-        if Lagerbewegung.objects.filter(artikel=a, art=Bewegungsart.WARENEINGANG).exists():
-            feld.disabled = True
         ek, quelle = _ek_quelle(a, mit_kosten=False)
         if ek is None:
             feld.help_text = "EK fehlt – bitte EK-Preis eintragen."
@@ -168,10 +165,10 @@ class VkVorschlagForm(forms.ModelForm):
             datum = a.ek_datum(quelle)
             if datum:
                 text += f" vom {formats.date_format(timezone.localtime(datum), 'd.m.Y')}"
-            if feld.disabled:
-                text += " – nach dem Wareneingang gilt der Ø-EK, das Feld ist gesperrt."
+            if quelle == "Wareneingang":
+                text += " – alter EK aus einem Wareneingang; ein eingetragener EK-Preis ersetzt ihn."
             elif quelle != "manuell":
-                text += " – dieser EK hat Vorrang vor dem manuellen EK."
+                text += " – der Import-EK ist maßgebend und hat Vorrang vor dem manuellen EK."
             feld.help_text = text
 
     def clean_ek_manuell(self):
@@ -181,9 +178,13 @@ class VkVorschlagForm(forms.ModelForm):
         return ek
 
     def save(self, commit=True):
-        # Herkunft „manuell“ nur, wenn der manuelle EK auch gilt; ein Ø-EK (Import, Wareneingang) behält seine Herkunft
-        if "ek_manuell" in self.changed_data and self.instance.typ == Artikeltyp.A and not self.instance.durchschnitts_ek:
-            self.instance.ek_herkunft_setzen(EkHerkunft.MANUELL)
+        # Herkunft „manuell“ nur, wenn der manuelle EK auch gilt; ein übernommener EK (Import) behält seine Herkunft
+        a = self.instance
+        if "ek_manuell" in self.changed_data and a.typ == Artikeltyp.A:
+            if a.ek_herkunft == EkHerkunft.WARENEINGANG and a.ek_manuell is not None:
+                a.durchschnitts_ek = None  # alter Wareneingangs-EK zählt nicht mehr, der eingetragene EK ersetzt ihn
+            if not a.durchschnitts_ek:
+                a.ek_herkunft_setzen(EkHerkunft.MANUELL)
         return super().save(commit)
 
     def aufschlag_fuer_vorschlag(self, daten, stufe):
@@ -197,8 +198,10 @@ class VkVorschlagForm(forms.ModelForm):
     def ek_fuer_vorschlag(self, daten):
         """EK, mit dem der VK aus dem Aufschlag entsteht: wie in der Maske der eingetippte manuelle EK, solange er gilt."""
         server, quelle = _ek_quelle(self.instance, mit_kosten=False) if self.instance.pk else (None, "")
-        if "ek_manuell" in self.fields and not self.fields["ek_manuell"].disabled and (quelle == "manuell" or server is None):
+        if "ek_manuell" in self.fields and (quelle == "manuell" or server is None):
             return daten.get("ek_manuell")
+        if "ek_manuell" in self.fields and quelle == "Wareneingang" and daten.get("ek_manuell") is not None:
+            return daten["ek_manuell"]  # eingetippter EK ersetzt den alten Wareneingangs-EK
         return server
 
     def clean(self):

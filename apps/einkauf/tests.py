@@ -63,7 +63,7 @@ class EinkaufTest(TestCase):
         self.assertEqual(bestand(self.m, self.maus), Decimal("10"))
         self.assertEqual(ArtikelMandant.objects.get(artikel=self.maus, mandant=self.m).letzter_ek, Decimal("9.5000"))
         self.maus.refresh_from_db()
-        self.assertEqual(self.maus.durchschnitts_ek, Decimal("8.7500"))  # (5 × 8 + 5 × 9,5) / 10
+        self.assertEqual(self.maus.durchschnitts_ek, Decimal("8"))  # Import-EK bleibt, der Wareneingang ändert ihn nicht
         with self.assertRaises(ValueError):
             services.wareneingang_buchen(we)  # nicht doppelt
         we2 = services.wareneingang_anlegen(self.m, self.lf, b)

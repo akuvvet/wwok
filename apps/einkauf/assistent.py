@@ -113,7 +113,7 @@ def spaltenangabe(profil, auswahl: str) -> str:
 
 # ---- Artikelpreise (EK/VK) aus Excel/CSV --------------------------------------------------------------
 
-PREISFELDER = {"ek": "Durchschnitts-EK (netto)", "vk1": "VK1", "vk2": "VK2", "vk3": "VK3"}
+PREISFELDER = {"ek": "EK netto", "vk1": "VK1", "vk2": "VK2", "vk3": "VK3"}
 SCHLUESSEL = {"nummer": "Artikelnummer", "herstellernummer": "Herstellernummer", "ean": "EAN"}
 
 
@@ -178,7 +178,7 @@ def artikelpreise(profil, inhalt: bytes, schluessel: str, spalte_schluessel: str
         for feld, preis in neu.items():
             attribut = "durchschnitts_ek" if feld == "ek" else feld
             alt = getattr(artikel, attribut)
-            if alt != preis:
+            if alt != preis or (feld == "ek" and artikel.ek_herkunft != "import"):  # gleicher Betrag wird trotzdem maßgebender Import-EK
                 aenderungen[attribut] = (alt, preis)
         if not aenderungen:
             ergebnis["unveraendert"] += 1
@@ -190,7 +190,7 @@ def artikelpreise(profil, inhalt: bytes, schluessel: str, spalte_schluessel: str
         if anwenden:
             for attribut, (_, n) in aenderungen.items():
                 setattr(artikel, attribut, n)
-            if "durchschnitts_ek" in aenderungen and artikel.ek_herkunft != "wareneingang":
-                artikel.ek_herkunft_setzen("import")  # importierter EK ersetzt den manuellen
+            if "durchschnitts_ek" in aenderungen:
+                artikel.ek_herkunft_setzen("import")  # importierter EK ist maßgebend, ersetzt manuellen und alten Wareneingangs-EK
             artikel.save()
     return ergebnis

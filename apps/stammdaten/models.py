@@ -382,9 +382,10 @@ class Artikel(Zeitstempel):
                                   help_text="Beim Verkauf wird automatisch ein Key aus dem Key-Bestand zugeordnet.")
     steuersatz = models.ForeignKey(Steuersatz, on_delete=models.PROTECT)
     # Preise (netto). Leer = aus Aufschlag berechnet.
-    durchschnitts_ek = models.DecimalField("Durchschnitts-EK", null=True, blank=True, editable=False, **EK_GELD)
+    # übernommener EK: Preisimport (Zeitplan „Günstigster EK“, Preis-Assistent) bzw. Altbestand aus Mention; der Wareneingang ändert ihn nicht
+    durchschnitts_ek = models.DecimalField("EK netto (Import)", null=True, blank=True, editable=False, **EK_GELD)
     ek_manuell = models.DecimalField("EK-Preis netto", null=True, blank=True, validators=[MinValueValidator(0)],
-                                     help_text="Basis, solange es weder Preisliste noch Wareneingang gibt.", **GELD)
+                                     help_text="Basis, solange es keinen Import-EK aus einer Preisliste gibt.", **GELD)
     ek_herkunft = models.CharField("EK-Herkunft", max_length=12, choices=EkHerkunft.choices, blank=True, editable=False)
     ek_geaendert_am = models.DateTimeField("EK geändert am", null=True, blank=True, editable=False)
 
@@ -406,7 +407,7 @@ class Artikel(Zeitstempel):
         return self.ek_geaendert_am if passend.get(quelle) == self.ek_herkunft else None
 
     def ek_herkunft_setzen(self, herkunft):
-        """Merkt, wer den EK zuletzt gesetzt hat (manuell, Import, Wareneingang), mit Zeitpunkt."""
+        """Merkt, wer den EK zuletzt gesetzt hat (manuell, Import; „Wareneingang“ nur noch bei Altdaten), mit Zeitpunkt."""
         from django.utils import timezone
         self.ek_herkunft, self.ek_geaendert_am = herkunft, timezone.now()
 
@@ -573,9 +574,10 @@ def keine_leistung(artikel):
 
 
 def _ek_quelle(artikel, mit_kosten=True):
-    """(EK, Quelle): Wareneingang (Durchschnitts-EK) hat Vorrang, sonst günstigster EK aus den Lieferantenpreislisten, sonst der
-    beim Anlegen eingetragene EK-Preis (manuell); bei Gruppenartikeln (Typ G) die Summe der Komponenten, bei Leistungen (Typ L)
-    die eingetragenen Kosten.
+    """(EK, Quelle): maßgebend ist der Import-EK – erst der übernommene (Zeitplan „Günstigster EK“, Preis-Assistent), sonst der
+    günstigste EK aus den Lieferantenpreislisten; der Wareneingang ändert den EK nicht (README 18). Ohne Import gilt der
+    eingetragene EK-Preis (manuell), erst danach ein alter Wareneingangs-EK (Altdaten ohne Preisliste); bei Gruppenartikeln
+    (Typ G) die Summe der Komponenten, bei Leistungen (Typ L) die eingetragenen Kosten.
     mit_kosten=False lässt Leistungskosten weg: Sie zählen für die Marge, aber nicht als Grundlage für Aufschläge."""
     if artikel.typ == Artikeltyp.L:
         return (artikel.kosten, "Kosten der Leistung") if artikel.kosten is not None else (None, "")
@@ -593,15 +595,26 @@ def _ek_quelle(artikel, mit_kosten=True):
         if not quellen:
             return None, ""
         return summe, "Summe der Komponenten"
-    if artikel.durchschnitts_ek:  # aus dem Wareneingang oder vom Zeitplan „Günstigster EK“ bzw. Preis-Assistenten übernommen
-        quelle = {EkHerkunft.WARENEINGANG: "Wareneingang", EkHerkunft.IMPORT: "Preisimport"}.get(artikel.ek_herkunft, "Durchschnitts-EK")
+    if _uebernommener_ek(artikel):  # vom Zeitplan „Günstigster EK“ bzw. Preis-Assistenten übernommen (Altdaten: Mention)
+        quelle = "Preisimport" if artikel.ek_herkunft == EkHerkunft.IMPORT else "Durchschnitts-EK"
         return artikel.durchschnitts_ek, quelle  # ohne bekannte Herkunft (z. B. aus Mention übernommen) neutral benannt
     if artikel.pk:
         al = artikel.lieferanten.filter(ek__gt=0).order_by("ek").select_related("lieferant").first()
         if al:
             return al.ek, f"Preisliste {al.lieferant.name1}"
+    return _ek_ohne_import(artikel)
+
+
+def _uebernommener_ek(artikel):
+    """Übernommener Import-EK; ein alter Ø-EK aus dem Wareneingang zählt nicht dazu, er ist nur noch letzter Ersatz."""
+    return bool(artikel.durchschnitts_ek) and artikel.ek_herkunft != EkHerkunft.WARENEINGANG
+
+
+def _ek_ohne_import(artikel):
     if artikel.ek_manuell is not None:
         return artikel.ek_manuell, "manuell"
+    if artikel.durchschnitts_ek:  # Altdaten: Ø-EK aus einem Wareneingang vor der Regel „Import-EK ist maßgebend“
+        return artikel.durchschnitts_ek, "Wareneingang"
     return None, ""
 
 
@@ -614,12 +627,12 @@ def ek_je_artikel(artikel_liste):
         guenstigst.setdefault(al.artikel_id, al)
     ergebnis = {}
     for a in artikel_liste:
-        if a.typ != Artikeltyp.A or a.durchschnitts_ek:
+        if a.typ != Artikeltyp.A or _uebernommener_ek(a):
             ergebnis[a.pk] = _ek_quelle(a)
         elif a.pk in guenstigst:
             ergebnis[a.pk] = (guenstigst[a.pk].ek, f"Preisliste {guenstigst[a.pk].lieferant.name1}")
         else:
-            ergebnis[a.pk] = (a.ek_manuell, "manuell") if a.ek_manuell is not None else (None, "")
+            ergebnis[a.pk] = _ek_ohne_import(a)
     return ergebnis
 
 

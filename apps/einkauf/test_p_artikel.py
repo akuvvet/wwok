@@ -90,17 +90,18 @@ class BestpreisTest(TestCase):
         b = Artikel.objects.create(nummer="A2", bezeichnung="Tastatur", steuersatz=st, durchschnitts_ek=Decimal("50"))
         for art, lf, bn, ek in ((a, api, "x1", "25"), (a, kos, "y1", "22.50"), (b, api, "x2", "40"), (b, kos, "y2", "45")):
             ArtikelLieferant.objects.create(artikel=art, lieferant=lf, bestellnummer=bn, ek=Decimal(ek))
-        buche_manuell(m, b, Bewegungsart.WARENEINGANG, Decimal("1"))  # A2 hat Wareneingang → bleibt
+        buche_manuell(m, b, Bewegungsart.WARENEINGANG, Decimal("1"))  # Wareneingang spielt keine Rolle: Import-EK ist maßgebend
         vorschau = bestpreis.bestpreise()
         self.assertEqual([(z["artikel"].nummer, z["neu"], z["lieferant"]) for z in vorschau["aenderungen"]],
-                         [("A1", Decimal("22.50"), "KOSATEC")])
-        self.assertEqual(vorschau["uebersprungen"], 1)
+                         [("A1", Decimal("22.50"), "KOSATEC"), ("A2", Decimal("40"), "API")])
         a.refresh_from_db()
         self.assertEqual(a.durchschnitts_ek, Decimal("30"))  # Vorschau schreibt nichts
         bestpreis.bestpreise(anwenden=True)
         a.refresh_from_db()
         b.refresh_from_db()
-        self.assertEqual((a.durchschnitts_ek, b.durchschnitts_ek), (Decimal("22.50"), Decimal("50")))
+        self.assertEqual((a.durchschnitts_ek, b.durchschnitts_ek), (Decimal("22.50"), Decimal("40")))
+        self.assertEqual((a.ek_herkunft, b.ek_herkunft), ("import", "import"))
+        self.assertEqual(bestpreis.bestpreise()["aenderungen"], [])  # zweiter Lauf: alles aktuell
 
 
 class BestpreisLinkTest(TestCase):

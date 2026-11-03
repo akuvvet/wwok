@@ -1,32 +1,28 @@
 """Günstigsten Lieferanten-EK je Herstellernummer in die eigenen Artikel (Typ A) übernehmen.
 
 Die Verknüpfung Preislistenartikel ↔ Artikel läuft über die Herstellernummer (beim Preislisten-Import als „Lieferant zum Artikel“).
-Hat ein Artikel mehrere Lieferanten, gewinnt der niedrigste EK netto. Artikel mit gebuchtem Wareneingang behalten ihren
-Durchschnitts-EK (Wareneingang hat Vorrang)."""
-from apps.lager.models import Bewegungsart, Lagerbewegung
+Hat ein Artikel mehrere Lieferanten, gewinnt der niedrigste EK netto. Der Import-EK ist maßgebend, auch nach einem Wareneingang
+(README 18)."""
 from apps.stammdaten.models import Artikel, ArtikelLieferant, EkHerkunft
 
 
 def bestpreise(anwenden=False):
-    mit_wareneingang = set(Lagerbewegung.objects.filter(art=Bewegungsart.WARENEINGANG).values_list("artikel_id", flat=True).distinct())
     best = {}
     for al in ArtikelLieferant.objects.filter(ek__gt=0, artikel__typ="A").select_related("lieferant", "artikel").order_by("artikel_id", "ek"):
         best.setdefault(al.artikel_id, al)  # nach EK sortiert: der erste je Artikel ist der günstigste
-    aenderungen, unveraendert, uebersprungen = [], 0, 0
-    for artikel_id, al in best.items():
+    aenderungen, unveraendert = [], 0
+    for al in best.values():
         a = al.artikel
-        if artikel_id in mit_wareneingang:
-            uebersprungen += 1
-        elif a.durchschnitts_ek == al.ek:
+        if a.durchschnitts_ek == al.ek and a.ek_herkunft == EkHerkunft.IMPORT:
             unveraendert += 1
         else:
             aenderungen.append({"artikel": a, "alt": a.durchschnitts_ek, "neu": al.ek, "lieferant": al.lieferant.kurz})
     if anwenden and aenderungen:
         for z in aenderungen:
             z["artikel"].durchschnitts_ek = z["neu"]
-            z["artikel"].ek_herkunft_setzen(EkHerkunft.IMPORT)  # überschreibt auch einen manuell eingetragenen EK
+            z["artikel"].ek_herkunft_setzen(EkHerkunft.IMPORT)  # überschreibt einen manuellen EK und einen alten Wareneingangs-EK
         Artikel.objects.bulk_update([z["artikel"] for z in aenderungen], ["durchschnitts_ek", "ek_herkunft", "ek_geaendert_am"], batch_size=500)
-    return {"artikel": len(best), "aenderungen": aenderungen, "unveraendert": unveraendert, "uebersprungen": uebersprungen}
+    return {"artikel": len(best), "aenderungen": aenderungen, "unveraendert": unveraendert}
 
 
 def geplanter_lauf(preislisten_importiert=False, jetzt=None):
@@ -38,7 +34,6 @@ def geplanter_lauf(preislisten_importiert=False, jetzt=None):
         return None
     ergebnis = bestpreise(anwenden=True)
     plan.letzter_lauf = jetzt or timezone.now()
-    plan.letzte_meldung = (f"{len(ergebnis['aenderungen'])} Artikel aktualisiert, {ergebnis['unveraendert']} unverändert, "
-                           f"{ergebnis['uebersprungen']} mit Wareneingang übersprungen")
+    plan.letzte_meldung = f"{len(ergebnis['aenderungen'])} Artikel aktualisiert, {ergebnis['unveraendert']} unverändert"
     plan.save(update_fields=["letzter_lauf", "letzte_meldung", "geaendert_am"])
     return plan.letzte_meldung

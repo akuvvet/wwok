@@ -5,9 +5,9 @@
 <div class="karte">
   <h1>Günstigsten EK in die Artikel übernehmen</h1>
   <p style="opacity:.85">Zu jeder Herstellernummer gewinnt der Lieferant mit dem niedrigsten EK netto (aus allen Preislisten).
-     Dieser EK wird bei den eigenen Artikeln (A) eingetragen. Artikel mit gebuchtem Wareneingang behalten ihren Durchschnitts-EK.</p>
+     Dieser EK wird bei den eigenen Artikeln (A) eingetragen. Der Import-EK ist maßgebend, auch nach einem Wareneingang; daraus rechnet sich der VK per Aufschlag.</p>
   <p>Artikel mit Lieferantenpreis: <strong>{{ e.artikel }}</strong> · zu ändern: <strong>{{ e.aenderungen|length }}</strong> ·
-     schon richtig: {{ e.unveraendert }} · mit Wareneingang (bleiben): {{ e.uebersprungen }}</p>
+     schon richtig: {{ e.unveraendert }}</p>
   <p style="opacity:.85"><strong>Zeitplan:</strong> {{ plan.get_rhythmus_display }}{% if plan.rhythmus == 'taeglich' or plan.rhythmus == 'woechentlich' %}
      ({% if plan.rhythmus == 'woechentlich' %}{{ plan.get_wochentag_display }}, {% endif %}{{ plan.uhrzeit|time:"H:i" }} Uhr){% endif %}
      {% if plan.letzter_lauf %}· letzter Lauf {{ plan.letzter_lauf|date:"d.m.Y H:i" }}: {{ plan.letzte_meldung }}{% endif %}

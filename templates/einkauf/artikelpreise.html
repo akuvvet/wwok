@@ -6,7 +6,7 @@
 {% if schritt == 1 %}
 <div class="karte">
   <h1>Artikelpreise importieren (EK / VK)</h1>
-  <p style="opacity:.8">Aktualisiert die Preise vorhandener Artikel aus einer Excel- oder CSV-Datei: <strong>Durchschnitts-EK</strong> und die Verkaufspreise <strong>VK1–VK3</strong>.
+  <p style="opacity:.8">Aktualisiert die Preise vorhandener Artikel aus einer Excel- oder CSV-Datei: <strong>EK netto</strong> (maßgebend für den VK) und die Verkaufspreise <strong>VK1–VK3</strong>.
     Die Zeilen werden über Artikelnummer, Herstellernummer oder EAN zugeordnet. Vor der Übernahme siehst du, was sich ändert.</p>
   <form method="post" enctype="multipart/form-data" class="zeile">{% csrf_token %}
     <input type="hidden" name="aktion" value="datei">

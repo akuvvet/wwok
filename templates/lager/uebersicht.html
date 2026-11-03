@@ -37,7 +37,7 @@
     <button type="submit">Filtern</button>
     <a class="knopf" data-modal="{% url 'stammdaten:artikel_neu' %}" href="/verwaltung/stammdaten/artikel/add/">+ Neuer Artikel</a>
   </form>
-  <p>Lagerwert (Durchschnitts-EK × Bestand): <strong>{{ lagerwert }} €</strong> · {{ seite.paginator.count }} Artikel</p>
+  <p>Lagerwert (EK × Bestand): <strong>{{ lagerwert }} €</strong> · {{ seite.paginator.count }} Artikel</p>
   <div class="scroll">
   <table>
     <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Bestand</th><th class="zahl">reserviert</th><th class="zahl">verfügbar</th><th class="zahl">Reparatur</th><th class="zahl">EK netto</th></tr></thead>

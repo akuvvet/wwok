@@ -12,6 +12,7 @@ aus dem EK nach (data-ek an den VK-Feldern), „fix“ wählt je Stufe VK oder A
     function ek(vk) {  // gilt der manuelle EK (oder gibt es noch keinen), zählt der eingetippte Wert
       var quelle = vk.dataset.ekQuelle, server = vk.dataset.ek;
       if (ekFeld && !ekFeld.disabled && (quelle === 'manuell' || !server)) return lesen(ekFeld);
+      if (ekFeld && quelle === 'Wareneingang' && lesen(ekFeld) !== null) return lesen(ekFeld);  // ersetzt den alten Wareneingangs-EK
       return server ? Number(server) : null;
     }
     function feld(name, stufe) { return wurzel.querySelector('[name=' + name + stufe + ']'); }

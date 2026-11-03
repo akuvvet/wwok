@@ -46,16 +46,18 @@ class NebenkostenTest(TestCase):
         services.wareneingang_buchen(we)
         self.assertEqual(sum(p.kalk_ek * p.menge for p in we.positionen.all()), D("220.0000"))
 
-    def test_durchschnitts_ek_ist_der_kalkulations_ek_letzter_ek_bleibt_lieferantenpreis(self):
-        services.wareneingang_buchen(self.we((self.a, "10", "10"), versand="10"))
+    def test_kalkulations_ek_an_der_position_artikel_ek_bleibt_letzter_ek_ist_lieferantenpreis(self):
+        we = self.we((self.a, "10", "10"), versand="10")
+        services.wareneingang_buchen(we)
         self.a.refresh_from_db()
-        self.assertEqual(self.a.durchschnitts_ek, D("11.0000"))
-        self.assertEqual(self.a.ek_errechnet, D("11.0000"))  # Grundlage für Marge und VK
+        self.assertEqual(we.positionen.get().kalk_ek, D("11.0000"))
+        self.assertIsNone(self.a.durchschnitts_ek)  # maßgebend ist der Import-EK, der Wareneingang ändert ihn nicht
+        self.assertIsNone(self.a.ek_errechnet)
         self.assertEqual(ArtikelMandant.objects.get(artikel=self.a, mandant=self.m).letzter_ek, D("10.0000"))
         self.assertEqual(services.ek_vorschlag(self.m, self.lf, self.a)[0], D("10.0000"))  # nächste Bestellung ohne Versand
-        services.wareneingang_buchen(self.we((self.a, "10", "20")))  # gleitend: (10 × 11 + 10 × 20) / 20
+        services.wareneingang_buchen(self.we((self.a, "10", "20")))  # kein gleitender Durchschnitt mehr
         self.a.refresh_from_db()
-        self.assertEqual(self.a.durchschnitts_ek, D("15.5000"))
+        self.assertIsNone(self.a.durchschnitts_ek)
         self.assertEqual(bestand(self.m, self.a), D("20"))
 
     def test_anderer_mandant_bekommt_lieferantenpreis_ohne_fremde_nebenkosten(self):
@@ -104,8 +106,7 @@ class NebenkostenTest(TestCase):
         we.refresh_from_db()
         self.assertEqual((we.nebenkosten_extern, we.rechnungswert, we.gesamt_netto), (True, D("100.00"), D("110.00")))
         self.client.post(url, {"versandkosten": "10", "nebenkosten_extern": "on"})
-        self.a.refresh_from_db()
-        self.assertEqual(self.a.durchschnitts_ek, D("11.0000"))  # eigentlicher EK enthält die Spedition
+        self.assertEqual(we.positionen.get().kalk_ek, D("11.0000"))  # Kalkulations-EK enthält die Spedition
         r = services.rechnung_erfassen(self.m, self.lf, "R-1", date.today(), D("100"), D("119"), wareneingaenge=[we])
         self.assertTrue(r.abgleich()["ok"])  # Warenrechnung passt ohne Speditionskosten
 
@@ -130,7 +131,8 @@ class NebenkostenTest(TestCase):
         self.client.post(url, {"versandkosten": "99"})  # nach dem Buchen unveränderlich
         we.refresh_from_db()
         self.assertEqual(we.versandkosten, D("10.00"))
-        self.assertEqual(self.a.__class__.objects.get(pk=self.a.pk).durchschnitts_ek, D("11.0000"))
+        self.assertEqual(we.positionen.get().kalk_ek, D("11.0000"))
+        self.assertIsNone(self.a.__class__.objects.get(pk=self.a.pk).durchschnitts_ek)
         self.assertEqual(bestand(self.m, self.a), D("10"))
 
     def test_lieferantenrechnung_mit_suchfeld(self):
