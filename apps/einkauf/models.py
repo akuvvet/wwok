@@ -462,11 +462,42 @@ class Preislistenimport(models.Model):
     fehlerzeilen = models.JSONField(default=list, blank=True)
     meldung = models.CharField(max_length=300, blank=True)
     benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    # Quarantäne (Issue 12, Schritt 2): auffällige Imports werden nicht übernommen, bis jemand sie freigibt oder verwirft
+    status = models.CharField(max_length=12, default="uebernommen", db_index=True, choices=[
+        ("uebernommen", "übernommen"), ("zur_pruefung", "zur Prüfung"), ("verworfen", "verworfen")])
+    datei = models.BinaryField("zurückgehaltene Datei", null=True, blank=True, editable=False,
+                               help_text="Nur bei Status „zur Prüfung“; wird nach Freigabe oder Verwerfen gelöscht.")
+    zur_pruefung = models.PositiveIntegerField("Preise zur Prüfung", default=0)
 
     class Meta:
         verbose_name = "Preislistenimport"
         verbose_name_plural = "Preislistenimporte"
         ordering = ["-zeitpunkt"]
+
+
+class Preispruefung(models.Model):
+    """Einzelpreis, der im Import um mehr als die Grenze (50 %) vom bisherigen abwich: nicht übernommen, Übernahme per Klick.
+    Zugleich das Protokoll alter und neuer Preise."""
+
+    importlauf = models.ForeignKey(Preislistenimport, on_delete=models.CASCADE, related_name="pruefungen")
+    artikel = models.ForeignKey("stammdaten.Artikel", on_delete=models.CASCADE, related_name="preispruefungen")
+    lieferant = models.ForeignKey(Lieferant, on_delete=models.CASCADE, related_name="preispruefungen")
+    bestellnummer = models.CharField(max_length=100)
+    ek_alt = models.DecimalField(max_digits=12, decimal_places=4)
+    ek_neu = models.DecimalField(max_digits=12, decimal_places=4)
+    status = models.CharField(max_length=10, default="offen", db_index=True, choices=[
+        ("offen", "offen"), ("uebernommen", "übernommen"), ("verworfen", "verworfen")])
+    bearbeitet_am = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Preisprüfung"
+        verbose_name_plural = "Preisprüfungen"
+        ordering = ["-importlauf__zeitpunkt", "artikel__nummer"]
+
+    @property
+    def abweichung(self):
+        from apps.stammdaten.ekkalk import abweichung_prozent
+        return abweichung_prozent(self.ek_alt, self.ek_neu)
 
 
 class BestpreisRhythmus(models.TextChoices):

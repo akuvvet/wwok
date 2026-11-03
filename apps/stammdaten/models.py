@@ -688,6 +688,19 @@ class PreisVorgabe(models.Model):
     aufschlag_vk2 = models.DecimalField("Aufschlag VK2 %", max_digits=6, decimal_places=2, null=True, blank=True)
     aufschlag_vk3 = models.DecimalField("Aufschlag VK3 %", max_digits=6, decimal_places=2, null=True, blank=True)
     rundung_99 = models.BooleanField("VK auf ,99 aufrunden", default=False, help_text="Aus: kaufmännisch auf 2 Nachkommastellen.")
+    # Schutzgrenzen (Issue 12, Schritt 2), alle in Prozent
+    we_abweichung_prozent = models.DecimalField(
+        "Wareneingang: Rückfrage ab Abweichung %", max_digits=6, decimal_places=2, default=50,
+        help_text="Weicht der Wareneingangspreis um mehr als das vom Ø-EK bzw. Import-EK ab, kommt vor dem Buchen eine Rückfrage.")
+    import_quarantaene_anteil = models.DecimalField(
+        "Import-Quarantäne: Anteil Artikel %", max_digits=6, decimal_places=2, default=20,
+        help_text="Ändern sich mehr als so viele Artikel eines Imports …")
+    import_quarantaene_aenderung = models.DecimalField(
+        "Import-Quarantäne: Preisänderung %", max_digits=6, decimal_places=2, default=30,
+        help_text="… um mehr als diesen Wert, wird der gesamte Import zurückgehalten.")
+    import_einzel_prozent = models.DecimalField(
+        "Import: Einzelartikel zur Prüfung ab %", max_digits=6, decimal_places=2, default=50,
+        help_text="Weicht ein Preis um mehr als das vom bisherigen Preis ab, wird er nicht übernommen, sondern in die Prüfliste gestellt.")
 
     class Meta:
         verbose_name = "Globale Preisvorgabe"

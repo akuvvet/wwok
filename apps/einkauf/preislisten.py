@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from apps.stammdaten.models import Artikel, ArtikelLieferant, Preislistenartikel
 
-from .models import BestellPosition, Dateityp, Preislistenimport, Preislistenprofil, Quelle
+from .models import BestellPosition, Dateityp, Preislistenimport, Preislistenprofil, Preispruefung, Quelle
 
 FELDER = ("bestellnummer", "herstellernummer", "ean", "bezeichnung", "hersteller", "kategorie", "ek",
           "bestand", "lieferzeit", "gewicht")
@@ -228,16 +228,66 @@ def sperre_freigeben(profil) -> None:
     Preislistenprofil.objects.filter(pk=profil.pk).update(laeuft_seit=None)
 
 
-def importieren(profil, inhalt: bytes, dateiname: str = "", benutzer=None) -> Preislistenimport:
+def importieren(profil, inhalt: bytes, dateiname: str = "", benutzer=None, schutz=True) -> Preislistenimport:
     """Liest die Preisliste in die Tabelle der Preislistenartikel ein. Bestehende Zeilen werden einmal in den Speicher geladen;
     geschrieben wird nur, was neu ist oder sich ändert (in Blöcken). Passt eine Zeile zu einem eigenen Artikel
-    (Herstellernummer, ersatzweise EAN), wird sie mit ihm verknüpft und der Lieferantenpreis am Artikel mitgeführt."""
+    (Herstellernummer, ersatzweise EAN), wird sie mit ihm verknüpft und der Lieferantenpreis am Artikel mitgeführt.
+    Schutz (Issue 12): ein auffälliger Import wird zurückgehalten (Quarantäne), einzelne Preise mit großer Abweichung kommen
+    in die Prüfliste. schutz=False nur für die Freigabe eines zurückgehaltenen Imports."""
     zeilen = zeilen_lesen(profil, inhalt)  # Formatfehler vor dem Sperren melden
     sperre_holen(profil)
     try:
-        return _importieren(profil, zeilen, dateiname, benutzer)
+        return _importieren(profil, zeilen, dateiname, benutzer, inhalt, schutz)
     finally:
         sperre_freigeben(profil)
+
+
+def freigeben(protokoll, benutzer=None) -> Preislistenimport:
+    """Gibt einen zurückgehaltenen Import frei: die gespeicherte Datei wird ohne Quarantäne eingelesen (Einzelpreise
+    mit großer Abweichung kommen weiterhin in die Prüfliste)."""
+    if protokoll.status != "zur_pruefung" or protokoll.datei is None:
+        raise ValueError("Dieser Import wartet nicht auf Freigabe.")
+    inhalt = bytes(protokoll.datei)
+    neu = importieren(protokoll.profil, inhalt, protokoll.dateiname, benutzer, schutz=False)
+    protokoll.status, protokoll.datei = "uebernommen", None
+    protokoll.meldung = f"Freigegeben: {neu.meldung}"[:300]
+    protokoll.save(update_fields=["status", "datei", "meldung"])
+    return neu
+
+
+def verwerfen(protokoll) -> None:
+    if protokoll.status != "zur_pruefung":
+        raise ValueError("Dieser Import wartet nicht auf Freigabe.")
+    protokoll.status, protokoll.datei = "verworfen", None
+    protokoll.meldung = "Verworfen: keine Preise übernommen."
+    protokoll.save(update_fields=["status", "datei", "meldung"])
+
+
+def preis_uebernehmen(pruefung) -> None:
+    """Übernimmt einen in der Prüfliste zurückgehaltenen Preis (Klick): Preisliste, Lieferantenpreis und Import-EK des Artikels."""
+    from django.db.models import Min
+    if pruefung.status != "offen":
+        raise ValueError("Dieser Preis ist bereits bearbeitet.")
+    jetzt = timezone.now()
+    with transaction.atomic():
+        Preislistenartikel.objects.filter(lieferant=pruefung.lieferant, bestellnummer=pruefung.bestellnummer).update(
+            ek=pruefung.ek_neu, aktualisiert_am=jetzt)
+        ArtikelLieferant.objects.filter(lieferant=pruefung.lieferant, bestellnummer=pruefung.bestellnummer).update(
+            ek=pruefung.ek_neu, aktualisiert_am=jetzt)
+        a = Artikel.objects.select_for_update().get(pk=pruefung.artikel_id)
+        guenstigster = a.lieferanten.filter(ek__gt=0).aggregate(m=Min("ek"))["m"]
+        if guenstigster is not None and a.durchschnitts_ek and a.ek_herkunft == "import":
+            a.durchschnitts_ek = guenstigster
+            a.save(update_fields=["durchschnitts_ek"])
+        pruefung.status, pruefung.bearbeitet_am = "uebernommen", jetzt
+        pruefung.save(update_fields=["status", "bearbeitet_am"])
+
+
+def preis_verwerfen(pruefung) -> None:
+    if pruefung.status != "offen":
+        raise ValueError("Dieser Preis ist bereits bearbeitet.")
+    pruefung.status, pruefung.bearbeitet_am = "verworfen", timezone.now()
+    pruefung.save(update_fields=["status", "bearbeitet_am"])
 
 
 def entfernen(lieferant, bestellnummern: list, ids: list) -> int:
@@ -254,8 +304,31 @@ def entfernen(lieferant, bestellnummern: list, ids: list) -> int:
     return len(ids)
 
 
-def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislistenimport:
+def _preispaare(profil, zeilen, vorhanden, nach_hnr, nach_ean):
+    """(alter EK, neuer EK) aller Zeilen, die schon einen Preis haben und zu einem eigenen Artikel gehören – Grundlage der Quarantäne."""
+    paare = []
+    for _nr, z in zeilen:
+        try:
+            alt = vorhanden.get(z.get("bestellnummer", "").strip()[:100])
+            if alt is None or not alt["ek"]:
+                continue
+            hnr, ean = z.get("herstellernummer", "").strip(), z.get("ean", "").strip()[:14]
+            artikel_id = nach_hnr.get(hnr.lower()) if hnr else None
+            if artikel_id is None and ean:
+                artikel_id = nach_ean.get(ean)
+            if artikel_id is None and alt["artikel_id"] is None:
+                continue
+            paare.append((alt["ek"], zahl(z.get("ek", ""), profil.dezimaltrennzeichen).quantize(Decimal("0.0001"))))
+        except (ValueError, ArithmeticError, PreislistenFehler):
+            continue
+    return paare
+
+
+def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes = b"", schutz: bool = False) -> Preislistenimport:
+    from apps.stammdaten import ekkalk
     protokoll = Preislistenimport(profil=profil, dateiname=dateiname[:200], gelesen=len(zeilen), benutzer=benutzer)
+    pruefungen = []  # (artikel_id, bestellnummer, alter EK, neuer EK): Einzelpreise mit großer Abweichung
+    grenze_einzel = ekkalk.grenzen()["einzel"] if schutz else None
     fehler, jetzt, lieferant = [], timezone.now(), profil.lieferant
 
     # Bestehende Preislistenzeilen: Bestellnummer -> Zeilenwerte (kompakt, ohne volle Modellobjekte)
@@ -271,7 +344,17 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
             nach_ean.setdefault(ean, artikel_id)
     lieferantenpreise = {al.bestellnummer: al for al in ArtikelLieferant.objects.filter(lieferant=lieferant)}
 
-    bisher = len(vorhanden)  # Anzahl vor dem Import, Grundlage für den Schutz beim Entfernen
+    if schutz and ekkalk.import_ist_auffaellig(_preispaare(profil, zeilen, vorhanden, nach_hnr, nach_ean)):
+        g = ekkalk.grenzen()  # Quarantäne: nichts übernehmen, Datei für die Freigabe aufbewahren
+        protokoll.status, protokoll.datei = "zur_pruefung", bytes(inhalt)
+        protokoll.meldung = (f"Zur Prüfung: mehr als {g['anteil']:f} % der Artikel ändern sich um mehr als {g['aenderung']:f} % – "
+                             "keine Preise übernommen. Freigeben oder verwerfen.")[:300]
+        protokoll.save()
+        Preislistenprofil.objects.filter(pk=profil.pk).update(letzter_lauf=jetzt)
+        profil.letzter_lauf = jetzt
+        return protokoll
+
+    bisher = len(vorhanden) # Anzahl vor dem Import, Grundlage für den Schutz beim Entfernen
     gesehen = set()  # alle Bestellnummern der Datei – auch fehlerhafte Zeilen, damit nichts versehentlich verschwindet
     neue, geaenderte = {}, {}  # Bestellnummer -> Preislistenartikel (noch nicht bzw. neu zu schreiben)
     al_neu, al_geaendert = [], []
@@ -311,6 +394,13 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
             if artikel_id is None and ean:
                 artikel_id = nach_ean.get(ean)
             alt = vorhanden.get(bestellnr)
+
+            if grenze_einzel is not None and alt is not None and alt["ek"] and ek != alt["ek"]:
+                abw = ekkalk.abweichung_prozent(alt["ek"], ek)
+                geprueft_id = artikel_id if artikel_id is not None else alt["artikel_id"]
+                if geprueft_id is not None and abw is not None and abw > grenze_einzel:
+                    pruefungen.append((geprueft_id, bestellnr, alt["ek"], ek))  # Preis nicht übernehmen, alter bleibt
+                    ek = alt["ek"]
 
             if alt is None:
                 if not profil.neue_artikel and artikel_id is None:
@@ -392,9 +482,16 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
         elif veraltet:
             protokoll.geloescht = entfernen(lieferant, veraltet, [vorhanden[bn]["id"] for bn in veraltet])
     protokoll.fehlerzeilen = fehler
+    protokoll.zur_pruefung = len(pruefungen)
+    if pruefungen:
+        hinweis += f" · {len(pruefungen)} Preise zur Prüfung"
     protokoll.meldung = f"{protokoll.neu} neu, {protokoll.geaendert} geändert, {protokoll.unveraendert} unverändert, " \
                         f"{protokoll.uebersprungen} übersprungen, {protokoll.geloescht} entfernt, {protokoll.fehler} Fehler{hinweis}"[:300]
     protokoll.save()
+    if pruefungen:
+        Preispruefung.objects.bulk_create([
+            Preispruefung(importlauf=protokoll, artikel_id=aid, lieferant=lieferant, bestellnummer=bn, ek_alt=alt_ek, ek_neu=neu_ek)
+            for aid, bn, alt_ek, neu_ek in pruefungen], batch_size=500)
     Preislistenprofil.objects.filter(pk=profil.pk).update(letzter_lauf=jetzt)
     profil.letzter_lauf = jetzt
     return protokoll

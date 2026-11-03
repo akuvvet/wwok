@@ -10,7 +10,7 @@ from apps.lager.models import Bewegungsart, Lagerbewegung, bestand, reserviert
 from apps.esd.models import ESDKey
 from apps.esd.services import zeilen as esd_zeilen
 from apps.lager.services import seriennummern_einlagern, zeilen
-from apps.stammdaten.ekkalk import wareneingang_ek
+from apps.stammdaten.ekkalk import ek_import as import_ek_von, plausibilitaet_we, wareneingang_ek
 from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel, keine_leistung
 from apps.verkauf.models import Belegart, Nummernkreis, Position
 
@@ -275,9 +275,30 @@ def wareneingang_aus_bestellung(we):
             WareneingangPosition.objects.create(wareneingang=we, bestellposition=bp, artikel=bp.artikel, menge=bp.offen, ek=bp.ek)
 
 
+class PlausibilitaetFehler(ValueError):
+    """Wareneingangspreis weicht stark vom Ø-EK bzw. Import-EK ab: Rückfrage, gebucht wird erst nach Bestätigung."""
+
+
+def preis_rueckfragen(we, positionen=None):
+    """Rückfragetexte je Position, deren Kalkulations-EK um mehr als die Grenze (50 %) vom Ø-EK (nur mit Bestand) bzw. Import-EK abweicht."""
+    positionen = list(we.positionen.select_related("artikel")) if positionen is None else positionen
+    kalk = we.kalkulation()
+    texte = []
+    for p in positionen:
+        if p.artikel.typ not in ("A", "P"):
+            continue
+        am = ArtikelMandant.objects.filter(artikel=p.artikel, mandant=we.mandant).first()
+        ek_avg = am.ek_avg if am and bestand(we.mandant, p.artikel) > 0 else None
+        text = plausibilitaet_we(kalk[p.pk], ek_avg, import_ek_von(p.artikel))
+        if text:
+            texte.append(f"{p.artikel.nummer}: {text}")
+    return texte
+
+
 @transaction.atomic
-def wareneingang_buchen(we, benutzer=None) -> int:
-    """Bucht Bestand, letzten EK, Durchschnitts-EK, Seriennummern und Liefermengen der Bestellung."""
+def wareneingang_buchen(we, benutzer=None, bestaetigt=False) -> int:
+    """Bucht Bestand, letzten EK, Durchschnitts-EK, Seriennummern und Liefermengen der Bestellung.
+    Weicht ein Preis stark vom Ø-EK/Import-EK ab, wird ohne bestaetigt=True nichts gebucht (PlausibilitaetFehler)."""
     we = Wareneingang.objects.select_for_update().get(pk=we.pk)  # Sperre: Doppelklick/zweiter Tab darf nicht doppelt buchen
     if we.gebucht:
         raise ValueError("Der Wareneingang ist bereits gebucht.")
@@ -300,6 +321,10 @@ def wareneingang_buchen(we, benutzer=None) -> int:
             vorhanden = ESDKey.objects.filter(mandant=we.mandant, artikel=p.artikel, key__in=keys).values_list("key", flat=True)
             if vorhanden:
                 raise ValueError(f"{p.artikel.nummer} (ESD): Key bereits im Bestand: {', '.join(list(vorhanden)[:3])}.")
+    if not bestaetigt:
+        rueckfragen = preis_rueckfragen(we, positionen)
+        if rueckfragen:
+            raise PlausibilitaetFehler(" | ".join(rueckfragen))
     heute = we.datum
     kalkulation = we.kalkulation()
     for p in positionen:

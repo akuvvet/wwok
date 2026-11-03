@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel
@@ -500,7 +501,13 @@ def wareneingang_buchen(request, we_id):
         if request.POST.get("aktion") == "kosten":
             messages.success(request, "Nebenkosten gespeichert, Kalkulations-EK neu berechnet.")
             return redirect("einkauf:wareneingang", we_id=we.pk)
-        anzahl = services.wareneingang_buchen(we, request.user)
+        bestaetigt = bool(request.POST.get("preis_bestaetigt"))
+        if not bestaetigt:  # Plausibilität: Nebenkosten bleiben gespeichert, gebucht wird erst nach Bestätigung
+            rueckfragen = services.preis_rueckfragen(we)
+            if rueckfragen:
+                messages.warning(request, " | ".join(rueckfragen))
+                return redirect(reverse("einkauf:wareneingang", kwargs={"we_id": we.pk}) + "?rueckfrage=1")
+        anzahl = services.wareneingang_buchen(we, request.user, bestaetigt=True)
     messages.success(request, f"{anzahl} Position(en) ins Lager gebucht.")
     return redirect("einkauf:wareneingang", we_id=we.pk)
 
@@ -799,6 +806,41 @@ def preislistenimport(request, import_id):
     from .models import Preislistenimport
     protokoll = get_object_or_404(Preislistenimport.objects.select_related("profil", "profil__lieferant"), pk=import_id)
     return render(request, "einkauf/preislistenimport.html", {"p": protokoll})
+
+
+@mit_mandant
+@admin_bei_aenderung
+def preispruefliste(request):
+    """Prüfliste: zurückgehaltene Importe (Quarantäne) und einzelne Preise mit großer Abweichung. Freigeben/Übernehmen per Klick."""
+    from . import preislisten
+    from .models import Preislistenimport, Preispruefung
+    if request.method == "POST":
+        aktion, pk = request.POST.get("aktion", ""), request.POST.get("id", "")
+        try:
+            if not pk.isdigit():
+                raise ValueError("Eintrag nicht gefunden.")
+            if aktion in ("import_freigeben", "import_verwerfen"):
+                imp = get_object_or_404(Preislistenimport.objects.select_related("profil", "profil__lieferant"), pk=pk)
+                if aktion == "import_freigeben":
+                    neu = preislisten.freigeben(imp, request.user)
+                    messages.success(request, f"Import freigegeben: {neu.meldung}")
+                else:
+                    preislisten.verwerfen(imp)
+                    messages.success(request, "Import verworfen, keine Preise übernommen.")
+            elif aktion in ("preis_uebernehmen", "preis_verwerfen"):
+                pr = get_object_or_404(Preispruefung.objects.select_related("lieferant"), pk=pk)
+                if aktion == "preis_uebernehmen":
+                    preislisten.preis_uebernehmen(pr)
+                    messages.success(request, f"Preis für {pr.artikel.nummer} übernommen.")
+                else:
+                    preislisten.preis_verwerfen(pr)
+                    messages.success(request, "Preis verworfen, der bisherige bleibt.")
+        except (ValueError, preislisten.PreislistenFehler) as fehler:
+            messages.error(request, str(fehler))
+        return redirect("einkauf:preispruefliste")
+    return render(request, "einkauf/preispruefliste.html", {
+        "importe": Preislistenimport.objects.filter(status="zur_pruefung").select_related("profil", "profil__lieferant"),
+        "preise": Preispruefung.objects.filter(status="offen").select_related("artikel", "lieferant", "importlauf")[:500]})
 
 
 @mit_mandant

@@ -55,7 +55,7 @@ class NebenkostenTest(TestCase):
         self.assertIsNone(self.a.ek_errechnet)
         self.assertEqual(ArtikelMandant.objects.get(artikel=self.a, mandant=self.m).letzter_ek, D("10.0000"))
         self.assertEqual(services.ek_vorschlag(self.m, self.lf, self.a)[0], D("10.0000"))  # nächste Bestellung ohne Versand
-        services.wareneingang_buchen(self.we((self.a, "10", "20")))  # kein gleitender Durchschnitt mehr
+        services.wareneingang_buchen(self.we((self.a, "10", "20")), bestaetigt=True)  # Preissprung: Rückfrage bestätigt
         self.a.refresh_from_db()
         self.assertIsNone(self.a.durchschnitts_ek)
         self.assertEqual(bestand(self.m, self.a), D("20"))
