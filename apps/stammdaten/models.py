@@ -15,6 +15,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
+from django.utils import timezone
 
 from apps.kern.models import Mandant, Zeitstempel
 
@@ -457,6 +458,26 @@ class ArtikelMandant(Zeitstempel):
     lagerplatz = models.CharField("Lagerplatz (Regal/Fach)", max_length=40, blank=True)
     mindestbestand = models.PositiveIntegerField("Mindestbestand", null=True, blank=True)
     maximalbestand = models.PositiveIntegerField("Maximalbestand", null=True, blank=True)
+    # VK-Kalkulation (Issue 12, Schritt 1): EK-Quellen pro Mandant. ek_import (Preislisten) ist mandantenübergreifend und liegt am Artikel.
+    ek_we = models.DecimalField("EK letzter Wareneingang", null=True, blank=True, editable=False, **EK_GELD)
+    ek_avg = models.DecimalField("Ø-EK (gleitend)", null=True, blank=True, editable=False, **EK_GELD)
+    ek2 = models.DecimalField("EK2 (manuell)", null=True, blank=True, validators=[MinValueValidator(0)], **EK_GELD)
+    ek2_datum = models.DateTimeField("EK2 geändert am", null=True, blank=True, editable=False)
+    ek2_fix = models.BooleanField("EK2 gilt immer als Kalkulationsbasis", default=False)
+    vk_fix1 = models.BooleanField("VK1 fest", default=False)
+    vk_fix2 = models.BooleanField("VK2 fest", default=False)
+    vk_fix3 = models.BooleanField("VK3 fest", default=False)
+    warnungen_aus = models.BooleanField("keine Warnungen im Preis-Radar", default=False)
+
+    def save(self, *args, **kwargs):
+        felder = kwargs.get("update_fields")
+        if felder is None or "ek2" in felder:  # ek2_datum wird bei jeder Änderung von ek2 gesetzt
+            alt = type(self).objects.filter(pk=self.pk).values_list("ek2", flat=True).first() if self.pk else None
+            if alt != self.ek2:
+                self.ek2_datum = timezone.now() if self.ek2 is not None else None
+                if felder is not None:
+                    kwargs["update_fields"] = [*felder, "ek2_datum"]
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "Artikeldaten pro Mandant"
@@ -666,6 +687,7 @@ class PreisVorgabe(models.Model):
     aufschlag_vk1 = models.DecimalField("Aufschlag VK1 %", max_digits=6, decimal_places=2, null=True, blank=True)
     aufschlag_vk2 = models.DecimalField("Aufschlag VK2 %", max_digits=6, decimal_places=2, null=True, blank=True)
     aufschlag_vk3 = models.DecimalField("Aufschlag VK3 %", max_digits=6, decimal_places=2, null=True, blank=True)
+    rundung_99 = models.BooleanField("VK auf ,99 aufrunden", default=False, help_text="Aus: kaufmännisch auf 2 Nachkommastellen.")
 
     class Meta:
         verbose_name = "Globale Preisvorgabe"
