@@ -4,7 +4,7 @@ Die Verknüpfung Preislistenartikel ↔ Artikel läuft über die Herstellernumme
 Hat ein Artikel mehrere Lieferanten, gewinnt der niedrigste EK netto. Artikel mit gebuchtem Wareneingang behalten ihren
 Durchschnitts-EK (Wareneingang hat Vorrang)."""
 from apps.lager.models import Bewegungsart, Lagerbewegung
-from apps.stammdaten.models import Artikel, ArtikelLieferant
+from apps.stammdaten.models import Artikel, ArtikelLieferant, EkHerkunft
 
 
 def bestpreise(anwenden=False):
@@ -24,7 +24,8 @@ def bestpreise(anwenden=False):
     if anwenden and aenderungen:
         for z in aenderungen:
             z["artikel"].durchschnitts_ek = z["neu"]
-        Artikel.objects.bulk_update([z["artikel"] for z in aenderungen], ["durchschnitts_ek"], batch_size=500)
+            z["artikel"].ek_herkunft_setzen(EkHerkunft.IMPORT)  # überschreibt auch einen manuell eingetragenen EK
+        Artikel.objects.bulk_update([z["artikel"] for z in aenderungen], ["durchschnitts_ek", "ek_herkunft", "ek_geaendert_am"], batch_size=500)
     return {"artikel": len(best), "aenderungen": aenderungen, "unveraendert": unveraendert, "uebersprungen": uebersprungen}
 
 

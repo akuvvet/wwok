@@ -190,5 +190,7 @@ def artikelpreise(profil, inhalt: bytes, schluessel: str, spalte_schluessel: str
         if anwenden:
             for attribut, (_, n) in aenderungen.items():
                 setattr(artikel, attribut, n)
+            if "durchschnitts_ek" in aenderungen and artikel.ek_herkunft != "wareneingang":
+                artikel.ek_herkunft_setzen("import")  # importierter EK ersetzt den manuellen
             artikel.save()
     return ergebnis

@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.kern.models import Mandant
-from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie, keine_leistung
+from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie, _ek_quelle, ek_je_artikel, keine_leistung
 from apps.stammdaten.preise import gruppen_kalkulation
 from apps.verkauf.views import mit_mandant
 
@@ -70,10 +70,13 @@ def uebersicht(request):
         artikel = artikel.filter(pk__in=[a for a, s in (*summen.items(), *reparatur.items()) if s])
     seite = Paginator(artikel.select_related("steuersatz").prefetch_related("bilder").order_by("nummer"), pro_seite).get_page(request.GET.get("seite"))
     zeilen = []
+    eks = ek_je_artikel(seite.object_list)
     for a in seite.object_list:
         b = summen.get(a.pk, Decimal("0"))
         r = reserviert(request.mandant, a) if b else Decimal("0")
-        zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": b - r, "reparatur": reparatur.get(a.pk, Decimal("0"))})
+        ek, quelle = eks[a.pk]
+        zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": b - r, "reparatur": reparatur.get(a.pk, Decimal("0")),
+                       "ek": ek, "ek_quelle": quelle})
     lagerwert = Decimal("0")
     for a in Artikel.objects.filter(pk__in=[k for k, s in summen.items() if s], durchschnitts_ek__isnull=False):
         lagerwert += summen[a.pk] * a.durchschnitts_ek
@@ -100,7 +103,9 @@ def artikel_detail(request, artikel_id):
     letzter_we = WareneingangPosition.objects.filter(
         artikel=artikel, wareneingang__mandant=request.mandant, wareneingang__gebucht=True
     ).select_related("wareneingang__lieferant").order_by("-wareneingang__datum", "-id").first()
+    ek, ek_quelle = _ek_quelle(artikel)
     return render(request, "lager/artikel.html", {
+        "ek": ek, "ek_quelle": ek_quelle, "ek_datum": artikel.ek_datum(ek_quelle),
         "bestellt": offen_bestellt(request.mandant, artikel), "letzter_we": letzter_we,
         "lieferanten": artikel.lieferanten.select_related("lieferant").order_by("ek"),
         "gruppe_verfuegbar": gruppe, "kalkulation": gruppen_kalkulation(artikel) if artikel.typ == "G" else None,

@@ -40,15 +40,16 @@
   <p>Lagerwert (Durchschnitts-EK × Bestand): <strong>{{ lagerwert }} €</strong> · {{ seite.paginator.count }} Artikel</p>
   <div class="scroll">
   <table>
-    <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Bestand</th><th class="zahl">reserviert</th><th class="zahl">verfügbar</th><th class="zahl">Reparatur</th></tr></thead>
+    <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Bestand</th><th class="zahl">reserviert</th><th class="zahl">verfügbar</th><th class="zahl">Reparatur</th><th class="zahl">EK netto</th></tr></thead>
     <tbody>
     {% for z in zeilen %}
     <tr><td>{% with bild=z.artikel.bilder.all|first %}<a class="artikellink" href="{% url 'lager:artikel' z.artikel.pk %}"{% if bild %} data-bild="{{ bild.bild.url }}"{% endif %}>{{ z.artikel.nummer }}</a>{% endwith %}</td>
         <td><a class="artikellink" data-modal="{% url 'stammdaten:artikel_bearbeiten' z.artikel.pk %}" href="/verwaltung/stammdaten/artikel/{{ z.artikel.pk }}/change/" title="Bearbeiten">{{ z.artikel.bezeichnung }}</a></td>
         <td class="zahl">{{ z.bestand|floatformat:"-3" }}</td><td class="zahl">{{ z.reserviert|floatformat:"-3" }}</td>
         <td class="zahl"><strong>{{ z.verfuegbar|floatformat:"-3" }}</strong></td>
-        <td class="zahl">{% if z.reparatur %}{{ z.reparatur|floatformat:"-3" }}{% endif %}</td></tr>
-    {% empty %}<tr><td colspan="6">Keine Artikel.</td></tr>{% endfor %}
+        <td class="zahl">{% if z.reparatur %}{{ z.reparatur|floatformat:"-3" }}{% endif %}</td>
+        <td class="zahl">{% if z.ek is not None %}<span title="{{ z.ek_quelle }}">{{ z.ek|floatformat:2 }}</span>{% else %}<span class="gefahr-text">EK fehlt</span>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="7">Keine Artikel.</td></tr>{% endfor %}
     </tbody>
   </table>
   </div>

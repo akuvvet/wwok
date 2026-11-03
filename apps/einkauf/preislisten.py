@@ -275,6 +275,7 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
     gesehen = set()  # alle Bestellnummern der Datei – auch fehlerhafte Zeilen, damit nichts versehentlich verschwindet
     neue, geaenderte = {}, {}  # Bestellnummer -> Preislistenartikel (noch nicht bzw. neu zu schreiben)
     al_neu, al_geaendert = [], []
+    ek_importiert = set()  # Artikel, deren Lieferanten-EK neu ist oder sich geändert hat: Herkunft wird „Import“
 
     def schreiben():
         if neue:
@@ -358,7 +359,10 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
                                           lieferzeit_tage=lieferzeit, preisliste=profil.name[:150], aktualisiert_am=jetzt)
                     lieferantenpreise[bestellnr] = al
                     al_neu.append(al)
+                    ek_importiert.add(artikel_id)
                 elif al.ek != ek or (bestand is not None and al.bestand != bestand) or al.artikel_id != artikel_id:
+                    if al.ek != ek or al.artikel_id != artikel_id:
+                        ek_importiert.add(artikel_id)
                     al.ek, al.artikel_id, al.preisliste, al.aktualisiert_am = ek, artikel_id, profil.name[:150], jetzt
                     if bestand is not None:
                         al.bestand = bestand
@@ -373,6 +377,11 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer) -> Preislisteni
             if len(fehler) < 200:
                 fehler.append({"zeile": nr, "grund": str(grund), "daten": z})
     schreiben()
+    if ek_importiert:  # der Preisimport überschreibt den manuellen EK; Wareneingang behält Vorrang
+        from apps.lager.models import Bewegungsart, Lagerbewegung
+        mit_wareneingang = Lagerbewegung.objects.filter(art=Bewegungsart.WARENEINGANG).values("artikel_id")
+        Artikel.objects.filter(pk__in=ek_importiert, typ="A").exclude(ek_herkunft="wareneingang").exclude(pk__in=mit_wareneingang).update(
+            ek_herkunft="import", ek_geaendert_am=jetzt)
     hinweis = ""
     if profil.entfernen_veraltete:
         veraltet = [bn for bn, alt in vorhanden.items() if alt["id"] is not None and bn not in gesehen]

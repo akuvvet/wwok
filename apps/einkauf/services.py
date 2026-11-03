@@ -30,13 +30,14 @@ def ek_runden(ek):
 
 def ek_vorschlag(mandant, lieferant, artikel):
     """(EK, Bestellnummer des Lieferanten): Preisliste, sonst letzter Lieferantenpreis des Mandanten, sonst der jüngste eines
-    anderen Mandanten. Der Durchschnitts-EK enthält Nebenkosten und ist nur der letzte Notbehelf."""
+    anderen Mandanten. Der Durchschnitts-EK enthält Nebenkosten und ist ein Notbehelf, danach der manuell eingetragene EK."""
     al = ArtikelLieferant.objects.filter(artikel=artikel, lieferant=lieferant).first()
     if al and al.ek is not None:
         return al.ek, al.bestellnummer
     gekauft = ArtikelMandant.objects.filter(artikel=artikel, letzter_ek__isnull=False)
     am = gekauft.filter(mandant=mandant).first() or gekauft.order_by("-letzter_ek_datum", "-id").first()
-    return (am.letzter_ek if am else artikel.durchschnitts_ek or Decimal("0")), (al.bestellnummer if al else "")
+    ersatz = artikel.durchschnitts_ek or artikel.ek_manuell or Decimal("0")
+    return (am.letzter_ek if am else ersatz), (al.bestellnummer if al else "")
 
 
 @transaction.atomic
@@ -314,6 +315,7 @@ def wareneingang_buchen(we, benutzer=None) -> int:
             a.durchschnitts_ek = ((a.durchschnitts_ek * vorher + p.kalk_ek * p.menge) / (vorher + p.menge)).quantize(Decimal("0.0001"))
         else:
             a.durchschnitts_ek = p.kalk_ek
+        a.ek_herkunft_setzen("wareneingang")  # ab jetzt gilt der Ø-EK, der manuelle EK ist nur noch Anzeige
         if a.typ == "P":  # Lieferantenprodukt wird bei Wareneingang zum Lagerartikel
             a.typ = "A"
         a.save()

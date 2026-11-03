@@ -519,6 +519,7 @@
         }
         nurWenn(['kategorie', 'aufschlag_vk1', 'aufschlag_vk2', 'aufschlag_vk3'], !leistung);
         nurWenn(['leistungskategorie', 'kosten'], leistung);
+        nurWenn(['ek_manuell'], typ.value === 'A');  // Gruppen rechnen den EK aus den Komponenten, Leistungen haben Kosten
       }
       var typVorher = typ && typ.value;
       function nummerTauschen() {  // jede Art hat ihren Zähler; eine eingetippte Nummer bleibt stehen

@@ -340,6 +340,12 @@ class Artikeltyp(models.TextChoices):
     G = "G", "G – Gruppe"
 
 
+class EkHerkunft(models.TextChoices):
+    MANUELL = "manuell", "manuell"
+    IMPORT = "import", "Import"
+    WARENEINGANG = "wareneingang", "Wareneingang"
+
+
 class Artikel(Zeitstempel):
     nummer = models.CharField("Artikelnummer", max_length=40, unique=True)
     typ = models.CharField("Typ", max_length=1, choices=Artikeltyp.choices, default=Artikeltyp.A)
@@ -372,6 +378,11 @@ class Artikel(Zeitstempel):
     steuersatz = models.ForeignKey(Steuersatz, on_delete=models.PROTECT)
     # Preise (netto). Leer = aus Aufschlag berechnet.
     durchschnitts_ek = models.DecimalField("Durchschnitts-EK", null=True, blank=True, editable=False, **EK_GELD)
+    ek_manuell = models.DecimalField("EK-Preis netto", null=True, blank=True, validators=[MinValueValidator(0)],
+                                     help_text="Basis, solange es weder Preisliste noch Wareneingang gibt.", **GELD)
+    ek_herkunft = models.CharField("EK-Herkunft", max_length=12, choices=EkHerkunft.choices, blank=True, editable=False)
+    ek_geaendert_am = models.DateTimeField("EK geändert am", null=True, blank=True, editable=False)
+
     def save(self, *args, **kwargs):
         if self.typ == Artikeltyp.L:  # Leistung: keine Maße, kein Gewicht, kein Versand, nicht im Shop
             self.laenge_cm = self.breite_cm = self.hoehe_cm = self.gewicht_kg = None
@@ -380,7 +391,19 @@ class Artikel(Zeitstempel):
             self.kategorie = None  # Leistungen haben eigene Kategorien
         else:
             self.leistungskategorie, self.kosten = None, None
+        if self.typ != Artikeltyp.A:  # Gruppen rechnen aus den Komponenten, Leistungen haben Kosten
+            self.ek_manuell = None
         super().save(*args, **kwargs)
+
+    def ek_datum(self, quelle):
+        """Datum der letzten EK-Änderung, nur wenn es zur angezeigten Quelle passt (sonst stünde ein fremdes Datum daneben)."""
+        passend = {"manuell": EkHerkunft.MANUELL, "Wareneingang": EkHerkunft.WARENEINGANG, "Preisimport": EkHerkunft.IMPORT}
+        return self.ek_geaendert_am if passend.get(quelle) == self.ek_herkunft else None
+
+    def ek_herkunft_setzen(self, herkunft):
+        """Merkt, wer den EK zuletzt gesetzt hat (manuell, Import, Wareneingang), mit Zeitpunkt."""
+        from django.utils import timezone
+        self.ek_herkunft, self.ek_geaendert_am = herkunft, timezone.now()
 
     @property
     def ek_errechnet(self):
@@ -478,8 +501,9 @@ def keine_leistung(artikel):
 
 
 def _ek_quelle(artikel, mit_kosten=True):
-    """(EK, Quelle): Wareneingang (Durchschnitts-EK) hat Vorrang, sonst günstigster EK aus den Lieferantenpreislisten;
-    bei Gruppenartikeln (Typ G) die Summe der Komponenten, bei Leistungen (Typ L) die eingetragenen Kosten.
+    """(EK, Quelle): Wareneingang (Durchschnitts-EK) hat Vorrang, sonst günstigster EK aus den Lieferantenpreislisten, sonst der
+    beim Anlegen eingetragene EK-Preis (manuell); bei Gruppenartikeln (Typ G) die Summe der Komponenten, bei Leistungen (Typ L)
+    die eingetragenen Kosten.
     mit_kosten=False lässt Leistungskosten weg: Sie zählen für die Marge, aber nicht als Grundlage für Aufschläge."""
     if artikel.typ == Artikeltyp.L:
         return (artikel.kosten, "Kosten der Leistung") if artikel.kosten is not None else (None, "")
@@ -497,13 +521,33 @@ def _ek_quelle(artikel, mit_kosten=True):
         if not quellen:
             return None, ""
         return summe, "Summe der Komponenten"
-    if artikel.durchschnitts_ek:
-        return artikel.durchschnitts_ek, "Wareneingang"
+    if artikel.durchschnitts_ek:  # aus dem Wareneingang oder vom Zeitplan „Günstigster EK“ bzw. Preis-Assistenten übernommen
+        return artikel.durchschnitts_ek, "Wareneingang" if artikel.ek_herkunft == EkHerkunft.WARENEINGANG else "Preisimport"
     if artikel.pk:
         al = artikel.lieferanten.filter(ek__gt=0).order_by("ek").select_related("lieferant").first()
         if al:
             return al.ek, f"Preisliste {al.lieferant.name1}"
+    if artikel.ek_manuell is not None:
+        return artikel.ek_manuell, "manuell"
     return None, ""
+
+
+def ek_je_artikel(artikel_liste):
+    """{pk: (EK, Quelle)} für eine Artikelliste mit einer Abfrage für die Preislisten (Typ A); Gruppen und Leistungen einzeln."""
+    artikel_liste = list(artikel_liste)
+    guenstigst = {}
+    for al in ArtikelLieferant.objects.filter(artikel__in=[a.pk for a in artikel_liste if a.typ == Artikeltyp.A], ek__gt=0) \
+            .select_related("lieferant").order_by("artikel_id", "ek"):
+        guenstigst.setdefault(al.artikel_id, al)
+    ergebnis = {}
+    for a in artikel_liste:
+        if a.typ != Artikeltyp.A or a.durchschnitts_ek:
+            ergebnis[a.pk] = _ek_quelle(a)
+        elif a.pk in guenstigst:
+            ergebnis[a.pk] = (guenstigst[a.pk].ek, f"Preisliste {guenstigst[a.pk].lieferant.name1}")
+        else:
+            ergebnis[a.pk] = (a.ek_manuell, "manuell") if a.ek_manuell is not None else (None, "")
+    return ergebnis
 
 
 class GruppenKomponente(Zeitstempel):

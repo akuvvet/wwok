@@ -1,8 +1,10 @@
 """Formulare für die Bearbeitung von Kunden und Lieferanten im Dialog (Registerkarten statt Admin-Fieldsets)."""
 from django import forms
 from django.forms import inlineformset_factory
+from django.utils import formats, timezone
 
-from .models import (Ansprechpartner, Artikel, ArtikelMandant, Artikeltyp, Kunde, KundeMandant, Kundenanschrift, Lieferant, LieferantMandant)
+from .models import (Ansprechpartner, Artikel, ArtikelMandant, Artikeltyp, EkHerkunft, Kunde, KundeMandant, Kundenanschrift, Lieferant,
+                     LieferantMandant, _ek_quelle)
 
 from .preise import stufenpreis
 
@@ -88,7 +90,7 @@ AnschriftSet = inlineformset_factory(
 ARTIKEL_TABS = [
     ("grund", "Stammdaten", ["nummer", "typ", "bezeichnung", "bezeichnung_erweitert", "kategorie", "leistungskategorie", "hersteller", "herstellernummer",
                              "ean", "mengeneinheit", "steuersatz", "nicht_aktiv"]),
-    ("preise", "Preise", ["kosten", "vk1_fuer_alle", "vk1", "vk2", "vk3", "aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3"]),
+    ("preise", "Preise", ["kosten", "ek_manuell", "vk1_fuer_alle", "vk1", "vk2", "vk3", "aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3"]),
     ("logistik", "Maße & Versand", ["laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg", "sperrgut", "zolltarifnummer",
                                     "garantie_monate", "eol_datum", "nachfolger", "esd_key"]),
     ("online", "Online & Texte", ["online", "kurzbeschreibung", "keywords", "meta_titel", "meta_description", "meta_keywords"]),
@@ -146,6 +148,44 @@ class ArtikelForm(VkVorschlagForm):
             self.fields["typ"].disabled = True
             self.fields["nachfolger"].queryset = Artikel.objects.exclude(pk=self.instance.pk)
         self.fields["nachfolger"].queryset = self.fields["nachfolger"].queryset.order_by("nummer")
+        self.ek_feld_einrichten()
+
+    def ek_feld_einrichten(self):
+        """EK-Preis netto mit Komma; nach dem ersten Wareneingang gilt der Ø-EK und das Feld ist nur Anzeige."""
+        feld = self.fields["ek_manuell"]
+        feld.localize, feld.widget = True, forms.TextInput(attrs={"inputmode": "decimal", "autocomplete": "off"})
+        feld.widget.is_localized = True
+        feld.error_messages["invalid"] = "Bitte einen Betrag wie 12,50 eingeben."
+        a = self.instance
+        if not a.pk:
+            return
+        from apps.lager.models import Bewegungsart, Lagerbewegung
+        if Lagerbewegung.objects.filter(artikel=a, art=Bewegungsart.WARENEINGANG).exists():
+            feld.disabled = True
+        ek, quelle = _ek_quelle(a, mit_kosten=False)
+        if ek is None:
+            feld.help_text = "EK fehlt – bitte EK-Preis eintragen."
+        else:
+            text = f"Aktueller EK: {formats.number_format(ek, 2, use_l10n=True)} € ({quelle})"
+            datum = a.ek_datum(quelle)
+            if datum:
+                text += f" vom {formats.date_format(timezone.localtime(datum), 'd.m.Y')}"
+            if feld.disabled:
+                text += " – nach dem Wareneingang gilt der Ø-EK, das Feld ist gesperrt."
+            elif quelle != "manuell":
+                text += " – der Preisimport hat Vorrang vor dem manuellen EK."
+            feld.help_text = text
+
+    def clean_ek_manuell(self):
+        ek = self.cleaned_data.get("ek_manuell")
+        if ek is not None and ek < 0:
+            raise forms.ValidationError("Der EK-Preis darf nicht negativ sein.")
+        return ek
+
+    def save(self, commit=True):
+        if "ek_manuell" in self.changed_data and self.instance.typ == Artikeltyp.A:
+            self.instance.ek_herkunft_setzen(EkHerkunft.MANUELL)
+        return super().save(commit)
 
     def clean(self):
         daten = super().clean()

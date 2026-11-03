@@ -26,7 +26,7 @@
     <div>verfügbar<br><strong style="font-size:22px">{{ verfuegbar|floatformat:"-3" }}</strong></div>
     <div>bestellt (offen)<br><strong style="font-size:22px">{{ bestellt|floatformat:"-3" }}</strong></div>
     <div>Reparaturbestand (nicht verkaufbar)<br><strong style="font-size:22px">{{ reparatur|floatformat:"-3" }}</strong></div>
-    <div>Durchschnitts-EK<br>{% if artikel.durchschnitts_ek is not None %}{{ artikel.durchschnitts_ek|floatformat:2 }} €{% else %}–{% endif %}</div>
+    <div>EK netto<br>{% if ek is not None %}<strong>{{ ek|floatformat:2 }} €</strong> <span class="fein">({{ ek_quelle }}{% if ek_datum %}, {{ ek_datum|date:"d.m.Y" }}{% endif %})</span>{% else %}<strong class="gefahr-text">EK fehlt</strong>{% endif %}</div>
     <div>letzter Wareneingang<br>{% if letzter_we %}{{ letzter_we.wareneingang.datum|date:"d.m.Y" }} · {{ letzter_we.menge|floatformat:"-3" }} × {{ letzter_we.ek|floatformat:2 }} €{% else %}–{% endif %}</div>
     <div>Einheit<br>{{ artikel.mengeneinheit }}</div>
   </div>
