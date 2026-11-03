@@ -111,6 +111,7 @@
   .symbol::after { content:attr(data-tip); position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%); white-space:nowrap;
     background:var(--text); color:var(--karte); font-size:12px; padding:3px 8px; border-radius:5px; opacity:0; pointer-events:none; transition:opacity .12s; z-index:20; }
   .symbol.links::after { left:auto; right:0; transform:none; }  /* rechts außen: Tooltip nach links ausrichten */
+  .symbol.unten::after { bottom:auto; top:calc(100% + 6px); }  /* in Tabellen: unter dem Symbol, sonst verdeckt der feste Tabellenkopf */
   .symbol:hover::after, .symbol:focus-visible::after { opacity:1; }
   .kundenkopf { padding:10px 14px; font-size:14px; line-height:1.35; }
   .kk-titel { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:6px; }

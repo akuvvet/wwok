@@ -158,7 +158,7 @@ def kunde_detail(request, kunde_id):
             "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None,
             "bezahlt": fin.bezahlt(b) + fin.gutgeschrieben(b) if rechnung else None,
             "offen": fin.offen(b) if rechnung else -fin.gutschrift_rest(b) if gutschrift else None,
-            "bezug": b.vorgaenger.nummer if b.vorgaenger_id and b.vorgaenger.nummer else "",
+            "bezug": b.vorgaenger if b.vorgaenger_id and b.vorgaenger.nummer else None,
             "positionen": list(b.positionen.select_related("artikel")[:15])})
     offene_lieferscheine = sum(1 for b in Beleg.objects.filter(kunde=kunde, mandant=request.mandant, art=Belegart.LIEFERSCHEIN,
                                                                 abgeschlossen=True) if b.abrechenbar)

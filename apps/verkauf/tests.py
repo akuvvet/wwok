@@ -777,3 +777,13 @@ class KundensucheTest(TestCase):
         self.assertEqual(self.treffer("sonnenberg max"), ["12"])
         self.assertEqual(self.treffer("Sonn*"), ["12"])  # Stern: Anfang eines Namens
         self.assertEqual(self.treffer("Solingen"), ["10"])
+
+    def test_bezug_als_symbol_mit_link_und_nummer_im_tooltip(self):
+        from apps.kern.models import Mandant as M
+        m = M.objects.get()
+        ab = Beleg.objects.create(mandant=m, art=Belegart.AUFTRAG, kunde=self.a)
+        Beleg.objects.filter(pk=ab.pk).update(nummer="AB-7")
+        ls = Beleg.objects.create(mandant=m, art=Belegart.LIEFERSCHEIN, kunde=self.a, vorgaenger=ab)
+        Position.objects.create(beleg=ls, bezeichnung="X", einzelpreis=Decimal("1"))  # nur Belege mit Position erscheinen
+        r = self.client.get(reverse("verkauf:kunde", args=[self.a.pk]))
+        self.assertContains(r, 'href="%s" data-tip="Bestellung AB-7"' % reverse("verkauf:beleg", args=[ab.pk]))
