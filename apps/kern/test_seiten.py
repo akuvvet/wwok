@@ -5,7 +5,7 @@ from django.urls import URLPattern, URLResolver, get_resolver, reverse
 from .models import Mandant
 
 AUSLASSEN = {"logout", "login", "password_change", "password_change_done", "password_reset", "password_reset_done",
-             "password_reset_complete"}
+             "password_reset_complete", "favicon"}
 
 
 def parameterlose_urls(muster=None, praefix="", namensraum=""):
@@ -91,6 +91,25 @@ class SeitenTest(TestCase):
         html = self.client.get(reverse("finanzen:offene_posten")).content.decode()
         self.assertIn('<details class="gruppe aktiv" open>\n<summary title="Finanzen">', html)
         self.assertIn('<details class="gruppe" >\n<summary title="Verkauf">', html)
+
+    def test_maske_schliesst_mit_eingaben_nur_nach_rueckfrage(self):
+        self.mit_mandant()
+        html = self.client.get(reverse("einkauf:lieferanten")).content.decode()
+        self.assertIn("Die Maske enthält ungespeicherte Eingaben", html)
+        # Klick daneben, Escape (cancel) und Abbrechen laufen alle über die Rückfrage, nicht direkt über schliessen()
+        self.assertIn("if (e.target === dlg && gedruecktAussen) schliessenFragen();", html)
+        self.assertIn("dlg.addEventListener('cancel', function (e) { e.preventDefault(); if (e.cancelable) schliessenFragen(); });", html)
+        self.assertIn("dlg.addEventListener('close', function () { if (geaendert) { dlg.showModal(); schliessenFragen(); } });", html)
+        self.assertIn("b.addEventListener('click', schliessenFragen);", html)
+        self.assertNotIn("if (e.target === dlg) schliessen();", html)
+
+    def test_seitensymbol_ohne_anmeldung_und_in_jeder_seite(self):
+        self.client.logout()
+        antwort = self.client.get("/favicon.ico")
+        self.assertEqual(antwort.status_code, 200)
+        self.assertEqual(antwort["Content-Type"], "image/svg+xml")
+        self.assertIn("<svg", antwort.content.decode())
+        self.assertIn('<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,', self.client.get(reverse("login")).content.decode())
 
     def test_keine_seitenleiste_ohne_login(self):
         self.client.logout()

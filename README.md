@@ -479,7 +479,7 @@ Noch nicht umgesetzt: `versand` (DHL/Deutsche Post), eBay/Kaufland, `auswertunge
 | `ArtikelBild` | bis zu 10 Bilder, Position 1 = Hauptbild |
 | `ArtikelLieferant` | Lieferant, Bestellnummer, EK, Bestand, Preisliste, Einlesedatum |
 
-Die Pflege läuft zusätzlich über die Django-Verwaltungsoberfläche unter **`/verwaltung/`**. Kunden und Lieferanten werden im Alltag in einem **Dialog mit Registerkarten** bearbeitet (Kunde: Grunddaten, Einstufung & Hinweis, Steuer & Bank, Ansprechpartner, Anschriften, Mandant; Lieferant: Grunddaten, Konditionen, Bank, Ansprechpartner, Mandant). Der Dialog hat feste Größe und Position, nur der Inhalt scrollt.
+Die Pflege läuft zusätzlich über die Django-Verwaltungsoberfläche unter **`/verwaltung/`**. Kunden und Lieferanten werden im Alltag in einem **Dialog mit Registerkarten** bearbeitet (Kunde: Grunddaten, Einstufung & Hinweis, Steuer & Bank, Ansprechpartner, Anschriften, Mandant; Lieferant: Grunddaten, Konditionen, Bank, Ansprechpartner, Mandant). Der Dialog hat feste Größe und Position, nur der Inhalt scrollt. Mit ungespeicherten Eingaben schließen Klick daneben, Escape, × und „Abbrechen“ den Dialog nur nach Rückfrage („Weiter bearbeiten“ / „Verwerfen“); Text markieren und außerhalb loslassen schließt nicht.
 
 **Weitere Module (alle produktiv)**
 

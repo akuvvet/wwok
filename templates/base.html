@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block titel %}wwok{% endblock %}</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b5cad'/%3E%3Cpath d='M6 9l4.5 14L16 13l5.5 10L26 9' fill='none' stroke='%23fff' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   :root { --text:#1b1f24; --grund:#f4f5f7; --karte:#fff; --rand:#d5d9df; --akzent:#0b5cad; --warn:#b42318; --ok:#067647; --feld:#fff; --feldrand:#9aa3af; }
   @media (prefers-color-scheme: dark) {
@@ -334,7 +335,19 @@
   // Dialog mit Registerkarten: Elemente mit data-modal="URL" laden ihr Formular in einen Dialog und speichern per fetch
   (function () {
     var dlg = document.createElement('dialog'); dlg.className = 'modal'; document.body.appendChild(dlg);
-    function schliessen() { dlg.close(); dlg.innerHTML = ''; }
+    var geaendert = false, gedruecktAussen = false;  // geaendert: Eingaben seit dem Öffnen, die noch nicht gespeichert sind
+    function schliessen() { dlg.close(); dlg.innerHTML = ''; geaendert = false; }
+    function schliessenFragen() {  // Klick daneben, Escape, Abbrechen: Eingaben nur nach Rückfrage verwerfen
+      if (!geaendert) { schliessen(); return; }
+      wwokDialog('Die Maske enthält ungespeicherte Eingaben. Wirklich schließen und die Eingaben verwerfen?',
+        [{text: 'Weiter bearbeiten', wert: false, haupt: true}, {text: 'Verwerfen', wert: true}]).then(function (ja) { if (ja) schliessen(); });
+    }
+    function merken(e) { if (e.target.name) geaendert = true; }  // Hilfsfelder ohne Namen (Suche, Preisrechner) werden nicht gespeichert
+    dlg.addEventListener('input', merken);
+    dlg.addEventListener('change', merken);
+    dlg.addEventListener('cancel', function (e) { e.preventDefault(); if (e.cancelable) schliessenFragen(); });
+    // Chrome schließt bei wiederholtem Escape trotz preventDefault: dann Maske mit den Eingaben wieder öffnen und fragen
+    dlg.addEventListener('close', function () { if (geaendert) { dlg.showModal(); schliessenFragen(); } });
     function zeigeTab(name) {
       dlg.querySelectorAll('[data-modaltab]').forEach(function (b) { b.classList.toggle('aktiv', b.dataset.modaltab === name); });
       dlg.querySelectorAll('[data-modalinhalt]').forEach(function (s) { s.hidden = s.dataset.modalinhalt !== name; });
@@ -394,7 +407,7 @@
           feld.value = feld.type === 'number' ? wert.toFixed(2) : euro(wert);
         });
         var alleVk = dlg.querySelector('[name=vk1_fuer_alle]'); if (alleVk) alleVk.checked = true;  // sonst bliebe ein Betrag gleich dem Vorschlag nicht fest
-        preisModus = 'summe'; rechnen();
+        preisModus = 'summe'; rechnen(); geaendert = true;
         meldung.textContent = 'Übernommen – mit „Speichern“ festhalten.';
       });
       function hinzu(t) {
@@ -411,7 +424,7 @@
         zelle(tr, euro(ek), true); zelle(tr, euro(vk), true); zelle(tr, marge(ek, vk), true);
         var weg = document.createElement('button'), z = document.createElement('td');
         weg.type = 'button'; weg.className = 'gefahr'; weg.textContent = '×'; weg.title = 'Komponente entfernen';
-        weg.addEventListener('click', function () { tr.remove(); rechnen(); });
+        weg.addEventListener('click', function () { tr.remove(); rechnen(); geaendert = true; });
         z.appendChild(weg); tr.appendChild(z); zeilen.appendChild(tr); rechnen();
       }
       function zeige() {
@@ -464,7 +477,7 @@
           var r = await fetch(knopf.dataset.ustpruefen, {method: 'POST', body: daten, credentials: 'same-origin', headers: {'X-Requested-With': 'fetch'}});
           var d = await r.json();
           if (!d.ok) { zeige(d.text, true); return; }
-          nummer.value = d.ust_id; datum.value = d.gueltig ? d.datum : '';
+          nummer.value = d.ust_id; datum.value = d.gueltig ? d.datum : ''; geaendert = true;
           zeige([d.text].concat(d.abgleich).join(' · ') + (d.gueltig ? ' – mit „Speichern“ festhalten.' : ''), !d.gueltig || d.abweichung);
         } catch (fehlermeldung) { zeige('Prüfung nicht möglich: ' + fehlermeldung, true); }
         finally { knopf.disabled = false; speichern.disabled = false; nummer.readOnly = false; }
@@ -473,7 +486,7 @@
     function bereit() {
       dlg.querySelectorAll('[data-modaltab]').forEach(function (b) { b.addEventListener('click', function () { zeigeTab(b.dataset.modaltab); }); });
       var ustKnopf = dlg.querySelector('[data-ustpruefen]'); if (ustKnopf) ustPruefung(ustKnopf);
-      dlg.querySelectorAll('[data-schliessen]').forEach(function (b) { b.addEventListener('click', schliessen); });
+      dlg.querySelectorAll('[data-schliessen]').forEach(function (b) { b.addEventListener('click', schliessenFragen); });
       dlg.querySelectorAll('[data-zeile-mehr]').forEach(function (b) {
         b.addEventListener('click', function () {
           var abschnitt = b.closest('section'), naechste = abschnitt.querySelector('fieldset[hidden]');
@@ -534,7 +547,7 @@
       });
     }
     async function oeffnen(url) {
-      dlg.innerHTML = '<p style="padding:20px">Lade …</p>'; if (!dlg.open) dlg.showModal();
+      dlg.innerHTML = '<p style="padding:20px">Lade …</p>'; geaendert = false; if (!dlg.open) dlg.showModal();
       var r = await fetch(url, {credentials: 'same-origin', headers: {'X-Requested-With': 'fetch'}});
       dlg.innerHTML = await r.text(); bereit();
     }
@@ -542,7 +555,9 @@
       var a = e.target.closest('[data-modal]'); if (!a) return;
       e.preventDefault(); oeffnen(a.dataset.modal);
     });
-    dlg.addEventListener('click', function (e) { if (e.target === dlg) schliessen(); });
+    // Klick neben die Maske: nur wenn auch das Drücken daneben war (Text markieren und außerhalb loslassen schließt nicht)
+    dlg.addEventListener('mousedown', function (e) { gedruecktAussen = e.target === dlg; });
+    dlg.addEventListener('click', function (e) { if (e.target === dlg && gedruecktAussen) schliessenFragen(); gedruecktAussen = false; });
   })();
 </script>
 <script>

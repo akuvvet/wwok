@@ -20,6 +20,7 @@ urlpatterns = [
     path("esd/", include("apps.esd.urls")),
     path("shop/", include("apps.shop.urls")),
     path("stammdaten/", include("apps.stammdaten.urls")),
+    path("favicon.ico", kern_views.favicon, name="favicon"),
     path("", kern_views.dashboard, name="dashboard"),
 ]
 
