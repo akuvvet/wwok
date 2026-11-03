@@ -65,6 +65,9 @@ def beleg_holen(request, beleg_id):
     return get_object_or_404(Beleg.objects.select_related("kunde", "mandant"), pk=beleg_id, mandant=request.mandant)
 
 
+KUNDENSUCHE_FELDER = ["nummer", "name1", "name2", "name3", "ort", "ansprechpartner__vorname", "ansprechpartner__nachname"]
+
+
 @login_required
 def start(request):
     if request.method == "POST":
@@ -85,11 +88,12 @@ def start(request):
     if mandant and q:
         if q == "*":
             filt = Q()
-        elif q.endswith("*"):
-            filt = Q(name1__istartswith=q[:-1]) | Q(nummer__istartswith=q[:-1])
-        else:
-            filt = Q(name1__icontains=q) | Q(nummer__icontains=q) | Q(ort__icontains=q)
-        treffer = Kunde.objects.filter(filt, anonymisiert=False)[:100]
+        else:  # jedes Wort muss in einem Namen, einem Ansprechpartner, der Nummer oder dem Ort stehen; Reihenfolge egal
+            vergleich = "istartswith" if q.endswith("*") else "icontains"
+            filt = Q()
+            for wort in q.rstrip("*").split():
+                filt &= Q(*[Q(**{f"{feld}__{vergleich}": wort}) for feld in KUNDENSUCHE_FELDER], _connector=Q.OR)
+        treffer = Kunde.objects.filter(filt, anonymisiert=False).distinct()[:100]
         if len(treffer) == 1:
             return redirect("verkauf:kunde", kunde_id=treffer[0].pk)
     offene = None

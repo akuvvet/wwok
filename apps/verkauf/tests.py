@@ -747,3 +747,33 @@ class FesterGruppenpreisLoeschenTest(TestCase):
         self.client.post(reverse("verkauf:position_loeschen", args=[beleg.pk, teil.pk]))
         kopf.refresh_from_db()
         self.assertEqual(kopf.einzelpreis, Decimal("150.00"))   # zurück auf die Pauschale
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class KundensucheTest(TestCase):
+    def setUp(self):
+        from apps.stammdaten.models import Ansprechpartner
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        self.a = Kunde.objects.create(nummer="10", name1="Alpha GmbH", name2="Abteilung Einkauf", ort="Solingen")
+        self.b = Kunde.objects.create(nummer="11", name1="Beta KG", name3="z. Hd. Frau Sonnenschein")
+        self.c = Kunde.objects.create(nummer="12", name1="Gamma AG")
+        Ansprechpartner.objects.create(kunde=self.c, vorname="Max", nachname="Sonnenberg")
+        Ansprechpartner.objects.create(kunde=self.c, vorname="Erika", nachname="Sonnenberg")
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+
+    def treffer(self, q):
+        r = self.client.get(reverse("verkauf:start"), {"q": q})
+        if r.status_code == 302:
+            return [Kunde.objects.get(pk=int(r["Location"].rstrip("/").split("/")[-1])).nummer]
+        return sorted(k.nummer for k in r.context["treffer"])
+
+    def test_alle_namen_und_ansprechpartner(self):
+        self.assertEqual(self.treffer("sonnen"), ["11", "12"])  # name3 und Ansprechpartner, Gamma nur einmal
+        self.assertEqual(self.treffer("einkauf"), ["10"])  # name2
+        self.assertEqual(self.treffer("max sonnenberg"), ["12"])  # Vor- und Nachname, Reihenfolge egal
+        self.assertEqual(self.treffer("sonnenberg max"), ["12"])
+        self.assertEqual(self.treffer("Sonn*"), ["12"])  # Stern: Anfang eines Namens
+        self.assertEqual(self.treffer("Solingen"), ["10"])
