@@ -5,6 +5,7 @@ Gemeinsam für beide Mandanten: Kunden, Lieferanten, Artikel, Kategorien.
 Pro Mandant getrennt: Kreditlimit, Kundennummer beim Lieferanten, Lieferanten-
 Ansprechpartner, letzter EK.
 """
+import logging
 import os
 import uuid
 from decimal import Decimal
@@ -504,7 +505,11 @@ class ArtikelBild(Zeitstempel):
         neu = self._state.adding
         super().save(*args, **kwargs)
         if neu and self.bild and not self.vorschau:
-            self.vorschau_erzeugen()
+            try:
+                self.vorschau_erzeugen()
+            except (OSError, ValueError):
+                # Fehlende oder nicht lesbare Datei: Bild bleibt gespeichert, Vorschau fällt auf das Original zurück.
+                logging.getLogger(__name__).warning("Keine Vorschau für %s erzeugt", self.bild.name, exc_info=True)
 
     @property
     def vorschau_url(self):

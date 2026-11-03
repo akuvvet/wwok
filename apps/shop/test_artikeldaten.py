@@ -319,7 +319,10 @@ class BilderTest(Basis):
         self.assertFalse(hasattr(c, "geloescht"))
 
     def test_fremder_typ_ist_hinweis(self):
-        self.bild(1, "a.bmp")
+        # Neue Uploads bekommen immer eine erlaubte Endung; ältere Bestände können noch fremde Typen haben.
+        from django.core.files.storage import default_storage
+        name = default_storage.save(f"artikel/{self.a.pk}/alt.bmp", ContentFile(b"xx"))
+        ArtikelBild.objects.create(artikel=self.a, position=1, bild=name)
         c = self.client_fuer(A1="p")
         erg = services.artikeldaten_senden(self.shop, c)
         self.assertEqual(erg["aktualisiert"], 1)
