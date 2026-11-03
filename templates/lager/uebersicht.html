@@ -1,6 +1,30 @@
 {% extends "base.html" %}
 {% block titel %}Lager – wwok{% endblock %}
 {% block inhalt %}
+<style>
+  .artikellink { color:inherit; text-decoration:none; }
+  .artikellink:hover, .artikellink:focus-visible { color:var(--akzent); }
+  #artikelvorschau { position:fixed; z-index:40; width:160px; height:160px; object-fit:contain; background:#fff; pointer-events:none;
+    border:1px solid var(--rand); border-radius:8px; padding:4px; box-shadow:0 4px 14px rgba(0,0,0,.2); }
+</style>
+<img id="artikelvorschau" alt="" hidden>
+<script>
+  // Vorschaubild beim Überfahren der Artikelnummer; fest im Fenster, damit die scrollende Tabelle es nicht abschneidet
+  document.addEventListener('DOMContentLoaded', function () {
+    var bild = document.getElementById('artikelvorschau');
+    function zeige(e) {
+      var a = e.target.closest('[data-bild]'); if (!a) return;
+      var r = a.getBoundingClientRect();
+      bild.src = a.dataset.bild; bild.hidden = false;
+      bild.style.left = Math.min(r.right + 10, innerWidth - 170) + 'px';
+      bild.style.top = Math.max(4, Math.min(r.top + r.height / 2 - 80, innerHeight - 164)) + 'px';
+    }
+    function weg(e) { if (e.target.closest('[data-bild]')) bild.hidden = true; }
+    document.addEventListener('mouseover', zeige); document.addEventListener('focusin', zeige);
+    document.addEventListener('mouseout', weg); document.addEventListener('focusout', weg);
+    document.addEventListener('scroll', function () { bild.hidden = true; }, true);
+  });
+</script>
 <div class="karte">
   <h1>Lager · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile">
@@ -19,7 +43,8 @@
     <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Bestand</th><th class="zahl">reserviert</th><th class="zahl">verfügbar</th><th class="zahl">Reparatur</th></tr></thead>
     <tbody>
     {% for z in zeilen %}
-    <tr><td><a href="{% url 'lager:artikel' z.artikel.pk %}">{{ z.artikel.nummer }}</a></td><td>{{ z.artikel.bezeichnung }}</td>
+    <tr><td>{% with bild=z.artikel.bilder.all|first %}<a class="artikellink" href="{% url 'lager:artikel' z.artikel.pk %}"{% if bild %} data-bild="{{ bild.bild.url }}"{% endif %}>{{ z.artikel.nummer }}</a>{% endwith %}</td>
+        <td><a class="artikellink" data-modal="{% url 'stammdaten:artikel_bearbeiten' z.artikel.pk %}" href="/verwaltung/stammdaten/artikel/{{ z.artikel.pk }}/change/" title="Bearbeiten">{{ z.artikel.bezeichnung }}</a></td>
         <td class="zahl">{{ z.bestand|floatformat:"-3" }}</td><td class="zahl">{{ z.reserviert|floatformat:"-3" }}</td>
         <td class="zahl"><strong>{{ z.verfuegbar|floatformat:"-3" }}</strong></td>
         <td class="zahl">{% if z.reparatur %}{{ z.reparatur|floatformat:"-3" }}{% endif %}</td></tr>

@@ -68,7 +68,7 @@ def uebersicht(request):
         artikel = artikel.filter(kategorie_id__in=ids)
     if nur_bestand:
         artikel = artikel.filter(pk__in=[a for a, s in (*summen.items(), *reparatur.items()) if s])
-    seite = Paginator(artikel.select_related("steuersatz").order_by("nummer"), pro_seite).get_page(request.GET.get("seite"))
+    seite = Paginator(artikel.select_related("steuersatz").prefetch_related("bilder").order_by("nummer"), pro_seite).get_page(request.GET.get("seite"))
     zeilen = []
     for a in seite.object_list:
         b = summen.get(a.pk, Decimal("0"))

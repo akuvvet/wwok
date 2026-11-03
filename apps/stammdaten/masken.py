@@ -248,7 +248,8 @@ def artikel_bearbeiten(request, pk=None):
                 md.save()
                 if gruppe:
                     komponenten_speichern(objekt, gewaehlt)
-            return JsonResponse({"ok": True, "ziel": reverse("lager:artikel", args=[objekt.pk])})
+            # Neu: zur Artikelseite; Bearbeiten: auf der Seite bleiben, von der aus geöffnet wurde (z. B. Artikelliste)
+            return JsonResponse({"ok": True, "ziel": None if pk else reverse("lager:artikel", args=[objekt.pk])})
         status = 422
     antwort = render(request, "stammdaten/modal.html", {
         "titel": f"Artikel {instanz.nummer} – {instanz.bezeichnung}" if pk else "Neuer Artikel",

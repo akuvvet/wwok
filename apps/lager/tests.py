@@ -138,3 +138,24 @@ class LagerErgaenzungTest(TestCase):
         self.assertEqual(bestand(self.m, self.a), Decimal("6"))
         self.assertContains(self.client.get(reverse("lager:seriennummern"), {"q": "A"}), "Notebook")
         self.assertContains(self.client.get(reverse("lager:artikel", args=[self.a.pk])), "Seriennummern")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class ArtikellisteTest(TestCase):
+    def setUp(self):
+        from apps.stammdaten.models import ArtikelBild
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.a = Artikel.objects.create(nummer="A1", bezeichnung="Maus", steuersatz=st)
+        self.b = Artikel.objects.create(nummer="A2", bezeichnung="Tastatur", steuersatz=st)
+        ArtikelBild.objects.create(artikel=self.a, bild="artikel/maus.png")
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+
+    def test_vorschaubild_und_bearbeiten_per_klick(self):
+        r = self.client.get(reverse("lager:uebersicht"))
+        self.assertContains(r, 'data-bild="/medien/artikel/maus.png"', count=1)  # nur Artikel mit Bild
+        self.assertContains(r, 'data-modal="%s"' % reverse("stammdaten:artikel_bearbeiten", args=[self.b.pk]))
+        self.assertContains(r, 'class="artikellink"', count=4)
