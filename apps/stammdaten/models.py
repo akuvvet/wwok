@@ -702,6 +702,21 @@ class PreisVorgabe(models.Model):
         "Import: Einzelartikel zur Prüfung ab %", max_digits=6, decimal_places=2, default=50,
         help_text="Weicht ein Preis um mehr als das vom bisherigen Preis ab, wird er nicht übernommen, sondern in die Prüfliste gestellt.")
 
+    # Preis-Radar (Issue 12, Schritt 3)
+    radar_preisverfall_faktor = models.DecimalField(
+        "Radar: Preisverfall-Faktor", max_digits=5, decimal_places=2, default=Decimal("0.85"),
+        help_text="Preisverfall, wenn der Import-EK unter Ø-EK × diesem Faktor liegt.")
+    radar_ek2_abweichung = models.DecimalField(
+        "Radar: EK2-Abweichung %", max_digits=6, decimal_places=2, default=20,
+        help_text="Hinweis, wenn Import-EK bzw. Wareneingang um mehr als das von EK2 abweichen.")
+    radar_ek2_alter_tage = models.PositiveIntegerField("Radar: EK2 prüfen nach Tagen", default=180)
+    radar_ignorieren_prozent = models.DecimalField(
+        "Radar: Ignorieren unter %", max_digits=6, decimal_places=2, default=3,
+        help_text="Differenzen unter diesem Prozentsatz der Vergleichsbasis werden nicht gemeldet.")
+    radar_ignorieren_euro = models.DecimalField(
+        "Radar: Ignorieren unter €", max_digits=8, decimal_places=2, default=Decimal("0.50"),
+        help_text="Differenzen je Stück unter diesem Betrag werden nicht gemeldet.")
+
     class Meta:
         verbose_name = "Globale Preisvorgabe"
         verbose_name_plural = "Globale Preisvorgabe"
@@ -897,3 +912,19 @@ class UstIdPruefung(models.Model):
     @property
     def abweichung(self) -> bool:
         return "B" in (self.erg_name, self.erg_strasse, self.erg_plz, self.erg_ort)
+
+
+class RadarGesehen(models.Model):
+    """Preis-Radar „Gesehen“: blendet den Artikel im Mandanten aus, bis sich ek_kalk, ek_avg oder VK ändern (Stand beim Klick)."""
+
+    artikel = models.ForeignKey(Artikel, on_delete=models.CASCADE, related_name="radar_gesehen")
+    mandant = models.ForeignKey(Mandant, on_delete=models.CASCADE)
+    ek_kalk = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    ek_avg = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    vk = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    gesehen_am = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Radar: gesehen"
+        verbose_name_plural = "Radar: gesehen"
+        constraints = [models.UniqueConstraint(fields=["artikel", "mandant"], name="radar_gesehen_eindeutig")]

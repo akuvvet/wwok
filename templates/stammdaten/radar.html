@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block titel %}Preis-Radar – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Preis-Radar: {{ titel }}</h1>
+  <p style="opacity:.8">Sortiert nach Euro-Wert (Bestand + offene Bestellungen und Angebote) × Differenz je Stück, höchster zuerst. „Gesehen“ blendet den Artikel aus, bis sich EK oder VK spürbar ändern.</p>
+  <p>
+    {% for k in kacheln.kategorien %}<a class="knopf {% if k.schluessel != kategorie %}leise{% endif %}" href="?kategorie={{ k.schluessel }}">{{ k.name }} ({{ k.anzahl }})</a> {% endfor %}
+    <a class="knopf {% if kategorie != 'senkung' %}leise{% endif %}" href="?kategorie=senkung">VK-Senkung prüfen ({{ kacheln.senkung }})</a>
+    <a class="knopf leise" href="{% url 'einkauf:preispruefliste' %}">Import zur Prüfung ({{ kacheln.importe }})</a>
+  </p>
+  {% if zeilen %}
+  <div class="scroll"><table>
+    <thead><tr><th>Artikel</th><th class="zahl">Menge</th><th class="zahl">Basis</th><th class="zahl">VK1</th>
+      <th class="zahl">{% if kategorie == "senkung" %}Vorschlag{% else %}Differenz je Stück{% endif %}</th><th class="zahl">Euro-Wert</th><th></th></tr></thead>
+    <tbody>{% for e, b, euro in zeilen %}<tr>
+      <td><a href="{% url 'stammdaten:artikel_bearbeiten' e.artikel.pk %}">{{ e.artikel.nummer }} {{ e.artikel.bezeichnung }}</a></td>
+      <td class="zahl">{{ e.menge|floatformat:"-3" }}</td>
+      <td class="zahl">{{ e.basis|floatformat:2 }} <small>({{ e.basis_quelle }})</small></td>
+      <td class="zahl">{{ e.vk|floatformat:2 }}</td>
+      <td class="zahl">{% if b and b.diff is not None %}{{ b.diff|floatformat:2 }}{% elif kategorie == "senkung" %}{{ e.vorschlag|floatformat:2 }}{% else %}–{% endif %}</td>
+      <td class="zahl"><strong>{{ euro|floatformat:2 }} €</strong></td>
+      <td><form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="artikel" value="{{ e.artikel.pk }}">
+        {% if kategorie == "senkung" %}<button type="submit" name="aktion" value="vk_uebernehmen">VK übernehmen</button>{% endif %}
+        <button type="submit" name="aktion" value="gesehen" class="leise">Gesehen</button></form></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p>Keine Einträge.</p>{% endif %}
+</div>
+{% endblock %}
