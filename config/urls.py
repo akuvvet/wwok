@@ -2,7 +2,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
-from django.views.generic import RedirectView
+
+from apps.kern import views as kern_views
 
 admin.site.site_header = "wwok Warenwirtschaft"
 admin.site.site_title = "wwok"
@@ -19,7 +20,7 @@ urlpatterns = [
     path("esd/", include("apps.esd.urls")),
     path("shop/", include("apps.shop.urls")),
     path("stammdaten/", include("apps.stammdaten.urls")),
-    path("", RedirectView.as_view(pattern_name="verkauf:start", permanent=False)),
+    path("", kern_views.dashboard, name="dashboard"),
 ]
 
 if settings.DEBUG:

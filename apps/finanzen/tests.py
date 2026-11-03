@@ -94,7 +94,7 @@ class FinanzenTest(TestCase):
         html = self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk])).content.decode()
         self.assertNotIn('class="warnung">Kreditlimit', html)
         self.assertLess(html.index("Kreditlimit 100"), html.index("Überschritten 119"))
-        self.assertLess(html.index("Überschritten 119"), html.index("Offene Posten"))
+        self.assertLess(html.index("Überschritten 119"), html.index("Offene Posten", html.index("<main")))  # Seitenleiste nicht mitzählen
         md.kreditlimit = Decimal("500")
         md.save()
         self.assertNotContains(self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk])), "Überschritten")

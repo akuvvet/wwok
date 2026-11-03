@@ -26,6 +26,8 @@ def mandant_oder_none(request):
 def hauptbereich(request):
     treffer = getattr(request, "resolver_match", None)
     namensraum = treffer.namespace if treffer else ""
+    if treffer and not namensraum and treffer.url_name == "dashboard":
+        namensraum = "dashboard"  # Startseite ohne Namensraum
     return {"hauptbereich": BEREICH.get(namensraum, namensraum)}
 
 

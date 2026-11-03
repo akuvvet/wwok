@@ -841,6 +841,8 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Gutschrift: mindert die Rechnung nicht mehr von selbst, eigener Minusposten in den offenen Posten, Verrechnung von Hand mit Betrag auf der Zahlungsseite, Aufheben per Gegenbuchung; Filter „ohne Storno/Gutschrift“ blendet nur noch Erledigtes aus
 - [x] Shop: Artikeldaten (Texte, Maße, Hersteller, Kategorie, Bilder, neue Artikel) per Knopf oder im Takt, offline gesetzte Artikel werden im Shop deaktiviert
 - [x] Position nachträglich in eine Gruppe verschieben (Position → „bearbeiten“ → Gruppe), auch in eine andere oder heraus; abgelehnt, wenn sich dadurch Belegwert oder Steuer ändern würden (Steuersatz, Rabatt der Gruppe, nicht centgenauer Rabatt, anderer Lieferschein, negativer Gruppenpreis)
+- [x] Layout: eine Seitenleiste links mit allen Bereichen als aufklappbare Gruppen (Untermenüs, aktive Gruppe offen), einklappbar auf Symbole, unter 900 px als Schublade; Mandantenwahl bleibt in der Kopfzeile
+- [x] Dashboard als Startseite (`/`): offene Kundenbestellungen, offene Posten, Umsatz netto (Rechnungen minus Gutschriften) mit Vorzeitraum, Lieferanten, Zeitraumvergleich, Umsatzverlauf, Top Kunden/Artikel/Lieferanten, Kanäle, Arbeitsliste; Zeitraum 7/30/90/365 Tage
 - [x] Einkauf: Bestellungen, Wareneingang, Lieferantenrechnungen, RMA, Bestellvorschlag, SEPA-Export, Preislisten-Import (Typ P als eigene Tabelle)
 - [x] Lager: Bestand je Mandant, Bewegungen, Inventur, Seriennummern, Bestandsregel (nie unter 0)
 - [x] Finanzen: Offene Posten, Zahlungen mit Storno, Mahnwesen, Bankimport, Kassenbuch, DATEV

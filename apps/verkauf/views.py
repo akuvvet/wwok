@@ -7,6 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -69,7 +70,10 @@ def start(request):
     if request.method == "POST":
         mandant = get_object_or_404(Mandant, pk=request.POST.get("mandant"), aktiv=True)
         request.session["mandant_id"] = mandant.pk
-        antwort = redirect("verkauf:start")
+        weiter = request.POST.get("weiter", "")  # nach dem Wechsel zurück auf die Seite, von der aus gewechselt wurde
+        if not weiter or not url_has_allowed_host_and_scheme(weiter, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+            weiter = "dashboard" if request.POST.get("weiter") is not None else "verkauf:start"
+        antwort = redirect(weiter)
         antwort.set_cookie(MANDANT_COOKIE, mandant.pk, max_age=365 * 24 * 3600, httponly=True, samesite="Lax",
                            secure=settings.SESSION_COOKIE_SECURE)  # auch nach neuer Anmeldung derselbe Mandant
         return antwort

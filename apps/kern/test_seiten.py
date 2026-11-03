@@ -70,3 +70,36 @@ class SeitenTest(TestCase):
         self.assertIn("Alle Belege", self.client.get(reverse("shop:uebersicht")).content.decode())
         self.assertIn("Offene Posten", self.client.get(reverse("finanzen:offene_posten")).content.decode())
         self.assertIn("Bestellvorschlag", self.client.get(reverse("einkauf:vorschlag")).content.decode())
+
+    def test_seitenleiste_enthaelt_alle_gruppen_und_oeffnet_die_aktive(self):
+        self.mit_mandant()
+        html = self.client.get(reverse("verkauf:belege")).content.decode()
+        for ziel in ("dashboard", "verkauf:start", "verkauf:belege", "verkauf:abos", "shop:uebersicht", "einkauf:bestellungen",
+                     "einkauf:lieferanten", "lager:uebersicht", "lager:inventur_liste", "lager:seriennummern", "esd:uebersicht",
+                     "werkstatt:liste", "werkstatt:annahme", "finanzen:offene_posten", "finanzen:datev"):
+            self.assertIn(f'href="{reverse(ziel)}"', html, ziel)
+        self.assertIn('class="seitenleiste"', html)
+        self.assertNotIn('class="menue"', html)  # die Bereichsknöpfe der Kopfzeile entfallen
+        # nur die Gruppe des aktuellen Bereichs ist geöffnet, der aktive Eintrag trägt aria-current
+        self.assertIn('<details class="gruppe aktiv" open>\n<summary title="Verkauf">', html)
+        self.assertIn('<details class="gruppe" >\n<summary title="Einkauf">', html)
+        self.assertEqual(html.count('aria-current="page"'), 1)
+        self.assertIn('class="sl-link aktiv" aria-current="page" href="' + reverse("verkauf:belege"), html)
+
+    def test_seitenleiste_oeffnet_gruppe_je_bereich(self):
+        self.mit_mandant()
+        html = self.client.get(reverse("finanzen:offene_posten")).content.decode()
+        self.assertIn('<details class="gruppe aktiv" open>\n<summary title="Finanzen">', html)
+        self.assertIn('<details class="gruppe" >\n<summary title="Verkauf">', html)
+
+    def test_keine_seitenleiste_ohne_login(self):
+        self.client.logout()
+        html = self.client.get(reverse("login")).content.decode()
+        self.assertNotIn('<nav class="seitenleiste"', html)
+
+    def test_dashboard_ist_eigener_hauptbereich(self):
+        self.mit_mandant()
+        antwort = self.client.get(reverse("dashboard"))
+        self.assertEqual(antwort.status_code, 200)
+        self.assertEqual(antwort.context["hauptbereich"], "dashboard")
+        self.assertIn('class="sl-link sl-dashboard aktiv" aria-current="page"', antwort.content.decode())

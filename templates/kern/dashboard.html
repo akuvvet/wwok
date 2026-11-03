@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block titel %}Dashboard – wwok{% endblock %}
+{% block inhalt %}
+<style>
+  .db-kopf { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  .db-kopf h1 { margin:0; }
+  .db-kacheln { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin-bottom:16px; }
+  .db-kachel { display:block; color:inherit; text-decoration:none; background:var(--karte); border:1px solid var(--rand); border-left:6px solid var(--akzent);
+               border-radius:8px; padding:12px 14px; }
+  .db-kachel:hover { border-color:var(--akzent); }
+  .db-kachel.ok { border-left-color:var(--ok); } .db-kachel.warn { border-left-color:var(--warn); }
+  .db-kachel .titel { font-size:13px; opacity:.8; margin-bottom:4px; }
+  .db-kachel .gross { font-size:26px; font-weight:600; font-variant-numeric:tabular-nums; line-height:1.2; }
+  .db-kachel .klein { font-size:13px; margin-top:4px; }
+  .db-auf { color:var(--ok); } .db-ab { color:var(--warn); } .db-gleich { opacity:.7; }
+  .db-vergleiche { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+  .db-vergleiche .karte, .db-listen .karte { margin-bottom:0; }
+  .db-vergleiche .zeile2 { display:flex; justify-content:space-between; gap:8px; font-variant-numeric:tabular-nums; font-size:14px; }
+  .db-abschnitt { margin:20px 0 8px; font-size:16px; }
+  .db-listen { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); gap:12px; }
+  .db-listen table { width:100%; }
+  .db-listen td.zahl { white-space:nowrap; }
+  .db-balken { height:8px; border-radius:4px; background:var(--akzent); }
+  .db-balkenspur { background:var(--rand); border-radius:4px; }
+  .db-diagramm { width:100%; height:auto; display:block; }
+  .db-diagramm text { fill:var(--text); font-size:11px; }
+  .db-diagramm .gitter { stroke:var(--rand); stroke-width:1; }
+  .db-diagramm .flaeche { fill:var(--akzent); opacity:.15; }
+  .db-diagramm .linie { fill:none; stroke:var(--akzent); stroke-width:2; }
+  .db-diagramm .vorlinie { fill:none; stroke:var(--text); opacity:.45; stroke-width:1.5; stroke-dasharray:5 4; }
+  .db-diagramm circle { fill:var(--akzent); stroke:var(--karte); stroke-width:1; }
+  .db-legende { display:flex; gap:16px; font-size:12px; margin-top:4px; flex-wrap:wrap; }
+  .db-arbeit { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; }
+  .db-arbeit a { display:flex; justify-content:space-between; gap:8px; padding:8px 12px; border:1px solid var(--rand); border-radius:6px; color:inherit; text-decoration:none; }
+  .db-arbeit a:hover { border-color:var(--akzent); }
+</style>
+
+<div class="db-kopf">
+  <h1>Dashboard · {{ request.mandant }}</h1>
+  <p class="zeile" style="margin:0">
+    {% for t in zeitraeume %}<a class="knopf {% if t != tage %}leise{% endif %}" href="?tage={{ t }}">{% if t == 365 %}1 Jahr{% else %}{{ t }} Tage{% endif %}</a>{% endfor %}
+  </p>
+</div>
+<p class="fein">Zeitraum: {{ von|date:"d.m.Y" }} bis {{ bis|date:"d.m.Y" }}, Vergleich mit {{ kacheln.vorher_von|date:"d.m.Y" }} bis {{ kacheln.vorher_bis|date:"d.m.Y" }}. Alle Beträge netto, außer offene Posten.</p>
+
+<div class="db-kacheln">
+  <a class="db-kachel" href="{% url 'verkauf:belege' %}?art=AB">
+    <div class="titel">Offene Kundenbestellungen</div>
+    <div class="gross">{{ kacheln.bestellungen.anzahl }}</div>
+    <div class="klein">{{ kacheln.bestellungen.netto|floatformat:"2g" }} € netto, noch nicht geliefert</div>
+  </a>
+  <a class="db-kachel {% if kacheln.posten.ueberfaellig_anzahl %}warn{% endif %}" href="{% url 'finanzen:offene_posten' %}">
+    <div class="titel">Offene Posten Kunden</div>
+    <div class="gross">{{ kacheln.posten.betrag|floatformat:"2g" }} €</div>
+    <div class="klein">{{ kacheln.posten.anzahl }} Rechnung{{ kacheln.posten.anzahl|pluralize:"en" }} offen{% if kacheln.posten.ueberfaellig_anzahl %},
+      <span class="db-ab">{{ kacheln.posten.ueberfaellig_anzahl }} überfällig ({{ kacheln.posten.ueberfaellig_betrag|floatformat:"2g" }} €)</span>{% endif %}</div>
+  </a>
+  <a class="db-kachel ok" href="{% url 'verkauf:belege' %}?art=RE&status=abgeschlossen&von={{ von|date:'Y-m-d' }}&bis={{ bis|date:'Y-m-d' }}">
+    <div class="titel">Umsatz {{ tage }} Tage</div>
+    <div class="gross">{{ kacheln.umsatz.netto|floatformat:"2g" }} €</div>
+    <div class="klein">{{ kacheln.umsatz.anzahl }} Rechnung{{ kacheln.umsatz.anzahl|pluralize:"en" }} abzüglich Gutschriften ·
+      {% with v=kacheln.umsatz.veraenderung %}
+        {% if v.art == "prozent" %}<span class="db-{{ v.richtung }}">{% if v.richtung == "auf" %}▲{% elif v.richtung == "ab" %}▼{% else %}●{% endif %} {{ v.prozent|floatformat:1 }} %</span>
+        {% elif v.art == "neu" %}<span class="db-auf">neu</span>{% else %}–{% endif %}
+      {% endwith %}
+      gegenüber Vorzeitraum ({{ kacheln.umsatz.vorher|floatformat:"2g" }} €)</div>
+  </a>
+  <a class="db-kachel" href="{% url 'einkauf:bestellungen' %}">
+    <div class="titel">Lieferanten</div>
+    <div class="gross">{{ kacheln.lieferanten.bestellungen_anzahl }} <span style="font-size:14px;font-weight:400">offene Bestellung{{ kacheln.lieferanten.bestellungen_anzahl|pluralize:"en" }}</span></div>
+    <div class="klein">{{ kacheln.lieferanten.bestellungen_netto|floatformat:"2g" }} € netto noch offen<br>
+      {{ kacheln.lieferanten.rechnungen_anzahl }} offene Rechnung{{ kacheln.lieferanten.rechnungen_anzahl|pluralize:"en" }}: {{ kacheln.lieferanten.rechnungen_brutto|floatformat:"2g" }} € brutto{% if kacheln.lieferanten.rechnungen_ueberfaellig %}, <span class="db-ab">{{ kacheln.lieferanten.rechnungen_ueberfaellig }} überfällig</span>{% endif %}</div>
+  </a>
+</div>
+
+<h2 class="db-abschnitt">Zeitraumvergleich (Umsatz netto)</h2>
+<div class="db-vergleiche">
+  {% for v in vergleiche %}
+  <div class="karte">
+    <strong>{{ v.titel }}</strong>
+    <div class="zeile2"><span>{{ v.a_text }}</span><strong>{{ v.a.netto|floatformat:"2g" }} €</strong></div>
+    <div class="zeile2"><span class="fein">{{ v.b_text }}</span><span class="fein">{{ v.b.netto|floatformat:"2g" }} €</span></div>
+    <div class="zeile2" style="margin-top:6px">
+      <span class="fein">{{ v.a.anzahl }} Rechnung{{ v.a.anzahl|pluralize:"en" }} (vorher {{ v.b.anzahl }})</span>
+      {% if v.veraenderung.art == "prozent" %}<strong class="db-{{ v.veraenderung.richtung }}">{% if v.veraenderung.richtung == "auf" %}▲{% elif v.veraenderung.richtung == "ab" %}▼{% else %}●{% endif %} {{ v.veraenderung.prozent|floatformat:1 }} %</strong>
+      {% elif v.veraenderung.art == "neu" %}<strong class="db-auf">neu</strong>{% else %}<span class="db-gleich">–</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<h2 class="db-abschnitt">Umsatzverlauf{% if verlauf.wochen %} (Wochenwerte){% endif %}</h2>
+<div class="karte">
+  <svg class="db-diagramm" viewBox="0 0 {{ verlauf.breite }} {{ verlauf.hoehe }}" role="img" aria-label="Umsatzverlauf im Zeitraum mit Vorzeitraum">
+    {% for g in verlauf.gitter %}
+    <line class="gitter" x1="{{ verlauf.links }}" x2="{{ verlauf.rechts }}" y1="{{ g.y }}" y2="{{ g.y }}"/>
+    <text x="{{ verlauf.links }}" y="{{ g.y }}" dx="-6" dy="4" text-anchor="end">{{ g.text }}</text>
+    {% endfor %}
+    <path class="flaeche" d="{{ verlauf.flaeche }}"/>
+    <polyline class="vorlinie" points="{{ verlauf.vorlinie }}"/>
+    <polyline class="linie" points="{{ verlauf.linie }}"/>
+    {% for p in verlauf.punkte %}<circle cx="{{ p.x }}" cy="{{ p.y }}" r="3"><title>{{ p.text }}</title></circle>{% endfor %}
+    {% for b in verlauf.beschriftung %}<text x="{{ b.x }}" y="{{ verlauf.unten }}" text-anchor="middle">{{ b.text }}</text>{% endfor %}
+  </svg>
+  <div class="db-legende"><span><span style="color:var(--akzent)">━</span> aktueller Zeitraum</span><span><span style="opacity:.6">╍</span> Vorzeitraum</span>
+    <span>Summe: <strong>{{ verlauf.summe|floatformat:"2g" }} €</strong></span></div>
+</div>
+
+<h2 class="db-abschnitt">Arbeitsliste</h2>
+<div class="db-arbeit">
+  <a href="{% url 'werkstatt:liste' %}"><span>Offene Reparaturen</span><strong>{{ arbeit.reparaturen }}</strong></a>
+  <a href="{% url 'finanzen:mahnwesen' %}"><span>Mahnfällige Rechnungen</span><strong {% if arbeit.mahnungen %}class="db-ab"{% endif %}>{{ arbeit.mahnungen }}</strong></a>
+  <a href="{% url 'shop:uebersicht' %}"><span>Shop-Bestellungen im Zeitraum</span><strong>{{ arbeit.shop_bestellungen }}</strong></a>
+  <a href="{% url 'verkauf:belege' %}?art=AN"><span>Offene Angebote (gültig, ohne Folgebeleg)</span><strong>{{ arbeit.angebote }}</strong></a>
+  <a href="{% url 'verkauf:start' %}"><span>Fällige Wiedervorlagen</span><strong {% if arbeit.wiedervorlagen %}class="db-ab"{% endif %}>{{ arbeit.wiedervorlagen }}</strong></a>
+</div>
+
+<h2 class="db-abschnitt">Auswertungen im Zeitraum</h2>
+<div class="db-listen">
+  <div class="karte">
+    <strong>Top 10 Kunden (Umsatz netto)</strong>
+    <table>
+      {% for k in kunden %}<tr><td>{{ forloop.counter }}.</td><td><a href="{% url 'verkauf:kunde' k.kunde_id %}">{{ k.kunde__name1 }}</a></td><td class="zahl">{{ k.umsatz|floatformat:"2g" }} €</td></tr>
+      {% empty %}<tr><td>Keine Umsätze im Zeitraum.</td></tr>{% endfor %}
+    </table>
+  </div>
+  <div class="karte">
+    <strong>Top 10 Artikel (Umsatz netto)</strong>
+    <table>
+      {% for a in artikel %}<tr><td>{{ forloop.counter }}.</td><td>{{ a.artikel__nummer }}<br><span class="fein">{{ a.artikel__bezeichnung|truncatechars:42 }}</span></td>
+        <td class="zahl">{{ a.stueck|floatformat:"-3g" }} Stk.</td><td class="zahl">{{ a.umsatz|floatformat:"2g" }} €</td></tr>
+      {% empty %}<tr><td>Keine Artikelumsätze im Zeitraum.</td></tr>{% endfor %}
+    </table>
+  </div>
+  <div class="karte">
+    <strong>Top Lieferanten (Einkauf netto, nach Rechnungsdatum)</strong>
+    <table>
+      {% for l in lieferanten %}<tr><td>{{ forloop.counter }}.</td><td>{{ l.lieferant__name1 }}</td><td class="zahl">{{ l.volumen|floatformat:"2g" }} €</td></tr>
+      {% empty %}<tr><td>Keine Lieferantenrechnungen im Zeitraum.</td></tr>{% endfor %}
+    </table>
+  </div>
+  <div class="karte">
+    <strong>Umsatz nach Bezugnahme (Rechnungen netto)</strong>
+    <table>
+      {% for k in kanaele %}<tr><td>{{ k.name }}<div class="db-balkenspur"><div class="db-balken" style="width:{{ k.prozent|stringformat:'.1f' }}%"></div></div></td>
+        <td class="zahl">{{ k.prozent|floatformat:1 }} %</td><td class="zahl">{{ k.umsatz|floatformat:"2g" }} €</td></tr>
+      {% empty %}<tr><td>Keine Rechnungen im Zeitraum.</td></tr>{% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock %}
