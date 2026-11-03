@@ -120,7 +120,7 @@ class GruppenKomponenteInline(admin.TabularInline):
 @admin.register(m.Artikel)
 class ArtikelAdmin(admin.ModelAdmin):
     form = VkVorschlagForm
-    list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "online", "nicht_aktiv"]
+    list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "online", "aktiv"]
     list_filter = ["typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
     search_fields = ["nummer", "bezeichnung", "herstellernummer", "ean"]
     readonly_fields = ["ek_anzeige", "angelegt_am", "geaendert_am", "geaendert_von"]
@@ -134,6 +134,10 @@ class ArtikelAdmin(admin.ModelAdmin):
         if db_field.name == "typ":  # neue Leistungen entstehen unter Leistungsartikel, mit Kategorie und Kosten
             kwargs["choices"] = [(w, n) for w, n in m.Artikeltyp.choices if w != m.Artikeltyp.L]
         return super().formfield_for_choice_field(db_field, request, **kwargs)
+
+    @admin.display(description="Aktiv", boolean=True, ordering="-nicht_aktiv")
+    def aktiv(self, obj):
+        return not obj.nicht_aktiv  # grünes Häkchen, wenn „nicht aktiv“ nicht gesetzt ist
 
     @admin.display(description="EK netto (errechnet)")
     def ek_anzeige(self, obj):
@@ -161,7 +165,7 @@ class LeistungskategorieAdmin(admin.ModelAdmin):
 class LeistungsartikelAdmin(admin.ModelAdmin):
     """Leistungen (Typ L) mit eigenen Kategorien und Kosten, dazu der Import aus CSV oder Excel."""
 
-    list_display = ["nummer", "bezeichnung", "leistungskategorie", "kosten", "vk1", "mengeneinheit", "nicht_aktiv"]
+    list_display = ["nummer", "bezeichnung", "leistungskategorie", "kosten", "vk1", "mengeneinheit", "aktiv"]
     list_filter = ["leistungskategorie", "nicht_aktiv"]
     search_fields = ["nummer", "bezeichnung"]
     list_select_related = ["leistungskategorie"]
@@ -171,6 +175,10 @@ class LeistungsartikelAdmin(admin.ModelAdmin):
                                    ("mengeneinheit", "steuersatz"), "nicht_aktiv"]}),
         ("Preise", {"fields": ["kosten", ("vk1", "vk2", "vk3")]}),
     ]
+
+    @admin.display(description="Aktiv", boolean=True, ordering="-nicht_aktiv")
+    def aktiv(self, obj):
+        return not obj.nicht_aktiv
 
     def get_queryset(self, request):
         return super().get_queryset(request).filter(typ=m.Artikeltyp.L)
