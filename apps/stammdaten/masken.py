@@ -6,7 +6,7 @@ from decimal import Decimal
 from django import forms as djforms
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
@@ -17,8 +17,8 @@ from apps.verkauf.views import dezimal, mit_mandant
 
 from . import forms as f
 from . import ustid
-from .models import (Artikel, ArtikelBild, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant, Lieferant, LieferantMandant, Stammnummer,
-                     UstIdPruefung)
+from .models import (BILD_FORMATE, MAX_BILD_BYTES, MAX_BILDER, Artikel, ArtikelBild, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant,
+                     Lieferant, LieferantMandant, Stammnummer, UstIdPruefung)
 from .preise import komponenten_zeile
 
 
@@ -101,53 +101,80 @@ def baue_tabs(art, form, formsets, mandantform):
     return fehlerhafte_tabs(tabs)
 
 
-BILDPLAETZE = range(1, 11)  # Positionen 1 (Hauptbild) bis 10
+def bilder_daten(artikel):
+    """Vorhandene Bilder für die Galerie im Reiter (Reihenfolge = Position)."""
+    bilder = artikel.bilder.all() if artikel.pk else []
+    return [{"id": b.pk, "url": b.bild.url, "vorschau": b.vorschau_url, "alt": b.alt_text} for b in bilder]
 
 
-def bilder_zeilen(artikel, fehler=None):
-    """Zehn feste Zeilen für die Maske; vorhandene Bilder stehen auf ihrer Position."""
-    fehler = fehler or {}
-    vorhanden = {b.position: b for b in artikel.bilder.all()} if artikel.pk else {}
-    return [{"position": p, "bild": vorhanden.get(p), "fehler": fehler.get(p, "")} for p in BILDPLAETZE]
+def bild_pruefen(datei):
+    """Fehlermeldung zu einer hochgeladenen Datei oder None, wenn sie als Bild (JPG, PNG, WEBP, höchstens 10 MB) taugt."""
+    if datei.size > MAX_BILD_BYTES:
+        return f"{datei.name}: die Datei ist größer als {MAX_BILD_BYTES // (1024 * 1024)} MB."
+    try:
+        geprueft = djforms.ImageField().clean(datei)
+    except ValidationError as e:
+        return f"{datei.name}: {e.messages[0]}"
+    if geprueft.image.format not in BILD_FORMATE:
+        return f"{datei.name}: nur JPG, PNG oder WEBP sind erlaubt."
+    return None
 
 
-def bilder_pruefen(post, files):
-    """Prüft hochgeladene Dateien als Bild. Rückgabe: Fehlermeldungen je Position."""
-    fehler = {}
-    for p in BILDPLAETZE:
-        datei = files.get(f"bild_{p}")
-        if datei and not post.get(f"bild_loeschen_{p}"):
-            try:
-                djforms.ImageField().clean(datei)
-            except ValidationError as e:
-                fehler[p] = e.messages[0]
-    return fehler
-
-
-def bilder_speichern(artikel, post, files):
-    """Neue Datei ersetzt das Bild der Position; „löschen“ entfernt es. Nur Änderungen werden geschrieben."""
-    vorhanden = {b.position: b for b in artikel.bilder.all()}
-    for p in BILDPLAETZE:
-        alt, datei = vorhanden.get(p), files.get(f"bild_{p}")
-        if post.get(f"bild_loeschen_{p}"):
-            if alt:
-                alt.bild.delete(save=False)
-                alt.delete()
-        elif datei:
-            if alt:
-                alt.bild.delete(save=False)
-                alt.bild.save(datei.name, datei, save=True)
+def bilder_lesen(post, files, artikel):
+    """Liest die Galerie aus dem Formular. Die Reihenfolge in „bild_reihe“ ist die Position; „b<id>“ ist ein vorhandenes Bild,
+    „n<marke>“ eine neue Datei (bild_neu_<marke>); was fehlt, wird gelöscht. Ohne Marker „bilder_geladen“ bleibt alles unberührt.
+    Rückgabe: (Plan oder None, Fehlermeldungen); Plan = Liste aus (vorhandenes Bild, Datei, Alt-Text)."""
+    if "bilder_geladen" not in post:
+        return None, []
+    vorhanden = {f"b{b.pk}": b for b in artikel.bilder.all()} if artikel.pk else {}
+    plan, fehler, gesehen = [], [], set()
+    for eintrag in post.getlist("bild_reihe"):
+        if eintrag in gesehen:
+            continue
+        gesehen.add(eintrag)
+        alt_text = post.get(f"bild_alt_{eintrag}", "").strip()[:150]
+        if eintrag in vorhanden:
+            plan.append((vorhanden[eintrag], None, alt_text))
+        elif eintrag.startswith("n"):
+            datei = files.get(f"bild_neu_{eintrag[1:]}")
+            meldung = bild_pruefen(datei) if datei is not None else "Eine Bilddatei fehlt."
+            if meldung:
+                fehler.append(meldung)
             else:
-                ArtikelBild(artikel=artikel, position=p).bild.save(datei.name, datei, save=True)
+                plan.append((None, datei, alt_text))
+    if len(plan) > MAX_BILDER:
+        fehler.append(f"Es sind höchstens {MAX_BILDER} Bilder je Artikel möglich.")
+    return plan, fehler
+
+
+def bilder_speichern(artikel, plan):
+    """Setzt die Galerie um: nicht mehr aufgeführte Bilder werden gelöscht (samt Datei), der Rest bekommt Position 1, 2, …"""
+    if plan is None:
+        return
+    behalten = {bild.pk for bild, _, _ in plan if bild}
+    for bild in artikel.bilder.all():
+        if bild.pk not in behalten:
+            bild.delete()
+    artikel.bilder.update(position=F("position") + 100)  # Platz schaffen, damit das Umsortieren die Eindeutigkeit nicht verletzt
+    for position, (bild, datei, alt_text) in enumerate(plan, start=1):
+        if bild:
+            bild.position, bild.alt_text = position, alt_text
+            bild.save(update_fields=["position", "alt_text"])
+        else:
+            neu = ArtikelBild(artikel=artikel, position=position, alt_text=alt_text)
+            neu.bild.save(datei.name, datei, save=False)
+            neu.save()
 
 
 def artikel_tabs(form, mandantform, komponenten, fehler=False, bilder=None, bilderfehler=False):
-    """Artikel-Registerkarten; der Reiter Komponenten steht nach den Preisen und ist nur bei Typ G sichtbar."""
+    """Artikel-Registerkarten; Komponenten (nur Typ G) und Bilder stehen nach den Preisen."""
     tabs = baue_tabs("artikel", form, [], mandantform)
     tabs.insert(2, {"id": "komponenten", "titel": "Komponenten", "felder": [], "form": None, "formset": None, "extra": None,
                     "komponenten": komponenten, "fehler": fehler})
+    bilder = bilder or []
     tabs.insert(3, {"id": "bilder", "titel": "Bilder", "felder": [], "form": None, "formset": None, "extra": None,
-                    "bilder": bilder or [], "fehler": bilderfehler})
+                    "daten": bilder, "anzahl": len(bilder), "max": MAX_BILDER, "max_bytes": MAX_BILD_BYTES,
+                    "max_mb": MAX_BILD_BYTES // (1024 * 1024), "fehler": bilderfehler})
     return tabs
 
 
@@ -282,9 +309,9 @@ def artikel_bearbeiten(request, pk=None):
         komponenten = anzeige
         for text in fehler:
             form.add_error(None, text)
-        bildfehler = bilder_pruefen(request.POST, request.FILES)
-        for p, text in bildfehler.items():
-            form.add_error(None, f"Bild {p}: {text}")
+        bilderplan, bildfehler = bilder_lesen(request.POST, request.FILES, instanz)
+        for text in bildfehler:
+            form.add_error(None, f"Bilder: {text}")
         if gueltig and not fehler and not bildfehler:
             with transaction.atomic():
                 if not pk:
@@ -295,16 +322,16 @@ def artikel_bearbeiten(request, pk=None):
                 md.save()
                 if gruppe:
                     komponenten_speichern(objekt, gewaehlt)
-                bilder_speichern(objekt, request.POST, request.FILES)
+                bilder_speichern(objekt, bilderplan)
             # Neu: zur Artikelseite; Bearbeiten: auf der Seite bleiben, von der aus geöffnet wurde (z. B. Artikelliste)
             return JsonResponse({"ok": True, "ziel": None if pk else reverse("lager:artikel", args=[objekt.pk])})
         status = 422
     else:
-        bildfehler = {}
+        bildfehler = []
     antwort = render(request, "stammdaten/modal.html", {
         "titel": f"Artikel {instanz.nummer} – {instanz.bezeichnung}" if pk else "Neuer Artikel",
         "tabs": artikel_tabs(form, mandantform, komponenten, bool(form.non_field_errors()),
-                             bilder_zeilen(instanz, bildfehler), bool(bildfehler)), "form": form, "neu": not pk, "warnung": "",
+                             bilder_daten(instanz), bool(bildfehler)), "form": form, "neu": not pk, "warnung": "",
         "aktion": request.path, "kunde": False, "mandant": mandant})
     antwort.status_code = status
     return antwort

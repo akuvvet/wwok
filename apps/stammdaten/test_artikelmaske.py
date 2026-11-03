@@ -1,5 +1,6 @@
 import json
 from decimal import Decimal
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -79,35 +80,128 @@ class ArtikelMaskeTest(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(Artikel.objects.get(nummer="5000").esd_key)
 
-    def png(self, name="a.png"):
+    def png(self, name="a.png", groesse=(4, 4), format="PNG", farbe="red"):
         import io
 
         from django.core.files.uploadedfile import SimpleUploadedFile
         from PIL import Image
         puffer = io.BytesIO()
-        Image.new("RGB", (4, 4), "red").save(puffer, "PNG")
-        return SimpleUploadedFile(name, puffer.getvalue(), content_type="image/png")
+        Image.new("RGB", groesse, farbe).save(puffer, format)
+        return SimpleUploadedFile(name, puffer.getvalue(), content_type=f"image/{format.lower()}")
 
-    def test_reiter_bilder_mit_zehn_zeilen(self):
+    def bilder(self, reihe, **dateien):
+        """Formularfelder der Galerie: reihe = Liste aus „b<id>“ / „n<marke>“, dateien = bild_neu_<marke>=Datei."""
+        return {"bilder_geladen": "1", "bild_reihe": reihe, **dateien}
+
+    def test_reiter_bilder_zeigt_galerie_und_zaehler(self):
         r = self.client.get(reverse("stammdaten:artikel_neu"))
-        self.assertContains(r, "Bilder")
-        for p in range(1, 11):
-            self.assertContains(r, f'name="bild_{p}"')
+        self.assertContains(r, "data-bilder")
+        self.assertContains(r, "data-bild-neu")
+        self.assertContains(r, "(0/10)")
 
-    def test_bild_hochladen_ersetzen_loeschen_und_ungueltig(self):
+    def test_bilder_hochladen_beim_anlegen_und_reihenfolge_aendern(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as ordner, override_settings(MEDIA_ROOT=ordner):
+            r = self.client.post(reverse("stammdaten:artikel_neu"), self.daten(
+                **self.bilder(["n1", "n2"], bild_neu_1=self.png("a.png"), bild_neu_2=self.png("b.png", farbe="blue")),
+                bild_alt_n1="Vorderseite"))
+            self.assertEqual(r.status_code, 200)
+            a = Artikel.objects.get(nummer="5000")
+            erstes, zweites = list(a.bilder.all())
+            self.assertEqual((erstes.position, zweites.position, erstes.alt_text), (1, 2, "Vorderseite"))
+            self.assertTrue(erstes.bild.name.startswith(f"artikel/{a.pk}/"))
+            self.assertNotEqual(erstes.bild.name, zweites.bild.name)
+            url = reverse("stammdaten:artikel_bearbeiten", args=[a.pk])
+            self.assertContains(self.client.get(url), "(2/10)")
+            # Reihenfolge tauschen und ein drittes Bild anhängen
+            r = self.client.post(url, self.daten(**self.bilder([f"b{zweites.pk}", f"b{erstes.pk}", "n7"], bild_neu_7=self.png("c.png")),
+                                                 **{f"bild_alt_b{erstes.pk}": "neu beschriftet"}))
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual([(b.pk, b.position) for b in a.bilder.all()][:2], [(zweites.pk, 1), (erstes.pk, 2)])
+            self.assertEqual(a.bilder.count(), 3)
+            erstes.refresh_from_db()
+            self.assertEqual(erstes.alt_text, "neu beschriftet")
+
+    def test_vorschau_ist_verkleinert(self):
+        import tempfile
+
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as ordner, override_settings(MEDIA_ROOT=ordner):
+            self.client.post(reverse("stammdaten:artikel_neu"), self.daten(
+                **self.bilder(["n1"], bild_neu_1=self.png("gross.png", groesse=(1600, 1000)))))
+            bild = Artikel.objects.get(nummer="5000").bilder.get()
+            self.assertTrue(bild.vorschau.name.startswith(f"artikel/{bild.artikel_id}/vorschau/"))
+            with Image.open(bild.vorschau.path) as v:
+                self.assertLessEqual(max(v.size), 320)
+            with Image.open(bild.bild.path) as o:
+                self.assertEqual(o.size, (1600, 1000))
+            self.assertEqual(bild.vorschau_url, bild.vorschau.url)
+
+    def test_hoechstens_zehn_bilder(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as ordner, override_settings(MEDIA_ROOT=ordner):
+            marken = [f"n{i}" for i in range(11)]
+            dateien = {f"bild_neu_{i}": self.png(f"{i}.png") for i in range(11)}
+            r = self.client.post(reverse("stammdaten:artikel_neu"), self.daten(**self.bilder(marken, **dateien)))
+            self.assertEqual(r.status_code, 422)
+            self.assertContains(r, "höchstens 10 Bilder", status_code=422)
+            self.assertFalse(Artikel.objects.exists())
+            dateien = {f"bild_neu_{i}": self.png(f"{i}.png") for i in range(10)}
+            r = self.client.post(reverse("stammdaten:artikel_neu"), self.daten(**self.bilder(marken[:10], **dateien)))
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(Artikel.objects.get(nummer="5000").bilder.count(), 10)
+
+    def test_ungueltige_formate_und_zu_grosse_dateien_werden_abgelehnt(self):
         import tempfile
 
         from django.core.files.uploadedfile import SimpleUploadedFile
-
-        from .models import ArtikelBild
         with tempfile.TemporaryDirectory() as ordner, override_settings(MEDIA_ROOT=ordner):
-            r = self.client.post(reverse("stammdaten:artikel_neu"), self.daten(bild_1=self.png(), bild_3=self.png("b.png")))
-            self.assertEqual(r.status_code, 200)
-            a = Artikel.objects.get(nummer="5000")
-            self.assertEqual(sorted(a.bilder.values_list("position", flat=True)), [1, 3])
-            url = reverse("stammdaten:artikel_bearbeiten", args=[a.pk])
-            self.client.post(url, self.daten(bild_1=self.png("c.png"), bild_loeschen_3="1"))
-            self.assertEqual(list(a.bilder.values_list("position", flat=True)), [1])
-            r = self.client.post(url, self.daten(bild_2=SimpleUploadedFile("x.png", b"kein bild", content_type="image/png")))
+            url = reverse("stammdaten:artikel_neu")
+            kaputt = SimpleUploadedFile("x.png", b"kein bild", content_type="image/png")
+            r = self.client.post(url, self.daten(**self.bilder(["n1"], bild_neu_1=kaputt)))
             self.assertEqual(r.status_code, 422)
-            self.assertEqual(ArtikelBild.objects.filter(artikel=a).count(), 1)
+            gif = self.png("x.gif", format="GIF")
+            r = self.client.post(url, self.daten(**self.bilder(["n1"], bild_neu_1=gif)))
+            self.assertContains(r, "nur JPG, PNG oder WEBP", status_code=422)
+            with mock.patch("apps.stammdaten.masken.MAX_BILD_BYTES", 10):
+                r = self.client.post(url, self.daten(**self.bilder(["n1"], bild_neu_1=self.png())))
+            self.assertContains(r, "größer als", status_code=422)
+            self.assertFalse(Artikel.objects.exists())
+
+    def test_bild_loeschen_entfernt_auch_die_dateien(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as ordner, override_settings(MEDIA_ROOT=ordner):
+            self.client.post(reverse("stammdaten:artikel_neu"), self.daten(**self.bilder(["n1", "n2"], bild_neu_1=self.png(), bild_neu_2=self.png("b.png"))))
+            a = Artikel.objects.get(nummer="5000")
+            eins, zwei = list(a.bilder.all())
+            pfade = [eins.bild.path, eins.vorschau.path]
+            self.assertTrue(all(os.path.exists(p) for p in pfade))
+            r = self.client.post(reverse("stammdaten:artikel_bearbeiten", args=[a.pk]), self.daten(**self.bilder([f"b{zwei.pk}"])))
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(list(a.bilder.values_list("pk", "position")), [(zwei.pk, 1)])  # rückt auf Hauptbild
+            self.assertFalse(any(os.path.exists(p) for p in pfade))
+
+    def test_ohne_marker_bleiben_bilder_unberuehrt_und_unbekannte_ids_werden_ignoriert(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as ordner, override_settings(MEDIA_ROOT=ordner):
+            self.client.post(reverse("stammdaten:artikel_neu"), self.daten(**self.bilder(["n1"], bild_neu_1=self.png())))
+            a = Artikel.objects.get(nummer="5000")
+            url = reverse("stammdaten:artikel_bearbeiten", args=[a.pk])
+            self.client.post(url, self.daten())
+            self.assertEqual(a.bilder.count(), 1)
+            self.client.post(url, self.daten(**self.bilder(["b99999"])))  # unbekannte Bild-ID: wird ignoriert, das vorhandene gelöscht
+            self.assertEqual(a.bilder.count(), 0)
+
+    def test_hauptbild_in_der_artikelliste(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as ordner, override_settings(MEDIA_ROOT=ordner):
+            self.client.post(reverse("stammdaten:artikel_neu"), self.daten(**self.bilder(["n1"], bild_neu_1=self.png())))
+            bild = Artikel.objects.get(nummer="5000").bilder.get()
+            r = self.client.get(reverse("lager:uebersicht"))
+            self.assertContains(r, bild.vorschau.url)

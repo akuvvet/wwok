@@ -5,7 +5,7 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.7a1 1 0 0 0-1.4 0L12 10.6 7.1 5.7a1 1 0 0 0-1.4 1.4l4.9 4.9-4.9 4.9a1 1 0 1 0 1.4 1.4l4.9-4.9 4.9 4.9a1 1 0 0 0 1.4-1.4L13.4 12l4.9-4.9a1 1 0 0 0 0-1.4z"/></svg></button>
   </header>
   <div class="tabs" role="tablist">
-    {% for t in tabs %}<button type="button" class="tab{% if forloop.first %} aktiv{% endif %}{% if t.fehler %} mit-fehler{% endif %}" data-modaltab="{{ t.id }}">{{ t.titel }}{% if t.formset %} <span class="zaehler">{{ t.formset.initial_form_count }}</span>{% endif %}</button>{% endfor %}
+    {% for t in tabs %}<button type="button" class="tab{% if forloop.first %} aktiv{% endif %}{% if t.fehler %} mit-fehler{% endif %}" data-modaltab="{{ t.id }}">{{ t.titel }}{% if t.formset %} <span class="zaehler">{{ t.formset.initial_form_count }}</span>{% endif %}{% if t.id == "bilder" %} <span class="zaehler" data-bilderzaehler>({{ t.anzahl }}/{{ t.max }})</span>{% endif %}</button>{% endfor %}
   </div>
   {% if warnung %}<div class="warnung" style="margin:10px 0 0">{{ warnung }}
     <label style="display:flex;gap:8px;align-items:center;opacity:1;margin-top:6px"><input type="checkbox" name="trotzdem" value="1"> Trotzdem anlegen</label></div>{% endif %}
@@ -35,15 +35,40 @@
         <p class="fein" style="margin:6px 0 0">EK und VK je Stück; Marge in % vom VK. Der EK der Gruppe ist die Summe der Komponenten, Leistungen zählen mit ihren Kosten (ohne Kosten 0 €). * = bei einer Komponente fehlt EK oder VK.</p>
       </div>
     {% elif t.id == "bilder" %}
-      <div class="scroll"><table>
-        <thead><tr><th class="zahl">Nr.</th><th>Vorschau</th><th>Datei</th><th>Löschen</th></tr></thead>
-        <tbody>{% for z in t.bilder %}
-          <tr><td class="zahl">{{ z.position }}{% if z.position == 1 %} <span class="fein">(Hauptbild)</span>{% endif %}</td>
-            <td>{% if z.bild %}<a href="{{ z.bild.bild.url }}" target="_blank" rel="noopener"><img src="{{ z.bild.bild.url }}" alt="Bild {{ z.position }}" style="max-height:48px;max-width:80px"></a>{% else %}–{% endif %}</td>
-            <td><input type="file" name="bild_{{ z.position }}" accept="image/*" aria-label="Bild {{ z.position }}">{% if z.fehler %}<div class="fehlertext">{{ z.fehler }}</div>{% endif %}</td>
-            <td>{% if z.bild %}<label class="haken-zeile gefahr-text"><input type="checkbox" name="bild_loeschen_{{ z.position }}" value="1"> löschen</label>{% endif %}</td></tr>{% endfor %}
-        </tbody></table></div>
-      <p class="fein" style="margin:6px 0 0">Bis zu 10 Bilder; eine neue Datei ersetzt das Bild der Zeile. Zeile 1 ist das Hauptbild.</p>
+      <style>
+        .bilder-raster { display:grid; grid-template-columns:minmax(220px,300px) 1fr; gap:14px; align-items:start; margin-top:10px; }
+        .bilder-liste { display:flex; flex-direction:column; gap:6px; max-height:360px; overflow:auto; min-height:80px; padding:6px; border:1px dashed var(--rand); border-radius:6px; }
+        .bilder-liste.ablegen { background:var(--grund); }
+        .bilder-liste:empty::before { content:"Bilder hierher ziehen"; opacity:.6; font-size:.9em; padding:8px; }
+        .bild-zeile { display:flex; align-items:center; gap:8px; padding:4px; border:1px solid var(--rand); border-radius:6px; background:var(--karte); cursor:pointer; }
+        .bild-zeile.aktiv { outline:2px solid currentColor; }
+        .bild-zeile img { width:56px; height:56px; object-fit:contain; flex:none; }
+        .bild-nr { min-width:1.2em; text-align:right; opacity:.7; }
+        .bild-tools { margin-left:auto; display:flex; gap:2px; }
+        .bild-tools button { padding:2px 6px; }
+        .bilder-gross { display:flex; flex-direction:column; gap:8px; min-height:200px; }
+        .bilder-gross img { max-width:100%; max-height:320px; object-fit:contain; align-self:flex-start; }
+        @media (max-width:700px) { .bilder-raster { grid-template-columns:1fr; } }
+      </style>
+      <div data-bilder data-max="{{ t.max }}" data-maxbytes="{{ t.max_bytes }}">
+        {{ t.daten|json_script:"bilder-daten" }}
+        <div class="zeile">
+          <button type="button" class="leise" data-bild-neu>Bild hinzufügen</button>
+          <input type="file" multiple accept="image/jpeg,image/png,image/webp" data-bild-datei hidden>
+          <span class="fein">JPG, PNG oder WEBP, je höchstens {{ t.max_mb }} MB, bis zu {{ t.max }} Bilder. Position 1 ist das Hauptbild.</span>
+        </div>
+        <div class="fehlertext" data-bild-meldung role="status"></div>
+        <div class="bilder-raster">
+          <div class="bilder-liste" data-bild-liste></div>
+          <div class="bilder-gross">
+            <img data-bild-gross alt="" hidden>
+            <p class="fein" data-bild-leer>Noch kein Bild. Mit „Bild hinzufügen“ oder per Drag &amp; Drop in die Liste hochladen.</p>
+            <div style="max-width:420px"><label>Alt-Text (für Shop und Suchmaschinen, optional)</label><input type="text" maxlength="150" data-bild-alt></div>
+            <div><button type="button" class="leise" data-bild-haupt>Als Hauptbild setzen</button></div>
+          </div>
+        </div>
+        <div data-bild-halter></div>
+      </div>
     {% elif t.form %}
       <div class="mraster{% if t.id == 'preise' %} preisraster{% endif %}">{% for name in t.felder %}{% for f in t.form %}{% if f.name == name %}{% include "stammdaten/_feld.html" %}{% if name == "ust_id_geprueft_am" %}{% include "stammdaten/_ust_pruefung.html" %}{% endif %}{% endif %}{% endfor %}{% endfor %}</div>
     {% elif t.formset %}
