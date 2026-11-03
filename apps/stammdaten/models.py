@@ -529,9 +529,9 @@ class ArtikelBild(Zeitstempel):
         if neu and self.bild and not self.vorschau:
             try:
                 self.vorschau_erzeugen()
-            except (OSError, ValueError):
+            except (OSError, ValueError) as fehler:
                 # Fehlende oder nicht lesbare Datei: Bild bleibt gespeichert, Vorschau fällt auf das Original zurück.
-                logging.getLogger(__name__).warning("Keine Vorschau für %s erzeugt", self.bild.name, exc_info=True)
+                logging.getLogger(__name__).warning("Keine Vorschau für %s erzeugt: %s", self.bild.name, fehler)
 
     @property
     def vorschau_url(self):

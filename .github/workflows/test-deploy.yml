@@ -28,7 +28,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Warten, bis Claude fertig ist (5 Min. ohne neuen Push)
-        if: startsWith(github.ref, 'refs/heads/claude/')
+        if: startsWith(github.ref, 'refs/heads/claude/') && github.event_name == 'push'
         run: sleep 300
 
       - uses: actions/checkout@v4

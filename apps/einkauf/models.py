@@ -485,7 +485,7 @@ class Preispruefung(models.Model):
     bestellnummer = models.CharField(max_length=100)
     ek_alt = models.DecimalField(max_digits=12, decimal_places=4)
     ek_neu = models.DecimalField(max_digits=12, decimal_places=4)
-    status = models.CharField(max_length=10, default="offen", db_index=True, choices=[
+    status = models.CharField(max_length=12, default="offen", db_index=True, choices=[
         ("offen", "offen"), ("uebernommen", "übernommen"), ("verworfen", "verworfen")])
     bearbeitet_am = models.DateTimeField(null=True, blank=True)
 

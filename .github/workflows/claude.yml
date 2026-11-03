@@ -19,7 +19,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-      actions: read
+      actions: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -29,3 +29,18 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--max-turns 100"
           show_full_output: true
+
+      # Pushes von Claude starten keine Workflows von selbst – daher hier Test & Deploy für den neuen Branch anstoßen.
+      - name: Test & Deploy für Claudes Branch starten
+        if: always() && (github.event.issue.number || github.event.pull_request.number)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NR: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          B=$(git ls-remote --heads origin "claude/issue-${NR}-*" | awk '{print $2}' | sed 's#refs/heads/##' | sort | tail -1)
+          if [ -z "$B" ]; then echo "Kein Branch für Issue #${NR} – nichts zu tun."; exit 0; fi
+          if [ "$(git ls-remote origin "refs/heads/$B" | cut -f1)" = "$(git ls-remote origin refs/heads/main | cut -f1)" ]; then
+            echo "Branch $B ohne neue Commits – nichts zu tun."; exit 0
+          fi
+          echo "Starte Test & Deploy für $B"
+          gh workflow run test-deploy.yml -R "$GITHUB_REPOSITORY" --ref "$B"
