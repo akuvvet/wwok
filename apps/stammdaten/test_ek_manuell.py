@@ -111,10 +111,12 @@ class EkManuellTest(TestCase):
         a = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, durchschnitts_ek=D("9.80"), ek_herkunft="import")
         self.client.post(reverse("stammdaten:artikel_bearbeiten", args=[a.pk]), self.daten(ek_manuell="12,50"))
         a.refresh_from_db()
-        self.assertEqual(a.ek_herkunft, EkHerkunft.MANUELL)
-        self.assertEqual(_ek_quelle(a), (D("9.8000"), "Preisimport"))  # Import hat Vorrang, Quelle bleibt richtig benannt
-        self.assertIsNone(a.ek_datum("Preisimport"))  # kein fremdes Datum neben der Quelle
-        self.assertNotContains(self.client.get(reverse("lager:artikel", args=[a.pk])), "(Preisimport, ")
+        self.assertEqual((a.ek_manuell, a.ek_herkunft), (D("12.50"), EkHerkunft.IMPORT))  # Import hat Vorrang und behält die Herkunft
+        self.assertEqual(_ek_quelle(a), (D("9.8000"), "Preisimport"))
+        # Ø-EK ohne bekannte Herkunft (aus Mention übernommen) heißt neutral „Durchschnitts-EK“, ohne Datum
+        alt = Artikel.objects.create(nummer="5001", bezeichnung="Alt", steuersatz=self.st, durchschnitts_ek=D("5"))
+        self.assertEqual(_ek_quelle(alt), (D("5"), "Durchschnitts-EK"))
+        self.assertIsNone(alt.ek_datum("Durchschnitts-EK"))
 
     def test_preisimport_aendert_herkunft_nicht_nach_altem_wareneingang(self):
         a = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, herstellernummer="MX-100", durchschnitts_ek=D("10"))
@@ -123,6 +125,15 @@ class EkManuellTest(TestCase):
                                                  "TD-1;MX-100;;Maus;Logitech;9,80;40;2\n".encode(), "liste.csv")
         a.refresh_from_db()
         self.assertEqual(a.ek_herkunft, "")
+
+    def test_maske_liefert_ek_fuer_live_umrechnung_vk_und_aufschlag(self):
+        a = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, ek_manuell=D("12.50"), ek_herkunft="manuell")
+        html = self.client.get(reverse("stammdaten:artikel_bearbeiten", args=[a.pk])).content.decode()
+        for stufe in (1, 2, 3):
+            self.assertRegex(html, rf'name="vk{stufe}"[^>]*data-ek="12.50" data-ek-quelle="manuell"')
+        neu = self.client.get(reverse("stammdaten:artikel_neu")).content.decode()
+        self.assertIn('data-ek="" data-ek-quelle=""', neu)  # neuer Artikel: die Maske rechnet mit dem eingetippten EK
+        self.assertIn("if (dlg.querySelector('[name=vk1][data-ek]')) preisKopplung();", self.client.get(reverse("lager:uebersicht")).content.decode())
 
     def test_nur_fuer_lagerartikel(self):
         self.assertEqual(self.anlegen(typ="L", ek_manuell="5", nummer="L1").status_code, 200)

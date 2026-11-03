@@ -105,6 +105,11 @@ class VkVorschlagForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # EK als Basis für die Live-Umrechnung VK ↔ Aufschlag in der Maske (wie stufenpreis: ohne Leistungskosten)
+        ek, quelle = _ek_quelle(self.instance, mit_kosten=False) if self.instance.pk else (None, "")
+        for stufe in (1, 2, 3):
+            if f"vk{stufe}" in self.fields:
+                self.fields[f"vk{stufe}"].widget.attrs.update({"data-ek": "" if ek is None else str(ek), "data-ek-quelle": quelle})
         if self.instance.pk and self.instance.typ != Artikeltyp.L:
             for stufe in (1, 2, 3):
                 feld, preis = f"vk{stufe}", stufenpreis(self.instance, stufe)
@@ -173,7 +178,7 @@ class ArtikelForm(VkVorschlagForm):
             if feld.disabled:
                 text += " – nach dem Wareneingang gilt der Ø-EK, das Feld ist gesperrt."
             elif quelle != "manuell":
-                text += " – der Preisimport hat Vorrang vor dem manuellen EK."
+                text += " – dieser EK hat Vorrang vor dem manuellen EK."
             feld.help_text = text
 
     def clean_ek_manuell(self):
@@ -183,7 +188,8 @@ class ArtikelForm(VkVorschlagForm):
         return ek
 
     def save(self, commit=True):
-        if "ek_manuell" in self.changed_data and self.instance.typ == Artikeltyp.A:
+        # Herkunft „manuell“ nur, wenn der manuelle EK auch gilt; ein Ø-EK (Import, Wareneingang) behält seine Herkunft
+        if "ek_manuell" in self.changed_data and self.instance.typ == Artikeltyp.A and not self.instance.durchschnitts_ek:
             self.instance.ek_herkunft_setzen(EkHerkunft.MANUELL)
         return super().save(commit)
 

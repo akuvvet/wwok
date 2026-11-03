@@ -464,6 +464,39 @@
       marker.type = 'hidden'; marker.name = 'komp_geladen'; marker.value = '1'; bereich.appendChild(marker);
       rechnen();
     }
+    function preisKopplung() {  // Artikelmaske: VK und Aufschlag je Stufe rechnen sich beim Tippen gegenseitig aus dem EK
+      var ekFeld = dlg.querySelector('[name=ek_manuell]');
+      function lesen(f) {
+        var t = f.value.trim(); if (!t) return null;
+        if (f.type !== 'number' && t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+        var z = Number(t); return isNaN(z) ? null : z;
+      }
+      function schreiben(f, z) { f.value = f.type === 'number' ? z.toFixed(2) : z.toFixed(2).replace('.', ','); }
+      function ek(vk) {  // gilt der manuelle EK (oder gibt es noch keinen), zählt der eingetippte Wert
+        var quelle = vk.dataset.ekQuelle, server = vk.dataset.ek;
+        if (ekFeld && !ekFeld.disabled && (quelle === 'manuell' || !server)) return lesen(ekFeld);
+        return server ? Number(server) : null;
+      }
+      [1, 2, 3].forEach(function (stufe) {
+        var vk = dlg.querySelector('[name=vk' + stufe + ']'), auf = dlg.querySelector('[name=aufschlag_vk' + stufe + ']');
+        if (!vk || !auf) return;
+        vk.addEventListener('input', function () {
+          var e = ek(vk), preis = lesen(vk);
+          if (e && preis !== null) schreiben(auf, (preis / e - 1) * 100);
+        });
+        auf.addEventListener('input', function () {
+          var e = ek(vk), prozent = lesen(auf);
+          if (!e || prozent === null) return;
+          var folgt = vk.dataset.vorschlag !== undefined && lesen(vk) === Number(vk.dataset.vorschlag);  // VK folgt bisher dem EK
+          var preis = Math.round(e * (100 + prozent)) / 100;
+          schreiben(vk, preis);
+          if (folgt) {  // bleibt Vorschlag: ohne festen Preis rechnet der Server EK + neuer Aufschlag
+            vk.dataset.vorschlag = preis.toFixed(2);
+            var anfang = dlg.querySelector('[name="initial-vk' + stufe + '"]'); if (anfang) anfang.value = vk.value;
+          }
+        });
+      });
+    }
     function ustPruefung(knopf) {  // USt-ID online prüfen: das Datum kommt nur in die Maske, „Speichern“ hält es fest
       var formular = knopf.closest('form'), nummer = formular.elements.ust_id, datum = formular.elements.ust_id_geprueft_am;
       var ausgabe = formular.querySelector('[data-ustergebnis]'), speichern = formular.querySelector('button[type=submit]');
@@ -532,6 +565,7 @@
       }
       if (typ) { typ.addEventListener('change', function () { nummerTauschen(); typAnwenden(); }); typAnwenden(); }
       var bereich = dlg.querySelector('[data-komponenten]'); if (bereich) komponentenBereich(bereich);
+      if (dlg.querySelector('[name=vk1][data-ek]')) preisKopplung();
       var fehler = dlg.querySelector('[data-modaltab].mit-fehler'); if (fehler) zeigeTab(fehler.dataset.modaltab);
       var formular = dlg.querySelector('form'); if (!formular) return;
       formular.addEventListener('submit', async function (e) {

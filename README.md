@@ -854,7 +854,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Versand mit DHL-Paket-Label und Sendungsnummer
 - [x] Rechte: Admin (is_staff/Superuser) und Mitarbeiter; Storno, Lastschrift aufheben und Preislisten-Einrichtung nur Admin
 - [x] Artikelmaske mit Registerkarten (Lager → „+ Neuer Artikel“), neue Artikelfelder, Artikelansicht mit bestellt/letztem Wareneingang/Lieferanten
-- [x] EK-Preis netto beim Anlegen/Bearbeiten (Typ A, Komma-Eingabe) als Basis ohne Preisimport; Herkunft (manuell/Import/Wareneingang) mit Datum; Artikelliste mit Spalte EK netto bzw. „EK fehlt“
+- [x] EK-Preis netto beim Anlegen/Bearbeiten (Typ A, Komma-Eingabe) als Basis ohne Preisimport; Herkunft (manuell/Import/Wareneingang) mit Datum; Artikelliste mit Spalte EK netto bzw. „EK fehlt“; in der Artikelmaske rechnen VK und Aufschlag je Stufe beim Tippen gegenseitig aus dem EK nach
 - [x] Alle Belege (kundenübergreifende Liste), Versandarten-Stammtabelle mit Standardkosten, Wiedervorlage mit Startseiten-Übersicht, Belegkopf (Bearbeiter, Bezugnahme, Liefertermin, Angebot gültig bis)
 - [x] Laufende Nummern in der Verwaltung einstellbar, Belegnummern durchlaufend über den Jahreswechsel
 - [x] USt-ID online prüfen bei Kunden und Lieferanten (BZSt und VIES) mit dauerhaftem Nachweis

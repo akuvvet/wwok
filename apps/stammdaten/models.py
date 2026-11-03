@@ -522,7 +522,8 @@ def _ek_quelle(artikel, mit_kosten=True):
             return None, ""
         return summe, "Summe der Komponenten"
     if artikel.durchschnitts_ek:  # aus dem Wareneingang oder vom Zeitplan „Günstigster EK“ bzw. Preis-Assistenten übernommen
-        return artikel.durchschnitts_ek, "Wareneingang" if artikel.ek_herkunft == EkHerkunft.WARENEINGANG else "Preisimport"
+        quelle = {EkHerkunft.WARENEINGANG: "Wareneingang", EkHerkunft.IMPORT: "Preisimport"}.get(artikel.ek_herkunft, "Durchschnitts-EK")
+        return artikel.durchschnitts_ek, quelle  # ohne bekannte Herkunft (z. B. aus Mention übernommen) neutral benannt
     if artikel.pk:
         al = artikel.lieferanten.filter(ek__gt=0).order_by("ek").select_related("lieferant").first()
         if al:
