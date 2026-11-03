@@ -1,4 +1,4 @@
-<form method="post" action="{{ aktion }}" class="modal-form" novalidate>{% csrf_token %}
+<form method="post" action="{{ aktion }}" class="modal-form" enctype="multipart/form-data" novalidate>{% csrf_token %}
   <header class="modal-kopf">
     <h2>{{ titel }}</h2>
     <button type="button" class="symbol" data-tip="Schließen" aria-label="Schließen" data-schliessen>
@@ -34,6 +34,16 @@
         </div>
         <p class="fein" style="margin:6px 0 0">EK und VK je Stück; Marge in % vom VK. Der EK der Gruppe ist die Summe der Komponenten, Leistungen zählen mit ihren Kosten (ohne Kosten 0 €). * = bei einer Komponente fehlt EK oder VK.</p>
       </div>
+    {% elif t.id == "bilder" %}
+      <div class="scroll"><table>
+        <thead><tr><th class="zahl">Nr.</th><th>Vorschau</th><th>Datei</th><th>Löschen</th></tr></thead>
+        <tbody>{% for z in t.bilder %}
+          <tr><td class="zahl">{{ z.position }}{% if z.position == 1 %} <span class="fein">(Hauptbild)</span>{% endif %}</td>
+            <td>{% if z.bild %}<a href="{{ z.bild.bild.url }}" target="_blank" rel="noopener"><img src="{{ z.bild.bild.url }}" alt="Bild {{ z.position }}" style="max-height:48px;max-width:80px"></a>{% else %}–{% endif %}</td>
+            <td><input type="file" name="bild_{{ z.position }}" accept="image/*" aria-label="Bild {{ z.position }}">{% if z.fehler %}<div class="fehlertext">{{ z.fehler }}</div>{% endif %}</td>
+            <td>{% if z.bild %}<label class="haken-zeile gefahr-text"><input type="checkbox" name="bild_loeschen_{{ z.position }}" value="1"> löschen</label>{% endif %}</td></tr>{% endfor %}
+        </tbody></table></div>
+      <p class="fein" style="margin:6px 0 0">Bis zu 10 Bilder; eine neue Datei ersetzt das Bild der Zeile. Zeile 1 ist das Hauptbild.</p>
     {% elif t.form %}
       <div class="mraster{% if t.id == 'preise' %} preisraster{% endif %}">{% for name in t.felder %}{% for f in t.form %}{% if f.name == name %}{% include "stammdaten/_feld.html" %}{% if name == "ust_id_geprueft_am" %}{% include "stammdaten/_ust_pruefung.html" %}{% endif %}{% endif %}{% endfor %}{% endfor %}</div>
     {% elif t.formset %}
