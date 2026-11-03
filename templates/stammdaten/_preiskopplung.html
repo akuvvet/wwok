@@ -1,0 +1,71 @@
+{% comment %}Gemeinsame Preislogik für Artikelmaske (Dialog) und Verwaltung: VK und Aufschlag je Stufe rechnen sich beim Tippen gegenseitig
+aus dem EK nach (data-ek an den VK-Feldern), „fix“ wählt je Stufe VK oder Aufschlag, Häkchen übernehmen VK1 bzw. Aufschlag VK1 für alle.{% endcomment %}
+<script>
+  window.wwokPreisKopplung = function (wurzel) {
+    var ekFeld = wurzel.querySelector('[name=ek_manuell]');
+    function lesen(f) {
+      var t = f.value.trim(); if (!t) return null;
+      if (f.type !== 'number' && t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+      var z = Number(t); return isNaN(z) ? null : z;
+    }
+    function schreiben(f, z) { f.value = f.type === 'number' ? z.toFixed(2) : z.toFixed(2).replace('.', ','); }
+    function ek(vk) {  // gilt der manuelle EK (oder gibt es noch keinen), zählt der eingetippte Wert
+      var quelle = vk.dataset.ekQuelle, server = vk.dataset.ek;
+      if (ekFeld && !ekFeld.disabled && (quelle === 'manuell' || !server)) return lesen(ekFeld);
+      return server ? Number(server) : null;
+    }
+    function feld(name, stufe) { return wurzel.querySelector('[name=' + name + stufe + ']'); }
+    function vkAusAufschlag(stufe) {
+      var vk = feld('vk', stufe), e = ek(vk), prozent = lesen(feld('aufschlag_vk', stufe));
+      if (!e || prozent === null) return;
+      var folgt = vk.dataset.vorschlag !== undefined && lesen(vk) === Number(vk.dataset.vorschlag);  // VK folgt bisher dem EK
+      var preis = Math.round(e * (100 + prozent)) / 100;
+      schreiben(vk, preis);
+      if (folgt) {  // bleibt Vorschlag: ohne festen Preis rechnet der Server EK + neuer Aufschlag
+        vk.dataset.vorschlag = preis.toFixed(2);
+        var anfang = wurzel.querySelector('[name="initial-vk' + stufe + '"]'); if (anfang) anfang.value = vk.value;
+      }
+    }
+    function fixen(stufe, wert) {  // das zuletzt getippte Feld der Stufe ist fix (VK fest oder Aufschlag fest)
+      wurzel.querySelectorAll('[name=fix_vk' + stufe + ']').forEach(function (r) { r.checked = r.value === wert; });
+    }
+    function fixWert(stufe) { var r = wurzel.querySelector('[name=fix_vk' + stufe + ']:checked'); return r ? r.value : ''; }
+    function aufschlagAusVk(stufe) {
+      var vk = feld('vk', stufe), e = ek(vk), preis = lesen(vk);
+      if (e && preis !== null) schreiben(feld('aufschlag_vk', stufe), (preis / e - 1) * 100);
+    }
+    var alle = wurzel.querySelector('[name=aufschlag_vk1_fuer_alle]');
+    function aufschlagVerteilen() {  // Häkchen gesetzt: Aufschlag VK1 gilt auch für VK2 und VK3, deren VK rechnet mit
+      var quelle = feld('aufschlag_vk', 1);
+      if (!alle || !alle.checked || !quelle || lesen(quelle) === null) return;  // leerer Aufschlag VK1 löscht nichts
+      [2, 3].forEach(function (stufe) {
+        var auf = feld('aufschlag_vk', stufe); if (!auf) return;
+        auf.value = quelle.value; fixen(stufe, 'aufschlag'); vkAusAufschlag(stufe);
+      });
+    }
+    if (alle) alle.addEventListener('change', aufschlagVerteilen);
+    var alleVk = wurzel.querySelector('[name=vk1_fuer_alle]');
+    if (alleVk) alleVk.addEventListener('change', function () {  // VK1 fest für alle Stufen: überall VK fixieren
+      if (alleVk.checked) wurzel.querySelectorAll('[name^=fix_vk][value=vk]').forEach(function (r) { r.checked = true; });
+    });
+    [1, 2, 3].forEach(function (stufe) {
+      var vk = feld('vk', stufe), auf = feld('aufschlag_vk', stufe);
+      if (!vk || !auf) return;
+      function eigeneStufe() { if (stufe > 1 && alle) alle.checked = false; }  // VK2/VK3 einzeln geändert: gilt nicht mehr für alle
+      vk.addEventListener('input', function () {
+        eigeneStufe(); fixen(stufe, 'vk'); aufschlagAusVk(stufe);
+        if (stufe === 1) aufschlagVerteilen();
+      });
+      auf.addEventListener('input', function () {
+        eigeneStufe(); fixen(stufe, 'aufschlag'); vkAusAufschlag(stufe);
+        if (stufe === 1) aufschlagVerteilen();
+      });
+    });
+    if (ekFeld) ekFeld.addEventListener('input', function () {  // neuer EK: das nicht fixierte Feld jeder Stufe rechnet nach
+      [1, 2, 3].forEach(function (stufe) {
+        if (!feld('vk', stufe) || !feld('aufschlag_vk', stufe)) return;
+        if (fixWert(stufe) === 'vk') aufschlagAusVk(stufe); else if (fixWert(stufe) === 'aufschlag') vkAusAufschlag(stufe);
+      });
+    });
+  };
+</script>

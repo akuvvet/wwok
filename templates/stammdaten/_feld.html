@@ -1,6 +1,8 @@
-{% comment %}Ein Formularfeld mit Beschriftung und Fehlern (Variable: f){% endcomment %}
+{% comment %}Ein Formularfeld mit Beschriftung und Fehlern (Variable: f). f.field.fix = (Name, Wert, gewählt): Auswahl „fix“ für VK oder Aufschlag{% endcomment %}
 <div class="mfeld{% if f.errors %} fehler{% endif %}{% if f.field.widget.input_type == 'checkbox' %} haken{% endif %}">
   {% if f.field.widget.input_type == 'checkbox' %}<label class="haken-zeile">{{ f }} {{ f.label }}</label>
+  {% elif f.field.fix %}<div class="fix-kopf"><label for="{{ f.id_for_label }}">{{ f.label }}</label>
+    <label class="fix-wahl" title="{% if f.field.fix.1 == 'vk' %}VK fest speichern, der Aufschlag ergibt sich{% else %}Aufschlag fest, der VK folgt dem EK{% endif %}"><input type="radio" name="{{ f.field.fix.0 }}" value="{{ f.field.fix.1 }}" aria-label="{{ f.label }} fixieren"{% if f.field.fix.2 %} checked{% endif %}> fix</label></div>{{ f }}
   {% else %}<label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}{% endif %}
   {% if f.help_text %}<small>{{ f.help_text }}</small>{% endif %}
   {% for e in f.errors %}<span class="fehlertext">{{ e }}</span>{% endfor %}

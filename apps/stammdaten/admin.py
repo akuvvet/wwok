@@ -143,8 +143,9 @@ class ArtikelAdmin(admin.ModelAdmin):
         ("Grunddaten", {"fields": [("nummer", "typ"), "bezeichnung", "bezeichnung_erweitert", "kategorie",
                                    ("hersteller", "herstellernummer", "ean"), ("garantie_monate", "nicht_aktiv"), "esd_key"]}),
         ("Maße", {"fields": [("laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg")]}),
-        ("Preise", {"fields": ["steuersatz", ("ek_anzeige", "vk1_fuer_alle"), ("vk1", "aufschlag_vk1"),
-                               ("vk2", "aufschlag_vk2"), ("vk3", "aufschlag_vk3")]}),
+        # wie die Artikelmaske: EK und Häkchen, dann VK1–VK3, dann Aufschlag VK1–VK3; „fix“ und Umrechnung per change_form.html
+        ("Preise", {"fields": ["steuersatz", ("ek_manuell", "vk1_fuer_alle", "aufschlag_vk1_fuer_alle"), ("vk1", "vk2", "vk3"),
+                               ("aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3")]}),
         ("Online", {"fields": ["online", "kurzbeschreibung", "keywords", "meta_titel",
                                "meta_description", "meta_keywords"]}),
     ]

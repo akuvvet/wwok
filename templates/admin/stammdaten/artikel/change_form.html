@@ -1,0 +1,27 @@
+{% extends "admin/change_form.html" %}
+{% block admin_change_form_document_ready %}{{ block.super }}
+{% include "stammdaten/_preiskopplung.html" %}
+<style>
+  .fix-wahl { display:inline-flex; align-items:center; gap:4px; margin-left:8px; font-size:12px; cursor:pointer; }
+  .fix-wahl input { margin:0; }
+</style>
+<script>
+  // Verwaltung → Artikel → Preise: „fix“ neben VK und Aufschlag je Stufe (VK fest oder Aufschlag fest), dann gemeinsame Umrechnung
+  (function () {
+    var formular = document.getElementById('artikel_form'); if (!formular) return;
+    [1, 2, 3].forEach(function (stufe) {
+      var vk = formular.querySelector('[name=vk' + stufe + ']'), auf = formular.querySelector('[name=aufschlag_vk' + stufe + ']');
+      if (!vk || !auf) return;
+      [[vk, 'vk', 'VK' + stufe + ' netto'], [auf, 'aufschlag', 'Aufschlag VK' + stufe + ' %']].forEach(function (z) {
+        var label = document.createElement('label'), radio = document.createElement('input');
+        label.className = 'fix-wahl';
+        radio.type = 'radio'; radio.name = 'fix_vk' + stufe; radio.value = z[1]; radio.checked = vk.dataset.fix === z[1];
+        radio.setAttribute('aria-label', z[2] + ' fixieren');
+        label.appendChild(radio); label.appendChild(document.createTextNode(' fix'));
+        z[0].insertAdjacentElement('afterend', label);
+      });
+    });
+    if (formular.querySelector('[name=vk1][data-ek]')) wwokPreisKopplung(formular);
+  })();
+</script>
+{% endblock %}

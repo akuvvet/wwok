@@ -90,7 +90,9 @@ AnschriftSet = inlineformset_factory(
 ARTIKEL_TABS = [
     ("grund", "Stammdaten", ["nummer", "typ", "bezeichnung", "bezeichnung_erweitert", "kategorie", "leistungskategorie", "hersteller", "herstellernummer",
                              "ean", "mengeneinheit", "steuersatz", "nicht_aktiv"]),
-    ("preise", "Preise", ["kosten", "ek_manuell", "vk1_fuer_alle", "vk1", "vk2", "vk3", "aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3"]),
+    # Reihenfolge = Raster mit drei Spalten: EK und Häkchen, dann VK1–VK3, dann Aufschlag VK1–VK3
+    ("preise", "Preise", ["kosten", "ek_manuell", "vk1_fuer_alle", "aufschlag_vk1_fuer_alle", "vk1", "vk2", "vk3",
+                          "aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3"]),
     ("logistik", "Maße & Versand", ["laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg", "sperrgut", "zolltarifnummer",
                                     "garantie_monate", "eol_datum", "nachfolger", "esd_key"]),
     ("online", "Online & Texte", ["online", "kurzbeschreibung", "keywords", "meta_titel", "meta_description", "meta_keywords"]),
@@ -101,10 +103,19 @@ class VkVorschlagForm(forms.ModelForm):
     """Leere VK zeigen den Vorschlag aus EK und Aufschlag. Bleibt er unverändert, wird nichts Festes gespeichert und der
     VK folgt weiter dem EK; erst ein selbst eingetippter Preis ist fest."""
 
+    FIX = (("vk", "VK fixieren"), ("aufschlag", "Aufschlag fixieren"))
+
     vk1_fuer_alle = forms.BooleanField(label="VK1 für alle VKs übernehmen", required=False)
+    aufschlag_vk1_fuer_alle = forms.BooleanField(label="Aufschlag VK1 % für alle übernehmen", required=False)
+    # je Stufe: VK oder Aufschlag fix (als „fix“ neben den Feldern, Maske: _feld.html, Verwaltung: Skript in change_form.html)
+    fix_vk1 = forms.ChoiceField(choices=FIX, required=False, widget=forms.HiddenInput)
+    fix_vk2 = forms.ChoiceField(choices=FIX, required=False, widget=forms.HiddenInput)
+    fix_vk3 = forms.ChoiceField(choices=FIX, required=False, widget=forms.HiddenInput)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if "ek_manuell" in self.fields:
+            self.ek_feld_einrichten()
         # EK als Basis für die Live-Umrechnung VK ↔ Aufschlag in der Maske (wie stufenpreis: ohne Leistungskosten)
         ek, quelle = _ek_quelle(self.instance, mit_kosten=False) if self.instance.pk else (None, "")
         for stufe in (1, 2, 3):
@@ -117,43 +128,25 @@ class VkVorschlagForm(forms.ModelForm):
                     self.initial[feld] = preis
                     self.fields[feld].show_hidden_initial = True  # beim Speichern zählt, was angezeigt war, nicht der aktuelle Vorschlag
                     self.fields[feld].widget.attrs["data-vorschlag"] = str(preis)
-                    self.fields[feld].help_text = "Vorschlag aus EK und Aufschlag, folgt dem EK. Ein eigener Preis bleibt fest."
+                    self.fields[feld].help_text = "Vorschlag aus EK und Aufschlag, folgt dem EK. Ein eingetippter VK wird fix."
+        self.fix_einrichten()
 
-    def clean(self):
-        daten = super().clean()
-        if daten.get("vk1_fuer_alle"):
-            if daten.get("vk1") is None:
-                self.add_error("vk1_fuer_alle", "Bitte zuerst VK1 eintragen.")
+    def fix_einrichten(self):
+        """Je Stufe entweder VK oder Aufschlag fixieren: fester VK wird gespeichert, sonst folgt der VK dem EK + Aufschlag.
+        Ohne Auswahl (z. B. ältere Aufrufe) gilt die bisherige Vorschlag-Regel."""
+        for stufe in (1, 2, 3):
+            vk, auf, name = f"vk{stufe}", f"aufschlag_vk{stufe}", f"fix_vk{stufe}"
+            if vk not in self.fields or auf not in self.fields:
+                continue
+            if self.is_bound:
+                gewaehlt = self.data.get(name, "")
+            elif self.instance.pk:
+                gewaehlt = "vk" if getattr(self.instance, vk) is not None else "aufschlag"
             else:
-                daten["vk2"] = daten["vk3"] = daten["vk1"]
-            return daten
-        for feld in ("vk1", "vk2", "vk3"):
-            if self.instance.pk and feld in self.fields and getattr(self.instance, feld) is None:
-                try:
-                    if daten.get(feld) == self.fields[feld].to_python(self.data.get(self.add_initial_prefix(feld))):
-                        daten[feld] = None
-                except forms.ValidationError:
-                    pass
-        return daten
-
-
-class ArtikelForm(VkVorschlagForm):
-    TABS = ARTIKEL_TABS
-
-    class Meta:
-        model = Artikel
-        fields = [f for _, _, felder in ARTIKEL_TABS for f in felder]
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        datum_felder(self)
-        # P-Artikel sind eine eigene Tabelle (Preislisten); hier nur A, L und G
-        self.fields["typ"].choices = [(w, n) for w, n in Artikeltyp.choices if w != Artikeltyp.P]
-        if self.instance.pk:  # Typwechsel würde Bestand und Belege verfälschen
-            self.fields["typ"].disabled = True
-            self.fields["nachfolger"].queryset = Artikel.objects.exclude(pk=self.instance.pk)
-        self.fields["nachfolger"].queryset = self.fields["nachfolger"].queryset.order_by("nummer")
-        self.ek_feld_einrichten()
+                gewaehlt = ""  # neuer Artikel: die Maske wählt beim ersten Tippen
+            self.fields[vk].fix = (name, "vk", gewaehlt == "vk")
+            self.fields[auf].fix = (name, "aufschlag", gewaehlt == "aufschlag")
+            self.fields[vk].widget.attrs["data-fix"] = gewaehlt  # Verwaltung baut daraus die „fix“-Auswahl
 
     def ek_feld_einrichten(self):
         """EK-Preis netto mit Komma; nach dem ersten Wareneingang gilt der Ø-EK und das Feld ist nur Anzeige."""
@@ -192,6 +185,71 @@ class ArtikelForm(VkVorschlagForm):
         if "ek_manuell" in self.changed_data and self.instance.typ == Artikeltyp.A and not self.instance.durchschnitts_ek:
             self.instance.ek_herkunft_setzen(EkHerkunft.MANUELL)
         return super().save(commit)
+
+    def aufschlag_fuer_vorschlag(self, daten, stufe):
+        """Eingetragener Aufschlag der Stufe, sonst der geerbte aus Kategorie bzw. globaler Vorgabe (wie preise.aufschlag)."""
+        from .preise import aufschlag
+        eigener = daten.get(f"aufschlag_vk{stufe}")
+        if eigener is not None:
+            return eigener
+        return aufschlag(Artikel(kategorie=daten.get("kategorie", self.instance.kategorie if self.instance.kategorie_id else None)), stufe)
+
+    def ek_fuer_vorschlag(self, daten):
+        """EK, mit dem der VK aus dem Aufschlag entsteht: wie in der Maske der eingetippte manuelle EK, solange er gilt."""
+        server, quelle = _ek_quelle(self.instance, mit_kosten=False) if self.instance.pk else (None, "")
+        if "ek_manuell" in self.fields and not self.fields["ek_manuell"].disabled and (quelle == "manuell" or server is None):
+            return daten.get("ek_manuell")
+        return server
+
+    def clean(self):
+        daten = super().clean()
+        if daten.get("aufschlag_vk1_fuer_alle") and "aufschlag_vk2" in self.fields and "aufschlag_vk1" not in self.errors:
+            if daten.get("aufschlag_vk1") is None:
+                self.add_error("aufschlag_vk1_fuer_alle", "Bitte zuerst Aufschlag VK1 eintragen.")
+            else:
+                daten["aufschlag_vk2"] = daten["aufschlag_vk3"] = daten["aufschlag_vk1"]
+        if daten.get("vk1_fuer_alle") and "vk1" not in self.errors:  # VK1 fest für alle Stufen: die Fix-Auswahl spielt dann keine Rolle
+            if daten.get("vk1") is None:
+                self.add_error("vk1_fuer_alle", "Bitte zuerst VK1 eintragen.")
+            else:
+                daten["vk2"] = daten["vk3"] = daten["vk1"]
+            return daten
+        leistung = daten.get("typ", self.instance.typ) == Artikeltyp.L  # Leistungen haben keinen Aufschlag, der VK ist immer fest
+        for stufe in (1, 2, 3):
+            feld, fix = f"vk{stufe}", None if leistung else daten.get(f"fix_vk{stufe}")
+            if fix == "aufschlag":  # VK folgt dem EK + Aufschlag, nichts Festes speichern – aber nur, wenn das einen Preis ergibt
+                if self.ek_fuer_vorschlag(daten) is None or self.aufschlag_fuer_vorschlag(daten, stufe) is None:
+                    if f"aufschlag_vk{stufe}" not in self.errors:
+                        self.add_error(f"aufschlag_vk{stufe}", f"Ohne EK und Aufschlag ergibt sich kein VK{stufe} – bitte den VK fixieren.")
+                else:
+                    daten[feld] = None
+            elif fix == "vk" and feld in self.fields and daten.get(feld) is None and feld not in self.errors:
+                self.add_error(feld, f"Bitte VK{stufe} eintragen oder den Aufschlag fixieren.")
+            elif not fix and self.instance.pk and feld in self.fields and getattr(self.instance, feld) is None:  # bisherige Regel
+                try:
+                    if daten.get(feld) == self.fields[feld].to_python(self.data.get(self.add_initial_prefix(feld))):
+                        daten[feld] = None
+                except forms.ValidationError:
+                    pass
+        return daten
+
+
+class ArtikelForm(VkVorschlagForm):
+    TABS = ARTIKEL_TABS
+
+    class Meta:
+        model = Artikel
+        fields = [f for _, _, felder in ARTIKEL_TABS for f in felder]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        datum_felder(self)
+        # P-Artikel sind eine eigene Tabelle (Preislisten); hier nur A, L und G
+        self.fields["typ"].choices = [(w, n) for w, n in Artikeltyp.choices if w != Artikeltyp.P]
+        if self.instance.pk:  # Typwechsel würde Bestand und Belege verfälschen
+            self.fields["typ"].disabled = True
+            self.fields["nachfolger"].queryset = Artikel.objects.exclude(pk=self.instance.pk)
+        self.fields["nachfolger"].queryset = self.fields["nachfolger"].queryset.order_by("nummer")
 
     def clean(self):
         daten = super().clean()
