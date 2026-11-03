@@ -47,6 +47,7 @@ urlpatterns = [
     path("preislisten/<int:profil_id>/zuordnung/", views_assistent.assistent_ansicht, name="preislisten_zuordnung"),
     path("artikelpreise/", views_assistent.artikelpreise, name="artikelpreise"),
     path("preislisten/import/<int:import_id>/", views.preislistenimport, name="preislistenimport"),
+    path("preispruefliste/", views.preispruefliste, name="preispruefliste"),
     path("rma/", views.rma_liste, name="rma_liste"),
     path("rma/neu/", views.rma_neu, name="rma_neu"),
     path("rma/aus-reparatur/<int:reparatur_id>/", views.rma_aus_reparatur, name="rma_aus_reparatur"),

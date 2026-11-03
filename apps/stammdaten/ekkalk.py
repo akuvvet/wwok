@@ -127,6 +127,48 @@ def vk_vorschlag(artikel, mandant, stufe=1, bestand=None):
     return vk_vorschlag_aus(kalkulation(artikel, mandant, bestand).ek_kalk, marge_stufe(artikel, stufe))
 
 
+# ---- Schutzregeln (Schritt 2) -----------------------------------------------------------------------
+
+def grenzen():
+    """Schutzgrenzen in Prozent aus der globalen Preisvorgabe (ohne Datensatz: Standardwerte)."""
+    v = PreisVorgabe.objects.first()
+    return {"we": v.we_abweichung_prozent if v else Decimal("50"),
+            "anteil": v.import_quarantaene_anteil if v else Decimal("20"),
+            "aenderung": v.import_quarantaene_aenderung if v else Decimal("30"),
+            "einzel": v.import_einzel_prozent if v else Decimal("50")}
+
+
+def abweichung_prozent(alt, neu):
+    """Abweichung des neuen vom alten Preis in Prozent (immer ≥ 0); None, wenn es keinen Vergleichspreis gibt."""
+    if alt is None or alt <= 0 or neu is None:
+        return None
+    return abs(neu - alt) / alt * 100
+
+
+def plausibilitaet_we(preis, ek_avg=None, ek_import=None, grenze=None):
+    """Rückfragetext, wenn der Wareneingangspreis um mehr als die Grenze (50 %) von Ø-EK oder Import-EK abweicht; sonst None."""
+    grenze = grenzen()["we"] if grenze is None else grenze
+    for wert in (ek_avg, ek_import):
+        abw = abweichung_prozent(wert, preis)
+        if abw is not None and abw > grenze:
+            teile = [f"Ø-EK {ek_avg:.2f} €" if ek_avg is not None else None, f"Import {ek_import:.2f} €" if ek_import is not None else None]
+            return f"Preis korrekt? Stückpreis/Paketpreis prüfen. Eingegeben {preis:.2f} €, " + ", ".join(t for t in teile if t)
+    return None
+
+
+def import_ist_auffaellig(paare, anteil_grenze=None, aenderung_grenze=None, mindestens=5):
+    """Quarantäne-Entscheidung für einen Import. paare = [(alter_ek, neuer_ek)] aller Zeilen, die schon einen Preis hatten.
+    Auffällig, wenn mehr als anteil_grenze % davon sich um mehr als aenderung_grenze % ändern. Unter 'mindestens' Zeilen
+    gibt es zu wenig Vergleichsbasis (kleine Listen werden einzeln über die Prüfliste geschützt)."""
+    g = grenzen()
+    anteil_grenze = g["anteil"] if anteil_grenze is None else anteil_grenze
+    aenderung_grenze = g["aenderung"] if aenderung_grenze is None else aenderung_grenze
+    if len(paare) < mindestens:
+        return False
+    stark = sum(1 for alt, neu in paare if (abweichung_prozent(alt, neu) or 0) > aenderung_grenze)
+    return Decimal(stark) / len(paare) * 100 > anteil_grenze
+
+
 def vk_uebernahme(vk_alt, vk_neu, vk_fix=False, senkung_grenze=SENKUNG_AUTO_GRENZE):
     """Was passiert mit dem neuen VK? 'fix' | 'neu' (kein VK bisher) | 'gleich' | 'erhoehung' | 'senkung_auto' | 'senkung_pruefen'.
     Erhöhung und Senkung bis zur Grenze (10 %) werden automatisch übernommen, größere Senkungen nur per Klick (Liste „VK-Senkung prüfen“)."""
