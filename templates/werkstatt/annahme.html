@@ -6,8 +6,11 @@
   <h1>Geräteannahme</h1>
   <form method="post">{% csrf_token %}
     <div class="raster">
-      <div><label>Kundennummer</label><input name="kundennummer" value="{% if post.kundennummer %}{{ post.kundennummer }}{% elif kunde %}{{ kunde.nummer }}{% endif %}" autofocus>
-        {% if kunde %}<small>{{ kunde.name1 }}, {{ kunde.ort }}</small>{% endif %}</div>
+      <div class="kundensuche"><label for="kundennummer">Kunde</label>
+        <input id="kundennummer" name="kundennummer" placeholder="Nummer, Name oder Ansprechpartner"value="{% if post.kundennummer %}{{ post.kundennummer }}{% elif kunde %}{{ kunde.nummer }}{% endif %}"
+               autocomplete="off" role="combobox" aria-expanded="false" aria-controls="kundentreffer" data-api="{% url 'verkauf:api_kunden' %}" autofocus>
+        <div id="kundentreffer" class="kundentreffer" role="listbox" hidden></div>
+        <small id="kundengewaehlt">{% if kunde %}{{ kunde.name1 }}, {{ kunde.ort }}{% endif %}</small></div>
       <div><label>Gerät</label><input name="geraet" value="{{ post.geraet }}" placeholder="z. B. Notebook Lenovo T14"></div>
       <div><label>Seriennummer</label><input name="seriennummer" value="{{ post.seriennummer }}"></div>
       <div><label>Artikelnummer (optional)</label><input name="artikel" value="{{ post.artikel }}"></div>
@@ -21,4 +24,57 @@
     <button type="submit">Annehmen</button>
   </form>
 </div>
+<style>
+  .kundensuche { position:relative; }
+  .kundensuche input { width:100%; }
+  .kundentreffer { position:absolute; z-index:25; left:0; right:0; min-width:320px; max-height:320px; overflow-y:auto; background:var(--karte);
+    border:1px solid var(--rand); border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.18); }
+  .kundentreffer div { padding:6px 10px; cursor:pointer; border-bottom:1px solid var(--rand); font-size:14px; }
+  .kundentreffer div[aria-selected=true], .kundentreffer div:hover { background:var(--grund); }
+  .kundentreffer small { display:block; opacity:.7; }
+</style>
+<script>
+  // Kundensuche wie auf der Startseite: Treffer beim Tippen, Auswahl per Klick oder Pfeiltasten + Enter setzt die Kundennummer
+  (function () {
+    var feld = document.getElementById('kundennummer'), liste = document.getElementById('kundentreffer'), info = document.getElementById('kundengewaehlt');
+    var treffer = [], aktiv = -1, timer, nr = 0;
+    function schliessen() { liste.hidden = true; feld.setAttribute('aria-expanded', 'false'); aktiv = -1; }
+    function zeigen() {
+      liste.innerHTML = '';
+      treffer.forEach(function (k, i) {
+        var z = document.createElement('div'), unter = document.createElement('small');
+        z.setAttribute('role', 'option'); z.setAttribute('aria-selected', i === aktiv ? 'true' : 'false');
+        z.textContent = k.nummer + ' – ' + k.name + (k.gesperrt ? ' (gesperrt)' : '');
+        unter.textContent = [k.ort, k.ansprechpartner].filter(Boolean).join(' · ');
+        z.appendChild(unter);
+        z.addEventListener('mousedown', function (e) { e.preventDefault(); waehlen(i); });
+        liste.appendChild(z);
+      });
+      liste.hidden = !treffer.length; feld.setAttribute('aria-expanded', treffer.length ? 'true' : 'false');
+    }
+    function waehlen(i) {
+      var k = treffer[i]; feld.value = k.nummer; info.textContent = k.name + (k.ort ? ', ' + k.ort : ''); treffer = []; schliessen();
+    }
+    feld.addEventListener('input', function () {
+      clearTimeout(timer); info.textContent = '';
+      var q = feld.value.trim();
+      if (q.replace(/\*$/, '').length < 2) { treffer = []; schliessen(); return; }
+      timer = setTimeout(function () {
+        var meine = ++nr;
+        fetch(feld.dataset.api + '?q=' + encodeURIComponent(q)).then(function (r) { return r.json(); }).then(function (d) {
+          if (meine !== nr) return;  // ältere Antwort nach neuerer Eingabe verwerfen
+          treffer = d.treffer || []; aktiv = treffer.length ? 0 : -1; zeigen();
+        });
+      }, 200);
+    });
+    feld.addEventListener('keydown', function (e) {
+      if (liste.hidden) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault(); aktiv = (aktiv + (e.key === 'ArrowDown' ? 1 : -1) + treffer.length) % treffer.length; zeigen();
+      } else if (e.key === 'Enter' && aktiv >= 0) { e.preventDefault(); waehlen(aktiv); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); schliessen(); }
+    });
+    feld.addEventListener('blur', function () { setTimeout(schliessen, 150); });
+  })();
+</script>
 {% endblock %}

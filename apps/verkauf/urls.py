@@ -38,4 +38,5 @@ urlpatterns = [
     path("beleg/<int:beleg_id>/abo/", views.abo_aus_rechnung, name="abo_aus_rechnung"),
     path("beleg/<int:beleg_id>/mail/", views.beleg_mail, name="beleg_mail"),
     path("api/artikel/", views.api_artikel, name="api_artikel"),
+    path("api/kunden/", views.api_kunden, name="api_kunden"),
 ]

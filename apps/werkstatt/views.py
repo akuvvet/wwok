@@ -53,9 +53,16 @@ def annahme(request):
     kunde_id = request.GET.get("kunde", "")
     kunde = Kunde.objects.filter(pk=kunde_id if kunde_id.isdigit() else None).first()
     if request.method == "POST":
-        kunde = Kunde.objects.filter(nummer=request.POST.get("kundennummer", "").strip()).first()
+        eingabe = request.POST.get("kundennummer", "").strip()
+        kunde = Kunde.objects.filter(nummer=eingabe).first() if eingabe else None
+        treffer = []
+        if kunde is None and eingabe:  # keine Nummer: wie die Kundensuche, eindeutiger Treffer wird übernommen
+            from apps.verkauf.views import kunden_suchen
+            treffer = list(kunden_suchen(eingabe)[:2])
+            kunde = treffer[0] if len(treffer) == 1 else None
         if kunde is None:
-            messages.error(request, "Kundennummer nicht gefunden.")
+            messages.error(request, "Mehrere Kunden passen zum Suchbegriff. Bitte aus der Liste wählen." if len(treffer) > 1
+                           else "Kunde nicht gefunden.")
         elif not request.POST.get("geraet", "").strip() or not request.POST.get("fehler", "").strip():
             messages.error(request, "Gerät und Fehlerbeschreibung sind Pflicht.")
         else:

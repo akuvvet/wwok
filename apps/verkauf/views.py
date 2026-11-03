@@ -68,6 +68,17 @@ def beleg_holen(request, beleg_id):
 KUNDENSUCHE_FELDER = ["nummer", "name1", "name2", "name3", "ort", "ansprechpartner__vorname", "ansprechpartner__nachname"]
 
 
+def kunden_suchen(q):
+    """Kundensuche wie auf der Startseite: jedes Wort in einem Namen, einem Ansprechpartner, der Nummer oder dem Ort;
+    Reihenfolge egal, „*“ allein = alle, Stern am Ende = Wortanfang."""
+    filt = Q()
+    if q != "*":
+        vergleich = "istartswith" if q.endswith("*") else "icontains"
+        for wort in q.rstrip("*").split():
+            filt &= Q(*[Q(**{f"{feld}__{vergleich}": wort}) for feld in KUNDENSUCHE_FELDER], _connector=Q.OR)
+    return Kunde.objects.filter(filt, anonymisiert=False).distinct()
+
+
 @login_required
 def start(request):
     if request.method == "POST":
@@ -86,14 +97,7 @@ def start(request):
     q = request.GET.get("q", "").strip()
     treffer = None
     if mandant and q:
-        if q == "*":
-            filt = Q()
-        else:  # jedes Wort muss in einem Namen, einem Ansprechpartner, der Nummer oder dem Ort stehen; Reihenfolge egal
-            vergleich = "istartswith" if q.endswith("*") else "icontains"
-            filt = Q()
-            for wort in q.rstrip("*").split():
-                filt &= Q(*[Q(**{f"{feld}__{vergleich}": wort}) for feld in KUNDENSUCHE_FELDER], _connector=Q.OR)
-        treffer = Kunde.objects.filter(filt, anonymisiert=False).distinct()[:100]
+        treffer = kunden_suchen(q)[:100]
         if len(treffer) == 1:
             return redirect("verkauf:kunde", kunde_id=treffer[0].pk)
     offene = None
@@ -804,6 +808,18 @@ def beleg_mail(request, beleg_id):
 def vorschlag_preis(artikel, kunde):
     from apps.stammdaten.preise import verkaufspreis
     return verkaufspreis(artikel, kunde)[0]
+
+
+@mit_mandant
+def api_kunden(request):
+    """Kundensuche für Auswahlfelder (z. B. Werkstatt-Annahme), gleiche Regeln wie die Kundensuche."""
+    q = request.GET.get("q", "").strip()
+    if len(q.rstrip("*")) < 2:
+        return JsonResponse({"treffer": []})
+    kunden = kunden_suchen(q).order_by("name1").prefetch_related("ansprechpartner")[:20]
+    return JsonResponse({"treffer": [{
+        "nummer": k.nummer, "name": " ".join(filter(None, [k.name1, k.name2, k.name3])), "ort": k.ort, "gesperrt": k.gesperrt,
+        "ansprechpartner": ", ".join(f"{a.vorname} {a.nachname}".strip() for a in k.ansprechpartner.all())[:120]} for k in kunden]})
 
 
 @mit_mandant

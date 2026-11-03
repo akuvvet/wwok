@@ -64,6 +64,26 @@ class WerkstattTest(TestCase):
         with self.assertRaises(ValueError):
             services.garantieteile_buchen(r)
 
+    def test_annahme_findet_kunden_wie_die_kundensuche(self):
+        from apps.stammdaten.models import Ansprechpartner
+        Ansprechpartner.objects.create(kunde=self.kunde, vorname="Max", nachname="Sonnenberg")
+        Kunde.objects.create(nummer="2", name1="Zweite GmbH", name2="Filiale Sonnenhof")
+        self.client.force_login(self.user)
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+        api = lambda q: [k["nummer"] for k in self.client.get(reverse("verkauf:api_kunden"), {"q": q}).json()["treffer"]]
+        self.assertEqual(sorted(api("sonnen")), ["1", "2"])  # Ansprechpartner und Name 2
+        self.assertEqual(api("max sonnenberg"), ["1"])
+        self.assertEqual(api("s"), [])  # erst ab zwei Zeichen
+        daten = {"geraet": "Drucker", "fehler": "Stau"}
+        r = self.client.post(reverse("werkstatt:annahme"), {**daten, "kundennummer": "sonnen"})
+        self.assertContains(r, "Mehrere Kunden")
+        self.assertFalse(Reparatur.objects.exists())
+        self.client.post(reverse("werkstatt:annahme"), {**daten, "kundennummer": "Sonnenhof"})  # eindeutig: wird übernommen
+        self.assertEqual(Reparatur.objects.get().kunde.nummer, "2")
+        self.assertContains(self.client.post(reverse("werkstatt:annahme"), {**daten, "kundennummer": "gibtsnicht"}), "Kunde nicht gefunden")
+
     def test_masken_und_pdf(self):
         self.client.force_login(self.user)
         s = self.client.session
