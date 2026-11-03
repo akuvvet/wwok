@@ -48,13 +48,18 @@ class Block3Test(TestCase):
         self.assertEqual(self.client.get(url, {"von": morgen}).context["anzahl"], 0)
         self.assertEqual(self.client.get(url, {"von": "kein-datum"}).status_code, 200)
 
-    def test_belegart_filtert_sofort_und_behaelt_uebrige_filter(self):
+    def test_live_filter_behaelt_alle_filter_in_der_adresse(self):
         a = self.beleg(Belegart.ANGEBOT)
         r = self.beleg(Belegart.RECHNUNG)
         url = reverse("verkauf:belege")
         antwort = self.client.get(url, {"art": "RE", "q": "Muster", "status": "offen", "von": "2000-01-01"})
         html = antwort.content.decode()
-        self.assertIn('name="art" onchange="this.form.submit()"', html)  # Auswahl sendet das ganze Formular
+        # Live-Filter tauscht nur diesen Bereich aus; ohne JavaScript bleibt der Knopf „Filtern“
+        self.assertIn('id="belegfilter"', html)
+        self.assertIn('<p id="belegzahl" aria-live="polite">1 Belege</p>', html)  # nur die Anzahl wird vorgelesen
+        self.assertIn(f'<div id="belegergebnis" data-mandant="{self.m.pk}">', html)  # Mandantenwechsel lädt die ganze Seite
+        self.assertIn('<noscript><button type="submit">Filtern</button></noscript>', html)
+        self.assertIn("timer = setTimeout(filtern, 300)", html)  # Suchtext mit Tipp-Pause
         self.assertIn('<option value="RE" selected>', html)  # Auswahl bleibt nach dem Neuladen sichtbar
         self.assertIn('value="Muster"', html)
         self.assertIn('value="2000-01-01"', html)
