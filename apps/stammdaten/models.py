@@ -5,11 +5,15 @@ Gemeinsam für beide Mandanten: Kunden, Lieferanten, Artikel, Kategorien.
 Pro Mandant getrennt: Kreditlimit, Kundennummer beim Lieferanten, Lieferanten-
 Ansprechpartner, letzter EK.
 """
+import os
+import uuid
 from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 from apps.kern.models import Mandant, Zeitstempel
 
@@ -458,18 +462,81 @@ class ArtikelMandant(Zeitstempel):
         constraints = [models.UniqueConstraint(fields=["artikel", "mandant"], name="artikel_mandant_eindeutig")]
 
 
+MAX_BILDER = 10
+MAX_BILD_BYTES = 10 * 1024 * 1024
+BILD_FORMATE = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
+VORSCHAU_KANTE = 320  # längste Kante der Vorschaubilder in Pixel
+
+
+def _endung(dateiname, vorgabe=".jpg"):
+    ende = os.path.splitext(dateiname)[1].lower()
+    return ende if ende in (".jpg", ".jpeg", ".png", ".webp") else vorgabe
+
+
+def bild_pfad(instanz, dateiname):
+    """Eindeutiger Dateiname unter MEDIA_ROOT/artikel/<artikel-id>/."""
+    return f"artikel/{instanz.artikel_id}/{uuid.uuid4().hex}{_endung(dateiname)}"
+
+
+def vorschau_pfad(instanz, dateiname):
+    return f"artikel/{instanz.artikel_id}/vorschau/{uuid.uuid4().hex}{_endung(dateiname)}"
+
+
 class ArtikelBild(Zeitstempel):
+    """Bis zu zehn Bilder je Artikel (gemeinsame Stammdaten, mandantenübergreifend). Position 1 ist das Hauptbild;
+    Reihenfolge und Hauptbild sind die Grundlage für die spätere Übertragung an die Shops."""
+
     artikel = models.ForeignKey(Artikel, on_delete=models.CASCADE, related_name="bilder")
-    bild = models.ImageField("Bild", upload_to="artikel/%Y/%m/")
+    bild = models.ImageField("Bild", upload_to=bild_pfad, max_length=255)
+    vorschau = models.ImageField("Vorschaubild", upload_to=vorschau_pfad, max_length=255, blank=True, editable=False)
     position = models.PositiveSmallIntegerField(
-        "Position", default=1, validators=[MinValueValidator(1), MaxValueValidator(10)],
+        "Position", default=1, validators=[MinValueValidator(1), MaxValueValidator(MAX_BILDER)],
         help_text="1 = Hauptbild")
+    alt_text = models.CharField("Alt-Text", max_length=150, blank=True, help_text="Beschreibung für Shop und Suchmaschinen.")
 
     class Meta:
         verbose_name = "Artikelbild"
         verbose_name_plural = "Artikelbilder"
         ordering = ["position"]
         constraints = [models.UniqueConstraint(fields=["artikel", "position"], name="bildposition_eindeutig")]
+
+    def save(self, *args, **kwargs):
+        neu = self._state.adding
+        super().save(*args, **kwargs)
+        if neu and self.bild and not self.vorschau:
+            self.vorschau_erzeugen()
+
+    @property
+    def vorschau_url(self):
+        """Verkleinertes Bild; ältere Bilder ohne Vorschau liefern das Original."""
+        return (self.vorschau or self.bild).url
+
+    def vorschau_erzeugen(self):
+        from io import BytesIO
+
+        from django.core.files.base import ContentFile
+        from PIL import Image, ImageOps
+        self.bild.open("rb")
+        try:
+            with Image.open(self.bild) as roh:
+                bild = ImageOps.exif_transpose(roh)
+                bild.thumbnail((VORSCHAU_KANTE, VORSCHAU_KANTE))
+                transparent = bild.mode in ("RGBA", "LA") or "transparency" in bild.info
+                bild = bild.convert("RGBA" if transparent else "RGB")
+                puffer = BytesIO()
+                bild.save(puffer, "PNG" if transparent else "JPEG", **({} if transparent else {"quality": 85}))
+        finally:
+            self.bild.close()
+        self.vorschau.save("vorschau.png" if transparent else "vorschau.jpg", ContentFile(puffer.getvalue()), save=False)
+        super().save(update_fields=["vorschau"])
+
+
+@receiver(post_delete, sender=ArtikelBild)
+def bild_dateien_entfernen(sender, instance, **kwargs):
+    """Beim Löschen (auch über den Artikel) verschwinden Original und Vorschau von der Platte."""
+    for datei in (instance.bild, instance.vorschau):
+        if datei:
+            datei.delete(save=False)
 
 
 class ArtikelLieferant(Zeitstempel):

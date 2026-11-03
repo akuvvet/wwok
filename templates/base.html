@@ -473,6 +473,112 @@
       marker.type = 'hidden'; marker.name = 'komp_geladen'; marker.value = '1'; bereich.appendChild(marker);
       rechnen();
     }
+    function bilderBereich(bereich) {  // Reiter Bilder: Liste links, große Vorschau rechts; gespeichert wird erst mit „Speichern“ der Maske
+      var MAX = parseInt(bereich.dataset.max, 10), MAXBYTES = parseInt(bereich.dataset.maxbytes, 10);
+      var ERLAUBT = ['image/jpeg', 'image/png', 'image/webp'];
+      var liste = bereich.querySelector('[data-bild-liste]'), gross = bereich.querySelector('[data-bild-gross]');
+      var leer = bereich.querySelector('[data-bild-leer]'), meldung = bereich.querySelector('[data-bild-meldung]');
+      var altFeld = bereich.querySelector('[data-bild-alt]'), hauptKnopf = bereich.querySelector('[data-bild-haupt]');
+      var neuKnopf = bereich.querySelector('[data-bild-neu]'), dateiFeld = bereich.querySelector('[data-bild-datei]');
+      var halter = bereich.querySelector('[data-bild-halter]'), zaehler = dlg.querySelector('[data-bilderzaehler]');
+      var formular = bereich.closest('form');
+      var items = JSON.parse(dlg.querySelector('#bilder-daten').textContent).map(function (b) {
+        return {schluessel: 'b' + b.id, url: b.url, vorschau: b.vorschau, alt: b.alt, datei: null};
+      });
+      var auswahl = 0, ziehen = null, zaehlerNeu = 0;
+      function knopf(aktion, text, titel, aus) {
+        var k = document.createElement('button'); k.type = 'button'; k.dataset.aktion = aktion; k.textContent = text;
+        k.title = titel; k.setAttribute('aria-label', titel); k.disabled = !!aus; return k;
+      }
+      function abgleichen() {  // verdeckte Felder für den Server: Reihenfolge und Alt-Texte; neue Dateien hängt das Absenden an
+        halter.textContent = '';
+        function feld(name, wert) { var i = document.createElement('input'); i.type = 'hidden'; i.name = name; i.value = wert; halter.appendChild(i); }
+        feld('bilder_geladen', '1');
+        items.forEach(function (it) { feld('bild_reihe', it.schluessel); feld('bild_alt_' + it.schluessel, it.alt); });
+      }
+      function zeichnen() {
+        if (auswahl >= items.length) auswahl = items.length - 1;
+        if (auswahl < 0) auswahl = 0;
+        liste.textContent = '';
+        items.forEach(function (it, i) {
+          var z = document.createElement('div'); z.className = 'bild-zeile' + (i === auswahl ? ' aktiv' : ''); z.draggable = true; z.dataset.index = i;
+          var nr = document.createElement('span'); nr.className = 'bild-nr'; nr.textContent = i + 1;
+          var img = document.createElement('img'); img.src = it.vorschau; img.alt = it.alt || ('Bild ' + (i + 1)); img.draggable = false;
+          var tools = document.createElement('span'); tools.className = 'bild-tools';
+          tools.appendChild(knopf('hoch', '↑', 'Nach oben', i === 0));
+          tools.appendChild(knopf('runter', '↓', 'Nach unten', i === items.length - 1));
+          if (i > 0) tools.appendChild(knopf('haupt', '★', 'Als Hauptbild setzen'));
+          var weg = knopf('weg', '×', 'Bild löschen'); weg.className = 'gefahr'; tools.appendChild(weg);
+          z.appendChild(nr); z.appendChild(img);
+          if (i === 0) { var h = document.createElement('span'); h.className = 'fein'; h.textContent = 'Hauptbild'; z.appendChild(h); }
+          z.appendChild(tools); liste.appendChild(z);
+        });
+        var it = items[auswahl];
+        gross.hidden = !it; leer.hidden = !!it; altFeld.disabled = !it; hauptKnopf.hidden = !it || auswahl === 0;
+        if (it) { gross.src = it.url; gross.alt = it.alt || ('Bild ' + (auswahl + 1)); }
+        altFeld.value = it ? it.alt : '';
+        neuKnopf.disabled = items.length >= MAX;
+        if (zaehler) zaehler.textContent = '(' + items.length + '/' + MAX + ')';
+        abgleichen();
+      }
+      function sagen(text) { meldung.textContent = text || (items.length >= MAX ? 'Es sind höchstens ' + MAX + ' Bilder je Artikel möglich.' : ''); }
+      function verschieben(von, nach) {
+        if (nach < 0 || nach >= items.length || von === nach) return;
+        items.splice(nach, 0, items.splice(von, 1)[0]); auswahl = nach; geaendert = true; zeichnen();
+      }
+      function hinzufuegen(dateien) {
+        var fehler = [];
+        Array.prototype.forEach.call(dateien, function (d) {
+          var f = null;
+          if (items.length >= MAX) f = 'Es sind höchstens ' + MAX + ' Bilder je Artikel möglich.';
+          else if (ERLAUBT.indexOf(d.type) < 0) f = d.name + ': nur JPG, PNG oder WEBP sind erlaubt.';
+          else if (d.size > MAXBYTES) f = d.name + ': die Datei ist größer als ' + Math.round(MAXBYTES / 1048576) + ' MB.';
+          if (f) { if (fehler.indexOf(f) < 0) fehler.push(f); return; }
+          var url = URL.createObjectURL(d);
+          items.push({schluessel: 'n' + (++zaehlerNeu), url: url, vorschau: url, alt: '', datei: d}); auswahl = items.length - 1; geaendert = true;
+        });
+        zeichnen(); sagen(fehler.join(' '));
+      }
+      liste.addEventListener('click', function (e) {
+        var z = e.target.closest('.bild-zeile'); if (!z) return;
+        var i = parseInt(z.dataset.index, 10), k = e.target.closest('[data-aktion]');
+        if (!k) { auswahl = i; zeichnen(); return; }
+        if (k.dataset.aktion === 'hoch') verschieben(i, i - 1);
+        else if (k.dataset.aktion === 'runter') verschieben(i, i + 1);
+        else if (k.dataset.aktion === 'haupt') verschieben(i, 0);
+        else if (k.dataset.aktion === 'weg') {
+          wwokDialog('Dieses Bild wirklich löschen? Es wird mit „Speichern“ endgültig entfernt.',
+            [{text: 'Abbrechen', wert: false, haupt: true}, {text: 'Löschen', wert: true}]).then(function (ja) {
+            if (!ja) return;
+            var weg = items.splice(i, 1)[0]; if (weg.datei) URL.revokeObjectURL(weg.url);
+            geaendert = true; zeichnen(); sagen('');
+          });
+        }
+      });
+      liste.addEventListener('dragstart', function (e) {
+        var z = e.target.closest ? e.target.closest('.bild-zeile') : null; if (!z) return;
+        ziehen = parseInt(z.dataset.index, 10); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'bild');
+      });
+      liste.addEventListener('dragend', function () { ziehen = null; liste.classList.remove('ablegen'); });
+      liste.addEventListener('dragover', function (e) { e.preventDefault(); liste.classList.add('ablegen'); });
+      liste.addEventListener('dragleave', function (e) { if (e.target === liste) liste.classList.remove('ablegen'); });
+      liste.addEventListener('drop', function (e) {
+        e.preventDefault(); liste.classList.remove('ablegen');
+        if (ziehen !== null) {
+          var z = e.target.closest('.bild-zeile'), von = ziehen; ziehen = null;
+          verschieben(von, z ? parseInt(z.dataset.index, 10) : items.length - 1);
+        } else if (e.dataTransfer && e.dataTransfer.files.length) hinzufuegen(e.dataTransfer.files);
+      });
+      neuKnopf.addEventListener('click', function () { dateiFeld.click(); });
+      dateiFeld.addEventListener('change', function () { hinzufuegen(dateiFeld.files); dateiFeld.value = ''; });
+      hauptKnopf.addEventListener('click', function () { verschieben(auswahl, 0); });
+      altFeld.addEventListener('input', function () { if (items[auswahl]) { items[auswahl].alt = altFeld.value; abgleichen(); geaendert = true; } });
+      altFeld.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });  // Enter speichert hier nicht die Maske
+      formular.bilderAnhaengen = function (daten) {
+        items.forEach(function (it) { if (it.datei) daten.append('bild_neu_' + it.schluessel.slice(1), it.datei, it.datei.name); });
+      };
+      zeichnen(); sagen('');
+    }
     function ustPruefung(knopf) {  // USt-ID online prüfen: das Datum kommt nur in die Maske, „Speichern“ hält es fest
       var formular = knopf.closest('form'), nummer = formular.elements.ust_id, datum = formular.elements.ust_id_geprueft_am;
       var ausgabe = formular.querySelector('[data-ustergebnis]'), speichern = formular.querySelector('button[type=submit]');
@@ -506,7 +612,7 @@
       var typ = dlg.querySelector('select[name=typ]');  // Artikelmaske: Leistungen haben nur Stammdaten und Preise
       function typAnwenden() {
         var leistung = typ.value === 'L';
-        ['logistik', 'online', 'mandant'].forEach(function (name) {
+        ['logistik', 'online', 'bilder', 'mandant'].forEach(function (name) {
           var knopf = dlg.querySelector('[data-modaltab="' + name + '"]'); if (!knopf) return;
           knopf.style.display = leistung ? 'none' : '';
           if (leistung && knopf.classList.contains('aktiv')) zeigeTab('grund');
@@ -544,6 +650,7 @@
       }
       if (typ) { typ.addEventListener('change', function () { nummerTauschen(); typAnwenden(); }); typAnwenden(); }
       var bereich = dlg.querySelector('[data-komponenten]'); if (bereich) komponentenBereich(bereich);
+      var bilderTab = dlg.querySelector('[data-bilder]'); if (bilderTab) bilderBereich(bilderTab);
       if (dlg.querySelector('[name=vk1][data-ek]')) wwokPreisKopplung(dlg);  // aus stammdaten/_preiskopplung.html
       var fehler = dlg.querySelector('[data-modaltab].mit-fehler'); if (fehler) zeigeTab(fehler.dataset.modaltab);
       var formular = dlg.querySelector('form'); if (!formular) return;
@@ -551,7 +658,8 @@
         e.preventDefault();
         var knopf = formular.querySelector('button[type=submit]'); knopf.disabled = true;
         try {
-          var r = await fetch(formular.action, {method: 'POST', body: new FormData(formular), credentials: 'same-origin', headers: {'X-Requested-With': 'fetch'}});
+          var daten = new FormData(formular); if (formular.bilderAnhaengen) formular.bilderAnhaengen(daten);
+          var r = await fetch(formular.action, {method: 'POST', body: daten, credentials: 'same-origin', headers: {'X-Requested-With': 'fetch'}});
           if ((r.headers.get('content-type') || '').indexOf('json') >= 0) {
             var d = await r.json();
             if (d.ok) { if (d.ziel && d.ziel !== location.pathname) { location.href = d.ziel; } else { location.reload(); } return; }
