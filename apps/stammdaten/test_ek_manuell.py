@@ -187,6 +187,15 @@ class EkManuellTest(TestCase):
         a.refresh_from_db()
         self.assertEqual((a.vk1, stufenpreis(a, 1)), (None, D("12.00")))
 
+    def test_leerer_vk_ohne_ek_laesst_sich_unveraendert_speichern(self):
+        # Vorbelegung bei leerem VK2 ist „Aufschlag fix“; ohne EK darf das Speichern trotzdem nicht scheitern
+        a = Artikel.objects.create(nummer="5001", bezeichnung="Kabel", steuersatz=self.st, vk1=D("9.90"))  # kein EK, kein VK2
+        url = reverse("stammdaten:artikel_bearbeiten", args=[a.pk])
+        r = self.client.post(url, self.daten(vk1="9.90", fix_vk1="vk", vk2="", aufschlag_vk2="", fix_vk2="aufschlag"))
+        self.assertEqual(r.status_code, 200, r.content[:300])
+        a.refresh_from_db()
+        self.assertEqual((a.vk1, a.vk2), (D("9.90"), None))
+
     def test_ungueltiger_aufschlag_mit_fuer_alle_ohne_zusatzmeldung(self):
         r = self.anlegen(aufschlag_vk1="abc", aufschlag_vk1_fuer_alle="on")
         self.assertEqual(r.status_code, 422)

@@ -1,0 +1,40 @@
+{% extends "admin/base_site.html" %}
+{% comment %}Verwaltung: Kopf und Brotkrümel bleiben beim Scrollen stehen, rechts in den Brotkrümeln „Speichern“ für das Formular der Seite.{% endcomment %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  #container { height:auto; min-height:100%; }  /* sonst endet „sticky“ nach einer Bildschirmhöhe */
+  #header { position:sticky; top:0; z-index:30; }
+  #wwok-brotleiste { position:sticky; top:var(--wwok-kopf, 0px); z-index:29; display:flex; align-items:center; background:var(--breadcrumbs-bg); }
+  #wwok-brotleiste > nav { flex:1; min-width:0; }
+  #wwok-brotleiste .wwok-speichern { margin:0 40px 0 12px; padding:6px 16px; border:0; border-radius:4px; background:var(--button-bg); color:var(--button-fg); font-weight:600; cursor:pointer; white-space:nowrap; }
+  #wwok-brotleiste .wwok-speichern:hover, #wwok-brotleiste .wwok-speichern:focus { background:var(--button-hover-bg); }
+  #nav-sidebar.sticky, .sticky { top:var(--wwok-leiste, 0px); max-height:calc(100vh - var(--wwok-leiste, 0px)); }
+  @media (max-width:767px) { #wwok-brotleiste .wwok-speichern { margin-right:16px; } }
+</style>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var kopf = document.getElementById('header'), leiste = document.getElementById('wwok-brotleiste');
+    if (!kopf || !leiste) return;
+    // Höhe des Kopfs an die Brotkrümel weitergeben (Kopf kann umbrechen)
+    function messen() {
+      var h = kopf.offsetHeight;
+      document.documentElement.style.setProperty('--wwok-kopf', h + 'px');
+      document.documentElement.style.setProperty('--wwok-leiste', (h + leiste.offsetHeight) + 'px');
+    }
+    messen();
+    if (window.ResizeObserver) { var ro = new ResizeObserver(messen); ro.observe(kopf); ro.observe(leiste); }
+    else window.addEventListener('resize', messen);
+    // „Speichern“ nur, wenn die Seite ein Formular mit Speichern-Knopf hat
+    var formular = document.querySelector('#content-main form, #content form');
+    var sichern = formular && formular.querySelector('input[type=submit][name=_save]');
+    if (!sichern) return;
+    var knopf = document.createElement('button');
+    knopf.type = 'button'; knopf.className = 'wwok-speichern'; knopf.textContent = 'Speichern';
+    knopf.addEventListener('click', function () {
+      if (formular.requestSubmit) formular.requestSubmit(sichern); else sichern.click();
+    });
+    leiste.appendChild(knopf);
+  });
+</script>
+{% endblock %}
+{% block nav-breadcrumbs %}<div id="wwok-brotleiste">{{ block.super }}</div>{% endblock %}

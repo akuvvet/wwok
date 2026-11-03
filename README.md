@@ -859,6 +859,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Laufende Nummern in der Verwaltung einstellbar, Belegnummern durchlaufend über den Jahreswechsel
 - [x] USt-ID online prüfen bei Kunden und Lieferanten (BZSt und VIES) mit dauerhaftem Nachweis
 - [x] Alle Mailtexte an Kunden und Lieferanten unter Verwaltung → Mailvorlagen je Mandant (Tabelle `verkauf_mailvorlage`): Belege, Bestellung an Lieferanten, Lizenzschlüssel, Versandmitteilung, Mahnung, drei Werkstatt-Statusmails. Fehlende Zeilen entstehen beim Öffnen der Liste mit dem Standardtext aus `apps/verkauf/mail.py`, vorhandene bleiben unverändert; Anlegen und Löschen gesperrt, unbekannte Platzhalter werden beim Speichern abgelehnt. Der Mahntext bleibt an der Mahnstufe, weil er auch im PDF steht, und kommt über `{mahntext}` in die Mail
+- [x] Verwaltung: Kopf und Brotkrümel bleiben beim Scrollen stehen, rechts in den Brotkrümeln „Speichern“ (wie Djangos „Sichern“, nur auf Seiten mit Formular), Vorlage `templates/admin/base_site.html`
 - [ ] Deutsche Post, eBay, Kaufland, Newsletter mit Double-Opt-in, Kategorien-Sync mit Shopware
 - [ ] Auswertungen (Umsatz, Marge, Topseller) und Startseiten-Übersicht mit Wiedervorlagen und fälligen Mahnungen
 

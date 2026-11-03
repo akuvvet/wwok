@@ -1,0 +1,25 @@
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.urls import reverse
+
+
+class VerwaltungKopfTest(TestCase):
+    """Verwaltung: Kopf und Brotkrümel stehen fest, „Speichern“ rechts in den Brotkrümeln."""
+
+    def setUp(self):
+        self.admin = get_user_model().objects.create_superuser("admin", "a@a.de", "x" * 14)
+        self.client.force_login(self.admin)
+
+    def test_brotleiste_fest_mit_speichern_skript(self):
+        html = self.client.get(reverse("admin:auth_user_change", args=[self.admin.pk])).content.decode()
+        self.assertRegex(html, r'<div id="wwok-brotleiste">\s*<nav')
+        self.assertIn("#header { position:sticky; top:0;", html)
+        self.assertIn("knopf.textContent = 'Speichern'", html)
+        self.assertIn('name="_save"', html)  # Ziel des Knopfs bleibt Djangos eigener Speichern-Knopf
+        self.assertIn('wwok Warenwirtschaft', html)  # Kopf aus admin.site.site_header bleibt
+
+    def test_anmeldung_ohne_brotleiste(self):
+        self.client.logout()
+        r = self.client.get(reverse("admin:login"))
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'id="wwok-brotleiste"')

@@ -219,7 +219,8 @@ class VkVorschlagForm(forms.ModelForm):
             feld, fix = f"vk{stufe}", None if leistung else daten.get(f"fix_vk{stufe}")
             if fix == "aufschlag":  # VK folgt dem EK + Aufschlag, nichts Festes speichern – aber nur, wenn das einen Preis ergibt
                 if self.ek_fuer_vorschlag(daten) is None or self.aufschlag_fuer_vorschlag(daten, stufe) is None:
-                    if f"aufschlag_vk{stufe}" not in self.errors:
+                    # nur melden, wenn sonst ein eingetragener VK verloren ginge; ein leerer VK bleibt einfach leer
+                    if daten.get(feld) is not None and f"aufschlag_vk{stufe}" not in self.errors:
                         self.add_error(f"aufschlag_vk{stufe}", f"Ohne EK und Aufschlag ergibt sich kein VK{stufe} – bitte den VK fixieren.")
                 else:
                     daten[feld] = None
