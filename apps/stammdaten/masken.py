@@ -3,6 +3,8 @@ für den Dialog; gespeichert wird per fetch, bei Fehlern kommt das Fragment mit 
 import json
 from decimal import Decimal
 
+from django import forms as djforms
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
@@ -15,7 +17,7 @@ from apps.verkauf.views import dezimal, mit_mandant
 
 from . import forms as f
 from . import ustid
-from .models import (Artikel, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant, Lieferant, LieferantMandant, Stammnummer,
+from .models import (Artikel, ArtikelBild, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant, Lieferant, LieferantMandant, Stammnummer,
                      UstIdPruefung)
 from .preise import komponenten_zeile
 
@@ -99,11 +101,53 @@ def baue_tabs(art, form, formsets, mandantform):
     return fehlerhafte_tabs(tabs)
 
 
-def artikel_tabs(form, mandantform, komponenten, fehler=False):
+BILDPLAETZE = range(1, 11)  # Positionen 1 (Hauptbild) bis 10
+
+
+def bilder_zeilen(artikel, fehler=None):
+    """Zehn feste Zeilen für die Maske; vorhandene Bilder stehen auf ihrer Position."""
+    fehler = fehler or {}
+    vorhanden = {b.position: b for b in artikel.bilder.all()} if artikel.pk else {}
+    return [{"position": p, "bild": vorhanden.get(p), "fehler": fehler.get(p, "")} for p in BILDPLAETZE]
+
+
+def bilder_pruefen(post, files):
+    """Prüft hochgeladene Dateien als Bild. Rückgabe: Fehlermeldungen je Position."""
+    fehler = {}
+    for p in BILDPLAETZE:
+        datei = files.get(f"bild_{p}")
+        if datei and not post.get(f"bild_loeschen_{p}"):
+            try:
+                djforms.ImageField().clean(datei)
+            except ValidationError as e:
+                fehler[p] = e.messages[0]
+    return fehler
+
+
+def bilder_speichern(artikel, post, files):
+    """Neue Datei ersetzt das Bild der Position; „löschen“ entfernt es. Nur Änderungen werden geschrieben."""
+    vorhanden = {b.position: b for b in artikel.bilder.all()}
+    for p in BILDPLAETZE:
+        alt, datei = vorhanden.get(p), files.get(f"bild_{p}")
+        if post.get(f"bild_loeschen_{p}"):
+            if alt:
+                alt.bild.delete(save=False)
+                alt.delete()
+        elif datei:
+            if alt:
+                alt.bild.delete(save=False)
+                alt.bild.save(datei.name, datei, save=True)
+            else:
+                ArtikelBild(artikel=artikel, position=p).bild.save(datei.name, datei, save=True)
+
+
+def artikel_tabs(form, mandantform, komponenten, fehler=False, bilder=None, bilderfehler=False):
     """Artikel-Registerkarten; der Reiter Komponenten steht nach den Preisen und ist nur bei Typ G sichtbar."""
     tabs = baue_tabs("artikel", form, [], mandantform)
     tabs.insert(2, {"id": "komponenten", "titel": "Komponenten", "felder": [], "form": None, "formset": None, "extra": None,
                     "komponenten": komponenten, "fehler": fehler})
+    tabs.insert(3, {"id": "bilder", "titel": "Bilder", "felder": [], "form": None, "formset": None, "extra": None,
+                    "bilder": bilder or [], "fehler": bilderfehler})
     return tabs
 
 
@@ -238,7 +282,10 @@ def artikel_bearbeiten(request, pk=None):
         komponenten = anzeige
         for text in fehler:
             form.add_error(None, text)
-        if gueltig and not fehler:
+        bildfehler = bilder_pruefen(request.POST, request.FILES)
+        for p, text in bildfehler.items():
+            form.add_error(None, f"Bild {p}: {text}")
+        if gueltig and not fehler and not bildfehler:
             with transaction.atomic():
                 if not pk:
                     Stammnummer.belegen(form.cleaned_data["typ"], form.cleaned_data["nummer"])
@@ -248,12 +295,16 @@ def artikel_bearbeiten(request, pk=None):
                 md.save()
                 if gruppe:
                     komponenten_speichern(objekt, gewaehlt)
+                bilder_speichern(objekt, request.POST, request.FILES)
             # Neu: zur Artikelseite; Bearbeiten: auf der Seite bleiben, von der aus geöffnet wurde (z. B. Artikelliste)
             return JsonResponse({"ok": True, "ziel": None if pk else reverse("lager:artikel", args=[objekt.pk])})
         status = 422
+    else:
+        bildfehler = {}
     antwort = render(request, "stammdaten/modal.html", {
         "titel": f"Artikel {instanz.nummer} – {instanz.bezeichnung}" if pk else "Neuer Artikel",
-        "tabs": artikel_tabs(form, mandantform, komponenten, bool(form.non_field_errors())), "form": form, "neu": not pk, "warnung": "",
+        "tabs": artikel_tabs(form, mandantform, komponenten, bool(form.non_field_errors()),
+                             bilder_zeilen(instanz, bildfehler), bool(bildfehler)), "form": form, "neu": not pk, "warnung": "",
         "aktion": request.path, "kunde": False, "mandant": mandant})
     antwort.status_code = status
     return antwort

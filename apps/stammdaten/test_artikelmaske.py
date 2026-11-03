@@ -78,3 +78,36 @@ class ArtikelMaskeTest(TestCase):
         r = self.client.post(reverse("stammdaten:artikel_neu"), self.daten(esd_key="on", kategorie=software.pk))
         self.assertEqual(r.status_code, 200)
         self.assertTrue(Artikel.objects.get(nummer="5000").esd_key)
+
+    def png(self, name="a.png"):
+        import io
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+        puffer = io.BytesIO()
+        Image.new("RGB", (4, 4), "red").save(puffer, "PNG")
+        return SimpleUploadedFile(name, puffer.getvalue(), content_type="image/png")
+
+    def test_reiter_bilder_mit_zehn_zeilen(self):
+        r = self.client.get(reverse("stammdaten:artikel_neu"))
+        self.assertContains(r, "Bilder")
+        for p in range(1, 11):
+            self.assertContains(r, f'name="bild_{p}"')
+
+    def test_bild_hochladen_ersetzen_loeschen_und_ungueltig(self):
+        import tempfile
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from .models import ArtikelBild
+        with tempfile.TemporaryDirectory() as ordner, override_settings(MEDIA_ROOT=ordner):
+            r = self.client.post(reverse("stammdaten:artikel_neu"), self.daten(bild_1=self.png(), bild_3=self.png("b.png")))
+            self.assertEqual(r.status_code, 200)
+            a = Artikel.objects.get(nummer="5000")
+            self.assertEqual(sorted(a.bilder.values_list("position", flat=True)), [1, 3])
+            url = reverse("stammdaten:artikel_bearbeiten", args=[a.pk])
+            self.client.post(url, self.daten(bild_1=self.png("c.png"), bild_loeschen_3="1"))
+            self.assertEqual(list(a.bilder.values_list("position", flat=True)), [1])
+            r = self.client.post(url, self.daten(bild_2=SimpleUploadedFile("x.png", b"kein bild", content_type="image/png")))
+            self.assertEqual(r.status_code, 422)
+            self.assertEqual(ArtikelBild.objects.filter(artikel=a).count(), 1)
