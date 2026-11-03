@@ -26,3 +26,9 @@ Web-Warenwirtschaft für OKAY Computer und ZONE Handel (Django 5.1, Mandantenfä
 - `docs/pflichtenheft.md`, README Abschnitt 4–7
 - Screenshots der Mention-Oberfläche: `D:\Bilder\Screenshots` (Referenz, keine personenbezogenen Daten übernehmen)
 - Chat mit Oguz Özdemir (WhatsApp Web) – fachliche Vorgaben, Rückfragen
+
+## Regeln für jede Aufgabe
+- Zu jeder Änderung passende Tests schreiben bzw. anpassen (Django `tests.py` / `tests/`).
+- `python manage.py test` muss vollständig grün sein.
+- Modelländerungen immer mit Migration committen (`makemigrations`).
+- Keine Migrationen, die Daten löschen, ohne ausdrücklichen Hinweis im Issue.
