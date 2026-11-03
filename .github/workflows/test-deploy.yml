@@ -1,0 +1,85 @@
+name: Test & Deploy
+on:
+  push:
+    branches: ['claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: test-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Warten, bis Claude fertig ist (5 Min. ohne neuen Push)
+        run: sleep 300
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Django-Checks und Tests
+        env:
+          DJANGO_SECRET_KEY: ci-test-key-nicht-produktiv
+          DEBUG: "False"
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+          python manage.py test
+
+  merge:
+    needs: test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: test-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: In main übernehmen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git merge --no-ff "origin/${GITHUB_REF_NAME}" -m "Auto-Merge ${GITHUB_REF_NAME} (Tests grün)"
+          git push origin main
+
+  deploy:
+    needs: merge
+    runs-on: ubuntu-latest
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    steps:
+      - name: Auf Server einspielen
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd "${{ secrets.DEPLOY_PATH }}"
+            git fetch origin main
+            git reset --hard origin/main
+            source venv/bin/activate
+            pip install -r requirements.txt
+            python manage.py migrate --noinput
+            python manage.py collectstatic --noinput
+            sudo systemctl restart wwok
+
+      - name: Issue schließen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ISSUE=$(echo "${GITHUB_REF_NAME}" | sed -n 's#^claude/issue-\([0-9]*\)-.*#\1#p')
+          if [ -n "$ISSUE" ]; then
+            gh issue close "$ISSUE" -R "${GITHUB_REPOSITORY}" \
+              --comment "✅ Tests grün, in main übernommen und live eingespielt."
+          fi
