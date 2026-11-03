@@ -48,6 +48,21 @@ class Block3Test(TestCase):
         self.assertEqual(self.client.get(url, {"von": morgen}).context["anzahl"], 0)
         self.assertEqual(self.client.get(url, {"von": "kein-datum"}).status_code, 200)
 
+    def test_belegart_filtert_sofort_und_behaelt_uebrige_filter(self):
+        a = self.beleg(Belegart.ANGEBOT)
+        r = self.beleg(Belegart.RECHNUNG)
+        url = reverse("verkauf:belege")
+        antwort = self.client.get(url, {"art": "RE", "q": "Muster", "status": "offen", "von": "2000-01-01"})
+        html = antwort.content.decode()
+        self.assertIn('name="art" onchange="this.form.submit()"', html)  # Auswahl sendet das ganze Formular
+        self.assertIn('<option value="RE" selected>', html)  # Auswahl bleibt nach dem Neuladen sichtbar
+        self.assertIn('value="Muster"', html)
+        self.assertIn('value="2000-01-01"', html)
+        self.assertIn('<option value="offen" selected>', html)
+        self.assertEqual([b.pk for b in antwort.context["seite"].object_list], [r.pk])
+        alle = self.client.get(url, {"art": "", "q": "Muster"}).context["seite"].object_list
+        self.assertEqual({b.pk for b in alle}, {a.pk, r.pk})
+
     def test_belegliste_braucht_login(self):
         self.client.logout()
         self.assertEqual(self.client.get(reverse("verkauf:belege")).status_code, 302)

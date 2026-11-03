@@ -6,7 +6,7 @@
   <h1>Alle Belege · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile">
     <div><label for="q">Beleg-Nr., Kunde oder Referenz</label><input id="q" name="q" value="{{ q }}" size="30" autofocus></div>
-    <div><label>Belegart</label><select name="art"><option value="">alle</option>
+    <div><label for="art">Belegart</label><select id="art" name="art" onchange="this.form.submit()"><option value="">alle</option>
       {% for wert, name in arten %}<option value="{{ wert }}" {% if art == wert %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
     <div><label>Status</label><select name="status">
       <option value="">alle</option>
