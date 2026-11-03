@@ -29,7 +29,7 @@ class Bestellung(Zeitstempel):
     lieferant = models.ForeignKey(Lieferant, on_delete=models.PROTECT, related_name="bestellungen")
     nummer = models.CharField("Bestellnummer", max_length=20, db_index=True)
     datum = models.DateField("Datum", default=timezone.localdate)
-    status = models.CharField(max_length=10, choices=BestellStatus.choices, default=BestellStatus.ENTWURF, db_index=True)
+    status = models.CharField(max_length=20, choices=BestellStatus.choices, default=BestellStatus.ENTWURF, db_index=True)
     bemerkung = models.TextField("Bemerkung", blank=True)
     aus_beleg = models.ForeignKey("verkauf.Beleg", on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
                                   help_text="Angebot oder Kundenbestellung, aus dem die Lieferantenbestellung kopiert wurde")
