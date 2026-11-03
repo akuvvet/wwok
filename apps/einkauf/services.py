@@ -10,6 +10,7 @@ from apps.lager.models import Bewegungsart, Lagerbewegung, bestand, reserviert
 from apps.esd.models import ESDKey
 from apps.esd.services import zeilen as esd_zeilen
 from apps.lager.services import seriennummern_einlagern, zeilen
+from apps.stammdaten.ekkalk import wareneingang_ek
 from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel, keine_leistung
 from apps.verkauf.models import Belegart, Nummernkreis, Position
 
@@ -305,6 +306,7 @@ def wareneingang_buchen(we, benutzer=None) -> int:
         p.kalk_ek = kalkulation[p.pk]  # eigentlicher EK: inkl. anteiliger Versand-, Versicherungs- und Verpackungskosten
         p.save(update_fields=["kalk_ek"])
         a = Artikel.objects.select_for_update().get(pk=p.artikel_id)  # frisch laden: mehrere Zeilen desselben Artikels
+        wareneingang_ek(we.mandant, a, bestand(we.mandant, a), p.menge, p.kalk_ek)  # Ø-EK vor der Buchung, mit dem Bestand davor
         Lagerbewegung.objects.create(mandant=we.mandant, artikel=a, art=Bewegungsart.WARENEINGANG, menge=p.menge,
                                      bemerkung=f"{we.nummer} {we.lieferant.name1}", benutzer=benutzer)
         am, _ = ArtikelMandant.objects.get_or_create(artikel=a, mandant=we.mandant)
