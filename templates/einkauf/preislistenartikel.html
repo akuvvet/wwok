@@ -19,7 +19,7 @@
     <tr><td><span class="marke">{{ e.lieferant.kurz }}</span></td><td>{{ e.herstellernummer }}</td><td>{{ e.bestellnummer }}</td><td>{{ e.bezeichnung }}</td><td>{{ e.hersteller }}</td>
         <td class="zahl">{{ e.ek|floatformat:2 }}</td><td class="zahl">{{ e.bestand|default_if_none:"" }}</td>
         <td>{% if e.artikel %}<a href="{% url 'lager:artikel' e.artikel.pk %}">{{ e.artikel.nummer }}</a>{% endif %}</td>
-        <td>{% if not e.artikel %}<a class="knopf leise" href="{% url 'stammdaten:artikel_neu' %}?kopie_von_pl={{ e.pk }}" data-modal="{% url 'stammdaten:artikel_neu' %}?kopie_von_pl={{ e.pk }}">Als A-Artikel kopieren</a>{% endif %}</td></tr>
+        <td>{% if not e.artikel %}<a class="symbol unten links" style="width:32px;height:32px" data-tip="Als A-Artikel kopieren" title="Als A-Artikel kopieren" aria-label="Als A-Artikel kopieren" href="{% url 'stammdaten:artikel_neu' %}?kopie_von_pl={{ e.pk }}" data-modal="{% url 'stammdaten:artikel_neu' %}?kopie_von_pl={{ e.pk }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></a>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="9">Keine Treffer.</td></tr>{% endfor %}</tbody>
   </table></div>
   {% include "seiten.html" %}
