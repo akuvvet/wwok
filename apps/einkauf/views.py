@@ -112,11 +112,11 @@ def bestellung_detail(request, bestellung_id):
     if entwurf and positionen:
         l = b.lieferant
         if l.mindestbestellwert and netto < l.mindestbestellwert:
-            konditionen.append(f"Mindestbestellwert: noch {vergleich.eur(l.mindestbestellwert - netto)} €")
+            konditionen.append(("Mindestbestellwert", f"noch {vergleich.eur(l.mindestbestellwert - netto)} €"))
         if l.versandkostenfrei_ab and netto < l.versandkostenfrei_ab:
-            konditionen.append(f"noch {vergleich.eur(l.versandkostenfrei_ab - netto)} € bis versandfrei")
+            konditionen.append(("Bis versandfrei", f"noch {vergleich.eur(l.versandkostenfrei_ab - netto)} €"))
         if vergleich.versand(l, netto):
-            konditionen.append(f"Versand {vergleich.eur(vergleich.versand(l, netto))} €")
+            konditionen.append(("Versand", f"{vergleich.eur(vergleich.versand(l, netto))} €"))
     return render(request, "einkauf/bestellung.html", {
         "b": b, "positionen": positionen, "netto": netto, "konditionen": konditionen, "mit_lieferung": any(p.geliefert for p in positionen),
         "wareneingaenge": b.wareneingaenge.all(), "aus_beleg": b.aus_beleg})

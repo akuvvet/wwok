@@ -166,7 +166,8 @@ def kunde_detail(request, kunde_id):
     offen = fin.kunde_offen(request.mandant, kunde)
     limit = mandantendaten.kreditlimit if mandantendaten else None
     return render(request, "verkauf/kunde.html", {
-        "offen": offen, "limit_ueberschritten": bool(limit) and offen > limit, "sammelrechnung": offene_lieferscheine >= 2,
+        "offen": offen, "limit_ueberschritten": bool(limit) and offen > limit,
+        "kredit_differenz": offen - limit if limit and offen > limit else None, "sammelrechnung": offene_lieferscheine >= 2,
         "kunde": kunde, "zeilen": zeilen, "seite": seite, "parameter": parameter.urlencode(), "filter": art,
         "ab": ab, "ohne_storno": ohne_storno, "arten": Belegart.choices,
         "kreditlimit": mandantendaten.kreditlimit if mandantendaten else None,
