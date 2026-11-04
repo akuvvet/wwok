@@ -66,6 +66,9 @@ def beleg_pdf(beleg) -> bytes:
     anschrift = beleg.rechnungsanschrift or "\n".join(
         t for t in (k.name1, k.name2, k.strasse, f"{k.plz} {k.ort}") if t)
     daten = [["Kunden-Nr.", k.nummer], ["Datum", beleg.belegdatum.strftime("%d.%m.%Y")]]
+    if beleg.art == Belegart.RECHNUNG:
+        ld = beleg.lieferdatum
+        daten.append(["Lieferdatum", ld.strftime("%d.%m.%Y") if ld else "siehe Positionen"])
     if beleg.nummer:
         daten.insert(0, ["Bestell-Nr." if beleg.art == Belegart.AUFTRAG else f"{beleg.get_art_display()}-Nr.", beleg.nummer])
     if beleg.referenz:

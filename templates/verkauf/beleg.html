@@ -13,6 +13,7 @@
     <p class="zeile" style="margin:0">
       <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}"><strong>{{ beleg.kunde.nummer }} · {{ beleg.kunde.name1 }}</strong></a>
       <span>{{ beleg.belegdatum|date:"d.m.Y" }}</span>
+      {% if beleg.art == "RE" %}<span>Lieferdatum: {% if beleg.lieferdatum %}{{ beleg.lieferdatum|date:"d.m.Y" }}{% else %}siehe Positionen{% endif %}</span>{% endif %}
       {% if beleg.gesperrt %}<span class="marke gesperrt">abgeschlossen &amp; gesperrt</span>
       {% elif beleg.abgeschlossen %}<span class="marke ok">abgeschlossen</span>
       {% else %}<span class="marke">Entwurf</span>{% endif %}

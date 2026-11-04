@@ -303,6 +303,22 @@ class Beleg(Zeitstempel):
             raise ValueError(f"{self} hat keine Position – erst Positionen erfassen.")
 
     @property
+    def lieferdatum(self):
+        """Lieferdatum im Kopf einer Rechnung: ohne Lieferschein = Rechnungsdatum; stammen alle Positionen aus
+        einem Lieferschein, dessen Datum. Bei mehreren Lieferscheinen None (Datum steht je Position)."""
+        if self.art != Belegart.RECHNUNG:
+            return None
+        if not self.pk:
+            return self.belegdatum
+        haupt = self.positionen.filter(gruppe__isnull=True)
+        ls_ids = set(haupt.values_list("lieferschein_id", flat=True))
+        if ls_ids == {None} or not ls_ids:
+            return self.belegdatum
+        if len(ls_ids) == 1:
+            return Beleg.objects.filter(pk=ls_ids.pop()).values_list("belegdatum", flat=True).first()
+        return None
+
+    @property
     def abrechenbar(self) -> bool:
         """Abgeschlossener Lieferschein, der noch in keine Rechnung (und keinen anderen Folgebeleg) übernommen wurde."""
         return (self.art == Belegart.LIEFERSCHEIN and self.abgeschlossen
