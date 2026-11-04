@@ -90,8 +90,10 @@
   </section>
   {% endfor %}
 
+  {% if kopie_von %}<input type="hidden" name="kopie_von" value="{{ kopie_von.pk }}">{% if kopie_bilder %}<input type="hidden" name="kopie_bilder" value="1">{% endif %}{% endif %}
   <footer class="modal-fuss">
     <span class="modal-hinweis" hidden></span>
+    {% if kopie_artikel %}<button type="button" class="leise" data-kopieren="{% url 'stammdaten:artikel_neu' %}?kopie_von={{ kopie_artikel.pk }}" data-kopieren-name="{{ kopie_artikel.nummer }} – {{ kopie_artikel.bezeichnung }}" style="margin-right:auto">Kopieren</button>{% endif %}
     <button type="button" class="leise" data-schliessen>Abbrechen</button>
     <button type="submit">Speichern</button>
   </footer>

@@ -16,7 +16,7 @@ from django.views.decorators.http import require_POST
 from apps.verkauf.views import dezimal, mit_mandant
 
 from . import forms as f
-from . import ustid
+from . import kopie, ustid
 from .models import (BILD_FORMATE, MAX_BILD_BYTES, MAX_BILDER, Artikel, ArtikelBild, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant,
                      Lieferant, LieferantMandant, Stammnummer, UstIdPruefung)
 from .preise import komponenten_zeile
@@ -101,9 +101,9 @@ def baue_tabs(art, form, formsets, mandantform):
     return fehlerhafte_tabs(tabs)
 
 
-def bilder_daten(artikel):
-    """Vorhandene Bilder für die Galerie im Reiter (Reihenfolge = Position)."""
-    bilder = artikel.bilder.all() if artikel.pk else []
+def bilder_daten(artikel, quelle=None):
+    """Vorhandene Bilder für die Galerie im Reiter (Reihenfolge = Position). Bei einer Kopie zeigt die Galerie die Bilder der Vorlage."""
+    bilder = artikel.bilder.all() if artikel.pk else quelle.bilder.all() if quelle else []
     return [{"id": b.pk, "url": b.bild.url, "vorschau": b.vorschau_url, "alt": b.alt_text} for b in bilder]
 
 
@@ -120,13 +120,13 @@ def bild_pruefen(datei):
     return None
 
 
-def bilder_lesen(post, files, artikel):
+def bilder_lesen(post, files, artikel, quelle=None):
     """Liest die Galerie aus dem Formular. Die Reihenfolge in „bild_reihe“ ist die Position; „b<id>“ ist ein vorhandenes Bild,
     „n<marke>“ eine neue Datei (bild_neu_<marke>); was fehlt, wird gelöscht. Ohne Marker „bilder_geladen“ bleibt alles unberührt.
     Rückgabe: (Plan oder None, Fehlermeldungen); Plan = Liste aus (vorhandenes Bild, Datei, Alt-Text)."""
     if "bilder_geladen" not in post:
         return None, []
-    vorhanden = {f"b{b.pk}": b for b in artikel.bilder.all()} if artikel.pk else {}
+    vorhanden = {f"b{b.pk}": b for b in (artikel.bilder.all() if artikel.pk else quelle.bilder.all() if quelle else [])}
     plan, fehler, gesehen = [], [], set()
     for eintrag in post.getlist("bild_reihe"):
         if eintrag in gesehen:
@@ -157,7 +157,9 @@ def bilder_speichern(artikel, plan):
             bild.delete()
     artikel.bilder.update(position=F("position") + 100)  # Platz schaffen, damit das Umsortieren die Eindeutigkeit nicht verletzt
     for position, (bild, datei, alt_text) in enumerate(plan, start=1):
-        if bild:
+        if bild and bild.artikel_id != artikel.pk:  # Bild der Vorlage (Kopie): eigene Datei für den neuen Artikel
+            kopie.bild_duplizieren(bild, artikel, position, alt_text)
+        elif bild:
             bild.position, bild.alt_text = position, alt_text
             bild.save(update_fields=["position", "alt_text"])
         else:
@@ -292,13 +294,24 @@ def lieferant_ust_id_pruefen(request, pk):
 def artikel_bearbeiten(request, pk=None):
     """Artikelstamm im Dialog mit Registerkarten; Lagerplatz und Bestandsgrenzen gelten je Mandant."""
     mandant = request.mandant
-    instanz = get_object_or_404(Artikel, pk=pk) if pk else Artikel(nummer=Stammnummer.vorschlag(Artikeltyp.A))
+    # Kopie (Issue 15): „Neuer Artikel“ mit den Werten einer Vorlage; angelegt wird erst beim Speichern (die Vorlage bleibt unverändert)
+    para = request.POST if request.method == "POST" else request.GET
+    vorlage = get_object_or_404(Artikel, pk=para.get("kopie_von")) if not pk and para.get("kopie_von", "").isdigit() else None
+    bilder_kopie = vorlage if vorlage and para.get("kopie_bilder") else None
+    if pk:
+        instanz = get_object_or_404(Artikel, pk=pk)
+    else:
+        instanz = kopie.neuer_artikel(vorlage) if vorlage else Artikel(nummer=Stammnummer.vorschlag(Artikeltyp.A))
     daten = request.POST if request.method == "POST" else None
     form = f.ArtikelForm(daten, instance=instanz)
     if not pk:  # jede Art hat ihren Zähler, die Maske tauscht die Nummer beim Wechsel des Typs
         form.fields["nummer"].widget.attrs["data-vorschlaege"] = json.dumps({t: Stammnummer.vorschlag(t) for t in (Artikeltyp.A, Artikeltyp.L, Artikeltyp.G)})
-    komponenten = [komponenten_zeile(k.komponente, k.menge) for k in instanz.komponenten.select_related("komponente")] if pk else []
-    md_instanz = (ArtikelMandant.objects.filter(artikel=instanz, mandant=mandant).first() if pk else None) or ArtikelMandant(mandant=mandant)
+    if vorlage:
+        komponenten = [komponenten_zeile(k, menge) for k, menge in kopie.komponenten_werte(vorlage)]
+    else:
+        komponenten = [komponenten_zeile(k.komponente, k.menge) for k in instanz.komponenten.select_related("komponente")] if pk else []
+    md_instanz = (ArtikelMandant.objects.filter(artikel=instanz, mandant=mandant).first() if pk else None) or ArtikelMandant(
+        mandant=mandant, **(kopie.mandant_werte(vorlage, mandant) if vorlage else {}))
     mandantform = f.ArtikelMandantForm(daten, instance=md_instanz, prefix="md")
     status = 200
     if request.method == "POST":
@@ -309,7 +322,7 @@ def artikel_bearbeiten(request, pk=None):
         komponenten = anzeige
         for text in fehler:
             form.add_error(None, text)
-        bilderplan, bildfehler = bilder_lesen(request.POST, request.FILES, instanz)
+        bilderplan, bildfehler = bilder_lesen(request.POST, request.FILES, instanz, bilder_kopie)
         for text in bildfehler:
             form.add_error(None, f"Bilder: {text}")
         if gueltig and not fehler and not bildfehler:
@@ -331,7 +344,8 @@ def artikel_bearbeiten(request, pk=None):
     antwort = render(request, "stammdaten/modal.html", {
         "titel": f"Artikel {instanz.nummer} – {instanz.bezeichnung}" if pk else "Neuer Artikel",
         "tabs": artikel_tabs(form, mandantform, komponenten, bool(form.non_field_errors()),
-                             bilder_daten(instanz), bool(bildfehler)), "form": form, "neu": not pk, "warnung": "",
-        "aktion": request.path, "kunde": False, "mandant": mandant})
+                             bilder_daten(instanz, bilder_kopie), bool(bildfehler)), "form": form, "neu": not pk, "warnung": "",
+        "aktion": request.path, "kunde": False, "mandant": mandant, "kopie_von": vorlage, "kopie_bilder": bool(bilder_kopie),
+        "kopie_artikel": instanz if pk else None})
     antwort.status_code = status
     return antwort

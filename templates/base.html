@@ -602,6 +602,16 @@
       dlg.querySelectorAll('[data-modaltab]').forEach(function (b) { b.addEventListener('click', function () { zeigeTab(b.dataset.modaltab); }); });
       var ustKnopf = dlg.querySelector('[data-ustpruefen]'); if (ustKnopf) ustPruefung(ustKnopf);
       dlg.querySelectorAll('[data-schliessen]').forEach(function (b) { b.addEventListener('click', schliessenFragen); });
+      dlg.querySelectorAll('[data-kopieren]').forEach(function (b) {  // Artikel als Vorlage: Rückfrage, dann „Neuer Artikel“ vorausgefüllt (angelegt erst beim Speichern)
+        b.addEventListener('click', function () {
+          var text = 'Artikel „' + b.dataset.kopierenName + '“ als Vorlage für einen neuen Artikel verwenden?' +
+            (geaendert ? ' Ungespeicherte Eingaben in diesem Artikel gehen dabei verloren.' : '');
+          wwokDialog(text, [{text: 'Als Vorlage verwenden', wert: true, haupt: true}, {text: 'Abbrechen', wert: false}],
+            [{name: 'bilder', text: 'Bilder mitkopieren'}]).then(function (a) {
+            if (a && a.wert) oeffnen(b.dataset.kopieren + (a.auswahl.indexOf('bilder') >= 0 ? '&kopie_bilder=1' : ''));
+          });
+        });
+      });
       dlg.querySelectorAll('[data-zeile-mehr]').forEach(function (b) {
         b.addEventListener('click', function () {
           var abschnitt = b.closest('section'), naechste = abschnitt.querySelector('fieldset[hidden]');

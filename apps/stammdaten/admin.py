@@ -7,7 +7,7 @@ from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 
-from . import leistung_import
+from . import kopie, leistung_import
 from . import models as m
 from .forms import VkVorschlagForm
 
@@ -89,7 +89,24 @@ class UstIdPruefungAdmin(admin.ModelAdmin):
         return False
 
 
-class ArtikelMandantInline(admin.TabularInline):
+def kopieren_daten(request, artikel, ziel_name):
+    """Angaben für den Knopf „Kopieren“ im geöffneten Artikel (Verwaltung); nur mit Recht „Artikel anlegen“."""
+    if not request.user.has_perm("stammdaten.add_artikel"):
+        return None
+    return {"url": reverse(ziel_name), "pk": artikel.pk, "name": f"{artikel.nummer} – {artikel.bezeichnung}"}
+
+
+class KopierteZeilenMixin:
+    """Beim Kopieren (?kopie_von=…) so viele Zeilen anbieten, wie die Vorlage Werte liefert (Initialwerte setzt ArtikelAdmin)."""
+
+    def get_extra(self, request, obj=None, **kwargs):
+        if obj is None and request.method == "GET" and request.GET.get("kopie_von", "").isdigit():
+            return max(self.extra, 1 if self.model is m.ArtikelMandant else
+                       m.GruppenKomponente.objects.filter(gruppe_id=request.GET["kopie_von"]).count())
+        return self.extra
+
+
+class ArtikelMandantInline(KopierteZeilenMixin, admin.TabularInline):
     model = m.ArtikelMandant
     extra = 0
     exclude = ["letzter_ek"]  # wird beim Wareneingang gesetzt, nicht von Hand
@@ -111,7 +128,7 @@ class ArtikelLieferantInline(admin.TabularInline):
     extra = 0
 
 
-class GruppenKomponenteInline(admin.TabularInline):
+class GruppenKomponenteInline(KopierteZeilenMixin, admin.TabularInline):
     model = m.GruppenKomponente
     fk_name = "gruppe"
     extra = 0
@@ -157,6 +174,51 @@ class ArtikelAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         felder = [*super().get_readonly_fields(request, obj), *(["typ"] if obj else [])]  # Typwechsel würde Bestand und Belege verfälschen
         return [*felder, "kategorie"] if obj and obj.typ == m.Artikeltyp.L else felder  # Leistungen: Verwaltung → Leistungsartikel
+
+    # --- Kopieren (Issue 15): „Neuer Artikel“ mit den Werten einer Vorlage, gespeichert wird erst mit „Speichern“ ---
+    def kopie_vorlage(self, request):
+        """Vorlage aus ?kopie_von=<id> (nur beim Neuanlegen); dieselbe Kopierlogik wie in der Artikelmaske (kopie.py)."""
+        pk = request.GET.get("kopie_von", "")
+        return m.Artikel.objects.filter(pk=pk).first() if pk.isdigit() else None
+
+    def get_changeform_initial_data(self, request):
+        vorlage = self.kopie_vorlage(request)
+        if vorlage is None:
+            return super().get_changeform_initial_data(request)
+        neu = kopie.neuer_artikel(vorlage)
+        werte = {**kopie.kopie_initial(vorlage), "typ": neu.typ, "nummer": neu.nummer}
+        return {**super().get_changeform_initial_data(request), **werte}
+
+    def get_formset_kwargs(self, request, obj, inline, prefix):
+        kwargs = super().get_formset_kwargs(request, obj, inline, prefix)
+        vorlage = self.kopie_vorlage(request) if obj is None and request.method == "GET" else None
+        if vorlage is not None:
+            if isinstance(inline, ArtikelMandantInline):
+                from apps.kern.kontext import mandant_oder_none
+                mandant = mandant_oder_none(request)
+                werte = kopie.mandant_werte(vorlage, mandant) if mandant else {}
+                kwargs["initial"] = [{**werte, "mandant": mandant.pk}] if mandant else []
+            elif isinstance(inline, GruppenKomponenteInline):
+                kwargs["initial"] = [{"komponente": k.pk, "menge": menge} for k, menge in kopie.komponenten_werte(vorlage)]
+        return kwargs
+
+    def save_model(self, request, obj, form, change):
+        vorlage = None if change else self.kopie_vorlage(request)
+        if vorlage is not None:
+            m.Stammnummer.belegen(obj.typ, obj.nummer)
+        super().save_model(request, obj, form, change)
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        vorlage = None if change else self.kopie_vorlage(request)
+        if vorlage is not None and request.GET.get("kopie_bilder"):
+            kopie.bilder_duplizieren(vorlage, form.instance)
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        if obj is not None and not add:
+            ziel = "admin:stammdaten_leistungsartikel_add" if obj.typ == m.Artikeltyp.L else "admin:stammdaten_artikel_add"
+            context["kopieren"] = kopieren_daten(request, obj, ziel)
+        return super().render_change_form(request, context, add, change, form_url, obj)
 
     def formfield_for_choice_field(self, db_field, request, **kwargs):
         if db_field.name == "typ":  # neue Leistungen entstehen unter Leistungsartikel, mit Kategorie und Kosten
@@ -229,8 +291,20 @@ class LeistungsartikelAdmin(admin.ModelAdmin):
         return super().get_queryset(request).filter(typ=m.Artikeltyp.L)
 
     def get_changeform_initial_data(self, request):
-        return {**super().get_changeform_initial_data(request), "nummer": m.Stammnummer.vorschlag(m.Stammnummer.Art.LEISTUNG),
-                "steuersatz": m.Steuersatz.objects.first()}
+        daten = {**super().get_changeform_initial_data(request), "nummer": m.Stammnummer.vorschlag(m.Stammnummer.Art.LEISTUNG),
+                 "steuersatz": m.Steuersatz.objects.first()}
+        vorlage = request.GET.get("kopie_von", "")
+        vorlage = m.Artikel.objects.filter(pk=vorlage, typ=m.Artikeltyp.L).first() if vorlage.isdigit() else None
+        if vorlage is not None:  # Kopie (Issue 15): dieselbe Logik wie bei den anderen Artikeln
+            felder = {"bezeichnung", "bezeichnung_erweitert", "leistungskategorie", "mengeneinheit", "steuersatz", "nicht_aktiv", "kosten",
+                      "vk1", "vk2", "vk3"}
+            daten.update({n: w for n, w in kopie.kopie_initial(vorlage).items() if n in felder})
+        return daten
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        if obj is not None and not add:
+            context["kopieren"] = kopieren_daten(request, obj, "admin:stammdaten_leistungsartikel_add")
+        return super().render_change_form(request, context, add, change, form_url, obj)
 
     def save_model(self, request, obj, form, change):
         obj.typ = m.Artikeltyp.L
