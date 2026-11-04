@@ -23,3 +23,12 @@ class VerwaltungKopfTest(TestCase):
         r = self.client.get(reverse("admin:login"))
         self.assertEqual(r.status_code, 200)
         self.assertNotContains(r, 'id="wwok-brotleiste"')
+
+    def test_startseite_hat_feste_titelleiste_mit_menusuche(self):
+        html = self.client.get(reverse("admin:index")).content.decode()
+        self.assertRegex(html, r'<div id="wwok-titelleiste"><h1>Verwaltung</h1><input[^>]*id="wwok-menusuche"')
+        self.assertIn("#wwok-titelleiste { position:sticky;", html)
+
+    def test_andere_seiten_ohne_menusuche(self):
+        html = self.client.get(reverse("admin:auth_user_change", args=[self.admin.pk])).content.decode()
+        self.assertNotIn('id="wwok-menusuche"', html)

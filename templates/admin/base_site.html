@@ -11,10 +11,30 @@
   #wwok-brotleiste .wwok-speichern:hover, #wwok-brotleiste .wwok-speichern:focus,
   #wwok-brotleiste .wwok-leistenknopf:hover, #wwok-brotleiste .wwok-leistenknopf:focus { background:var(--button-hover-bg); }
   #nav-sidebar.sticky, .sticky { top:var(--wwok-leiste, 0px); max-height:calc(100vh - var(--wwok-leiste, 0px)); }
+  #wwok-titelleiste { position:sticky; top:var(--wwok-leiste, 0px); z-index:28; display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin:-20px -40px 16px; padding:12px 40px; background:var(--body-bg); }
+  #wwok-titelleiste h1 { margin:0; }
+  #wwok-menusuche { flex:0 1 320px; padding:6px 10px; border:1px solid var(--border-color); border-radius:4px; background:var(--body-bg); color:var(--body-fg); font-size:14px; }
+  @media (max-width:767px) { #wwok-titelleiste { margin:-20px -16px 12px; padding:10px 16px; } }
   @media (max-width:767px) { #wwok-brotleiste .wwok-knoepfe { margin-right:16px; } }
 </style>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
+    // Menüsuche auf der Startseite: filtert die Einträge der Übersicht
+    var suche = document.getElementById('wwok-menusuche');
+    if (suche) {
+      suche.addEventListener('input', function () {
+        var q = suche.value.trim().toLowerCase();
+        document.querySelectorAll('#content-main .module').forEach(function (modul) {
+          var treffer = 0, modulName = (modul.querySelector('caption') || {textContent: ''}).textContent.toLowerCase();
+          modul.querySelectorAll('tr[class^="model-"], tr[class*=" model-"]').forEach(function (z) {
+            var an = !q || z.textContent.toLowerCase().indexOf(q) !== -1 || modulName.indexOf(q) !== -1;
+            z.style.display = an ? '' : 'none';
+            if (an) treffer++;
+          });
+          modul.style.display = treffer ? '' : 'none';
+        });
+      });
+    }
     var kopf = document.getElementById('header'), leiste = document.getElementById('wwok-brotleiste');
     if (!kopf || !leiste) return;
     // Höhe des Kopfs an die Brotkrümel weitergeben (Kopf kann umbrechen)
@@ -46,3 +66,4 @@
 </script>
 {% endblock %}
 {% block nav-breadcrumbs %}<div id="wwok-brotleiste">{{ block.super }}</div>{% endblock %}
+{% block content_title %}{% if title %}{% if request.resolver_match.url_name == 'index' %}<div id="wwok-titelleiste"><h1>{{ title }}</h1><input type="search" id="wwok-menusuche" placeholder="Menüs suchen …" aria-label="Menüs suchen" autocomplete="off"></div>{% else %}<h1>{{ title }}</h1>{% endif %}{% endif %}{% endblock %}
