@@ -201,6 +201,9 @@ class KopierenVerwaltungTest(KopieBasis):
     def test_knopf_nur_im_geoeffneten_artikel(self):
         aendern = self.client.get(reverse("admin:stammdaten_artikel_change", args=[self.vorlage.pk]))
         self.assertContains(aendern, "data-kopieren")
+        # steht in der Knopfgruppe der Brotkrümelleiste neben „Speichern“, nicht in einer eigenen Zeile darunter
+        self.assertContains(aendern, 'class="wwok-leistenknopf" data-kopieren')
+        self.assertNotContains(aendern, 'class="breadcrumbs" style="display:flex')
         self.assertContains(aendern, reverse("admin:stammdaten_artikel_add"))
         self.assertNotContains(self.client.get(reverse("admin:stammdaten_artikel_add")), "data-kopieren")
         self.assertNotContains(self.client.get(reverse("admin:stammdaten_artikel_changelist")), "data-kopieren")

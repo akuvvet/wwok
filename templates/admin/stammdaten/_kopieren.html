@@ -1,9 +1,8 @@
 {% comment %}Knopf „Kopieren“ im geöffneten Artikel (Verwaltung). Variable: kopieren = {url, pk, name} (nur mit Recht „Artikel anlegen“).
 Rückfrage mit Häkchen „Bilder mitkopieren“, dann öffnet „Neuer Artikel“ vorausgefüllt (?kopie_von=…); angelegt wird erst mit Speichern.{% endcomment %}
 {% if kopieren %}
-<div class="breadcrumbs" style="display:flex;justify-content:flex-end;padding:6px 40px">
-  <button type="button" class="button" data-kopieren>Kopieren</button>
-</div>
+{# die Verwaltung (admin/base_site.html) stellt den Knopf rechts in die Brotkrümelleiste, neben „Speichern“ #}
+<button type="button" class="wwok-leistenknopf" data-kopieren>Kopieren</button>
 <dialog id="kopieren-dialog" data-url="{{ kopieren.url }}" data-pk="{{ kopieren.pk }}" style="max-width:480px;padding:20px">
   <p>Artikel „{{ kopieren.name }}“ als Vorlage für einen neuen Artikel verwenden?</p>
   <p><label><input type="checkbox" data-kopieren-bilder> Bilder mitkopieren</label></p>

@@ -6,10 +6,12 @@
   #header { position:sticky; top:0; z-index:30; }
   #wwok-brotleiste { position:sticky; top:var(--wwok-kopf, 0px); z-index:29; display:flex; align-items:center; background:var(--breadcrumbs-bg); }
   #wwok-brotleiste > nav { flex:1; min-width:0; }
-  #wwok-brotleiste .wwok-speichern { margin:0 40px 0 12px; padding:6px 16px; border:0; border-radius:4px; background:var(--button-bg); color:var(--button-fg); font-weight:600; cursor:pointer; white-space:nowrap; }
-  #wwok-brotleiste .wwok-speichern:hover, #wwok-brotleiste .wwok-speichern:focus { background:var(--button-hover-bg); }
+  #wwok-brotleiste .wwok-knoepfe { display:flex; align-items:center; gap:8px; margin:0 40px 0 12px; }
+  #wwok-brotleiste .wwok-speichern, #wwok-brotleiste .wwok-leistenknopf { margin:0; padding:6px 16px; border:0; border-radius:4px; background:var(--button-bg); color:var(--button-fg); font-weight:600; font-size:13px; line-height:1.4; cursor:pointer; white-space:nowrap; }
+  #wwok-brotleiste .wwok-speichern:hover, #wwok-brotleiste .wwok-speichern:focus,
+  #wwok-brotleiste .wwok-leistenknopf:hover, #wwok-brotleiste .wwok-leistenknopf:focus { background:var(--button-hover-bg); }
   #nav-sidebar.sticky, .sticky { top:var(--wwok-leiste, 0px); max-height:calc(100vh - var(--wwok-leiste, 0px)); }
-  @media (max-width:767px) { #wwok-brotleiste .wwok-speichern { margin-right:16px; } }
+  @media (max-width:767px) { #wwok-brotleiste .wwok-knoepfe { margin-right:16px; } }
 </style>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
@@ -24,16 +26,22 @@
     messen();
     if (window.ResizeObserver) { var ro = new ResizeObserver(messen); ro.observe(kopf); ro.observe(leiste); }
     else window.addEventListener('resize', messen);
+    // Rechte Knopfgruppe: Knöpfe der Seite (class „wwok-leistenknopf“, z. B. „Kopieren“), dann „Speichern“ – alle auf einer Höhe
+    var gruppe = document.createElement('div');
+    gruppe.className = 'wwok-knoepfe';
+    document.querySelectorAll('.wwok-leistenknopf').forEach(function (k) { gruppe.appendChild(k); });
     // „Speichern“ nur, wenn die Seite ein Formular mit Speichern-Knopf hat
     var formular = document.querySelector('#content-main form, #content form');
     var sichern = formular && formular.querySelector('input[type=submit][name=_save]');
-    if (!sichern) return;
-    var knopf = document.createElement('button');
-    knopf.type = 'button'; knopf.className = 'wwok-speichern'; knopf.textContent = 'Speichern';
-    knopf.addEventListener('click', function () {
-      if (formular.requestSubmit) formular.requestSubmit(sichern); else sichern.click();
-    });
-    leiste.appendChild(knopf);
+    if (sichern) {
+      var knopf = document.createElement('button');
+      knopf.type = 'button'; knopf.className = 'wwok-speichern'; knopf.textContent = 'Speichern';
+      knopf.addEventListener('click', function () {
+        if (formular.requestSubmit) formular.requestSubmit(sichern); else sichern.click();
+      });
+      gruppe.appendChild(knopf);
+    }
+    if (gruppe.children.length) leiste.appendChild(gruppe);
   });
 </script>
 {% endblock %}
