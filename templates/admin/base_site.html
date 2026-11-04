@@ -12,6 +12,14 @@
   #content > * { flex:none; }
   #content > #content-main > :last-child { margin-bottom:0; }
   #content > #content-main { flex:1 1 auto; min-height:0; overflow:auto; }
+  /* Startseite (colMS): Hauptbereich links, „Neueste Aktionen“ rechts, beide scrollen eigenständig */
+  #content > #content-related { max-height:30vh; overflow:auto; float:none; width:auto; margin:0 0 16px; }
+  @media (min-width:1024px) {
+    #content.colMS { display:grid; grid-template-columns:minmax(0,1fr) 260px; grid-template-rows:auto auto minmax(0,1fr); column-gap:40px; margin-right:0; }
+    #content.colMS > * { grid-column:1 / -1; }
+    #content.colMS > #content-main { grid-column:1; grid-row:3; min-height:0; }
+    #content.colMS > #content-related { grid-column:2; grid-row:3; max-height:none; min-height:0; margin:0; position:static; }
+  }
   #nav-sidebar { overflow-y:auto; }
   #wwok-brotleiste { flex:none; display:flex; align-items:center; background:var(--breadcrumbs-bg); }
   #wwok-brotleiste > nav { flex:1; min-width:0; }

@@ -33,6 +33,12 @@ class VerwaltungKopfTest(TestCase):
         self.assertIn("#container > .main { flex:1 1 0; min-height:0; overflow:hidden; }", html)  # überschreibt Djangos flex-shrink:0
         self.assertRegex(html, r"#wwok-menusuche \{[^}]*margin-left:auto;")  # Suchfeld rechts in der Leiste
 
+    def test_startseite_neueste_aktionen_rechts_als_spalte(self):
+        html = self.client.get(reverse("admin:index")).content.decode()
+        self.assertIn('id="content" class="colMS"', html)
+        self.assertIn("#content.colMS > #content-related { grid-column:2; grid-row:3;", html)
+        self.assertIn("#content.colMS > #content-main { grid-column:1; grid-row:3;", html)
+
     def test_andere_seiten_ohne_menusuche(self):
         html = self.client.get(reverse("admin:auth_user_change", args=[self.admin.pk])).content.decode()
         self.assertNotIn('id="wwok-menusuche"', html)
