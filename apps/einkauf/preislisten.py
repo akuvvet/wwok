@@ -173,8 +173,20 @@ def zeilen_lesen(profil, inhalt: bytes) -> list:
 
 
 def zahl(wert: str, dezimal: str) -> Decimal:
-    t = wert.replace("€", "").replace("EUR", "").replace(" ", "").replace("\xa0", "")
-    t = t.replace(".", "").replace(",", ".") if dezimal == "," and ("," in t or t.count(".") > 1) else t.replace(",", "") if dezimal == "." else t
+    """Preis aus der Liste lesen. Das Trennzeichen aus dem Profil entscheidet nur, wo die Schreibweise mehrdeutig ist:
+    „12,50“ ist immer 12,50 € (auch im Punkt-Profil, sonst würde daraus 1250 und der Preis landete in der Preisprüfung),
+    „1.234,50“ und „1,234.50“ werden am letzten Trennzeichen erkannt; nur „1,234“ (genau drei Stellen) folgt dem Profil."""
+    t = wert.replace("€", "").replace("EUR", "").replace(" ", "").replace("\xa0", "").replace("'", "")
+    komma, punkt = t.count(","), t.count(".")
+    if komma and punkt:  # das hintere Zeichen trennt die Nachkommastellen
+        t = t.replace(".", "").replace(",", ".") if t.rfind(",") > t.rfind(".") else t.replace(",", "")
+    elif komma > 1:  # 1,234,567
+        t = t.replace(",", "")
+    elif komma == 1:
+        tausender = dezimal == "." and len(t.split(",")[1]) == 3 and t.split(",")[0].lstrip("-").isdigit()
+        t = t.replace(",", "") if tausender else t.replace(",", ".")
+    elif punkt > 1:  # 1.234.567
+        t = t.replace(".", "")
     try:
         return Decimal(t)
     except InvalidOperation:
