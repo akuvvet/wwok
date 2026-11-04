@@ -232,9 +232,14 @@ def beleg_detail(request, beleg_id):
         if p.artikel_id and p.artikel.typ == "A" and not beleg.abgeschlossen and beleg.art in ("AB", "LS", "RE"):
             frei = bestand(beleg.mandant, p.artikel) - reserviert(beleg.mandant, p.artikel)
             if beleg.art == "AB":
-                frei += p.menge  # die eigene Reservierung nicht doppelt zählen
-            if frei < p.menge:
+                frei += p.offen_menge  # die eigene Reservierung nicht doppelt zählen
+            elif beleg.vorgaenger_id and beleg.vorgaenger.art == "AB":  # der Rückstand der Bestellung blockiert ihre Teillieferung nicht
+                frei += sum((q.offen_menge for q in beleg.vorgaenger.positionen.filter(artikel=p.artikel)), Decimal("0"))
+            if frei < (p.offen_menge if beleg.art == "AB" else p.menge):
                 p.knapp = frei
+        if beleg.art == "AB" and p.pk and not p.gruppe_id:  # Rückstand: „5 von 10 geliefert, 5 offen“
+            p.geliefert = p.uebernommen
+            p.rueckstand = p.menge - p.geliefert if p.geliefert > 0 else None
     from apps.finanzen.services import kunde_offen
     md = beleg.kunde.mandantendaten.filter(mandant=beleg.mandant).first()
     limit = md.kreditlimit if md else None
@@ -648,8 +653,60 @@ def beleg_abschliessen(request, beleg_id):
 @sperr_schutz
 def beleg_folgebeleg(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
-    neu = beleg.folgebeleg_erzeugen()
+    entscheidungen = _uebernahme_entscheidungen(request, beleg, beleg.folgeart)
+    if isinstance(entscheidungen, HttpResponse):
+        return entscheidungen  # Rückfrage bei zu wenig Bestand
+    neu = beleg.folgebeleg_erzeugen(entscheidungen=entscheidungen)
+    _uebernahme_meldung(request, beleg, neu)
     return redirect("verkauf:beleg", beleg_id=neu.pk)
+
+
+def _uebernahme_entscheidungen(request, beleg, art, extra=None):
+    """Bestellung → Lieferschein/Rechnung: reicht der verfügbare Bestand für eine Position nicht, wird je Position gefragt
+    (komplett reservieren oder Teillieferung). Rückgabe: Entscheidungen {Positions-ID: Menge}, None (keine Rückfrage nötig)
+    oder die Antwortseite mit der Rückfrage."""
+    if beleg.art != Belegart.AUFTRAG or art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG):
+        return None
+    engpaesse = beleg.uebernahme_engpaesse()
+    if not engpaesse:
+        return None
+    entscheidungen, fehlt = {}, False
+    for e in engpaesse:
+        pk = e["position"].pk
+        wahl = request.POST.get(f"wahl_{pk}")
+        if wahl == "A":
+            entscheidungen[pk] = Decimal("0")
+        elif wahl == "B":
+            try:
+                menge = Decimal(request.POST.get(f"menge_{pk}", "").replace(",", "."))
+            except InvalidOperation:
+                menge = None
+            if menge is None or menge <= 0 or menge > e["verfuegbar"]:
+                e["fehler"] = f"Bitte eine Menge von 0,001 bis {e['verfuegbar'].normalize():f} angeben."
+                fehlt = True
+            else:
+                entscheidungen[pk] = menge
+        else:
+            fehlt = True
+    if fehlt:
+        for e in engpaesse:
+            e["wahl"] = request.POST.get(f"wahl_{e['position'].pk}", "")
+            e["menge"] = request.POST.get(f"menge_{e['position'].pk}") or f"{e['verfuegbar'].normalize():f}"
+        return render(request, "verkauf/uebernahme_frage.html", {
+            "beleg": beleg, "art": art, "art_name": Belegart(art).label, "engpaesse": engpaesse,
+            "aktion": request.path, "extra": extra or {}})
+    if not any(m > 0 for m in beleg.uebernahme_mengen(entscheidungen).values()):  # alles bleibt reserviert: es gibt nichts zu übernehmen
+        messages.info(request, "Nichts übernommen: Die Positionen bleiben komplett in der Bestellung reserviert "
+                               "und werden mit dem Wareneingang nachreserviert.")
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    return entscheidungen
+
+
+def _uebernahme_meldung(request, beleg, neu):
+    rest = beleg.offene_mengen() if beleg.art == Belegart.AUFTRAG else {}
+    if rest:
+        messages.info(request, f"Rückstand: {len(rest)} Position(en) der Bestellung {beleg.nummer or ''} bleiben ganz oder teilweise offen "
+                               "und sind für den nächsten Wareneingang reserviert.")
 
 
 @mit_mandant
@@ -668,7 +725,13 @@ def beleg_teillieferung(request, beleg_id):
 def beleg_kopieren(request, beleg_id):
     """Beleg als beliebige Belegart kopieren (z. B. Angebot → Rechnung); der Ursprungsbeleg wird auf Wunsch abgeschlossen."""
     beleg = beleg_holen(request, beleg_id)
-    neu = beleg.kopieren_als(request.POST.get("art", ""), urbeleg_abschliessen=request.POST.get("urbeleg_abschliessen") == "1")
+    art = request.POST.get("art", "")
+    urbeleg = request.POST.get("urbeleg_abschliessen") == "1"
+    entscheidungen = _uebernahme_entscheidungen(request, beleg, art, extra={"art": art, "urbeleg_abschliessen": "1" if urbeleg else "0"})
+    if isinstance(entscheidungen, HttpResponse):
+        return entscheidungen
+    neu = beleg.kopieren_als(art, urbeleg_abschliessen=urbeleg, entscheidungen=entscheidungen)
+    _uebernahme_meldung(request, beleg, neu)
     messages.success(request, f"{beleg.get_art_display()} als {neu.get_art_display()} kopiert.")
     return redirect("verkauf:beleg", beleg_id=neu.pk)
 

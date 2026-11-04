@@ -206,11 +206,18 @@ def offene_mengen(mandant, artikel_ids=None, heute=None) -> dict:
     """{artikel_id: Menge} aus offenen Bestellungen (ohne Folgebeleg) und gültigen offenen Angeboten des Mandanten."""
     from apps.verkauf.models import Belegart, Position
     heute = heute or timezone.localdate()
-    pos = Position.objects.filter(beleg__mandant=mandant, beleg__folgebelege__isnull=True, artikel__isnull=False, gruppe__isnull=True)
-    pos = pos.filter(Q(beleg__art=Belegart.AUFTRAG) | (Q(beleg__art=Belegart.ANGEBOT) & (Q(beleg__gueltig_bis__isnull=True) | Q(beleg__gueltig_bis__gte=heute))))
+    from apps.verkauf.models import mit_offener_menge
+    basis = Position.objects.filter(beleg__mandant=mandant, artikel__isnull=False, gruppe__isnull=True)
     if artikel_ids is not None:
-        pos = pos.filter(artikel_id__in=artikel_ids)
-    return {z["artikel_id"]: z["s"] for z in pos.order_by().values("artikel_id").annotate(s=Sum("menge"))}
+        basis = basis.filter(artikel_id__in=artikel_ids)
+    angebote = basis.filter(beleg__folgebelege__isnull=True, beleg__art=Belegart.ANGEBOT).filter(
+        Q(beleg__gueltig_bis__isnull=True) | Q(beleg__gueltig_bis__gte=heute))
+    ergebnis = {z["artikel_id"]: z["s"] for z in angebote.order_by().values("artikel_id").annotate(s=Sum("menge"))}
+    # Bestellungen zählen mit ihrem Rückstand (offene Menge)
+    auftraege = mit_offener_menge(basis.filter(beleg__art=Belegart.AUFTRAG)).filter(offen__gt=0)
+    for z in auftraege.order_by().values("artikel_id").annotate(s=Sum("offen")):
+        ergebnis[z["artikel_id"]] = ergebnis.get(z["artikel_id"], 0) + z["s"]
+    return ergebnis
 
 
 def eintraege(mandant, jetzt=None) -> list:

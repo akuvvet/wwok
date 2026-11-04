@@ -125,7 +125,10 @@ def zeitraumvergleiche(mandant, heute=None) -> list:
 def offene_kundenbestellungen(mandant) -> dict:
     hat_position = Position.objects.filter(beleg=OuterRef("pk"))
     geliefert = Beleg.objects.filter(vorgaenger=OuterRef("pk"), art__in=(Belegart.LIEFERSCHEIN, Belegart.RECHNUNG))
-    erg = (Beleg.objects.filter(mandant=mandant, art=Belegart.AUFTRAG).filter(Exists(hat_position)).exclude(Exists(geliefert))
+    from apps.verkauf.models import mit_offener_menge
+    rueckstand = mit_offener_menge(Position.objects.filter(beleg=OuterRef("pk"))).filter(offen__gt=0)
+    erg = (Beleg.objects.filter(mandant=mandant, art=Belegart.AUFTRAG).filter(Exists(hat_position))
+           .exclude(Exists(geliefert) & ~Exists(rueckstand))  # teilweise gelieferte Bestellungen mit Rückstand bleiben offen
            .order_by().aggregate(anzahl=Count("pk"), netto=Coalesce(Sum("summe_netto"), NULL)))
     return {"anzahl": erg["anzahl"], "netto": erg["netto"]}
 
