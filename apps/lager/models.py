@@ -75,11 +75,10 @@ def bestand(mandant, artikel) -> Decimal:
 
 
 def reserviert(mandant, artikel) -> Decimal:
-    """Menge in Kundenbestellungen ohne Folgebeleg (Lieferschein/Rechnung noch nicht erstellt)."""
-    from apps.verkauf.models import Belegart, Position
-    return Position.objects.filter(
-        artikel=artikel, beleg__mandant=mandant, beleg__art=Belegart.AUFTRAG, beleg__folgebelege__isnull=True
-    ).aggregate(s=models.Sum("menge"))["s"] or Decimal("0")
+    """Offene Menge in Kundenbestellungen: bestellt minus schon in Lieferschein/Rechnung übernommen (Rückstand zählt mit)."""
+    from apps.verkauf.models import Belegart, Position, mit_offener_menge
+    offen = mit_offener_menge(Position.objects.filter(artikel=artikel, beleg__mandant=mandant, beleg__art=Belegart.AUFTRAG))
+    return offen.filter(offen__gt=0).aggregate(s=models.Sum("offen"))["s"] or Decimal("0")
 
 
 class Reparaturart(models.TextChoices):

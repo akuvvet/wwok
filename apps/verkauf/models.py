@@ -16,6 +16,8 @@ from django.conf import settings
 from django.core import serializers
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.db.models import F, OuterRef, Subquery, Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.functional import cached_property
 
@@ -617,14 +619,65 @@ class Beleg(Zeitstempel):
         """Verhindert doppelte Abrechnung und doppelte Lieferung aus demselben Ursprungsbeleg."""
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abrechenbar:
             raise ValueError(f"{self} ist schon abgerechnet (oder nicht abrechenbar).")
-        if self.art == Belegart.AUFTRAG and art == Belegart.LIEFERSCHEIN and self.folgebelege.filter(art=Belegart.LIEFERSCHEIN).exists():
-            raise ValueError(f"Zu {self} gibt es schon einen Lieferschein.")
-        if self.art == Belegart.AUFTRAG and art == Belegart.RECHNUNG and self.folgebelege.filter(
-                art__in=(Belegart.LIEFERSCHEIN, Belegart.RECHNUNG)).exists():
-            raise ValueError(f"Zu {self} gibt es schon einen Lieferschein oder eine Rechnung – keine zweite Abrechnung.")
+        if self.art == Belegart.AUFTRAG and art in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) and not self.offene_mengen():
+            raise ValueError(f"Zu {self} gibt es schon einen Lieferschein oder eine Rechnung – es ist nichts mehr offen (keine zweite Abrechnung).")
+
+    def offene_mengen(self) -> dict:
+        """Bestellung: offene Menge je Hauptposition (Menge minus bereits in Lieferschein/Rechnung übernommen), nur > 0.
+        Unterpositionen einer Gruppe folgen ihrer Gruppe."""
+        return {p.pk: p.offen_menge for p in self.positionen.filter(gruppe__isnull=True) if p.offen_menge > 0}
+
+    def uebernahme_engpaesse(self) -> list:
+        """Bestellung → Lieferschein/Rechnung: Hauptpositionen mit Lagerartikel, deren offene Menge den verfügbaren Bestand
+        (Bestand − Reservierungen anderer Bestellungen, nur dieser Mandant) übersteigt. Leer = Übernahme ohne Rückfrage."""
+        from apps.lager.models import bestand, reserviert
+        if self.art != Belegart.AUFTRAG:
+            return []
+        offen, frei, eigen, liste = self.offene_mengen(), {}, {}, []
+        for p in self.positionen.select_related("artikel"):  # eigene Reservierung je Artikel (inkl. Unterpositionen)
+            if p.artikel_id and p.artikel.typ == Artikeltyp.A:
+                eigen[p.artikel_id] = eigen.get(p.artikel_id, Decimal("0")) + p.offen_menge
+        for p in self.positionen.filter(gruppe__isnull=True).select_related("artikel"):
+            if p.pk not in offen or not p.artikel_id or p.artikel.typ != Artikeltyp.A:
+                continue
+            a = p.artikel_id
+            if a not in frei:
+                fremd = reserviert(self.mandant, p.artikel) - eigen[a]
+                frei[a] = max(bestand(self.mandant, p.artikel) - fremd, Decimal("0"))
+            if offen[p.pk] > frei[a]:
+                liste.append({"position": p, "bestellt": offen[p.pk], "verfuegbar": frei[a],
+                              "bestand": bestand(self.mandant, p.artikel),
+                              "reserviert": reserviert(self.mandant, p.artikel) - eigen[a]})
+            frei[a] -= min(offen[p.pk], frei[a])
+        return liste
+
+    def uebernahme_mengen(self, entscheidungen=None) -> dict:
+        """{Positions-ID: zu übernehmende Menge} für Lieferschein/Rechnung aus einer Bestellung (Standard: alles Offene).
+        entscheidungen: {Positions-ID: Menge} für Engpass-Positionen; 0 = komplett reservieren (nichts übernehmen),
+        sonst Teillieferung mit dieser Menge (höchstens verfügbar)."""
+        mengen = dict(self.offene_mengen())
+        if entscheidungen is not None:
+            for e in self.uebernahme_engpaesse():
+                pk = e["position"].pk
+                if pk not in entscheidungen:
+                    raise ValueError(f"Für Position {e['position'].pos} fehlt die Entscheidung (komplett reservieren oder Teillieferung).")
+                menge = Decimal(entscheidungen[pk])
+                if menge < 0 or menge > e["verfuegbar"]:
+                    raise ValueError(f"Position {e['position'].pos}: Teillieferung höchstens {e['verfuegbar']:f} Stück.")
+                mengen[pk] = menge
+        return mengen
+
+    def _uebernahme(self, art, entscheidungen):
+        """Mengen je Position für die Übernahme einer Bestellung in Lieferschein/Rechnung (sonst None = alles kopieren)."""
+        if self.art != Belegart.AUFTRAG or art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG):
+            return None
+        mengen = self.uebernahme_mengen(entscheidungen)
+        if not any(m > 0 for m in mengen.values()):
+            raise ValueError("Es wird nichts übernommen: Alle Positionen bleiben komplett reserviert in der Bestellung.")
+        return mengen
 
     @transaction.atomic
-    def folgebeleg_erzeugen(self) -> "Beleg":
+    def folgebeleg_erzeugen(self, entscheidungen=None) -> "Beleg":
         self.arbeitsstand_beenden()
         art = self.folgeart
         if not art:
@@ -641,7 +694,7 @@ class Beleg(Zeitstempel):
             rabatt_prozent=self.rabatt_prozent,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=self.bemerkung, vorgaenger=self)
-        kopiere_positionen(self, neu)
+        kopiere_positionen(self, neu, self._uebernahme(art, entscheidungen))
         if self.art == Belegart.LIEFERSCHEIN:
             neu.lieferscheine.add(self)
         neu.berechne()
@@ -677,7 +730,7 @@ class Beleg(Zeitstempel):
         return neu
 
     @transaction.atomic
-    def kopieren_als(self, art, urbeleg_abschliessen=False) -> "Beleg":
+    def kopieren_als(self, art, urbeleg_abschliessen=False, entscheidungen=None) -> "Beleg":
         """Beliebigen Beleg als neuen Entwurf der gewünschten Belegart kopieren (Gutschrift nur über Storno).
         Optional wird der Ursprungsbeleg danach abgeschlossen (erledigt)."""
         self.arbeitsstand_beenden()
@@ -702,7 +755,7 @@ class Beleg(Zeitstempel):
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=f"Nachlieferung zu Rechnung {self.nummer}" if nachlieferung else self.bemerkung,
             vorgaenger=self if art != self.art else None)
-        kopiere_positionen(self, neu)
+        kopiere_positionen(self, neu, self._uebernahme(art, entscheidungen))
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG:
             neu.lieferscheine.add(self)
         neu.berechne()
@@ -803,17 +856,36 @@ def zahlungsbedingung_bezahlt():
     return zb
 
 
-def kopiere_positionen(quelle, ziel):
+def kopiere_positionen(quelle, ziel, mengen=None):
     """Kopiert alle Positionen samt Gruppenzuordnung in einen anderen Beleg. Stammt die Quelle aus einem
-    Lieferschein, bleibt der Lieferschein an der Position vermerkt (Nummer und Datum im Ausdruck)."""
+    Lieferschein, bleibt der Lieferschein an der Position vermerkt (Nummer und Datum im Ausdruck).
+    mengen ({Positions-ID: Menge}, nur Hauptpositionen): übernimmt nur diese Positionen mit dieser Menge;
+    Unterpositionen folgen ihrer Gruppe."""
     neu = {}
     lieferschein = quelle if quelle.art == Belegart.LIEFERSCHEIN else None
     for p in quelle.positionen.all():
+        menge = p.menge
+        if mengen is not None:
+            if p.gruppe_id:
+                if p.gruppe_id not in neu:
+                    continue
+            else:
+                menge = mengen.get(p.pk, Decimal("0"))
+                if menge <= 0:
+                    continue
         neu[p.pk] = Position.objects.create(
             beleg=ziel, gruppe=neu.get(p.gruppe_id), typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung,
-            preisliste_artikel=p.preisliste_artikel, menge=p.menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent,
+            preisliste_artikel=p.preisliste_artikel, menge=menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent,
             steuer_prozent=p.steuer_prozent, zusatztext=p.zusatztext, lieferschein=lieferschein or p.lieferschein,
             quellposition=p, preis_fest=p.preis_fest)
+
+
+def mit_offener_menge(positionen):
+    """Annotiert Positionen mit `offen`: Menge minus Menge, die in Folgebelege (Lieferschein/Rechnung …) übernommen wurde."""
+    uebernommen = (Position.objects.filter(quellposition=OuterRef("pk"), beleg__vorgaenger_id=OuterRef("beleg_id"))
+                   .order_by().values("quellposition").annotate(s=Sum("menge")).values("s"))
+    dez = models.DecimalField(max_digits=10, decimal_places=3)
+    return positionen.annotate(offen=F("menge") - Coalesce(Subquery(uebernommen, output_field=dez), Value(Decimal("0")), output_field=dez))
 
 
 @transaction.atomic
@@ -874,6 +946,19 @@ class Position(Zeitstempel):
         verbose_name_plural = "Positionen"
         # Die Gruppe steht vor ihren Unterpositionen, auch wenn eine ältere Position nachträglich in sie verschoben wurde
         ordering = ["pos", models.F("gruppe").asc(nulls_first=True), "id"]
+
+    @property
+    def uebernommen(self) -> Decimal:
+        """Menge, die aus dieser Bestellposition schon in Lieferschein/Rechnung übernommen wurde."""
+        if not self.pk:
+            return Decimal("0")
+        return Position.objects.filter(quellposition=self, beleg__vorgaenger_id=self.beleg_id).aggregate(
+            s=Sum("menge"))["s"] or Decimal("0")
+
+    @property
+    def offen_menge(self) -> Decimal:
+        """Noch nicht gelieferte/berechnete Menge einer Bestellposition (Rückstand)."""
+        return max(self.menge - self.uebernommen, Decimal("0"))
 
     @property
     def artikelnummer(self) -> str:

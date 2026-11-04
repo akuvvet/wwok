@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block titel %}Bestand reicht nicht – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Bestand reicht nicht für die Übernahme als {{ art_name }}</h1>
+  <p class="warnung">Für {{ engpaesse|length }} Position(en) der Bestellung ist weniger verfügbar als offen ist. Bitte je Position wählen:</p>
+  <form method="post" action="{{ aktion }}">{% csrf_token %}
+    {% for k, w in extra.items %}<input type="hidden" name="{{ k }}" value="{{ w }}">{% endfor %}
+    {% for e in engpaesse %}
+    <fieldset style="margin:12px 0;padding:10px">
+      <legend>Pos. {{ e.position.pos }} – {{ e.position.bezeichnung }}</legend>
+      <p>Bestellt (offen): <strong>{{ e.bestellt|floatformat:"-3" }}</strong> · Bestand: {{ e.bestand|floatformat:"-3" }} ·
+         Reserviert für andere Bestellungen: {{ e.reserviert|floatformat:"-3" }} ·
+         Verfügbar: <strong>{{ e.verfuegbar|floatformat:"-3" }}</strong></p>
+      {% if e.fehler %}<p class="warnung">{{ e.fehler }}</p>{% endif %}
+      <label style="display:block"><input type="radio" name="wahl_{{ e.position.pk }}" value="A" {% if e.wahl == 'A' %}checked{% endif %} required>
+        <strong>A: Komplett reservieren ({{ e.bestellt|floatformat:"-3" }} Stk)</strong> – nichts wird übernommen; alles bleibt in der Bestellung offen,
+        der fehlende Teil wird mit dem Wareneingang reserviert. Lieferung später komplett.</label>
+      {% if e.verfuegbar > 0 %}
+      <label style="display:block"><input type="radio" name="wahl_{{ e.position.pk }}" value="B" {% if e.wahl == 'B' %}checked{% endif %}>
+        <strong>B: Teillieferung</strong> – diese Menge wird übernommen, der Rest bleibt als Rückstand in der Bestellung:
+        <input type="text" inputmode="decimal" name="menge_{{ e.position.pk }}" value="{{ e.menge }}" size="6" aria-label="Menge Teillieferung" style="width:6em"> Stk (höchstens {{ e.verfuegbar|floatformat:"-3" }})</label>
+      {% endif %}
+    </fieldset>
+    {% endfor %}
+    <div class="zeile">
+      <button type="submit">Weiter</button>
+      <a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Abbrechen (nichts übernehmen)</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
