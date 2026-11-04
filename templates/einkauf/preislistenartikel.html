@@ -14,12 +14,13 @@
   </form>
   <p>{{ seite.paginator.count }} Treffer</p>
   <div class="scroll"><table>
-    <thead><tr><th>Lieferant</th><th>MSKU</th><th>Bestell-Nr.</th><th>Bezeichnung</th><th>Hersteller</th><th class="zahl">EK netto</th><th class="zahl">Bestand</th><th>eigener Artikel</th></tr></thead>
+    <thead><tr><th>Lieferant</th><th>MSKU</th><th>Bestell-Nr.</th><th>Bezeichnung</th><th>Hersteller</th><th class="zahl">EK netto</th><th class="zahl">Bestand</th><th>eigener Artikel</th><th></th></tr></thead>
     <tbody>{% for e in seite.object_list %}
     <tr><td><span class="marke">{{ e.lieferant.kurz }}</span></td><td>{{ e.herstellernummer }}</td><td>{{ e.bestellnummer }}</td><td>{{ e.bezeichnung }}</td><td>{{ e.hersteller }}</td>
         <td class="zahl">{{ e.ek|floatformat:2 }}</td><td class="zahl">{{ e.bestand|default_if_none:"" }}</td>
-        <td>{% if e.artikel %}<a href="{% url 'lager:artikel' e.artikel.pk %}">{{ e.artikel.nummer }}</a>{% endif %}</td></tr>
-    {% empty %}<tr><td colspan="8">Keine Treffer.</td></tr>{% endfor %}</tbody>
+        <td>{% if e.artikel %}<a href="{% url 'lager:artikel' e.artikel.pk %}">{{ e.artikel.nummer }}</a>{% endif %}</td>
+        <td>{% if not e.artikel %}<a class="knopf leise" href="{% url 'stammdaten:artikel_neu' %}?kopie_von_pl={{ e.pk }}" data-modal="{% url 'stammdaten:artikel_neu' %}?kopie_von_pl={{ e.pk }}">Als A-Artikel kopieren</a>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="9">Keine Treffer.</td></tr>{% endfor %}</tbody>
   </table></div>
   {% include "seiten.html" %}
 </div>
