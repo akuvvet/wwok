@@ -142,6 +142,8 @@ class VkVorschlagForm(forms.ModelForm):
                 gewaehlt = self.data.get(name, "")
             elif self.instance.pk:
                 gewaehlt = "vk" if getattr(self.instance, vk) is not None else "aufschlag"
+            elif getattr(self.instance, vk) is not None or getattr(self.instance, auf) is not None:
+                gewaehlt = "vk" if getattr(self.instance, vk) is not None else "aufschlag"  # Kopie einer Vorlage
             else:
                 gewaehlt = ""  # neuer Artikel: die Maske wählt beim ersten Tippen
             self.fields[vk].fix = (name, "vk", gewaehlt == "vk")
@@ -180,7 +182,7 @@ class VkVorschlagForm(forms.ModelForm):
     def save(self, commit=True):
         # Herkunft „manuell“ nur, wenn der manuelle EK auch gilt; ein übernommener EK (Import) behält seine Herkunft
         a = self.instance
-        if "ek_manuell" in self.changed_data and a.typ == Artikeltyp.A:
+        if ("ek_manuell" in self.changed_data or (not a.pk and a.ek_manuell is not None)) and a.typ == Artikeltyp.A:  # neu, auch als Kopie
             if a.ek_herkunft == EkHerkunft.WARENEINGANG and a.ek_manuell is not None:
                 a.durchschnitts_ek = None  # alter Wareneingangs-EK zählt nicht mehr, der eingetragene EK ersetzt ihn
             if not a.durchschnitts_ek:
