@@ -39,6 +39,9 @@ class VerwaltungKopfTest(TestCase):
         self.assertIn('id="content" class="colMS"', html)
         self.assertIn("#content.colMS > #content-related { grid-column:2; grid-row:3;", html)
         self.assertIn("#content.colMS > #content-main { grid-column:1; grid-row:3;", html)
+        # Raster muss die Flex-Regel schlagen (gleiche Spezifität), sonst rutscht „Neueste Aktionen“ unter den Inhalt
+        self.assertIn("#container > .main > .content > #content.colMS { display:grid;", html)
+        self.assertIn(".dashboard #content { width:auto; }", html)  # nicht auf Djangos 600px begrenzt
 
     def test_andere_seiten_ohne_menusuche(self):
         html = self.client.get(reverse("admin:auth_user_change", args=[self.admin.pk])).content.decode()
