@@ -191,7 +191,7 @@
   @keyframes toast-zeit { from { transform:scaleX(1); } to { transform:scaleX(0); } }
   @media (prefers-reduced-motion: reduce) { .toast { animation:none; } }
   .warnung { border:1px solid var(--warn); color:var(--warn); padding:8px 12px; border-radius:6px; margin-bottom:12px; }
-  .kreditwarnung { margin:8px 0 0; max-width:300px; font-size:13px; text-align:left; }
+  .kreditwarnung { display:inline-block; margin:6px 0 0; padding:1px 8px; font-size:13px; font-weight:700; white-space:nowrap; color:var(--warn); background:rgba(220,38,38,.1); border-radius:999px; cursor:help; }
   .arbeitsstand { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
   .arbeitsstand span { flex:1 1 240px; } .arbeitsstand form { margin:0; }
   .raster { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
