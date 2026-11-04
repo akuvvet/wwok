@@ -1,4 +1,6 @@
 """Vorläufige Pflegemasken über den Django-Admin – bis die eigenen Masken stehen."""
+import threading
+
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
@@ -117,11 +119,37 @@ class GruppenKomponenteInline(admin.TabularInline):
     verbose_name_plural = "Komponenten (nur bei Typ G)"
 
 
+_anfrage = threading.local()
+AMPEL_SYMBOL = {"rot": "🔴", "gelb": "🟡", "blau": "🔵", "gruen": "🟢", "grau": "⚪"}
+
+
+class AuffaelligFilter(admin.SimpleListFilter):
+    """Preis-Radar: nur Artikel mit rotem, gelbem, blauem oder grünem Befund (Mandant der Sitzung)."""
+
+    title = "Preis-Radar"
+    parameter_name = "radar"
+
+    def lookups(self, request, model_admin):
+        return [("auffaellig", "nur auffällige")]
+
+    def queryset(self, request, queryset):
+        if self.value() != "auffaellig":
+            return queryset
+        from apps.kern.kontext import mandant_oder_none
+        from . import radar
+        mandant = mandant_oder_none(request)
+        if mandant is None:
+            return queryset
+        # wie im Radar: Artikel mit Bestand oder offenen Belegen; Ampel grau zählt nicht als auffällig
+        ids = [e.artikel.pk for e in radar.eintraege(mandant) if e.ampel in ("rot", "gelb", "blau", "gruen")]
+        return queryset.filter(pk__in=ids)
+
+
 @admin.register(m.Artikel)
 class ArtikelAdmin(admin.ModelAdmin):
     form = VkVorschlagForm
-    list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "online", "aktiv"]
-    list_filter = ["typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
+    list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "radar_ampel", "online", "aktiv"]
+    list_filter = [AuffaelligFilter, "typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
     search_fields = ["nummer", "bezeichnung", "herstellernummer", "ean"]
     readonly_fields = ["ek_anzeige", "angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [ArtikelMandantInline, ArtikelLieferantInline, GruppenKomponenteInline, ArtikelBildInline]
@@ -134,6 +162,23 @@ class ArtikelAdmin(admin.ModelAdmin):
         if db_field.name == "typ":  # neue Leistungen entstehen unter Leistungsartikel, mit Kategorie und Kosten
             kwargs["choices"] = [(w, n) for w, n in m.Artikeltyp.choices if w != m.Artikeltyp.L]
         return super().formfield_for_choice_field(db_field, request, **kwargs)
+
+    @admin.display(description="Ampel")
+    def radar_ampel(self, obj):
+        mandant = getattr(_anfrage, "mandant", None)
+        if mandant is None or obj.typ == m.Artikeltyp.G:
+            return ""
+        from . import radar
+        farbe = radar.ampel(obj, mandant)
+        return AMPEL_SYMBOL.get(farbe, "")
+
+    def changelist_view(self, request, extra_context=None):
+        from apps.kern.kontext import mandant_oder_none
+        _anfrage.mandant = mandant_oder_none(request)  # Ampel gilt für den gewählten Mandanten (je Thread, nie mandantenübergreifend)
+        try:
+            return super().changelist_view(request, extra_context)
+        finally:
+            _anfrage.mandant = None
 
     @admin.display(description="Aktiv", boolean=True, ordering="-nicht_aktiv")
     def aktiv(self, obj):

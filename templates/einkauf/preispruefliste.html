@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block titel %}Preisprüfung – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Preisprüfung</h1>
+  <p style="opacity:.8">Auffällige Preisimporte werden nicht übernommen, bis Sie sie freigeben. Einzelne Preise mit großer Abweichung bleiben auf dem bisherigen Stand, bis Sie sie übernehmen.</p>
+
+  <h2 style="margin-top:16px">Importe zur Prüfung ({{ importe|length }})</h2>
+  {% if importe %}
+  <div class="scroll"><table>
+    <thead><tr><th>Zeitpunkt</th><th>Preisliste</th><th>Datei</th><th>Gelesen</th><th></th></tr></thead>
+    <tbody>{% for i in importe %}<tr>
+      <td><a href="{% url 'einkauf:preislistenimport' i.pk %}">{{ i.zeitpunkt|date:"d.m.Y H:i" }}</a></td>
+      <td>{{ i.profil }}</td><td>{{ i.dateiname }}</td><td class="zahl">{{ i.gelesen }}</td>
+      <td><form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="id" value="{{ i.pk }}">
+        <button type="submit" name="aktion" value="import_freigeben">Freigeben</button>
+        <button type="submit" name="aktion" value="import_verwerfen" class="gefahr">Verwerfen</button></form></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p>Keine Importe zur Prüfung.</p>{% endif %}
+
+  <h2 style="margin-top:16px">Preise zur Prüfung ({{ preise|length }})</h2>
+  {% if preise %}
+  <div class="scroll"><table>
+    <thead><tr><th>Artikel</th><th>Lieferant</th><th>Bestell-Nr.</th><th class="zahl">bisher</th><th class="zahl">neu</th><th class="zahl">Abweichung</th><th></th></tr></thead>
+    <tbody>{% for p in preise %}<tr>
+      <td>{{ p.artikel.nummer }} {{ p.artikel.bezeichnung }}</td><td>{{ p.lieferant.name1 }}</td><td>{{ p.bestellnummer }}</td>
+      <td class="zahl">{{ p.ek_alt|floatformat:2 }}</td><td class="zahl">{{ p.ek_neu|floatformat:2 }}</td><td class="zahl">{{ p.abweichung|floatformat:0 }} %</td>
+      <td><form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="id" value="{{ p.pk }}">
+        <button type="submit" name="aktion" value="preis_uebernehmen">Übernehmen</button>
+        <button type="submit" name="aktion" value="preis_verwerfen" class="leise">Verwerfen</button></form></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p>Keine Preise zur Prüfung.</p>{% endif %}
+</div>
+{% endblock %}

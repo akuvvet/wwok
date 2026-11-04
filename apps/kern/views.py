@@ -3,6 +3,7 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.cache import cache_control
 
+from apps.stammdaten import radar
 from apps.verkauf.views import mit_mandant
 
 from . import dashboard as kennzahlen
@@ -34,4 +35,5 @@ def dashboard(request):
         "artikel": kennzahlen.top_artikel(mandant, von, bis),
         "lieferanten": kennzahlen.top_lieferanten(mandant, von, bis),
         "kanaele": kennzahlen.kanaele(mandant, von, bis),
-        "arbeit": kennzahlen.arbeitsliste(mandant, von, heute)})
+        "arbeit": kennzahlen.arbeitsliste(mandant, von, heute),
+        "radar": radar.auswertung(mandant)})

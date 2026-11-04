@@ -39,7 +39,7 @@ class AuditEinkaufTest(TestCase):
         we = self.we()
         services.wareneingang_erfassen(we, self.a, Decimal("10"), Decimal("20"), seriennummern="\n".join(f"S{i}" for i in range(10)))
         services.wareneingang_erfassen(we, self.a, Decimal("10"), Decimal("30"), seriennummern="\n".join(f"T{i}" for i in range(10)))
-        services.wareneingang_buchen(we)
+        services.wareneingang_buchen(we, bestaetigt=True)  # 30 € weicht über 50 % vom Import-EK 18 € ab
         self.a.refresh_from_db()
         self.assertEqual((self.a.durchschnitts_ek, self.a.ek_herkunft), (Decimal("18"), "import"))  # Import-EK ist maßgebend
         self.assertEqual(bestand(self.m, self.a), Decimal("20"))

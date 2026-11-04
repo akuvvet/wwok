@@ -106,6 +106,13 @@
     <span>Summe: <strong>{{ verlauf.summe|floatformat:"2g" }} €</strong></span></div>
 </div>
 
+<h2 class="db-abschnitt">Preis-Radar</h2>
+<div class="db-arbeit">
+  {% for k in radar.kategorien %}<a href="{% url 'stammdaten:radar' %}?kategorie={{ k.schluessel }}"><span>{{ k.name }}</span><strong {% if k.farbe == "rot" and k.anzahl %}class="db-ab"{% endif %}>{{ k.anzahl }}{% if k.euro %} · {{ k.euro|floatformat:"2g" }} €{% endif %}</strong></a>{% endfor %}
+  <a href="{% url 'stammdaten:radar' %}?kategorie=senkung"><span>VK-Senkung prüfen</span><strong>{{ radar.senkung }}</strong></a>
+  <a href="{% url 'einkauf:preispruefliste' %}"><span>Import zur Prüfung</span><strong {% if radar.importe %}class="db-ab"{% endif %}>{{ radar.importe }}</strong></a>
+</div>
+
 <h2 class="db-abschnitt">Arbeitsliste</h2>
 <div class="db-arbeit">
   <a href="{% url 'werkstatt:liste' %}"><span>Offene Reparaturen</span><strong>{{ arbeit.reparaturen }}</strong></a>

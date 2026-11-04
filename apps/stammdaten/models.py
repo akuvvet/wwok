@@ -15,6 +15,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
+from django.utils import timezone
 
 from apps.kern.models import Mandant, Zeitstempel
 
@@ -457,6 +458,26 @@ class ArtikelMandant(Zeitstempel):
     lagerplatz = models.CharField("Lagerplatz (Regal/Fach)", max_length=40, blank=True)
     mindestbestand = models.PositiveIntegerField("Mindestbestand", null=True, blank=True)
     maximalbestand = models.PositiveIntegerField("Maximalbestand", null=True, blank=True)
+    # VK-Kalkulation (Issue 12, Schritt 1): EK-Quellen pro Mandant. ek_import (Preislisten) ist mandantenübergreifend und liegt am Artikel.
+    ek_we = models.DecimalField("EK letzter Wareneingang", null=True, blank=True, editable=False, **EK_GELD)
+    ek_avg = models.DecimalField("Ø-EK (gleitend)", null=True, blank=True, editable=False, **EK_GELD)
+    ek2 = models.DecimalField("EK2 (manuell)", null=True, blank=True, validators=[MinValueValidator(0)], **EK_GELD)
+    ek2_datum = models.DateTimeField("EK2 geändert am", null=True, blank=True, editable=False)
+    ek2_fix = models.BooleanField("EK2 gilt immer als Kalkulationsbasis", default=False)
+    vk_fix1 = models.BooleanField("VK1 fest", default=False)
+    vk_fix2 = models.BooleanField("VK2 fest", default=False)
+    vk_fix3 = models.BooleanField("VK3 fest", default=False)
+    warnungen_aus = models.BooleanField("keine Warnungen im Preis-Radar", default=False)
+
+    def save(self, *args, **kwargs):
+        felder = kwargs.get("update_fields")
+        if felder is None or "ek2" in felder:  # ek2_datum wird bei jeder Änderung von ek2 gesetzt
+            alt = type(self).objects.filter(pk=self.pk).values_list("ek2", flat=True).first() if self.pk else None
+            if alt != self.ek2:
+                self.ek2_datum = timezone.now() if self.ek2 is not None else None
+                if felder is not None:
+                    kwargs["update_fields"] = [*felder, "ek2_datum"]
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "Artikeldaten pro Mandant"
@@ -508,9 +529,9 @@ class ArtikelBild(Zeitstempel):
         if neu and self.bild and not self.vorschau:
             try:
                 self.vorschau_erzeugen()
-            except (OSError, ValueError):
+            except (OSError, ValueError) as fehler:
                 # Fehlende oder nicht lesbare Datei: Bild bleibt gespeichert, Vorschau fällt auf das Original zurück.
-                logging.getLogger(__name__).warning("Keine Vorschau für %s erzeugt", self.bild.name, exc_info=True)
+                logging.getLogger(__name__).warning("Keine Vorschau für %s erzeugt: %s", self.bild.name, fehler)
 
     @property
     def vorschau_url(self):
@@ -666,6 +687,35 @@ class PreisVorgabe(models.Model):
     aufschlag_vk1 = models.DecimalField("Aufschlag VK1 %", max_digits=6, decimal_places=2, null=True, blank=True)
     aufschlag_vk2 = models.DecimalField("Aufschlag VK2 %", max_digits=6, decimal_places=2, null=True, blank=True)
     aufschlag_vk3 = models.DecimalField("Aufschlag VK3 %", max_digits=6, decimal_places=2, null=True, blank=True)
+    rundung_99 = models.BooleanField("VK auf ,99 aufrunden", default=False, help_text="Aus: kaufmännisch auf 2 Nachkommastellen.")
+    # Schutzgrenzen (Issue 12, Schritt 2), alle in Prozent
+    we_abweichung_prozent = models.DecimalField(
+        "Wareneingang: Rückfrage ab Abweichung %", max_digits=6, decimal_places=2, default=50,
+        help_text="Weicht der Wareneingangspreis um mehr als das vom Ø-EK bzw. Import-EK ab, kommt vor dem Buchen eine Rückfrage.")
+    import_quarantaene_anteil = models.DecimalField(
+        "Import-Quarantäne: Anteil Artikel %", max_digits=6, decimal_places=2, default=20,
+        help_text="Ändern sich mehr als so viele Artikel eines Imports …")
+    import_quarantaene_aenderung = models.DecimalField(
+        "Import-Quarantäne: Preisänderung %", max_digits=6, decimal_places=2, default=30,
+        help_text="… um mehr als diesen Wert, wird der gesamte Import zurückgehalten.")
+    import_einzel_prozent = models.DecimalField(
+        "Import: Einzelartikel zur Prüfung ab %", max_digits=6, decimal_places=2, default=50,
+        help_text="Weicht ein Preis um mehr als das vom bisherigen Preis ab, wird er nicht übernommen, sondern in die Prüfliste gestellt.")
+
+    # Preis-Radar (Issue 12, Schritt 3)
+    radar_preisverfall_faktor = models.DecimalField(
+        "Radar: Preisverfall-Faktor", max_digits=5, decimal_places=2, default=Decimal("0.85"),
+        help_text="Preisverfall, wenn der Import-EK unter Ø-EK × diesem Faktor liegt.")
+    radar_ek2_abweichung = models.DecimalField(
+        "Radar: EK2-Abweichung %", max_digits=6, decimal_places=2, default=20,
+        help_text="Hinweis, wenn Import-EK bzw. Wareneingang um mehr als das von EK2 abweichen.")
+    radar_ek2_alter_tage = models.PositiveIntegerField("Radar: EK2 prüfen nach Tagen", default=180)
+    radar_ignorieren_prozent = models.DecimalField(
+        "Radar: Ignorieren unter %", max_digits=6, decimal_places=2, default=3,
+        help_text="Differenzen unter diesem Prozentsatz der Vergleichsbasis werden nicht gemeldet.")
+    radar_ignorieren_euro = models.DecimalField(
+        "Radar: Ignorieren unter €", max_digits=8, decimal_places=2, default=Decimal("0.50"),
+        help_text="Differenzen je Stück unter diesem Betrag werden nicht gemeldet.")
 
     class Meta:
         verbose_name = "Globale Preisvorgabe"
@@ -862,3 +912,19 @@ class UstIdPruefung(models.Model):
     @property
     def abweichung(self) -> bool:
         return "B" in (self.erg_name, self.erg_strasse, self.erg_plz, self.erg_ort)
+
+
+class RadarGesehen(models.Model):
+    """Preis-Radar „Gesehen“: blendet den Artikel im Mandanten aus, bis sich ek_kalk, ek_avg oder VK ändern (Stand beim Klick)."""
+
+    artikel = models.ForeignKey(Artikel, on_delete=models.CASCADE, related_name="radar_gesehen")
+    mandant = models.ForeignKey(Mandant, on_delete=models.CASCADE)
+    ek_kalk = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    ek_avg = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    vk = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    gesehen_am = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Radar: gesehen"
+        verbose_name_plural = "Radar: gesehen"
+        constraints = [models.UniqueConstraint(fields=["artikel", "mandant"], name="radar_gesehen_eindeutig")]

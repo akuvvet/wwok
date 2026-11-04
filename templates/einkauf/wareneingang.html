@@ -41,6 +41,7 @@
     <div><label>Verpackung netto</label><input name="verpackung" value="{{ we.verpackung }}" size="8" inputmode="decimal"></div>
     <div><label style="display:flex;gap:6px;align-items:center;font-weight:normal"><input type="checkbox" name="nebenkosten_extern" {% if we.nebenkosten_extern %}checked{% endif %}> kommen auf eigener Rechnung (Spedition)</label></div>
     <button type="submit" name="aktion" value="kosten" class="leise">Kosten speichern</button>
+    {% if request.GET.rueckfrage %}<div><label style="display:flex;gap:6px;align-items:center;font-weight:bold"><input type="checkbox" name="preis_bestaetigt" required> Preis ist korrekt, trotzdem buchen</label></div>{% endif %}
     <button type="submit">Ins Lager buchen</button>
   </form>
   <p style="opacity:.8;margin:6px 0 0">Nebenkosten werden nach Warenwert auf die Positionen verteilt. Der Kalkulations-EK wird an der Position festgehalten; den EK des Artikels ändert der Wareneingang nicht – maßgebend für VK, Marge und Lagerwert ist der Import-EK. Die Bestellung und der nächste Bestellvorschlag rechnen weiter mit dem Lieferantenpreis.</p>

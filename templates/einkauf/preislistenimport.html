@@ -9,6 +9,8 @@
     <div>geändert<br><strong>{{ p.geaendert }}</strong></div><div>unverändert<br><strong>{{ p.unveraendert }}</strong></div>
     <div>übersprungen<br><strong>{{ p.uebersprungen }}</strong></div><div>entfernt (nicht mehr gelistet)<br><strong>{{ p.geloescht }}</strong></div><div>Fehler<br><strong style="color:{% if p.fehler %}var(--warn){% endif %}">{{ p.fehler }}</strong></div>
   </div>
+  {% if p.status == "zur_pruefung" %}<p style="margin-top:12px"><strong>Zur Prüfung:</strong> {{ p.meldung }} <a class="knopf" href="{% url 'einkauf:preispruefliste' %}">Zur Prüfliste</a></p>
+  {% elif p.zur_pruefung %}<p style="margin-top:12px">{{ p.zur_pruefung }} Preise zur Prüfung. <a class="knopf leise" href="{% url 'einkauf:preispruefliste' %}">Zur Prüfliste</a></p>{% endif %}
   {% if p.fehlerzeilen %}
   <h2 style="margin-top:16px">Fehlerhafte Zeilen{% if p.fehler > p.fehlerzeilen|length %} (erste {{ p.fehlerzeilen|length }}){% endif %}</h2>
   <div class="scroll"><table>
