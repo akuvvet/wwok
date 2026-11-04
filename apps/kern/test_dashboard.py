@@ -153,11 +153,18 @@ class DashboardTest(TestCase):
         entwurf = self.beleg(Belegart.AUFTRAG, netto="50", abgeschlossen=False)
         Position.objects.create(beleg=entwurf, bezeichnung="x", einzelpreis=Decimal("1"))
         geliefert = self.beleg(Belegart.AUFTRAG, netto="900")
-        Position.objects.create(beleg=geliefert, bezeichnung="x", einzelpreis=Decimal("1"))
-        self.beleg(Belegart.LIEFERSCHEIN, vorgaenger=geliefert)
+        gp = Position.objects.create(beleg=geliefert, bezeichnung="x", einzelpreis=Decimal("1"))
+        ls = self.beleg(Belegart.LIEFERSCHEIN, vorgaenger=geliefert, abgeschlossen=False)
+        Position.objects.create(beleg=ls, bezeichnung="x", einzelpreis=Decimal("1"), quellposition=gp)  # voll geliefert
+        Beleg.objects.filter(pk=ls.pk).update(abgeschlossen=True)
+        teil = self.beleg(Belegart.AUFTRAG, netto="300")  # Teillieferung: 4 von 10 geliefert, bleibt offen
+        tp = Position.objects.create(beleg=teil, bezeichnung="x", einzelpreis=Decimal("1"), menge=Decimal("10"))
+        tls = self.beleg(Belegart.LIEFERSCHEIN, vorgaenger=teil, abgeschlossen=False)
+        Position.objects.create(beleg=tls, bezeichnung="x", einzelpreis=Decimal("1"), menge=Decimal("4"), quellposition=tp)
+        Beleg.objects.filter(pk=tls.pk).update(abgeschlossen=True)
         leer = self.beleg(Belegart.AUFTRAG, netto="5")  # ohne Positionen zählt nicht
         erg = dashboard.offene_kundenbestellungen(self.m)
-        self.assertEqual((erg["anzahl"], erg["netto"]), (2, Decimal("250.00")))
+        self.assertEqual((erg["anzahl"], erg["netto"]), (3, Decimal("550.00")))
         self.assertNotEqual(leer.pk, offen.pk)
 
     def test_offene_posten_mit_zahlung_und_ueberfaellig(self):
