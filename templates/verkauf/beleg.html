@@ -247,7 +247,7 @@
           if (!antwort.ok || antwort.redirected) throw new Error();  // Weiterleitung = Fehlermeldung oder abgelaufene Anmeldung
           durchlassen = true;
           weiter();
-        }).catch(function () { wwokMeldung('Das hat nicht geklappt. Bitte die Seite neu laden und erneut versuchen.'); });
+        }).catch(function () { wwokToast('Das hat nicht geklappt. Bitte die Seite neu laden und erneut versuchen.', 'error'); });
       });
     }
     window.addEventListener('click', function (e) {

@@ -177,6 +177,19 @@
   button.gefahr { background:transparent; color:var(--warn); border-color:var(--warn); }
   .meldung { padding:8px 12px; border-radius:6px; margin-bottom:12px; border:1px solid var(--rand); background:var(--karte); }
   .meldung.error, .meldung.warning { border-color:var(--warn); color:var(--warn); } .meldung.success { border-color:var(--ok); color:var(--ok); }
+  .toasts { position:fixed; top:64px; right:16px; z-index:2000; display:flex; flex-direction:column; gap:8px; width:min(380px,calc(100vw - 32px)); pointer-events:none; }
+  .toast { position:relative; overflow:hidden; pointer-events:auto; display:flex; gap:8px; align-items:flex-start; padding:10px 12px 14px; border-radius:6px; border:1px solid var(--akzent); color:var(--akzent); background:var(--karte); box-shadow:0 4px 14px rgba(0,0,0,.25); animation:toast-ein .2s ease-out; }
+  .toast.error { border-color:var(--warn); color:var(--warn); } .toast.success { border-color:var(--ok); color:var(--ok); }
+  .toast.warning { border-color:#b7791f; color:#b7791f; }
+  .toast .toast-text { flex:1; color:var(--text); }
+  .toast .toast-zu { background:transparent; border:0; color:inherit; padding:0 4px; font-size:18px; line-height:1; cursor:pointer; }
+  .toast .toast-zeit { display:none; position:absolute; left:0; bottom:0; height:4px; width:100%; background:currentColor; transform-origin:left; animation:toast-zeit 3s linear forwards; }
+  .toasts.mit-js .toast-zeit { display:block; }
+  .toast.pause .toast-zeit { animation-play-state:paused; }
+  .toast.weg { opacity:0; transition:opacity .2s; }
+  @keyframes toast-ein { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:none; } }
+  @keyframes toast-zeit { from { transform:scaleX(1); } to { transform:scaleX(0); } }
+  @media (prefers-reduced-motion: reduce) { .toast { animation:none; } }
   .warnung { border:1px solid var(--warn); color:var(--warn); padding:8px 12px; border-radius:6px; margin-bottom:12px; }
   .kreditwarnung { margin:8px 0 0; max-width:300px; font-size:13px; text-align:left; }
   .arbeitsstand { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
@@ -268,8 +281,10 @@
 </nav>
 <div class="leistenschleier" id="leistenschleier" hidden></div>
 {% endwith %}{% endif %}
+<div class="toasts" id="toasts" role="region" aria-live="polite" aria-label="Meldungen">
+  {% for m in messages %}<div class="toast {{ m.tags }}" role="alert"><span class="toast-text">{{ m }}</span><button type="button" class="toast-zu" aria-label="Meldung schließen">×</button><span class="toast-zeit"></span></div>{% endfor %}
+</div>
 <main>
-  {% for m in messages %}<div class="meldung {{ m.tags }}">{{ m }}</div>{% endfor %}
   {% block inhalt %}{% endblock %}
 </main>
 </div>
@@ -315,11 +330,33 @@
       f.requestSubmit(knopf || undefined);
     });
   }, true);
-  // Fehler und Warnungen des Systems erscheinen als Dialog
-  document.addEventListener('DOMContentLoaded', function () {
-    var texte = Array.prototype.map.call(document.querySelectorAll('.meldung.error, .meldung.warning'), function (m) { return m.textContent; });
-    if (texte.length) wwokMeldung(texte.join('\n'));
-  });
+  // Meldungen als Toast: nach 3 s weg, Maus darüber pausiert, X schließt sofort. Ohne JavaScript bleibt der Toast stehen.
+  (function () {
+    var DAUER = 3000;
+    function toastEinrichten(t) {
+      if (t.dataset.bereit) return; t.dataset.bereit = '1';
+      var rest = DAUER, start = Date.now(), uhr = null;
+      function weg() { clearTimeout(uhr); t.classList.add('weg'); setTimeout(function () { t.remove(); }, 200); }
+      function laufen() { start = Date.now(); uhr = setTimeout(weg, rest); t.classList.remove('pause'); }
+      function anhalten() { clearTimeout(uhr); rest = Math.max(500, rest - (Date.now() - start)); t.classList.add('pause'); }
+      t.addEventListener('mouseenter', anhalten); t.addEventListener('mouseleave', laufen);
+      var zu = t.querySelector('.toast-zu'); if (zu) zu.addEventListener('click', weg);
+      laufen();
+    }
+    window.wwokToast = function (text, typ) {
+      var box = document.getElementById('toasts'), t = document.createElement('div'), s = document.createElement('span'), z = document.createElement('button'), l = document.createElement('span');
+      t.className = 'toast ' + (typ || 'info'); t.setAttribute('role', 'alert');
+      s.className = 'toast-text'; s.textContent = text;
+      z.type = 'button'; z.className = 'toast-zu'; z.setAttribute('aria-label', 'Meldung schließen'); z.textContent = '×';
+      l.className = 'toast-zeit';
+      t.appendChild(s); t.appendChild(z); t.appendChild(l); box.appendChild(t); toastEinrichten(t);
+    };
+    function alle() {
+      var box = document.getElementById('toasts'); box.classList.add('mit-js');
+      Array.prototype.forEach.call(box.querySelectorAll('.toast'), toastEinrichten);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', alle); else alle();
+  })();
 </script>
 <script>
   // Escape schließt die Maske und führt zur übergeordneten Seite
@@ -675,7 +712,7 @@
             if (d.ok) { if (d.ziel && d.ziel !== location.pathname) { location.href = d.ziel; } else { location.reload(); } return; }
           }
           dlg.innerHTML = await r.text(); bereit();
-        } catch (fehlermeldung) { wwokMeldung('Speichern nicht möglich: ' + fehlermeldung); knopf.disabled = false; }
+        } catch (fehlermeldung) { wwokToast('Speichern nicht möglich: ' + fehlermeldung, 'error'); knopf.disabled = false; }
       });
     }
     async function oeffnen(url) {
