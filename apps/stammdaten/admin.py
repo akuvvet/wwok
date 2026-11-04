@@ -361,12 +361,20 @@ class KundenpreisAdmin(admin.ModelAdmin):
 class PreislistenartikelAdmin(admin.ModelAdmin):
     """Artikel aus den Lieferantenpreislisten (Typ P). Sie entstehen durch den Preislistenimport; hier nur zum Nachsehen."""
 
-    list_display = ["lieferant", "msku", "sku", "bezeichnung", "hersteller", "ek_anzeige", "lager", "a_artikel"]
+    list_display = ["lieferant_kurz", "msku", "sku", "bezeichnung", "hersteller", "ek_anzeige", "lager", "a_artikel"]
+    list_display_links = ["lieferant_kurz"]
     list_filter = ["lieferant"]
     search_fields = ["bezeichnung", "herstellernummer", "bestellnummer", "ean", "hersteller"]
     raw_id_fields = ["artikel"]
     list_select_related = ["lieferant", "artikel"]
     show_full_result_count = False  # bei Hunderttausenden Zeilen kein teures COUNT(*)
+
+    @admin.display(description="Lieferant", ordering="lieferant__name1")
+    def lieferant_kurz(self, obj):
+        """Erstes Wort von Name 1 (leer: Lieferantennummer); voller Text als Tooltip."""
+        lf = obj.lieferant
+        kurz = (lf.name1.split() or [lf.nummer])[0]
+        return format_html('<span title="{}">{}</span>', str(lf), kurz)
 
     # Kurze Spaltenköpfe nur in der Liste (voller Begriff als Tooltip); Formulare behalten die langen Feldnamen.
     @admin.display(description=format_html('<span title="{}">{}</span>', "Herstellernummer", "MSKU"), ordering="herstellernummer")
