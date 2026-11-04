@@ -80,6 +80,7 @@ def neuer_artikel_aus_preisliste(eintrag) -> Artikel:
     artikel = Artikel(
         nummer=Stammnummer.vorschlag(Artikeltyp.A), typ=Artikeltyp.A, bezeichnung=eintrag.bezeichnung[:Artikel._meta.get_field("bezeichnung").max_length],
         hersteller=hersteller, herstellernummer=eintrag.herstellernummer, ean=eintrag.ean, gewicht_kg=eintrag.gewicht_kg,
+        laenge_cm=eintrag.laenge_cm, breite_cm=eintrag.breite_cm, hoehe_cm=eintrag.hoehe_cm,
         steuersatz=steuer, online=False)
     preise = [z.ek for z in preislisten_gruppe(eintrag) if z.ek and z.ek > 0]
     if preise:

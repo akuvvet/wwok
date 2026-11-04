@@ -20,7 +20,16 @@ from apps.stammdaten.models import Artikel, ArtikelLieferant, Preislistenartikel
 from .models import BestellPosition, Dateityp, Preislistenimport, Preislistenprofil, Preispruefung, Quelle
 
 FELDER = ("bestellnummer", "herstellernummer", "ean", "bezeichnung", "hersteller", "kategorie", "ek",
-          "bestand", "lieferzeit", "gewicht")
+          "bestand", "lieferzeit", "gewicht", "laenge", "breite", "hoehe")
+
+# Maßfelder: Feld der Zeile -> (Feld an Preislistenartikel/Artikel, Basiseinheit, Nachkommastellen, Umrechnung auf die Basiseinheit)
+MASSFELDER = {
+    "gewicht": ("gewicht_kg", "kg", Decimal("0.001"), {"kg": Decimal(1), "g": Decimal("0.001")}),
+    "laenge": ("laenge_cm", "cm", Decimal("0.01"), {"cm": Decimal(1), "mm": Decimal("0.1"), "m": Decimal(100)}),
+    "breite": ("breite_cm", "cm", Decimal("0.01"), {"cm": Decimal(1), "mm": Decimal("0.1"), "m": Decimal(100)}),
+    "hoehe": ("hoehe_cm", "cm", Decimal("0.01"), {"cm": Decimal(1), "mm": Decimal("0.1"), "m": Decimal(100)}),
+}
+MASS_ATTRIBUTE = tuple(v[0] for v in MASSFELDER.values())
 
 
 class PreislistenFehler(Exception):
@@ -170,6 +179,29 @@ def zahl(wert: str, dezimal: str) -> Decimal:
         return Decimal(t)
     except InvalidOperation:
         raise ValueError(f"Zahl nicht lesbar: '{wert}'")
+
+
+def mass(wert: str, feld: str, dezimal: str):
+    """Maß bzw. Gewicht aus dem Text der Preisliste in kg bzw. cm; die Einheit im Text wird erkannt (z. B. „450 g“, „120 mm“,
+    „0,3 m“), ohne Einheit gilt kg bzw. cm. Leer, unlesbar, 0 oder zu groß: None (Maße sind optional und dürfen den Preis nicht
+    blockieren)."""
+    import re
+    wert = (wert or "").strip()
+    if not wert:
+        return None
+    treffer = re.fullmatch(r"([0-9.,\s\xa0]+?)\s*([a-zA-Z]*)\.?", wert)
+    if not treffer:
+        return None
+    einheit = treffer.group(2).lower()
+    _attr, _basis, stelle, faktoren = MASSFELDER[feld]
+    if einheit and einheit not in faktoren:
+        return None
+    try:
+        zahlenwert = zahl(treffer.group(1), dezimal) * faktoren.get(einheit or _basis)
+        zahlenwert = zahlenwert.quantize(stelle)
+    except (ValueError, ArithmeticError):
+        return None
+    return zahlenwert if 0 < zahlenwert < 1000000 else None  # passt in die Datenbankfelder (6 Vorkommastellen)
 
 
 # ---- Import -----------------------------------------------------------------------------------------
@@ -324,6 +356,22 @@ def _preispaare(profil, zeilen, vorhanden, nach_hnr, nach_ean):
     return paare
 
 
+def _masse_in_artikel(artikel_masse: dict) -> None:
+    """Übernimmt Maße und Gewicht in die verknüpften Lagerartikel (Typ A) – nur Felder, die dort noch leer sind;
+    manuell gepflegte Werte bleiben unverändert."""
+    ids = list(artikel_masse)
+    for i in range(0, len(ids), 500):
+        geaendert = []
+        for a in Artikel.objects.filter(pk__in=ids[i:i + 500], typ="A").only("id", *MASS_ATTRIBUTE):
+            leer = {f: w for f, w in artikel_masse[a.pk].items() if getattr(a, f) is None}
+            if leer:
+                for f, w in leer.items():
+                    setattr(a, f, w)
+                geaendert.append(a)
+        if geaendert:
+            Artikel.objects.bulk_update(geaendert, list(MASS_ATTRIBUTE), batch_size=500)
+
+
 def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes = b"", schutz: bool = False) -> Preislistenimport:
     from apps.stammdaten import ekkalk
     protokoll = Preislistenimport(profil=profil, dateiname=dateiname[:200], gelesen=len(zeilen), benutzer=benutzer)
@@ -333,9 +381,10 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes =
 
     # Bestehende Preislistenzeilen: Bestellnummer -> Zeilenwerte (kompakt, ohne volle Modellobjekte)
     vorhanden = {}
-    for pk, bn, ek, bestand, lz, artikel_id, bez, hersteller in Preislistenartikel.objects.filter(lieferant=lieferant).values_list(
-            "id", "bestellnummer", "ek", "bestand", "lieferzeit_tage", "artikel_id", "bezeichnung", "hersteller"):
-        vorhanden[bn] = {"id": pk, "ek": ek, "bestand": bestand, "lz": lz, "artikel_id": artikel_id, "bez": bez, "hersteller": hersteller}
+    for pk, bn, ek, bestand, lz, artikel_id, bez, hersteller, *masse in Preislistenartikel.objects.filter(lieferant=lieferant).values_list(
+            "id", "bestellnummer", "ek", "bestand", "lieferzeit_tage", "artikel_id", "bezeichnung", "hersteller", *MASS_ATTRIBUTE):
+        vorhanden[bn] = {"id": pk, "ek": ek, "bestand": bestand, "lz": lz, "artikel_id": artikel_id, "bez": bez, "hersteller": hersteller,
+                         "masse": dict(zip(MASS_ATTRIBUTE, masse))}
     nach_hnr, nach_ean = {}, {}
     for artikel_id, hnr, ean in Artikel.objects.values_list("id", "herstellernummer", "ean"):
         if hnr:
@@ -359,6 +408,7 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes =
     neue, geaenderte = {}, {}  # Bestellnummer -> Preislistenartikel (noch nicht bzw. neu zu schreiben)
     al_neu, al_geaendert = [], []
     ek_importiert = set()  # Artikel, deren Lieferanten-EK neu ist oder sich geändert hat: Herkunft wird „Import“
+    artikel_masse = {}  # Artikel-ID -> {Feld: Wert} aus der Datei; füllt später nur leere Felder am Artikel
 
     def schreiben():
         if neue:
@@ -367,7 +417,7 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes =
         if geaenderte:
             Preislistenartikel.objects.bulk_update(
                 list(geaenderte.values()), ["ek", "bestand", "lieferzeit_tage", "artikel", "bezeichnung", "hersteller",
-                                            "preisliste", "aktualisiert_am"], batch_size=1000)
+                                            "preisliste", "aktualisiert_am", *MASS_ATTRIBUTE], batch_size=1000)
             geaenderte.clear()
         if al_neu:
             ArtikelLieferant.objects.bulk_create(al_neu, batch_size=500)
@@ -389,6 +439,11 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes =
             lieferzeit = int(zahl(z["lieferzeit"], profil.dezimaltrennzeichen)) if z.get("lieferzeit") else None
             hnr, ean = z.get("herstellernummer", "").strip()[:100], z.get("ean", "").strip()[:14]
             bezeichnung, hersteller = z.get("bezeichnung", "").strip()[:255], z.get("hersteller", "").strip()[:150]
+            masse = {}  # nur die Maße, die die Datei für diese Zeile wirklich liefert (Einheiten werden normalisiert)
+            for feld, (attribut, *_rest) in MASSFELDER.items():
+                wert = mass(z.get(feld, ""), feld, profil.dezimaltrennzeichen)
+                if wert is not None:
+                    masse[attribut] = wert
 
             artikel_id = nach_hnr.get(hnr.lower()) if hnr else None
             if artikel_id is None and ean:
@@ -408,41 +463,48 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes =
                     continue
                 if not bezeichnung:
                     raise ValueError("Zeile ohne Bezeichnung kann nicht übernommen werden.")
-                gewicht = zahl(z["gewicht"], profil.dezimaltrennzeichen) if z.get("gewicht") else None
                 eintrag = Preislistenartikel(
                     lieferant=lieferant, bestellnummer=bestellnr, herstellernummer=hnr, ean=ean, bezeichnung=bezeichnung,
                     hersteller=hersteller, kategorie=z.get("kategorie", "").strip()[:150], ek=ek, bestand=bestand,
-                    lieferzeit_tage=lieferzeit, gewicht_kg=gewicht, artikel_id=artikel_id, preisliste=profil.name[:150],
-                    aktualisiert_am=jetzt)
+                    lieferzeit_tage=lieferzeit, artikel_id=artikel_id, preisliste=profil.name[:150],
+                    aktualisiert_am=jetzt, **masse)
                 neue[bestellnr] = eintrag
                 vorhanden[bestellnr] = {"id": None, "ek": ek, "bestand": bestand, "lz": lieferzeit, "artikel_id": artikel_id,
-                                        "bez": bezeichnung, "hersteller": hersteller, "objekt": eintrag}
+                                        "bez": bezeichnung, "hersteller": hersteller, "objekt": eintrag,
+                                        "masse": {a: masse.get(a) for a in MASS_ATTRIBUTE}}
                 protokoll.neu += 1
             else:
                 neu_bestand = bestand if bestand is not None else alt["bestand"]
                 neu_lz = lieferzeit if lieferzeit is not None else alt["lz"]
                 neu_bez = bezeichnung or alt["bez"]
                 neu_artikel = artikel_id if artikel_id is not None else alt["artikel_id"]
+                neu_masse = {**alt["masse"], **masse}  # Maße aus der Datei ersetzen die bisherigen; fehlt eine Angabe, bleibt der alte Wert
                 aenderung = (alt["ek"] != ek or alt["bestand"] != neu_bestand or alt["lz"] != neu_lz or alt["bez"] != neu_bez
-                             or alt["hersteller"] != (hersteller or alt["hersteller"]) or alt["artikel_id"] != neu_artikel)
+                             or alt["hersteller"] != (hersteller or alt["hersteller"]) or alt["artikel_id"] != neu_artikel
+                             or alt["masse"] != neu_masse)
                 if aenderung:
                     objekt = alt.get("objekt")
                     if objekt is not None:  # doppelte Zeile in derselben Datei: noch nicht geschriebenen Eintrag anpassen
                         objekt.ek, objekt.bestand, objekt.lieferzeit_tage, objekt.bezeichnung = ek, neu_bestand, neu_lz, neu_bez
                         objekt.artikel_id = neu_artikel
+                        for feld, wert in neu_masse.items():
+                            setattr(objekt, feld, wert)
                     else:
                         geaenderte[bestellnr] = Preislistenartikel(
                             id=alt["id"], lieferant=lieferant, bestellnummer=bestellnr, ek=ek, bestand=neu_bestand,
                             lieferzeit_tage=neu_lz, artikel_id=neu_artikel, bezeichnung=neu_bez,
-                            hersteller=hersteller or alt["hersteller"], preisliste=profil.name[:150], aktualisiert_am=jetzt)
+                            hersteller=hersteller or alt["hersteller"], preisliste=profil.name[:150], aktualisiert_am=jetzt,
+                            **neu_masse)
                     alt.update(ek=ek, bestand=neu_bestand, lz=neu_lz, bez=neu_bez, artikel_id=neu_artikel,
-                               hersteller=hersteller or alt["hersteller"])
+                               hersteller=hersteller or alt["hersteller"], masse=neu_masse)
                     protokoll.geaendert += 1
                 else:
                     protokoll.unveraendert += 1
                 artikel_id = neu_artikel
 
             if artikel_id is not None:  # Lieferantenpreis am eigenen Artikel mitführen
+                for feld, wert in masse.items():
+                    artikel_masse.setdefault(artikel_id, {}).setdefault(feld, wert)  # mehrere Zeilen: der erste Wert zählt
                 al = lieferantenpreise.get(bestellnr)
                 if al is None:
                     al = ArtikelLieferant(artikel_id=artikel_id, lieferant=lieferant, bestellnummer=bestellnr, ek=ek, bestand=bestand,
@@ -467,6 +529,7 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes =
             if len(fehler) < 200:
                 fehler.append({"zeile": nr, "grund": str(grund), "daten": z})
     schreiben()
+    _masse_in_artikel(artikel_masse)
     if ek_importiert:  # der Preisimport ist maßgebend und überschreibt den manuellen EK (README 18)
         # ein bereits übernommener Import-EK bleibt (Zeitplan „Günstigster EK“ aktualisiert ihn); alter Ø-EK aus Wareneingang
         # oder Mention weicht der Preisliste, die dann direkt gilt

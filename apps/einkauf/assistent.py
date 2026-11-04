@@ -20,6 +20,9 @@ VORSCHLAEGE = {
     "bestand": ("bestand", "lagerbestand", "stock", "menge", "verfügbar", "verfuegbar"),
     "lieferzeit": ("lieferzeit", "delivery", "lieferzeit tage"),
     "gewicht": ("gewicht", "weight", "gewicht kg"),
+    "laenge": ("länge", "laenge", "length", "länge cm"),
+    "breite": ("breite", "width", "breite cm"),
+    "hoehe": ("höhe", "hoehe", "height", "höhe cm"),
 }
 
 
