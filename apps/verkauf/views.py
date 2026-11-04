@@ -245,8 +245,9 @@ def beleg_detail(request, beleg_id):
     limit = md.kreditlimit if md else None
     offen = kunde_offen(beleg.mandant, beleg.kunde)
     kredit_warnung = bool(limit) and beleg.art != "AN" and not beleg.abgeschlossen and offen + beleg.summe_brutto > limit  # Angebote binden nicht
+    kredit_differenz = (offen + beleg.summe_brutto - limit) if kredit_warnung else None
     return render(request, "verkauf/beleg.html", {
-        "kredit_warnung": kredit_warnung, "kunde_offen": offen, "kreditlimit": limit, "arbeitsstand": arbeitsstand,
+        "kredit_warnung": kredit_warnung, "kredit_differenz": kredit_differenz,"kunde_offen": offen, "kreditlimit": limit, "arbeitsstand": arbeitsstand,
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),
         "hat_lagerartikel": any(p.artikel_id and p.artikel.typ == "A" for p in positionen), "retoure_offen": retoure_offen(beleg),
         "beleg": beleg, "positionen": positionen, "loeschbar": beleg.loeschhindernis() is None,

@@ -241,5 +241,8 @@ class ArbeitsstandTest(TestCase):
         Beleg.objects.filter(pk=self.beleg.pk).update(art=Belegart.AUFTRAG)
         html = self.client.get(self.url("beleg")).content.decode()
         self.assertIn("kreditwarnung", html)
-        self.assertLess(html.index("netto "), html.index('class="warnung kreditwarnung"'))
-        self.assertLess(html.index('class="warnung kreditwarnung"'), html.index('class="aktionen"'))
+        self.assertIn("Kreditlimit −", html)  # kompakt: nur der Überschreitungsbetrag
+        self.assertIn('title="offen ', html)  # volle Rechnung als Tooltip
+        self.assertNotIn("würde überschritten", html)
+        self.assertLess(html.index("netto "), html.index('class="kreditwarnung"'))
+        self.assertLess(html.index('class="kreditwarnung"'), html.index('class="aktionen"'))

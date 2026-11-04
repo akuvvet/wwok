@@ -35,7 +35,7 @@
     <div style="opacity:.7">Brutto</div>
     <div class="betrag">{{ beleg.summe_brutto|floatformat:2 }} €</div>
     <div style="opacity:.7">netto {{ beleg.summe_netto|floatformat:2 }} €</div>
-    {% if kredit_warnung %}<div class="warnung kreditwarnung">Kreditlimit würde überschritten: offen {{ kunde_offen|floatformat:2 }} € + dieser Beleg {{ beleg.summe_brutto|floatformat:2 }} € &gt; Limit {{ kreditlimit }} €.</div>{% endif %}
+    {% if kredit_warnung %}<div class="kreditwarnung" title="offen {{ kunde_offen|floatformat:2 }} € + dieser Beleg {{ beleg.summe_brutto|floatformat:2 }} € &gt; Limit {{ kreditlimit|floatformat:2 }} €">🔴 Kreditlimit −{{ kredit_differenz|floatformat:2 }}&nbsp;€</div>{% endif %}
   </div>
 </div>
 
