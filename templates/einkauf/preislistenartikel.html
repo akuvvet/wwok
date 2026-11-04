@@ -14,7 +14,7 @@
   </form>
   <p>{{ seite.paginator.count }} Treffer</p>
   <div class="scroll"><table>
-    <thead><tr><th>Lieferant</th><th>MSKU</th><th>Bestell-Nr.</th><th>Bezeichnung</th><th>Hersteller</th><th class="zahl">EK netto</th><th class="zahl">Bestand</th><th>eigener Artikel</th><th></th></tr></thead>
+    <thead><tr><th>Lieferant</th><th title="Herstellernummer">MSKU</th><th title="Bestellnummer des Lieferanten">SKU</th><th>Bezeichnung</th><th>Hersteller</th><th class="zahl" title="Einkaufspreis netto">EK</th><th class="zahl" title="Bestand beim Lieferanten">Lager</th><th title="Verknüpfter eigener Artikel">A-Artikel</th><th></th></tr></thead>
     <tbody>{% for e in seite.object_list %}
     <tr><td><span class="marke">{{ e.lieferant.kurz }}</span></td><td>{{ e.herstellernummer }}</td><td>{{ e.bestellnummer }}</td><td>{{ e.bezeichnung }}</td><td>{{ e.hersteller }}</td>
         <td class="zahl">{{ e.ek|floatformat:2 }}</td><td class="zahl">{{ e.bestand|default_if_none:"" }}</td>
