@@ -30,7 +30,8 @@ class VerwaltungKopfTest(TestCase):
         self.assertNotIn("#wwok-titelleiste { position:sticky;", html)  # Titelleiste scrollt nicht
         self.assertIn("#content > #content-main { flex:1 1 auto; min-height:0; overflow:auto; }", html)  # nur Inhalt scrollt
         self.assertIn("html, body { height:100%; overflow:hidden; }", html)  # keine Seiten-Scrollleiste
-        self.assertIn("#container > .main { flex:1 1 0; min-height:0; overflow:hidden; }", html)  # überschreibt Djangos flex-shrink:0
+        self.assertIn("#container > .main { flex:1 1 0; min-height:0; overflow:hidden; display:flex; align-items:stretch; }", html)  # überschreibt Djangos flex-shrink:0
+        self.assertIn("align-self:stretch; height:100%;", html)  # Inhaltsspalte über die volle Höhe
         self.assertRegex(html, r"#wwok-menusuche \{[^}]*margin-left:auto;")  # Suchfeld rechts in der Leiste
 
     def test_startseite_neueste_aktionen_rechts_als_spalte(self):
