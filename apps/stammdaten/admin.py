@@ -6,6 +6,7 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
+from django.utils.html import format_html
 
 from . import kopie, leistung_import
 from . import models as m
@@ -360,13 +361,30 @@ class KundenpreisAdmin(admin.ModelAdmin):
 class PreislistenartikelAdmin(admin.ModelAdmin):
     """Artikel aus den Lieferantenpreislisten (Typ P). Sie entstehen durch den Preislistenimport; hier nur zum Nachsehen."""
 
-    list_display = ["lieferant", "herstellernummer", "bestellnummer", "bezeichnung", "hersteller", "ek_anzeige", "bestand", "artikel"]
+    list_display = ["lieferant", "msku", "sku", "bezeichnung", "hersteller", "ek_anzeige", "lager", "a_artikel"]
     list_filter = ["lieferant"]
     search_fields = ["bezeichnung", "herstellernummer", "bestellnummer", "ean", "hersteller"]
     raw_id_fields = ["artikel"]
     list_select_related = ["lieferant", "artikel"]
     show_full_result_count = False  # bei Hunderttausenden Zeilen kein teures COUNT(*)
 
-    @admin.display(description="EK netto", ordering="ek")
+    # Kurze Spaltenköpfe nur in der Liste (voller Begriff als Tooltip); Formulare behalten die langen Feldnamen.
+    @admin.display(description=format_html('<span title="{}">{}</span>', "Herstellernummer", "MSKU"), ordering="herstellernummer")
+    def msku(self, obj):
+        return obj.herstellernummer
+
+    @admin.display(description=format_html('<span title="{}">{}</span>', "Bestellnummer des Lieferanten", "SKU"), ordering="bestellnummer")
+    def sku(self, obj):
+        return obj.bestellnummer
+
+    @admin.display(description=format_html('<span title="{}">{}</span>', "Einkaufspreis netto", "EK"), ordering="ek")
     def ek_anzeige(self, obj):
         return f"{obj.ek:.2f}".replace(".", ",")
+
+    @admin.display(description=format_html('<span title="{}">{}</span>', "Bestand beim Lieferanten", "Lager"), ordering="bestand")
+    def lager(self, obj):
+        return obj.bestand
+
+    @admin.display(description=format_html('<span title="{}">{}</span>', "Verknüpfter eigener Artikel", "A-Artikel"), ordering="artikel")
+    def a_artikel(self, obj):
+        return obj.artikel
