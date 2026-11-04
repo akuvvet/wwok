@@ -18,7 +18,7 @@ from apps.verkauf.views import dezimal, mit_mandant
 from . import forms as f
 from . import kopie, ustid
 from .models import (BILD_FORMATE, MAX_BILD_BYTES, MAX_BILDER, Artikel, ArtikelBild, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant,
-                     Lieferant, LieferantMandant, Stammnummer, UstIdPruefung)
+                     Lieferant, LieferantMandant, Preislistenartikel, Stammnummer, UstIdPruefung)
 from .preise import komponenten_zeile
 
 
@@ -298,8 +298,19 @@ def artikel_bearbeiten(request, pk=None):
     para = request.POST if request.method == "POST" else request.GET
     vorlage = get_object_or_404(Artikel, pk=para.get("kopie_von")) if not pk and para.get("kopie_von", "").isdigit() else None
     bilder_kopie = vorlage if vorlage and para.get("kopie_bilder") else None
+    # P → A (Issue 24): Preislistenartikel als neuen Lagerartikel übernehmen; vorher Dublettenprüfung
+    pl_eintrag = (get_object_or_404(Preislistenartikel.objects.select_related("lieferant"), pk=para["kopie_von_pl"])
+                  if not pk and not vorlage and para.get("kopie_von_pl", "").isdigit() else None)
+    if pl_eintrag and request.method == "GET" and not request.GET.get("trotzdem"):
+        dubletten = kopie.dubletten_zu_preisliste(pl_eintrag)
+        if dubletten:
+            return render(request, "stammdaten/kopie_dublette.html", {
+                "eintrag": pl_eintrag, "dubletten": dubletten,
+                "weiter": f"{reverse('stammdaten:artikel_neu')}?kopie_von_pl={pl_eintrag.pk}&trotzdem=1"})
     if pk:
         instanz = get_object_or_404(Artikel, pk=pk)
+    elif pl_eintrag:
+        instanz = kopie.neuer_artikel_aus_preisliste(pl_eintrag)
     else:
         instanz = kopie.neuer_artikel(vorlage) if vorlage else Artikel(nummer=Stammnummer.vorschlag(Artikeltyp.A))
     daten = request.POST if request.method == "POST" else None
@@ -336,6 +347,8 @@ def artikel_bearbeiten(request, pk=None):
                 if gruppe:
                     komponenten_speichern(objekt, gewaehlt)
                 bilder_speichern(objekt, bilderplan)
+                if pl_eintrag:
+                    kopie.preisliste_verknuepfen(objekt, pl_eintrag)
             # Neu: zur Artikelseite; Bearbeiten: auf der Seite bleiben, von der aus geöffnet wurde (z. B. Artikelliste)
             return JsonResponse({"ok": True, "ziel": None if pk else reverse("lager:artikel", args=[objekt.pk])})
         status = 422
@@ -346,6 +359,6 @@ def artikel_bearbeiten(request, pk=None):
         "tabs": artikel_tabs(form, mandantform, komponenten, bool(form.non_field_errors()),
                              bilder_daten(instanz, bilder_kopie), bool(bildfehler)), "form": form, "neu": not pk, "warnung": "",
         "aktion": request.path, "kunde": False, "mandant": mandant, "kopie_von": vorlage, "kopie_bilder": bool(bilder_kopie),
-        "kopie_artikel": instanz if pk else None})
+        "kopie_von_pl": pl_eintrag, "kopie_artikel": instanz if pk else None})
     antwort.status_code = status
     return antwort

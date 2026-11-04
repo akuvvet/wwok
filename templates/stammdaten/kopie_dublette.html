@@ -1,0 +1,10 @@
+<div class="modal-form" style="padding:16px 20px">
+  <h2 style="margin-top:0">Artikel gibt es schon</h2>
+  <p>Zu „{{ eintrag.bezeichnung }}“ ({{ eintrag.nummer }}) gibt es bereits {% if dubletten|length == 1 %}einen Lagerartikel{% else %}Lagerartikel{% endif %} mit gleicher Herstellernummer oder EAN:</p>
+  <ul>{% for a in dubletten %}<li><a href="{% url 'lager:artikel' a.pk %}">{{ a.nummer }} – {{ a.bezeichnung }}</a></li>{% endfor %}</ul>
+  <p>Trotzdem einen weiteren Artikel anlegen? Es wird erst beim Speichern angelegt.</p>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button type="button" class="leise" data-schliessen>Abbrechen</button>
+    <a class="knopf" href="{{ weiter }}" data-modal="{{ weiter }}">Trotzdem als A-Artikel kopieren</a>
+  </div>
+</div>
