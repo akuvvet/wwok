@@ -4,8 +4,7 @@ from django.urls import URLPattern, URLResolver, get_resolver, reverse
 
 from .models import Mandant
 
-AUSLASSEN = {"logout", "login", "password_change", "password_change_done", "password_reset", "password_reset_done",
-             "password_reset_complete", "favicon"}
+AUSLASSEN = {"logout", "login", "password_change", "password_change_done", "favicon"}
 
 
 def parameterlose_urls(muster=None, praefix="", namensraum=""):
