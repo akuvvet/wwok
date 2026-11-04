@@ -9,7 +9,7 @@ from django.views.decorators.http import require_POST
 
 from apps.kern.models import Mandant
 from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie, _ek_quelle, ek_je_artikel, keine_leistung
-from apps.stammdaten.preise import gruppen_kalkulation
+from apps.stammdaten.preise import gruppen_kalkulation, stufenpreis
 from apps.verkauf.views import mit_mandant
 
 from apps.verkauf.models import Beleg, Position
@@ -76,7 +76,7 @@ def uebersicht(request):
         r = reserviert(request.mandant, a) if b else Decimal("0")
         ek, quelle = eks[a.pk]
         zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": b - r, "reparatur": reparatur.get(a.pk, Decimal("0")),
-                       "ek": ek, "ek_quelle": quelle})
+                       "ek": ek, "ek_quelle": quelle, "vk3": stufenpreis(a, 3)})
     lagerwert = Decimal("0")  # mit demselben EK wie der VK: Import-EK, sonst manueller EK (README 18)
     mit_bestand = list(Artikel.objects.filter(pk__in=[k for k, s in summen.items() if s]))
     for pk, (ek, _) in ek_je_artikel(mit_bestand).items():

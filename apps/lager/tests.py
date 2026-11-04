@@ -71,6 +71,9 @@ class LagerTest(TestCase):
         s.save()
         r = self.client.get(reverse("lager:uebersicht"), {"q": "maus"})
         self.assertContains(r, "A1")
+        for kopf in ("VK3 netto", ">Lager<", ">Res.<", ">Frei<", ">Werk<"):
+            self.assertContains(r, kopf)
+        self.assertLess(r.content.decode().index("VK3 netto"), r.content.decode().index(">Lager<"))
         r = self.client.post(reverse("lager:buchen", args=[self.a.pk]),
                              {"art": "WE", "menge": "5", "bemerkung": "Lieferung"})
         self.assertEqual(bestand(self.m, self.a), Decimal("15"))
