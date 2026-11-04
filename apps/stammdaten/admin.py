@@ -191,7 +191,7 @@ class ArtikelAdmin(admin.ModelAdmin):
 
     def get_formset_kwargs(self, request, obj, inline, prefix):
         kwargs = super().get_formset_kwargs(request, obj, inline, prefix)
-        vorlage = self.kopie_vorlage(request) if obj is None and request.method == "GET" else None
+        vorlage = self.kopie_vorlage(request) if (obj is None or obj.pk is None) and request.method == "GET" else None
         if vorlage is not None:
             if isinstance(inline, ArtikelMandantInline):
                 from apps.kern.kontext import mandant_oder_none

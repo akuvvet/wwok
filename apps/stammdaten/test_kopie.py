@@ -120,7 +120,7 @@ class KopierenMaskeTest(KopieBasis):
 
     def test_speichern_legt_artikel_nach_tabelle_an_und_laesst_vorlage_unveraendert(self):
         vorher = self.stand(self.vorlage)
-        r = self.client.post(reverse(NEU), self.daten(**{"garantie_monate": "24", "aufschlag_vk2": "30", "ek_manuell": "8,50"}))
+        r = self.client.post(reverse(NEU), self.daten(**{"garantie_monate": "24", "aufschlag_vk2": "30", "ek_manuell": "8.50"}))
         self.assertEqual(r.status_code, 200, r.content[:300])
         neu = Artikel.objects.get(nummer="5001")
         self.assertEqual(json.loads(r.content)["ziel"], reverse("lager:artikel", args=[neu.pk]))
@@ -235,8 +235,8 @@ class KopierenVerwaltungTest(KopieBasis):
 
     def post_daten(self, **extra):
         d = {"nummer": "5001", "typ": "A", "bezeichnung": "Maus M185 (Kopie)", "mengeneinheit": "Stück", "steuersatz": self.st.pk,
-             "kategorie": self.kat.pk, "hersteller": self.hs.pk, "vk1": "15,00", "fix_vk1": "vk", "garantie_monate": "24", "nicht_aktiv": "on",
-             "ek_manuell": "8,50"}
+             "kategorie": self.kat.pk, "hersteller": self.hs.pk, "vk1": "15.00", "fix_vk1": "vk", "garantie_monate": "24", "nicht_aktiv": "on",
+             "ek_manuell": "8.50"}
         for prefix in ("mandantendaten", "lieferanten", "komponenten", "bilder"):
             d.update({f"{prefix}-TOTAL_FORMS": "0", f"{prefix}-INITIAL_FORMS": "0", f"{prefix}-MIN_NUM_FORMS": "0", f"{prefix}-MAX_NUM_FORMS": "1000"})
         d.update(extra)
@@ -246,7 +246,7 @@ class KopierenVerwaltungTest(KopieBasis):
         vorher = self.stand(self.vorlage)
         url = reverse("admin:stammdaten_artikel_add") + f"?kopie_von={self.vorlage.pk}"
         r = self.client.post(url, self.post_daten(**{"mandantendaten-TOTAL_FORMS": "1", "mandantendaten-0-mandant": self.m.pk,
-                                                     "mandantendaten-0-ek2": "8,10", "mandantendaten-0-ek2_fix": "on"}))
+                                                     "mandantendaten-0-ek2": "8.10", "mandantendaten-0-ek2_fix": "on"}))
         self.assertEqual(r.status_code, 302, getattr(r, "context_data", None) and r.context_data["errors"])
         neu = Artikel.objects.get(nummer="5001")
         self.assertEqual((neu.ean, neu.herstellernummer), ("", ""))
