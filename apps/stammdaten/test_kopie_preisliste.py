@@ -18,7 +18,8 @@ NEU = "stammdaten:artikel_neu"
 class PreislisteKopieTest(TestCase):
     def setUp(self):
         self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
-        self.st = Steuersatz.objects.create(bezeichnung="19", prozent=D("19"))
+        # Standard-Steuersatz (nummer=1) kommt aus der Migration 0005 – genau den wählt die Kopie-Logik.
+        self.st = Steuersatz.objects.filter(nummer=1).first() or Steuersatz.objects.create(bezeichnung="19", prozent=D("19"))
         self.hs = Hersteller.objects.create(name="Delock")
         self.api = Lieferant.objects.create(nummer="70272", name1="API GmbH", kurzname="API")
         self.kosa = Lieferant.objects.create(nummer="70300", name1="Kosatec GmbH", kurzname="Kosatec")
