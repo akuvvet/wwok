@@ -381,7 +381,10 @@ class Preislistenprofil(Zeitstempel):
     sp_ek = models.CharField("Spalte EK netto", max_length=60)
     sp_bestand = models.CharField("Spalte Bestand", max_length=60, blank=True)
     sp_lieferzeit = models.CharField("Spalte Lieferzeit (Tage)", max_length=60, blank=True)
-    sp_gewicht = models.CharField("Spalte Gewicht (kg)", max_length=60, blank=True)
+    sp_gewicht = models.CharField("Spalte Gewicht (kg; g wird erkannt)", max_length=60, blank=True)
+    sp_laenge = models.CharField("Spalte Länge (cm; mm/m werden erkannt)", max_length=60, blank=True)
+    sp_breite = models.CharField("Spalte Breite (cm; mm/m werden erkannt)", max_length=60, blank=True)
+    sp_hoehe = models.CharField("Spalte Höhe (cm; mm/m werden erkannt)", max_length=60, blank=True)
     neue_artikel = models.BooleanField(
         "alle Artikel der Liste in die Preislistentabelle übernehmen", default=True,
         help_text="Sonst werden nur Zeilen übernommen, die zu einem eigenen Artikel passen (Herstellernummer oder EAN).")

@@ -201,7 +201,8 @@ def artikel_aus_preisliste(eintrag):
             hersteller = Hersteller.objects.create(name=eintrag.hersteller[:150])
         artikel = Artikel.objects.create(
             nummer=nummer, typ="A", bezeichnung=eintrag.bezeichnung, herstellernummer=eintrag.herstellernummer, ean=eintrag.ean,
-            hersteller=hersteller, gewicht_kg=eintrag.gewicht_kg, steuersatz=steuer)
+            hersteller=hersteller, gewicht_kg=eintrag.gewicht_kg,
+            laenge_cm=eintrag.laenge_cm, breite_cm=eintrag.breite_cm, hoehe_cm=eintrag.hoehe_cm, steuersatz=steuer)
     eintrag.artikel = artikel
     eintrag.save(update_fields=["artikel"])
     ArtikelLieferant.objects.get_or_create(

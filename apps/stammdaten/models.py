@@ -766,6 +766,9 @@ class Preislistenartikel(models.Model):
     bestand = models.IntegerField("Bestand beim Lieferanten", null=True, blank=True)
     lieferzeit_tage = models.PositiveSmallIntegerField("Lieferzeit (Tage)", null=True, blank=True)
     gewicht_kg = models.DecimalField("Gewicht (kg)", max_digits=9, decimal_places=3, null=True, blank=True)
+    laenge_cm = models.DecimalField("Länge (cm)", max_digits=8, decimal_places=2, null=True, blank=True)
+    breite_cm = models.DecimalField("Breite (cm)", max_digits=8, decimal_places=2, null=True, blank=True)
+    hoehe_cm = models.DecimalField("Höhe (cm)", max_digits=8, decimal_places=2, null=True, blank=True)
     artikel = models.ForeignKey(Artikel, on_delete=models.SET_NULL, null=True, blank=True, related_name="preislisteneintraege",
                                 verbose_name="verknüpfter eigener Artikel")
     preisliste = models.CharField("aus Preisliste", max_length=150, blank=True)

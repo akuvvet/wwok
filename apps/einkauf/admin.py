@@ -54,7 +54,7 @@ class PreislistenprofilAdmin(admin.ModelAdmin):
                                     ("kopfzeile", "erste_datenzeile"), "xml_satz"]}),
         ("Feldzuordnung (Spaltenüberschrift oder Spaltennummer)", {"fields": [
             "sp_bestellnummer", "sp_herstellernummer", "sp_ean", "sp_bezeichnung", "sp_hersteller", "sp_kategorie",
-            "sp_ek", "sp_bestand", "sp_lieferzeit", "sp_gewicht"]}),
+            "sp_ek", "sp_bestand", "sp_lieferzeit", "sp_gewicht", "sp_laenge", "sp_breite", "sp_hoehe"]}),
     ]
 
 
