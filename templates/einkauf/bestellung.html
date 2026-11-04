@@ -78,7 +78,7 @@
     <p class="zeile" style="margin:0"><strong>{{ b.lieferant.name1 }}</strong> <span>{{ b.datum|date:"d.m.Y" }}</span>
       <span class="marke {% if b.status == 'entwurf' %}{% else %}ok{% endif %}">{{ b.get_status_display }}</span>
       {% if aus_beleg %}<span>aus <a href="{% url 'verkauf:beleg' aus_beleg.pk %}">{{ aus_beleg }}</a></span>{% endif %}</p>
-    {% if konditionen %}<p class="fein" style="margin:6px 0 0">{{ konditionen|join:" · " }}</p>{% endif %}
+    {% if konditionen %}<dl class="infoblock fein" style="margin-top:6px">{% for name, wert in konditionen %}<dt>{{ name }}:</dt><dd>{{ wert }}</dd>{% endfor %}</dl>{% endif %}
   </div>
   <div class="summe"><div style="opacity:.7">Summe netto</div><div class="betrag">{{ netto|floatformat:2 }} €</div></div>
 </div>

@@ -93,11 +93,13 @@ class FinanzenTest(TestCase):
         self.rechnung()
         html = self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk])).content.decode()
         self.assertNotIn('class="warnung">Kreditlimit', html)
-        self.assertLess(html.index("Kreditlimit 100"), html.index("Überschritten 119"))
-        self.assertLess(html.index("Überschritten 119"), html.index("Offene Posten", html.index("<main")))  # Seitenleiste nicht mitzählen
+        self.assertLess(html.index("Kreditlimit:"), html.index("−19,"))  # offen 119 − Limit 100
+        self.assertLess(html.index("−19,"), html.index("Offene Posten:", html.index("<main")))  # Seitenleiste nicht mitzählen
+        self.assertIn("offen 119,", html)
+        self.assertNotIn("Überschritten", html)
         md.kreditlimit = Decimal("500")
         md.save()
-        self.assertNotContains(self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk])), "Überschritten")
+        self.assertNotContains(self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk])), "🔴")
 
     def test_masken(self):
         user = get_user_model().objects.create_user("t", password="x" * 14)

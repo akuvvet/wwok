@@ -100,7 +100,7 @@ class VergleichTest(TestCase):
         p = services.bestellposition(b, self.a, D("6"))
         r = self.client.get(reverse("einkauf:bestellung", args=[b.pk]))
         self.assertContains(r, "Günstiger bei Kosatec: 150,00 €")
-        self.assertContains(r, "bis versandfrei")
+        self.assertContains(r, "<dt>Bis versandfrei:</dt><dd>noch 320,00 €</dd>")
         self.assertContains(self.client.get(self.url, {"position": p.pk}), "Hierhin verschieben")
         self.client.post(reverse("einkauf:preisvergleich_bestellen"), {"position": p.pk, "lieferant": self.kosa.pk})
         self.assertFalse(b.positionen.exists())
