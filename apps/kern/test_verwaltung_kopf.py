@@ -29,6 +29,8 @@ class VerwaltungKopfTest(TestCase):
         self.assertRegex(html, r'<div id="wwok-titelleiste"><h1>Verwaltung</h1><input[^>]*id="wwok-menusuche"')
         self.assertNotIn("#wwok-titelleiste { position:sticky;", html)  # Titelleiste scrollt nicht
         self.assertIn("#content > #content-main { flex:1 1 auto; min-height:0; overflow:auto; }", html)  # nur Inhalt scrollt
+        self.assertIn("html, body { height:100%; overflow:hidden; }", html)  # keine Seiten-Scrollleiste
+        self.assertIn("#container > .main { flex:1 1 0; min-height:0; overflow:hidden; }", html)  # überschreibt Djangos flex-shrink:0
         self.assertRegex(html, r"#wwok-menusuche \{[^}]*margin-left:auto;")  # Suchfeld rechts in der Leiste
 
     def test_andere_seiten_ohne_menusuche(self):
