@@ -2,16 +2,23 @@
 {% comment %}Verwaltung: Kopf und Brotkrümel bleiben beim Scrollen stehen, rechts in den Brotkrümeln „Speichern“ für das Formular der Seite.{% endcomment %}
 {% block extrastyle %}{{ block.super }}
 <style>
-  #container { height:auto; min-height:100%; }  /* sonst endet „sticky“ nach einer Bildschirmhöhe */
-  #header { position:sticky; top:0; z-index:30; }
-  #wwok-brotleiste { position:sticky; top:var(--wwok-kopf, 0px); z-index:29; display:flex; align-items:center; background:var(--breadcrumbs-bg); }
+  /* Kopf, Brotkrümel und Titelleiste scrollen nicht mit; nur #content-main scrollt */
+  html, body { height:100%; }
+  #container { height:100vh; min-height:0; overflow:hidden; }
+  #header { flex:none; }
+  .main { flex:1 1 auto; min-height:0; overflow:hidden; }
+  .main > .content { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  .main > .content > #content { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+  #content > * { flex:none; }
+  #content > #content-main { flex:1 1 auto; min-height:0; overflow:auto; }
+  #nav-sidebar { overflow-y:auto; }
+  #wwok-brotleiste { flex:none; display:flex; align-items:center; background:var(--breadcrumbs-bg); }
   #wwok-brotleiste > nav { flex:1; min-width:0; }
   #wwok-brotleiste .wwok-knoepfe { display:flex; align-items:center; gap:8px; margin:0 40px 0 12px; }
   #wwok-brotleiste .wwok-speichern, #wwok-brotleiste .wwok-leistenknopf { margin:0; padding:6px 16px; border:0; border-radius:4px; background:var(--button-bg); color:var(--button-fg); font-weight:600; font-size:13px; line-height:1.4; cursor:pointer; white-space:nowrap; }
   #wwok-brotleiste .wwok-speichern:hover, #wwok-brotleiste .wwok-speichern:focus,
   #wwok-brotleiste .wwok-leistenknopf:hover, #wwok-brotleiste .wwok-leistenknopf:focus { background:var(--button-hover-bg); }
-  #nav-sidebar.sticky, .sticky { top:var(--wwok-leiste, 0px); max-height:calc(100vh - var(--wwok-leiste, 0px)); }
-  #wwok-titelleiste { position:sticky; top:var(--wwok-leiste, 0px); z-index:28; display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin:-20px -40px 16px; padding:12px 40px; background:var(--body-bg); }
+  #wwok-titelleiste { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin:-20px -40px 16px; padding:12px 40px; background:var(--body-bg); }
   #wwok-titelleiste h1 { margin:0; }
   #wwok-menusuche { flex:0 1 320px; margin-left:auto;padding:6px 10px; border:1px solid var(--border-color); border-radius:4px; background:var(--body-bg); color:var(--body-fg); font-size:14px; }
   @media (max-width:767px) { #wwok-titelleiste { margin:-20px -16px 12px; padding:10px 16px; } }

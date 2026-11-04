@@ -13,7 +13,7 @@ class VerwaltungKopfTest(TestCase):
     def test_brotleiste_fest_mit_speichern_skript(self):
         html = self.client.get(reverse("admin:auth_user_change", args=[self.admin.pk])).content.decode()
         self.assertRegex(html, r'<div id="wwok-brotleiste">\s*<nav')
-        self.assertIn("#header { position:sticky; top:0;", html)
+        self.assertIn("#container { height:100vh;", html)
         self.assertIn("knopf.textContent = 'Speichern'", html)
         self.assertIn('name="_save"', html)  # Ziel des Knopfs bleibt Djangos eigener Speichern-Knopf
         self.assertIn('wwok Warenwirtschaft', html)  # Kopf aus admin.site.site_header bleibt
@@ -27,7 +27,8 @@ class VerwaltungKopfTest(TestCase):
     def test_startseite_hat_feste_titelleiste_mit_menusuche(self):
         html = self.client.get(reverse("admin:index")).content.decode()
         self.assertRegex(html, r'<div id="wwok-titelleiste"><h1>Verwaltung</h1><input[^>]*id="wwok-menusuche"')
-        self.assertIn("#wwok-titelleiste { position:sticky;", html)
+        self.assertNotIn("#wwok-titelleiste { position:sticky;", html)  # Titelleiste scrollt nicht
+        self.assertIn("#content > #content-main { flex:1 1 auto; min-height:0; overflow:auto; }", html)  # nur Inhalt scrollt
         self.assertRegex(html, r"#wwok-menusuche \{[^}]*margin-left:auto;")  # Suchfeld rechts in der Leiste
 
     def test_andere_seiten_ohne_menusuche(self):
