@@ -119,6 +119,11 @@
   .symbol:hover, .symbol:focus-visible { background:var(--akzent); color:#fff; }
   .symbol::after { content:attr(data-tip); position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%); white-space:nowrap;
     background:var(--text); color:var(--karte); font-size:12px; padding:3px 8px; border-radius:5px; opacity:0; pointer-events:none; transition:opacity .12s; z-index:20; }
+  /* Aktionszellen in Listen: Symbole nebeneinander, vertikal mittig, kein Umbruch, Spalte so breit wie die Symbole */
+  td.aktionszelle, th.aktionszelle { white-space:nowrap; width:1%; }
+  td.aktionszelle > .symbol, td.aktionszelle > form, td.aktionszelle > a { display:inline-flex; align-items:center; vertical-align:middle; margin:0 5px 0 0; }
+  td.aktionszelle > :last-child { margin-right:0; }
+  td.aktionszelle > form { gap:5px; }
   .symbol.links::after { left:auto; right:0; transform:none; }  /* rechts außen: Tooltip nach links ausrichten */
   .symbol.unten::after { bottom:auto; top:calc(100% + 6px); }  /* in Tabellen: unter dem Symbol, sonst verdeckt der feste Tabellenkopf */
   .symbol:hover::after, .symbol:focus-visible::after { opacity:1; }

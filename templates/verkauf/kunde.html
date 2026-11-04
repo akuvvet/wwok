@@ -67,7 +67,7 @@
         <td class="zahl">{{ b.summe_brutto|floatformat:2 }}</td>
         <td class="zahl">{% if z.bezahlt is not None %}{{ z.bezahlt|floatformat:2 }}{% endif %}</td>
         <td class="zahl">{% if z.offen is not None %}{% if z.offen %}<strong style="color:var(--warn)">{{ z.offen|floatformat:2 }}</strong>{% else %}<span style="color:var(--ok)">0,00</span>{% endif %}{% endif %}</td>
-        <td>{% if z.bezug %}<a class="symbol unten links" href="{% url 'verkauf:beleg' z.bezug.pk %}" data-tip="{{ z.bezug.get_art_display }} {{ z.bezug.nummer }}"
+        <td class="aktionszelle">{% if z.bezug %}<a class="symbol unten links" href="{% url 'verkauf:beleg' z.bezug.pk %}" data-tip="{{ z.bezug.get_art_display }} {{ z.bezug.nummer }}"
                aria-label="Bezug: {{ z.bezug.get_art_display }} {{ z.bezug.nummer }}"><svg aria-hidden="true"><use href="#i-beleg"/></svg></a>{% endif %}</td>
         <td>{% if b.abgeschlossen %}abgeschlossen{% if b.art == 'LS' and not b.abrechenbar %} · berechnet{% endif %}{% else %}Entwurf{% endif %}</td></tr>
     {% endwith %}{% empty %}<tr><td colspan="9">Keine Belege.</td></tr>{% endfor %}
