@@ -15,9 +15,10 @@
     <tr><th>Auftrag</th><th>Angenommen</th><th>Kunde</th><th>Gerät</th><th>Seriennummer</th><th>Status</th></tr>
     {% for r in reparaturen %}
     <tr><td><a href="{% url 'werkstatt:detail' r.pk %}">{{ r.nummer }}</a>{% if r.garantie %} <small>(Garantie)</small>{% endif %}</td>
-        <td>{{ r.angenommen_am|date:"d.m.Y" }}</td><td>{{ r.kunde.name1 }}</td><td>{{ r.geraet }}</td><td>{{ r.seriennummer }}</td>
+        <td>{{ r.angenommen_am|date:"d.m.Y" }}</td><td><a href="{% url 'verkauf:kunde' r.kunde.pk %}">{{ r.kunde.name1 }}</a></td><td>{{ r.geraet }}</td><td>{{ r.seriennummer }}</td>
         <td>{{ r.get_status_display }}</td></tr>
     {% empty %}<tr><td colspan="6">Keine Aufträge.</td></tr>{% endfor %}
   </table>
+  {% include "seiten.html" %}
 </div>
 {% endblock %}

@@ -139,7 +139,7 @@ class NebenkostenTest(TestCase):
         seite = self.client.get(reverse("einkauf:rechnungen"))
         self.assertContains(seite, 'list="lieferantenliste"')
         self.assertContains(seite, f'data-pk="{self.lf.pk}"')
-        self.assertContains(seite, "L1 – API GmbH (API)")
+        self.assertContains(seite, "API – API GmbH (L1)")
         url = reverse("einkauf:rechnung_neu")
         daten = {"rechnungsnummer": "R-1", "brutto": "119", "netto": "100", "datum": date.today().isoformat()}
         for lieferant in ("", "abc", "999999"):

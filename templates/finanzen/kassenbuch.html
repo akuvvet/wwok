@@ -4,7 +4,7 @@
 <div class="karte">
   <h1>Kassenbuch · Mandant {{ request.mandant }}</h1>
   <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a> · Kassenstand: <strong style="font-size:18px">{{ stand }} €</strong></p>
-  <form method="post" class="zeile">{% csrf_token %}
+  <form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="token" value="{{ token }}">
     <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
     <div><label>Art</label><select name="art"><option value="E">Einnahme</option><option value="A">Ausgabe</option></select></div>
     <div><label>Betrag</label><input name="betrag" size="9" autofocus></div>
@@ -20,5 +20,6 @@
         <td class="zahl">{% if k.art == 'E' %}{{ k.betrag }}{% endif %}</td><td class="zahl">{% if k.art == 'A' %}{{ k.betrag }}{% endif %}</td></tr>
     {% empty %}<tr><td colspan="5">Noch keine Einträge.</td></tr>{% endfor %}
   </table>
+  {% include "seiten.html" %}
 </div>
 {% endblock %}

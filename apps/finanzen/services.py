@@ -2,13 +2,14 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.db import models, transaction
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from apps.verkauf.models import Beleg, Belegart
 
 from apps.kern.models import Mandant
 
-from .models import Gutschriftverrechnung, Kassenbuch, Mahnstufe, Mahnung, Zahlart, Zahlung
+from .models import Gutschriftverrechnung, Kassenbuch, Lastschrift, Mahnstufe, Mahnung, Zahlart, Zahlung
 
 CENT = Decimal("0.01")
 STANDARD_STUFEN = [
@@ -79,22 +80,49 @@ def mahnfaellig_ab(beleg):
 
 def offene_rechnungen(mandant, kunde=None):
     """Abgeschlossene Rechnungen mit offenem Betrag, als Liste von Zeilen (älteste zuerst)."""
-    belege = Beleg.objects.filter(mandant=mandant, art=Belegart.RECHNUNG, abgeschlossen=True) \
-        .select_related("kunde", "zahlungsbedingung").order_by("belegdatum", "id")
-    if kunde is not None:
-        belege = belege.filter(kunde=kunde)
+    return offene_rechnungen_zeilen(_rechnungen_mit_summen(mandant, kunde))
+
+
+def offene_rechnungen_zeilen(belege):
+    """Zeilen aus einem Queryset von _rechnungen_mit_summen; Rechnungen unter einem Cent Rest entfallen."""
     heute = timezone.localdate()
     zeilen = []
     for b in belege:
-        rest = offen(b)
+        bez, gut = b.summe_bezahlt, b.summe_gutgeschrieben
+        rest = b.summe_brutto - bez - gut
         if abs(rest) < CENT:
             continue
         faellig = faellig_am(b)
-        letzte = b.mahnungen.order_by("-stufe").first()
-        zeilen.append({"beleg": b, "bezahlt": bezahlt(b), "gutschrift": gutgeschrieben(b), "erledigt": bezahlt(b) + gutgeschrieben(b), "offen": rest,
+        zeilen.append({"beleg": b, "bezahlt": bez, "gutschrift": gut, "erledigt": bez + gut, "offen": rest,
                        "faellig": faellig, "ueberfaellig": max((heute - faellig).days, 0) if rest > 0 else 0,  # Überzahlung ist nie überfällig
-                       "mahnstufe": letzte.stufe if letzte else 0})
+                       "mahnstufe": b.letzte_mahnstufe or 0})
     return zeilen
+
+
+def _rechnungen_mit_summen(mandant, kunde=None):
+    """Abgeschlossene Rechnungen mit Zahlungs-/Gutschriftsummen und letzter Mahnstufe in einer einzigen Abfrage.
+    Vollständig bezahlte Rechnungen werden schon in der Datenbank ausgefiltert (grob; die Centgrenze prüft der Aufrufer
+    exakt in Decimal, damit Rundungsfehler der Datenbank nichts verfälschen)."""
+    null = models.Value(Decimal("0"), output_field=models.DecimalField(max_digits=14, decimal_places=2))
+
+    def summe(modell, feld):
+        return models.Subquery(
+            modell.objects.filter(**{feld: models.OuterRef("pk")}).order_by().values(feld)
+            .annotate(s=models.Sum("betrag")).values("s"), output_field=models.DecimalField(max_digits=14, decimal_places=2))
+
+    letzte = Mahnung.objects.filter(beleg=models.OuterRef("pk")).order_by("-stufe")
+    belege = Beleg.objects.filter(mandant=mandant, art=Belegart.RECHNUNG, abgeschlossen=True) \
+        .select_related("kunde", "zahlungsbedingung") \
+        .annotate(summe_bezahlt=Coalesce(summe(Zahlung, "beleg"), null),
+                  summe_gutgeschrieben=Coalesce(summe(Gutschriftverrechnung, "rechnung"), null),
+                  letzte_mahnstufe=models.Subquery(letzte.values("stufe")[:1]),
+                  letzte_mahnung_datum=models.Subquery(letzte.values("datum")[:1])) \
+        .annotate(rest_db=models.F("summe_brutto") - models.F("summe_bezahlt") - models.F("summe_gutgeschrieben")) \
+        .filter(models.Q(rest_db__gt=Decimal("0.005")) | models.Q(rest_db__lt=Decimal("-0.005"))) \
+        .order_by("belegdatum", "id")
+    if kunde is not None:
+        belege = belege.filter(kunde=kunde)
+    return belege
 
 
 def offene_gutschriften(mandant, kunde=None):
@@ -159,20 +187,18 @@ def mahnvorschlag(mandant, heute=None):
     heute = heute or timezone.localdate()
     alle = stufen(mandant)
     vorschlag = []
-    for z in offene_rechnungen(mandant):
+    eingezogen = Lastschrift.objects.filter(beleg=models.OuterRef("pk"), aufgehoben=False)
+    for z in offene_rechnungen_zeilen(_rechnungen_mit_summen(mandant).exclude(models.Exists(eingezogen))):  # per Lastschrift eingezogen: keine Mahnung
         if z["offen"] <= 0:
             continue
         b = z["beleg"]
-        if b.lastschriften.filter(aufgehoben=False).exists():  # per Lastschrift eingezogen: keine Mahnung
-            continue
         naechste = z["mahnstufe"] + 1
         if naechste not in alle:
             continue
         if naechste == 1:
             faellig = heute > mahnfaellig_ab(b)
         else:
-            letzte = b.mahnungen.get(stufe=z["mahnstufe"])
-            faellig = heute >= letzte.datum + timedelta(days=alle[naechste].tage_seit_vorheriger)
+            faellig = heute >= b.letzte_mahnung_datum + timedelta(days=alle[naechste].tage_seit_vorheriger)
         if faellig:
             vorschlag.append({**z, "stufe": alle[naechste]})
     return vorschlag
@@ -196,7 +222,13 @@ def mahnung_erstellen(beleg, stufe_nr, benutzer=None, heute=None) -> Mahnung:
 
 
 @transaction.atomic
-def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, storno_zu=None, storno_grund="") -> Zahlung:
+def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, storno_zu=None, storno_grund="",
+                  offen_bisher=None) -> Zahlung:
+    """offen_bisher: offener Betrag, den die Maske gezeigt hat; weicht er ab, wurde schon gebucht (Doppelklick)."""
+    if offen_bisher is not None:
+        Beleg.objects.select_for_update().get(pk=beleg.pk)  # Sperre gegen gleichzeitiges Doppelabsenden
+        if offen_bisher != offen(beleg):
+            raise ValueError("Der offene Betrag hat sich inzwischen geändert (evtl. schon gebucht). Bitte prüfen und neu buchen.")
     if beleg.art not in (Belegart.RECHNUNG, Belegart.AUFTRAG) or (beleg.art == Belegart.RECHNUNG and not beleg.abgeschlossen):
         raise ValueError("Zahlungen können nur auf abgeschlossene Rechnungen oder Bestellungen gebucht werden.")
     if betrag == 0:

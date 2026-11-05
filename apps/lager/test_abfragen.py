@@ -50,9 +50,13 @@ class AbfragenTest(TestCase):
             buche_manuell(self.m, a, Bewegungsart.WARENEINGANG, Decimal("10"))
         return a
 
-    def beleg(self, art, artikel, **kw):
+    def beleg(self, art, artikel, abgeschlossen=False, **kw):
+        """Position erst anlegen, dann abschließen – abgeschlossene Belege nehmen keine Positionen mehr an."""
         b = Beleg.objects.create(mandant=self.m, art=art, kunde=self.kunde, **kw)
         Position.objects.create(beleg=b, artikel=artikel, bezeichnung=artikel.bezeichnung, menge=Decimal("2"), einzelpreis=Decimal("10"))
+        if abgeschlossen:
+            Beleg.objects.filter(pk=b.pk).update(abgeschlossen=True)
+            b.refresh_from_db()
         return b
 
     def test_lager_uebersicht(self):

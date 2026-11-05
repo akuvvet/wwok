@@ -41,7 +41,7 @@ class KundeAdmin(admin.ModelAdmin):
     readonly_fields = ["erstkontakt", "angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [KundeMandantInline, KundenanschriftInline, AnsprechpartnerKundeInline, KundenpreisInline]
     fieldsets = [
-        ("Grunddaten", {"fields": ["nummer", ("name1", "name2", "name3"), "strasse", ("plz", "ort", "land"),
+        ("Grunddaten", {"fields": [("nummer", "anrede"), ("name1", "name2", "name3"), "strasse", ("plz", "ort", "land"),
                                    ("telefon", "email", "webseite"), ("gesellschaftsform", "inhaber_gf")]}),
         ("Einstufung", {"fields": [("kundenart", "preisstufe"), "zahlungsbedingung", "gesperrt"]}),
         ("Hinweis", {"fields": ["hinweis"]}),
@@ -65,8 +65,8 @@ class AnsprechpartnerLieferantInline(admin.TabularInline):
 
 @admin.register(m.Lieferant)
 class LieferantAdmin(admin.ModelAdmin):
-    list_display = ["nummer", "name1", "ort", "lieferzeit_tage", "gesperrt"]
-    search_fields = ["nummer", "name1", "ort", "ust_id"]
+    list_display = ["nummer", "kurzname", "name1", "ort", "lieferzeit_tage", "gesperrt"]
+    search_fields = ["nummer", "kurzname", "name1", "ort", "ust_id"]
     readonly_fields = ["angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [LieferantMandantInline, AnsprechpartnerLieferantInline]
 
@@ -167,7 +167,7 @@ class ArtikelAdmin(admin.ModelAdmin):
     list_filter = [AuffaelligFilter, "typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
     search_fields = ["nummer", "bezeichnung", "herstellernummer", "ean"]
     list_select_related = ["hersteller", "kategorie__eltern__eltern"]
-    readonly_fields = ["ek_anzeige", "angelegt_am", "geaendert_am", "geaendert_von"]
+    readonly_fields = ["ek_anzeige", "shop_hinweis", "angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [ArtikelMandantInline, ArtikelLieferantInline, GruppenKomponenteInline, ArtikelBildInline]
 
     def get_readonly_fields(self, request, obj=None):
@@ -256,9 +256,16 @@ class ArtikelAdmin(admin.ModelAdmin):
         # wie die Artikelmaske: EK und Häkchen, dann VK1–VK3, dann Aufschlag VK1–VK3; „fix“ und Umrechnung per change_form.html
         ("Preise", {"fields": ["steuersatz", ("ek_manuell", "vk1_fuer_alle", "aufschlag_vk1_fuer_alle"), ("vk1", "vk2", "vk3"),
                                ("aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3")]}),
-        ("Online", {"fields": ["online", "kurzbeschreibung", "keywords", "meta_titel",
+        ("Online", {"fields": ["online", "shop_hinweis", "kurzbeschreibung", "keywords", "meta_titel",
                                "meta_description", "meta_keywords"]}),
     ]
+
+    @admin.display(description="Shop-Status")
+    def shop_hinweis(self, obj):
+        grund = obj.kategorie.offline_grund() if obj and obj.pk and obj.kategorie_id else None
+        if grund is not None and obj.online and not obj.nicht_aktiv:
+            return f"Im Shop offline wegen Kategorie „{grund.name}“ (Kategorie ist offline)."
+        return "–"
 
 
 @admin.register(m.Leistungskategorie)
@@ -343,10 +350,56 @@ class LeistungsartikelAdmin(admin.ModelAdmin):
 admin.site.register([m.Zahlungsbedingung, m.Steuersatz])
 
 
+class OnlineStatusFilter(admin.SimpleListFilter):
+    title = "Shop-Status"
+    parameter_name = "shop"
+
+    def lookups(self, request, model_admin):
+        return [("online", "online"), ("offline", "offline (auch über übergeordnete)")]
+
+    def queryset(self, request, queryset):
+        offline = m.Kategorie.offline_ids()
+        if self.value() == "online":
+            return queryset.exclude(pk__in=offline)
+        if self.value() == "offline":
+            return queryset.filter(pk__in=offline)
+        return queryset
+
+
 @admin.register(m.Kategorie)
 class KategorieAdmin(admin.ModelAdmin):
+    list_display = ["name", "nummer", "eltern", "online", "shop_status", "artikel_im_shop"]
+    list_filter = [OnlineStatusFilter, "online"]
     search_fields = ["name", "nummer"]
     list_select_related = ["eltern__eltern"]  # der Name zeigt die übergeordneten Ebenen
+    change_form_template = "admin/stammdaten/kategorie/change_form.html"
+
+    @admin.display(description="Shop")
+    def shop_status(self, obj):
+        grund = obj.offline_grund()
+        if grund is None:
+            return "online"
+        return "offline" if grund.pk == obj.pk else f"offline (über {grund.name})"
+
+    def betroffene_artikel(self, obj):
+        """Artikel, die im Shop stehen und beim Ausschalten dieser Kategorie (samt Unterkategorien) deaktiviert würden."""
+        return m.Artikel.objects.shop_sichtbar().filter(kategorie_id__in=obj.mit_unterkategorien()).count()
+
+    @admin.display(description="Artikel im Shop")
+    def artikel_im_shop(self, obj):
+        return self.betroffene_artikel(obj)
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        context["betroffen_artikel"] = self.betroffene_artikel(obj) if obj and obj.pk and obj.online else 0
+        context["kategorie_war_online"] = bool(obj and obj.pk and obj.online)
+        return super().render_change_form(request, context, add, change, form_url, obj)
+
+    def save_model(self, request, obj, form, change):
+        war_online = bool(change) and m.Kategorie.objects.filter(pk=obj.pk, online=True).exists()
+        betroffen = self.betroffene_artikel(obj) if war_online and not obj.online else None
+        super().save_model(request, obj, form, change)
+        if betroffen is not None:
+            messages.warning(request, f"{betroffen} Artikel werden im Shop deaktiviert (beim nächsten Abgleich, oder sofort mit „Bestand & Preise senden“).")
 
 
 @admin.register(m.Hersteller)
@@ -381,10 +434,9 @@ class PreislistenartikelAdmin(admin.ModelAdmin):
 
     @admin.display(description="Lieferant", ordering="lieferant__name1")
     def lieferant_kurz(self, obj):
-        """Erstes Wort von Name 1 (leer: Lieferantennummer); voller Text als Tooltip."""
+        """Kurzname (sonst erstes Wort von Name 1, sonst Nummer); voller Text als Tooltip."""
         lf = obj.lieferant
-        kurz = (lf.name1.split() or [lf.nummer])[0]
-        return format_html('<span title="{}">{}</span>', str(lf), kurz)
+        return format_html('<span title="{}">{}</span>', str(lf), lf.kurz)
 
     # Kurze Spaltenköpfe nur in der Liste (voller Begriff als Tooltip); Formulare behalten die langen Feldnamen.
     @admin.display(description=format_html('<span title="{}">{}</span>', "Herstellernummer", "MSKU"), ordering="herstellernummer")
