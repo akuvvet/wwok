@@ -84,5 +84,83 @@
   });
 </script>
 {% endblock %}
+{% block extrahead %}{{ block.super }}
+<script data-wwok-livesuche>
+  // Live-Suche in allen Verwaltungslisten mit Suchfeld (#changelist-search / #searchbar).
+  // Ohne JavaScript bleibt die normale Suche (Enter / „Suchen“) unverändert.
+  document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('changelist-search'), feld = document.getElementById('searchbar');
+    if (!form || !feld || !window.fetch || !window.AbortController || !window.URLSearchParams) return;
+    var VERZOEGERUNG = 300, MINDESTLAENGE = 2, timer = null, abbruch = null, aktionenCode = null;
+    var hinweis = document.createElement('span');
+    hinweis.className = 'small quiet wwok-suchhinweis'; hinweis.textContent = 'Suche …'; hinweis.hidden = true;
+    hinweis.setAttribute('role', 'status');
+    feld.parentNode.appendChild(hinweis);
+
+    function adresse(q) {
+      // Filter und Sortierung stecken als versteckte Felder im Suchformular; Seite springt auf 1
+      var p = new URLSearchParams(new FormData(form));
+      p.delete('p'); p.delete('q');
+      if (q) p.set('q', q);
+      var s = p.toString();
+      return location.pathname + (s ? '?' + s : '');
+    }
+    function tausche(neu, alt) { if (neu && alt) alt.replaceWith(neu); else if (alt && !neu) alt.remove(); }
+    function aktionenNeuStarten() {
+      // actions.js (Django) bindet beim Laden an die Zeilen; nach dem Austausch erneut ausführen
+      var quelle = document.querySelector('script[src*="admin/js/actions"]');
+      if (!quelle || !document.getElementById('changelist-form')) return;
+      (aktionenCode || (aktionenCode = fetch(quelle.src).then(function (r) { return r.text(); }))).then(function (code) {
+        var sofort = function (art, f) { if (art === 'DOMContentLoaded' || art === 'load') f.call(null, new Event(art)); };
+        var huelle = function (ziel) {
+          return new Proxy(ziel, {
+            get: function (t, k) {
+              if (k === 'addEventListener') return sofort;
+              var w = t[k]; return typeof w === 'function' ? w.bind(t) : w;
+            }
+          });
+        };
+        new Function('window', 'document', code)(huelle(window), huelle(document));
+      }).catch(function () {});
+    }
+    function suchen(q) {
+      if (abbruch) abbruch.abort();
+      abbruch = new AbortController();
+      var meins = abbruch, url = adresse(q);
+      hinweis.hidden = false;
+      fetch(url, {signal: meins.signal, credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}})
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+        .then(function (text) {
+          if (meins !== abbruch) return;  // veraltete Antwort
+          var doc = new DOMParser().parseFromString(text, 'text/html');
+          var neuForm = doc.getElementById('changelist-form');
+          if (!neuForm) throw new Error('keine Liste');
+          tausche(neuForm, document.getElementById('changelist-form'));
+          tausche(doc.getElementById('changelist-filter'), document.getElementById('changelist-filter'));
+          // Trefferzahl neben dem Suchfeld
+          var alteZahl = form.querySelector('span.small.quiet:not(.wwok-suchhinweis)');
+          var neueZahl = doc.querySelector('#changelist-search span.small.quiet');
+          if (alteZahl && neueZahl) alteZahl.replaceWith(neueZahl);
+          else if (neueZahl) hinweis.before(neueZahl);
+          else if (alteZahl) alteZahl.remove();
+          history.replaceState(null, '', url);
+          hinweis.hidden = true;
+          aktionenNeuStarten();
+        })
+        .catch(function (e) {
+          if (e && e.name === 'AbortError') return;
+          if (meins === abbruch) { hinweis.hidden = true; location.href = url; }  // Notfall: normale Seite laden
+        });
+    }
+    feld.addEventListener('input', function () {
+      clearTimeout(timer);
+      var q = feld.value.trim();
+      if (q.length === 1) return;  // erst ab 2 Zeichen; leer = ungefilterte Liste
+      timer = setTimeout(function () { suchen(q); }, VERZOEGERUNG);
+    });
+    form.addEventListener('submit', function () { clearTimeout(timer); if (abbruch) abbruch.abort(); });
+  });
+</script>
+{% endblock %}
 {% block nav-breadcrumbs %}<div id="wwok-brotleiste">{{ block.super }}</div>{% endblock %}
 {% block content_title %}{% if title %}{% if request.resolver_match.url_name == 'index' %}<div id="wwok-titelleiste"><h1>{{ title }}</h1><input type="search" id="wwok-menusuche" placeholder="Menüs suchen …" aria-label="Menüs suchen" autocomplete="off"></div>{% else %}<h1>{{ title }}</h1>{% endif %}{% endif %}{% endblock %}
