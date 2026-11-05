@@ -1,0 +1,132 @@
+{% comment %}Suchauswahl (Issue 58): macht aus einem <select data-suchauswahl> ein Suchfeld mit Sofortfilter. Gesucht wird im ganzen
+Text der Option (z. B. Kategoriepfad „Hardware › Notebooks“) und in data-suche (z. B. Nummer), mehrere Wörter in beliebiger Reihenfolge.
+Das echte <select> bleibt versteckt im Formular und wird mitgeführt: ohne JavaScript gilt die normale Auswahlliste, der Server ändert sich nicht.
+Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Artikelmaske (Dialog), Seiten und Verwaltung gemeinsam.{% endcomment %}
+<style>
+  .suchauswahl { position:relative; display:inline-block; min-width:260px; max-width:100%; }
+  .suchauswahl > input { width:100%; box-sizing:border-box; padding-right:26px; }
+  .suchauswahl > .sa-leeren { position:absolute; right:4px; top:50%; transform:translateY(-50%); border:0; background:none; cursor:pointer;
+    padding:2px 6px; color:inherit; opacity:.6; font-size:14px; line-height:1; }
+  .suchauswahl > .sa-leeren:hover { opacity:1; }
+  .suchauswahl > ul { position:absolute; z-index:1000; left:0; right:0; top:100%; margin:2px 0 0; padding:4px 0; list-style:none;
+    max-height:280px; overflow:auto; min-width:320px; box-sizing:border-box;
+    background:var(--karte, var(--body-bg, #fff)); color:var(--text, var(--body-fg, #222));
+    border:1px solid var(--rand, var(--border-color, #ccc)); border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,.18); }
+  .suchauswahl > ul[hidden] { display:none; }
+  .suchauswahl li { padding:5px 10px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .suchauswahl li[aria-selected=true] { background:var(--akzent, var(--selected-row, #dbeafe)); color:var(--akzent-text, inherit); }
+  .suchauswahl li.sa-titel { cursor:default; font-size:11px; text-transform:uppercase; letter-spacing:.5px; opacity:.6; padding-top:6px; }
+  .suchauswahl li.sa-leer { cursor:default; opacity:.7; font-style:italic; }
+  .suchauswahl li .sa-marke { margin-left:6px; font-size:11px; padding:0 5px; border-radius:8px; border:1px solid currentColor; opacity:.65; }
+  .suchauswahl li mark { background:none; color:inherit; font-weight:700; }
+</style>
+<script>
+  window.wwokSuchauswahl = function (wurzel) {
+    var MAX = 200, ZULETZT = 5;
+    function norm(t) { return (t || '').toLocaleLowerCase('de').normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+    function esc(t) { return t.replace(/[&<>"]/g, function (z) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[z]; }); }
+    function hervorheben(text, woerter) {  // gefundene Wortteile fett, ohne HTML aus den Daten auszuführen
+      var n = norm(text), an = new Array(text.length).fill(false);
+      woerter.forEach(function (w) { var i = n.indexOf(w); while (w && i >= 0) { for (var k = i; k < i + w.length; k++) an[k] = true; i = n.indexOf(w, i + 1); } });
+      var aus = '', offen = false;
+      for (var i = 0; i < text.length; i++) {
+        if (an[i] && !offen) { aus += '<mark>'; offen = true; }
+        if (!an[i] && offen) { aus += '</mark>'; offen = false; }
+        aus += esc(text[i]);
+      }
+      return aus + (offen ? '</mark>' : '');
+    }
+    (wurzel || document).querySelectorAll('select[data-suchauswahl]:not([data-sa-bereit])').forEach(function (sel) {
+      sel.setAttribute('data-sa-bereit', '1');
+      var schluessel = 'wwok_zuletzt_' + (sel.dataset.suchauswahl || sel.name);
+      var eintraege = Array.prototype.map.call(sel.options, function (o) {
+        return {wert: o.value, text: o.text.trim(), suche: norm(o.text + ' ' + (o.dataset.suche || '')), offline: o.dataset.offline === '1'};
+      }).filter(function (e) { return e.wert !== ''; });
+      var box = document.createElement('div'), feld = document.createElement('input'), liste = document.createElement('ul'),
+          leeren = document.createElement('button'), id = (sel.id || sel.name) + '_sa';
+      box.className = 'suchauswahl'; liste.id = id + '_liste'; liste.hidden = true; liste.setAttribute('role', 'listbox');
+      feld.type = 'text'; feld.autocomplete = 'off'; feld.placeholder = 'Tippen zum Suchen …';
+      feld.setAttribute('role', 'combobox'); feld.setAttribute('aria-autocomplete', 'list'); feld.setAttribute('aria-expanded', 'false');
+      feld.setAttribute('aria-controls', liste.id);
+      if (sel.id) {  // das Label zeigt künftig auf das Suchfeld
+        var label = document.querySelector('label[for="' + sel.id + '"]');
+        feld.id = id; if (label) label.htmlFor = id;
+      }
+      if (sel.disabled) feld.disabled = true;
+      leeren.type = 'button'; leeren.className = 'sa-leeren'; leeren.textContent = '×'; leeren.title = 'Auswahl leeren';
+      leeren.setAttribute('aria-label', 'Auswahl leeren'); leeren.hidden = sel.required || sel.disabled;
+      sel.parentNode.insertBefore(box, sel);
+      box.appendChild(feld); box.appendChild(leeren); box.appendChild(liste); box.appendChild(sel);
+      sel.hidden = true; sel.tabIndex = -1;
+
+      var treffer = [], aktiv = -1;
+      function gewaehlt() { return eintraege.find(function (e) { return e.wert === sel.value; }); }
+      function anzeigen() { var g = gewaehlt(); feld.value = g ? g.text : ''; }
+      function zuletzt() { try { return JSON.parse(localStorage.getItem(schluessel) || '[]'); } catch (e) { return []; } }
+      function merken(wert) {
+        try { localStorage.setItem(schluessel, JSON.stringify([wert].concat(zuletzt().filter(function (w) { return w !== wert; })).slice(0, ZULETZT))); } catch (e) {}
+      }
+      function zeile(e, woerter, i) {
+        return '<li role="option" id="' + id + '_' + i + '" data-i="' + i + '" aria-selected="' + (i === aktiv) + '">' +
+          hervorheben(e.text, woerter) + (e.offline ? '<span class="sa-marke">offline</span>' : '') + '</li>';
+      }
+      function zeichnen() {
+        var woerter = norm(feld.value).split(/\s+/).filter(Boolean), html = '';
+        if (!woerter.length) {  // ohne Suchbegriff: zuletzt verwendet, dann alle
+          var z = zuletzt().map(function (w) { return eintraege.find(function (e) { return e.wert === w; }); }).filter(Boolean);
+          treffer = z.concat(eintraege.filter(function (e) { return z.indexOf(e) < 0; }));
+          if (z.length) html += '<li class="sa-titel" role="presentation">Zuletzt verwendet</li>';
+          treffer.slice(0, MAX).forEach(function (e, i) {
+            if (z.length && i === z.length) html += '<li class="sa-titel" role="presentation">Alle</li>';
+            html += zeile(e, [], i);
+          });
+        } else {
+          treffer = eintraege.filter(function (e) { return woerter.every(function (w) { return e.suche.indexOf(w) >= 0; }); });
+          treffer.slice(0, MAX).forEach(function (e, i) { html += zeile(e, woerter, i); });
+          if (!treffer.length) html = '<li class="sa-leer" role="presentation">Keine Treffer</li>';
+        }
+        liste.innerHTML = html;
+        var a = liste.querySelector('[aria-selected=true]');
+        if (a) { a.scrollIntoView({block: 'nearest'}); feld.setAttribute('aria-activedescendant', a.id); } else feld.removeAttribute('aria-activedescendant');
+      }
+      function oeffnen() { if (feld.disabled) return; liste.hidden = false; feld.setAttribute('aria-expanded', 'true'); zeichnen(); }
+      function schliessen(zuruecksetzen) {
+        liste.hidden = true; feld.setAttribute('aria-expanded', 'false'); aktiv = -1;
+        if (zuruecksetzen) anzeigen();
+      }
+      function waehlen(e) {
+        var alt = sel.value;
+        sel.value = e ? e.wert : '';
+        if (e) merken(e.wert);
+        anzeigen(); schliessen(false);
+        if (sel.value !== alt) sel.dispatchEvent(new Event('change', {bubbles: true}));
+      }
+      feld.addEventListener('focus', function () { feld.select(); });
+      feld.addEventListener('click', oeffnen);
+      feld.addEventListener('input', function () { aktiv = feld.value.trim() ? 0 : -1; oeffnen(); });
+      feld.addEventListener('keydown', function (ev) {
+        var anzahl = Math.min(treffer.length, MAX);
+        if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+          ev.preventDefault();
+          if (liste.hidden) { oeffnen(); }
+          aktiv = anzahl ? (aktiv + (ev.key === 'ArrowDown' ? 1 : -1) + anzahl) % anzahl : -1;
+          zeichnen();
+        } else if (ev.key === 'Enter') {
+          if (!liste.hidden) { ev.preventDefault(); if (aktiv >= 0 && treffer[aktiv]) waehlen(treffer[aktiv]); else schliessen(true); }
+        } else if (ev.key === 'Escape') {
+          if (!liste.hidden) { ev.preventDefault(); ev.stopPropagation(); schliessen(true); }
+        } else if (ev.key === 'Tab') {
+          if (!liste.hidden && aktiv >= 0 && treffer[aktiv]) waehlen(treffer[aktiv]); else schliessen(true);
+        }
+      });
+      liste.addEventListener('mousedown', function (ev) {  // mousedown statt click: das Feld verliert den Fokus erst danach
+        var li = ev.target.closest('li[data-i]'); ev.preventDefault();
+        if (li) waehlen(treffer[+li.dataset.i]);
+      });
+      feld.addEventListener('blur', function () { if (!liste.hidden) schliessen(true); });
+      leeren.addEventListener('click', function () { waehlen(null); feld.focus(); });
+      anzeigen();
+    });
+  };
+  document.addEventListener('DOMContentLoaded', function () { wwokSuchauswahl(document); });
+</script>

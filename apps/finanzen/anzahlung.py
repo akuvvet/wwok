@@ -21,6 +21,7 @@ from .models import Anzahlungsverrechnung, Zahlung
 CENT = Decimal("0.01")
 NULL = Decimal("0")
 QUELLARTEN = (Belegart.PROFORMA, Belegart.AUFTRAG)
+GUTHABENARTEN = QUELLARTEN + (Belegart.RECHNUNG,)  # Überzahlte Rechnung gibt ihr Guthaben ebenfalls ab
 
 STATUS_TEXT = {
     "entwurf": "Entwurf", "offen": "offen", "teilbezahlt": "teilbezahlt", "bezahlt": "bezahlt",
@@ -72,7 +73,29 @@ def guthaben(quelle) -> Decimal:
         return max(-proforma_offen(quelle, vorab=NULL), NULL)
     if quelle.art == Belegart.AUFTRAG:
         return max(bezahlt(quelle) - abgegeben(quelle), NULL)
+    if quelle.art == Belegart.RECHNUNG and quelle.abgeschlossen:  # Überzahlung
+        from .services import offen
+        return max(-offen(quelle), NULL)
     return NULL
+
+
+def kunden_guthaben(mandant, kunde, ausser=None) -> list:
+    """Freie Guthaben eines Kunden, die mit einer Rechnung verrechnet werden können (Vorschlag beim Zahlung buchen):
+    überzahlte Rechnungen, Proformas mit Guthaben und Bestellungen, deren Anzahlung nach der Lieferung übrig ist.
+    Gutschriften laufen weiter über die Gutschriftverrechnung. Rückgabe: [{"beleg", "guthaben"}], älteste zuerst."""
+    from .services import _rechnungen_mit_summen, offene_rechnungen_zeilen
+    zeilen = [{"beleg": z["beleg"], "guthaben": -z["offen"]}
+              for z in offene_rechnungen_zeilen(_rechnungen_mit_summen(mandant, kunde)) if z["offen"] <= -CENT]
+    hat_zahlung = Zahlung.objects.filter(beleg=models.OuterRef("pk"))
+    for q in Beleg.objects.filter(mandant=mandant, kunde=kunde, art__in=QUELLARTEN).filter(models.Exists(hat_zahlung)) \
+            .order_by("belegdatum", "id"):
+        if q.art == Belegart.AUFTRAG and q.offene_mengen():
+            continue  # Anzahlung für eine noch offene Lieferung: gehört zur eigenen Rechnung
+        g = guthaben(q)
+        if g >= CENT:
+            zeilen.append({"beleg": q, "guthaben": g})
+    zeilen = [z for z in zeilen if ausser is None or z["beleg"].pk != ausser.pk]
+    return sorted(zeilen, key=lambda z: (z["beleg"].belegdatum, z["beleg"].pk))
 
 
 def _status(pf, bez, abg, hat_zahlung, folgearten, vorab=NULL) -> dict:
@@ -194,8 +217,8 @@ def anzahlung_verrechnen(quelle, rechnung, betrag, benutzer=None, offen_bisher=N
     from .services import offen
     for pk in sorted({quelle.pk, rechnung.pk}):  # beide sperren, immer in derselben Reihenfolge (keine Verklemmung)
         Beleg.objects.select_for_update().get(pk=pk)
-    if quelle.art not in QUELLARTEN:
-        raise ValueError("Verrechnet werden nur Zahlungen auf Proforma-Rechnungen oder Bestellungen.")
+    if quelle.art not in GUTHABENARTEN or quelle.pk == rechnung.pk:
+        raise ValueError("Verrechnet wird Guthaben aus Proforma-Rechnungen, Bestellungen oder überzahlten Rechnungen mit einer anderen Rechnung.")
     if rechnung.art != Belegart.RECHNUNG or not rechnung.abgeschlossen:
         raise ValueError("Verrechnet wird nur mit abgeschlossenen Rechnungen.")
     if (quelle.mandant_id, quelle.kunde_id) != (rechnung.mandant_id, rechnung.kunde_id):

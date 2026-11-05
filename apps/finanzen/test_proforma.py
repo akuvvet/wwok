@@ -22,7 +22,8 @@ E = Decimal
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
-class ProformaTest(TestCase):
+class ProformaBasis(TestCase):
+    """Gemeinsame Daten und Hilfen."""
     def setUp(self):
         self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer", ust_id="DE123456789",
                                        strasse="Hauptstr. 1", plz="42651", ort="Solingen", iban="DE02120300000000202051")
@@ -57,6 +58,8 @@ class ProformaTest(TestCase):
     def zahlen(self, beleg, betrag, zahlart=Zahlart.UEBERWEISUNG):
         return services.zahlung_buchen(beleg, E(betrag), date.today(), zahlart, benutzer=self.user)
 
+
+class ProformaTest(ProformaBasis):
     # 1. Vorkasse
     def test_proforma_hat_immer_vorkasse_auch_bei_anderer_kundenbedingung(self):
         _, pf = self.proforma()
@@ -360,3 +363,70 @@ class ProformaTest(TestCase):
         self.assertEqual(services.offen(re), E("57.00"))
         self.assertEqual(xml_erzeugen(re).decode(), vorher)
         self.assertNotIn("TotalPrepaidAmount", vorher)
+
+
+class UeberzahlungTest(ProformaBasis):
+    """Überzahlte Rechnung: Guthaben beim Zahlung buchen anderer Rechnungen vorschlagen und nachvollziehbar verrechnen."""
+
+    def rechnung(self, netto="100", kunde=None):
+        re = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=kunde or self.kunde, zahlungsbedingung=self.ziel)
+        Position.objects.create(beleg=re, bezeichnung="Service", menge=1, einzelpreis=E(netto), steuer_prozent=E("19"))
+        re.abschliessen()
+        return re  # 119,00 brutto bei 100 netto
+
+    def test_ueberzahlung_wird_vorgeschlagen_und_verrechnet(self):
+        alt = self.rechnung()
+        self.zahlen(alt, "150")  # 31,00 zu viel
+        self.assertEqual(anzahlung.guthaben(alt), E("31.00"))
+        neu = self.rechnung("50")  # 59,50
+        seite = self.client.get(reverse("finanzen:beleg", args=[neu.pk]))
+        self.assertContains(seite, "Guthaben des Kunden verrechnen")
+        self.assertEqual([(g["beleg"], g["vorschlag"]) for g in seite.context["kunden_guthaben"]], [(alt, E("31.00"))])
+        r = self.client.post(reverse("finanzen:anzahlung_verrechnen", args=[alt.pk]),
+                             {"rechnung": neu.pk, "betrag": "31,00", "guthaben_bisher": "31.00", "zurueck": "rechnung"})
+        self.assertRedirects(r, reverse("finanzen:beleg", args=[neu.pk]), fetch_redirect_response=False)
+        self.assertEqual((services.offen(alt), services.offen(neu)), (E("0"), E("28.50")))
+        self.assertEqual([z["beleg"] for z in services.offene_rechnungen(self.m)], [neu])
+        self.assertEqual(dashboard.offene_posten(self.m, date.today())["betrag"], E("28.50"))
+        self.assertEqual(services.kunde_offen(self.m, self.kunde), E("28.50"))
+        self.assertEqual(self.client.get(reverse("finanzen:beleg", args=[neu.pk])).context["kunden_guthaben"], [])
+        # nachvollziehbar: auf beiden Belegen und im Kontoauszug, Saldo unverändert richtig
+        self.assertContains(self.client.get(reverse("finanzen:beleg", args=[alt.pk])), "Weiterverrechnet an andere Rechnungen")
+        self.assertContains(self.client.get(reverse("finanzen:beleg", args=[neu.pk])), "Erhalten aus")
+        konto = self.client.get(reverse("finanzen:kontoauszug", args=[self.kunde.pk]))
+        self.assertContains(konto, f"Verrechnet: Guthaben {alt} → {neu}")
+        self.assertEqual(konto.context["saldo"], E("28.50"))
+        self.assertContains(self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk])), "119,00")
+        # druckt nichts nach (GoBD): die nachträgliche Verrechnung steht nicht in der E-Rechnung
+        self.assertNotIn("TotalPrepaidAmount", xml_erzeugen(neu).decode())
+
+    def test_rueckzahlung_nur_vom_freien_guthaben_und_aufheben(self):
+        alt = self.rechnung()
+        self.zahlen(alt, "150")
+        neu = self.rechnung("10")  # 11,90
+        anzahlung.anzahlung_verrechnen(alt, neu, E("11.90"))
+        self.assertEqual(anzahlung.guthaben(alt), E("19.10"))
+        with self.assertRaises(ValueError):
+            self.zahlen(alt, "-31")  # 11,90 sind verrechnet
+        self.zahlen(alt, "-19.10")  # Rest zurücküberweisen
+        self.assertEqual(services.offen(alt), E("0"))
+        v = Anzahlungsverrechnung.objects.get()
+        anzahlung.anzahlung_aufheben(v, "falsche Rechnung")
+        self.assertEqual((services.offen(alt), services.offen(neu)), (E("-11.90"), E("11.90")))
+        self.assertContains(self.client.get(reverse("finanzen:kontoauszug", args=[self.kunde.pk])), "Verrechnung aufgehoben")
+
+    def test_nicht_auf_sich_selbst_und_nicht_fremder_kunde(self):
+        alt = self.rechnung()
+        self.zahlen(alt, "150")
+        with self.assertRaises(ValueError):
+            anzahlung.anzahlung_verrechnen(alt, alt, E("1"))
+        fremd = self.rechnung(kunde=Kunde.objects.create(nummer="9", name1="Fremd"))
+        with self.assertRaises(ValueError):
+            anzahlung.anzahlung_verrechnen(alt, fremd, E("1"))
+        self.assertEqual(self.client.get(reverse("finanzen:beleg", args=[fremd.pk])).context["kunden_guthaben"], [])
+
+    def test_anzahlung_offener_bestellung_wird_nicht_vorgeschlagen(self):
+        ab = self.bestellung()
+        self.zahlen(ab, "50")
+        neu = self.rechnung()
+        self.assertEqual(anzahlung.kunden_guthaben(self.m, self.kunde, ausser=neu), [])

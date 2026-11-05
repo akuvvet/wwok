@@ -2,6 +2,7 @@
 {% block breadcrumbs %}{{ block.super }}{% include "admin/stammdaten/_kopieren.html" %}{% endblock %}
 {% block admin_change_form_document_ready %}{{ block.super }}
 {% include "stammdaten/_preiskopplung.html" %}
+{% include "_suchauswahl.html" %}
 <style>
   .fix-wahl { display:inline-flex; align-items:center; gap:4px; margin-left:8px; font-size:12px; cursor:pointer; }
   .fix-wahl input { margin:0; }
