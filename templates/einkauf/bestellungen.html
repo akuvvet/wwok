@@ -15,7 +15,7 @@
   </div>
   <div class="scroll" style="margin-top:12px"><table>
     <thead><tr><th>Nr.</th><th>Datum</th><th>Lieferant</th><th class="zahl">Summe netto</th><th>Status</th></tr></thead>
-    <tbody>{% for b in bestellungen %}<tr><td><a href="{% url 'einkauf:bestellung' b.pk %}">{{ b.nummer }}</a></td><td>{{ b.datum|date:"d.m.Y" }}</td><td>{{ b.lieferant.name1 }}</td>
+    <tbody>{% for b in bestellungen %}<tr><td><a href="{% url 'einkauf:bestellung' b.pk %}">{{ b.nummer }}</a></td><td>{{ b.datum|date:"d.m.Y" }}</td><td><span title="{{ b.lieferant.nummer }} – {{ b.lieferant.name1 }}">{{ b.lieferant.kurz }}</span></td>
       <td class="zahl">{{ b.summe_netto|floatformat:2 }}</td><td><span class="marke {% if b.status != 'entwurf' %}ok{% endif %}">{{ b.get_status_display }}</span></td></tr>
     {% empty %}<tr><td colspan="5">Keine Bestellungen.</td></tr>{% endfor %}</tbody>
   </table></div>

@@ -7,7 +7,7 @@ from django.core.files.storage import default_storage
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from apps.stammdaten.models import Lieferant
+from apps.stammdaten.models import Lieferant, lieferanten_auswahl
 from apps.kern.rechte import admin_bei_aenderung, nur_admin
 from apps.verkauf.views import mit_mandant
 
@@ -43,7 +43,7 @@ def profil_aus_post(post, lieferant, erkannt) -> Preislistenprofil:
 def assistent_ansicht(request, profil_id=None):
     """Schritt 1: Datei hochladen. Schritt 2: Spalten zuordnen und als Profil speichern."""
     vorhanden = get_object_or_404(Preislistenprofil.objects.select_related("lieferant"), pk=profil_id) if profil_id else None
-    kontext = {"vorhanden": vorhanden, "lieferanten": Lieferant.objects.filter(gesperrt=False), "felder": preislisten.FELDER, "schritt": 1}
+    kontext = {"vorhanden": vorhanden, "lieferanten": lieferanten_auswahl(), "felder": preislisten.FELDER, "schritt": 1}
     if request.method == "POST":
         aktion = request.POST.get("aktion")
         try:
