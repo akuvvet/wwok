@@ -777,9 +777,9 @@ class Preislistenartikel(models.Model):
     class Meta:
         verbose_name = "Preislistenartikel"
         verbose_name_plural = "Preislistenartikel"
-        ordering = ["lieferant", "bezeichnung"]
+        ordering = ["lieferant_id", "bezeichnung"]
         constraints = [models.UniqueConstraint(fields=["lieferant", "bestellnummer"], name="preislistenartikel_eindeutig")]
-        indexes = [models.Index(fields=["bezeichnung"])]
+        indexes = [models.Index(fields=["bezeichnung"]), models.Index(fields=["lieferant", "bezeichnung"], name="pla_lieferant_bez_idx")]
 
     def __str__(self):
         return f"[{self.lieferant.kurz}] {self.herstellernummer or self.bestellnummer} – {self.bezeichnung}"
