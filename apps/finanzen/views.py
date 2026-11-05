@@ -111,8 +111,8 @@ def beleg_op(request, beleg_id):
             rest = -z["offen"]
             gutschriften.append({"beleg": z["beleg"], "rest": rest, "vorschlag": min(rest, offen) if offen > 0 else rest})
         gutschriften.sort(key=lambda g: g["beleg"].vorgaenger_id != beleg.pk)
-    quelle = beleg.art in anzahlungmodul.QUELLARTEN
-    guthaben = anzahlungmodul.guthaben(beleg) if quelle else Decimal("0")
+    guthaben = anzahlungmodul.guthaben(beleg) if beleg.art in anzahlungmodul.GUTHABENARTEN else Decimal("0")
+    quelle = beleg.art in anzahlungmodul.QUELLARTEN or guthaben > 0
     andere = []
     if guthaben > 0:  # Guthaben mit anderen offenen Rechnungen desselben Kunden verrechnen
         for z in services.offene_rechnungen(request.mandant, beleg.kunde):
@@ -120,6 +120,10 @@ def beleg_op(request, beleg_id):
                 andere.append({"beleg": z["beleg"], "offen": z["offen"], "vorschlag": min(z["offen"], guthaben)})
     return render(request, "finanzen/beleg_op.html", {
         "quelle": quelle, "guthaben": guthaben, "andere_rechnungen": andere,
+        # Zahlung buchen: freie Guthaben des Kunden zum Verrechnen vorschlagen (nur für offene Rechnungen)
+        "kunden_guthaben": [{**g, "vorschlag": min(g["guthaben"], offen)} for g in anzahlungmodul.kunden_guthaben(
+            request.mandant, beleg.kunde, ausser=beleg)] if beleg.art == Belegart.RECHNUNG and beleg.abgeschlossen and offen > 0 else [],
+        "abgegebene": beleg.anzahlung_verrechnungen.select_related("rechnung", "storniert_durch") if beleg.art == Belegart.RECHNUNG else [],
         "pf_status": anzahlungmodul.proforma_status(beleg) if beleg.art == Belegart.PROFORMA else None,
         "anzahlungen": (beleg.anzahlungen if beleg.art == Belegart.RECHNUNG else beleg.anzahlung_verrechnungen)
         .select_related("quelle", "rechnung", "storniert_durch"),
@@ -203,7 +207,8 @@ def anzahlung_verrechnen(request, beleg_id):
         messages.success(request, f"Guthaben aus {quelle} mit {rechnung} verrechnet.")
     except ValueError as fehler:
         messages.error(request, str(fehler))
-    return redirect("finanzen:beleg", beleg_id=quelle.pk)
+    zurueck = request.POST.get("zurueck", "")  # von der Zahlungsseite der Zielrechnung aus: dorthin zurück
+    return redirect("finanzen:beleg", beleg_id=rechnung.pk if zurueck == "rechnung" else quelle.pk)
 
 
 @mit_mandant

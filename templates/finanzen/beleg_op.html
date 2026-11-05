@@ -8,7 +8,7 @@
     <div>{% if beleg.art == 'PF' %}Proforma-Betrag{% elif beleg.art == 'AB' %}Bestellwert{% else %}Rechnungsbetrag{% endif %}<br><strong>{{ beleg.summe_brutto|floatformat:"2g" }} €</strong></div>
     <div>bezahlt<br><strong>{{ bezahlt|floatformat:"2g" }} €</strong></div>
     {% if beleg.art == 'RE' %}<div>verrechnete Gutschriften<br><strong>{{ gutschrift|floatformat:"2g" }} €</strong></div>
-    {% if angerechnet %}<div>Vorkasse/Anzahlung verrechnet<br><strong>{{ angerechnet|floatformat:"2g" }} €</strong></div>{% endif %}{% endif %}
+    {% if angerechnet %}<div>Guthaben/Vorkasse verrechnet<br><strong>{{ angerechnet|floatformat:"2g" }} €</strong></div>{% endif %}{% endif %}
     {% if pf_status %}<div>Status<br><strong>{{ pf_status.text }}</strong></div>{% endif %}
     <div>{% if offen < 0 %}Guthaben{% else %}offen{% endif %}<br><strong style="font-size:20px">{{ offen|floatformat:"2g" }} €</strong></div>
     {% if beleg.art == 'RE' %}<div>fällig am<br>{{ faellig|date:"d.m.Y" }}</div>{% endif %}
@@ -37,9 +37,23 @@
   </table>
 </div>
 
-{% if quelle and guthaben or anzahlungen %}
+{% if kunden_guthaben %}
 <div class="karte">
-  <h2>{% if beleg.art == 'RE' %}Verrechnete Vorkasse / Anzahlungen{% else %}Guthaben und Verrechnung{% endif %}</h2>
+  <h2>Guthaben des Kunden verrechnen</h2>
+  <p>Der Kunde hat an anderer Stelle mehr gezahlt. Statt einer neuen Zahlung kann das Guthaben hier verrechnet werden; die Verrechnung steht danach auf beiden Belegen und im Kontoauszug.</p>
+  <table>
+    <tr><th>Guthaben aus</th><th>Datum</th><th class="zahl">frei</th><th>verrechnen</th></tr>
+    {% for g in kunden_guthaben %}<tr><td><a href="{% url 'finanzen:beleg' g.beleg.pk %}">{{ g.beleg }}</a>{% if g.beleg.art == 'RE' %} <em>(Überzahlung)</em>{% endif %}</td><td>{{ g.beleg.belegdatum|date:"d.m.Y" }}</td><td class="zahl">{{ g.guthaben|floatformat:"2g" }}</td>
+      <td><form method="post" action="{% url 'finanzen:anzahlung_verrechnen' g.beleg.pk %}" class="zeile">{% csrf_token %}
+        <input type="hidden" name="rechnung" value="{{ beleg.pk|stringformat:"d" }}"><input type="hidden" name="zurueck" value="rechnung">
+        <input type="hidden" name="guthaben_bisher" value="{{ g.guthaben|floatformat:2 }}"><input name="betrag" value="{{ g.vorschlag|floatformat:2 }}" size="10" aria-label="Betrag"><button type="submit">Verrechnen</button></form></td></tr>{% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% if quelle and guthaben or anzahlungen or abgegebene %}
+<div class="karte">
+  <h2>{% if beleg.art == 'RE' and not guthaben and not abgegebene %}Verrechnete Vorkasse / Anzahlungen / Guthaben{% else %}Guthaben und Verrechnung{% endif %}</h2>
   {% if quelle %}<p>Frei verrechenbar: <strong>{{ guthaben|floatformat:"2g" }} €</strong>. Die Zahlung bleibt mit Datum und Zahlart an diesem Beleg; verrechnet wird nur der Betrag.</p>
   {% if andere_rechnungen %}<table>
     <tr><th>Rechnung</th><th>Datum</th><th class="zahl">offen</th><th>verrechnen</th></tr>
@@ -47,7 +61,14 @@
       <td><form method="post" action="{% url 'finanzen:anzahlung_verrechnen' beleg.pk %}" class="zeile">{% csrf_token %}
         <input type="hidden" name="rechnung" value="{{ r.beleg.pk|stringformat:"d" }}"><input type="hidden" name="guthaben_bisher" value="{{ guthaben|floatformat:2 }}"><input name="betrag" value="{{ r.vorschlag|floatformat:2 }}" size="10" aria-label="Betrag"><button type="submit">Verrechnen</button></form></td></tr>{% endfor %}
   </table>{% elif guthaben %}<p style="opacity:.75">Keine offene Rechnung dieses Kunden – das Guthaben bitte als negative Zahlung zurückzahlen.</p>{% endif %}{% endif %}
-  {% if anzahlungen %}<table style="margin-top:12px">
+  {% if abgegebene %}<h3 style="margin:12px 0 4px">Weiterverrechnet an andere Rechnungen</h3><table>
+    <tr><th>Datum</th><th>auf Rechnung</th><th class="zahl">Betrag</th><th>Grund der Aufhebung</th><th>Benutzer</th><th></th></tr>
+    {% for v in abgegebene %}<tr><td>{{ v.datum|date:"d.m.Y" }}</td><td><a href="{% url 'finanzen:beleg' v.rechnung.pk %}">{{ v.rechnung }}</a></td><td class="zahl">{{ v.betrag }}</td><td>{{ v.storno_grund }}{% if v.storno_zu_id %} <em>(Aufhebung)</em>{% endif %}</td><td>{{ v.benutzer|default:"" }}</td>
+      <td>{% if v.storno_zu_id %}{% elif v.storniert_durch %}<span style="opacity:.6">aufgehoben</span>
+        {% else %}<form method="post" action="{% url 'finanzen:anzahlung_aufheben' v.pk %}" class="zeile">{% csrf_token %}<input type="hidden" name="zurueck" value="{{ beleg.pk|stringformat:"d" }}">
+          <input name="grund" placeholder="Grund (Pflicht)" size="22" required><button type="submit" class="gefahr">Aufheben</button></form>{% endif %}</td></tr>{% endfor %}
+  </table>{% endif %}
+  {% if anzahlungen %}{% if beleg.art == 'RE' %}<h3 style="margin:12px 0 4px">Erhalten aus</h3>{% endif %}<table style="margin-top:12px">
     <tr><th>Datum</th><th>{% if beleg.art == 'RE' %}aus{% else %}auf Rechnung{% endif %}</th><th class="zahl">Betrag</th><th>Grund der Aufhebung</th><th>Benutzer</th><th></th></tr>
     {% for v in anzahlungen %}<tr><td>{{ v.datum|date:"d.m.Y" }}</td><td>{% if beleg.art == 'RE' %}<a href="{% url 'finanzen:beleg' v.quelle.pk %}">{{ v.quelle }}</a>{% else %}<a href="{% url 'finanzen:beleg' v.rechnung.pk %}">{{ v.rechnung }}</a>{% endif %}</td><td class="zahl">{{ v.betrag }}</td><td>{{ v.storno_grund }}{% if v.storno_zu_id %} <em>(Aufhebung)</em>{% endif %}</td><td>{{ v.benutzer|default:"" }}</td>
       <td>{% if v.storno_zu_id %}{% elif v.storniert_durch %}<span style="opacity:.6">aufgehoben</span>

@@ -174,7 +174,8 @@ def kunde_detail(request, kunde_id):
     for b in seite.object_list:
         rechnung = b.art == Belegart.RECHNUNG and b.abgeschlossen
         gutschrift = b.art == Belegart.GUTSCHRIFT and b.abgeschlossen
-        erledigt = summen["bezahlt"].get(b.pk, null) + summen["gutgeschrieben"].get(b.pk, null) + summen["angerechnet"].get(b.pk, null)
+        erledigt = (summen["bezahlt"].get(b.pk, null) + summen["gutgeschrieben"].get(b.pk, null) + summen["angerechnet"].get(b.pk, null)
+                    - (summen["abgegeben"].get(b.pk, null) if rechnung else null))  # weiterverrechnete Überzahlung
         status = pf_status.get(b.pk)
         proforma = status is not None and status["code"] != "entwurf"
         zeilen.append({
