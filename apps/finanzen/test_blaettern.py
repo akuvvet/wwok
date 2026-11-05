@@ -66,7 +66,7 @@ class OffenePostenBlaetternTest(TestCase):
         self.zb = Zahlungsbedingung.objects.create(bezeichnung="sofort", tage_netto=0, tage_mahnung=0)
 
     def rechnung(self, kunde, preis="100", faellig_tage=0):
-        zb = Zahlungsbedingung.objects.create(bezeichnung=f"{faellig_tage}T", tage_netto=faellig_tage, tage_mahnung=0)
+        zb, _ = Zahlungsbedingung.objects.get_or_create(bezeichnung=f"{faellig_tage}T", defaults={"tage_netto": faellig_tage, "tage_mahnung": 0})
         b = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=kunde, zahlungsbedingung=zb)
         Position.objects.create(beleg=b, bezeichnung="Dienst", einzelpreis=Decimal(preis))
         b.abschliessen()
