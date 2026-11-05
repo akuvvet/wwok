@@ -93,7 +93,7 @@ class ReparaturbestandTest(TestCase):
         gs = self.gutschrift(nur_leistung, "")
         self.assertEqual(gs.positionen.get().ruecknahme, Ruecknahme.KEINE)
 
-    def test_klick_wechselt_r_b_keine_und_laesst_sich_verwerfen(self):
+    def test_klick_wechselt_r_b_keine_und_gilt_sofort(self):
         gs = self.gutschrift(self.rechnung(self.a), "R")
         p = gs.positionen.get()
         url = reverse("verkauf:position_ruecknahme", args=[gs.pk, p.pk])
@@ -101,10 +101,9 @@ class ReparaturbestandTest(TestCase):
             self.client.post(url)
             p.refresh_from_db()
             self.assertEqual(p.ruecknahme, erwartet)
-        self.assertTrue(BelegArbeitsstand.objects.filter(beleg=gs).exists())
-        gs.arbeitsstand_verwerfen()
+        self.assertFalse(BelegArbeitsstand.objects.filter(beleg=gs).exists())
         p.refresh_from_db()
-        self.assertEqual(p.ruecknahme, "R")
+        self.assertEqual(p.ruecknahme, "B")
 
     def test_klick_nur_bei_offener_gutschrift_und_lagerartikel(self):
         re = self.rechnung(self.a, self.l)

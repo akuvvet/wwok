@@ -9,7 +9,7 @@
       <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a>
     </p>
     <form method="post" action="{% url 'einkauf:bestellung_neu' %}" class="zeile">{% csrf_token %}
-      <div><label>Neue Bestellung bei</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.kurz }} – {{ l.name1 }}</option>{% endfor %}</select></div>
+      <div><label for="f-lieferant">Neue Bestellung bei</label><select id="f-lieferant" name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.kurz }} – {{ l.name1 }}</option>{% endfor %}</select></div>
       <button type="submit">Anlegen</button>
     </form>
   </div>
