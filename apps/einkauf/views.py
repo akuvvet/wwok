@@ -12,6 +12,7 @@ from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel, lieferanten_auswahl
 from apps.kern.rechte import admin_bei_aenderung, nur_admin
+from apps.kern.seiten import blaettern
 from apps.verkauf.mail import MailFehler, ausfuellen, senden_an
 from apps.verkauf.models import Beleg, Mailart
 from apps.verkauf.views import mit_mandant
@@ -68,7 +69,9 @@ def lieferanten(request):
     for wort in q.split():
         liste = liste.filter(Q(name1__icontains=wort) | Q(name2__icontains=wort) | Q(kurzname__icontains=wort)
                              | Q(ort__icontains=wort) | Q(nummer__icontains=wort))
-    return render(request, "einkauf/lieferanten.html", {"lieferanten": liste[:300], "q": q, "bereich": "einkauf"})
+    seite, parameter = blaettern(request, liste)
+    return render(request, "einkauf/lieferanten.html", {
+        "lieferanten": seite, "seite": seite, "parameter": parameter, "q": q, "bereich": "einkauf"})
 
 
 @mit_mandant
@@ -79,8 +82,9 @@ def bestellungen(request):
         liste = liste.filter(status__in=[BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL])
     elif status in BestellStatus.values:
         liste = liste.filter(status=status)
+    seite, parameter = blaettern(request, liste.order_by("-datum", "-id"))
     return render(request, "einkauf/bestellungen.html", {
-        "bestellungen": liste[:200], "status": status, "lieferanten": lieferanten_auswahl()})
+        "bestellungen": seite, "seite": seite, "parameter": parameter, "status": status, "lieferanten": lieferanten_auswahl()})
 
 
 @mit_mandant
@@ -409,8 +413,10 @@ def vorschlag(request):
 
 @mit_mandant
 def wareneingaenge(request):
+    seite, parameter = blaettern(request, Wareneingang.objects.filter(mandant=request.mandant)
+                                 .select_related("lieferant", "bestellung").order_by("-datum", "-id"))
     return render(request, "einkauf/wareneingaenge.html", {
-        "liste": Wareneingang.objects.filter(mandant=request.mandant).select_related("lieferant", "bestellung")[:200],
+        "liste": seite, "seite": seite, "parameter": parameter,
         "lieferanten": lieferanten_auswahl(),
         "offene": Bestellung.objects.filter(mandant=request.mandant, status__in=[BestellStatus.BESTELLT, BestellStatus.TEIL])})
 
@@ -522,9 +528,11 @@ def rechnungen(request):
         liste = liste.filter(status=status)
     elif status == "offen":
         liste = liste.exclude(status=RechnungStatus.BEZAHLT)
-    zeilen = [(r, r.abgleich(), r.zahlbetrag()) for r in liste[:300]]
+    seite, parameter = blaettern(request, liste)  # Modellsortierung: fällig, id
+    zeilen =[(r, r.abgleich(), r.zahlbetrag()) for r in seite]
     return render(request, "einkauf/rechnungen.html", {
         "abweichungen": sum(1 for _, a, _ in zeilen if a["offen"]),
+        "seite": seite, "parameter": parameter,
         "zeilen": zeilen, "status": status, "lieferanten": lieferanten_auswahl(),
         "heute": date.today().isoformat(), "summe": sum((z[2] for z in zeilen), Decimal("0"))})
 

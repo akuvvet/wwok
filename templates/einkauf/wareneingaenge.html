@@ -15,5 +15,6 @@
     {% for w in liste %}<tr><td><a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a></td><td>{{ w.datum|date:"d.m.Y" }}</td><td><span title="{{ w.lieferant.nummer }} – {{ w.lieferant.name1 }}">{{ w.lieferant.kurz }}</span></td><td>{{ w.bestellung.nummer|default:"" }}</td><td>{% if w.gebucht %}ja{% else %}offen{% endif %}</td></tr>
     {% empty %}<tr><td colspan="5">Keine Wareneingänge.</td></tr>{% endfor %}
   </table>
+  {% include "seiten.html" %}
 </div>
 {% endblock %}

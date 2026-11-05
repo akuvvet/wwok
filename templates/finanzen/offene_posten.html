@@ -4,13 +4,21 @@
 <div class="karte">
   <h1>Offene Posten · Mandant {{ request.mandant }}{% if kunde %} – {{ kunde.name1 }}{% endif %}</h1>
   <p class="zeile">
-    <a class="knopf {% if nur %}leise{% endif %}" href="?{% if kunde %}kunde={{ kunde.pk }}{% endif %}">Alle</a>
-    <a class="knopf {% if nur != 'ueberfaellig' %}leise{% endif %}" href="?nur=ueberfaellig{% if kunde %}&kunde={{ kunde.pk }}{% endif %}">Überfällige</a>
+    <a class="knopf {% if nur %}leise{% endif %}" href="?q={{ q|urlencode }}{% if kunde %}&kunde={{ kunde.pk }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">Alle</a>
+    <a class="knopf {% if nur != 'ueberfaellig' %}leise{% endif %}" href="?nur=ueberfaellig&q={{ q|urlencode }}{% if kunde %}&kunde={{ kunde.pk }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">Überfällige</a>
     {% if kunde %}<a class="knopf leise" href="{% url 'finanzen:kontoauszug' kunde.pk %}">Kontoauszug</a>{% endif %}
   </p>
+  <form method="get" class="zeile">
+    <input type="search" name="q" value="{{ q }}" placeholder="Kunde oder Belegnummer">
+    {% if nur %}<input type="hidden" name="nur" value="{{ nur }}">{% endif %}
+    {% if kunde %}<input type="hidden" name="kunde" value="{{ kunde.pk }}">{% endif %}
+    {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+    <button class="knopf" type="submit">Suchen</button>
+    {% if q %}<a class="knopf leise" href="?{% if nur %}nur={{ nur }}{% endif %}{% if kunde %}&kunde={{ kunde.pk }}{% endif %}">Zurücksetzen</a>{% endif %}
+  </form>
   <p>Offen gesamt: <strong>{{ summe|floatformat:2 }} €</strong> · davon überfällig: <strong style="color:var(--warn)">{{ ueberfaellig|floatformat:2 }} €</strong></p>
   <table>
-    <tr><th>Beleg</th><th>Kunde</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">bezahlt/verrechnet</th><th class="zahl">offen</th><th class="zahl">überfällig</th><th>Mahnstufe</th></tr>
+    <tr><th>Beleg</th><th>Kunde</th><th>Datum</th><th><a href="{{ kopf.faellig.url }}">fällig {{ kopf.faellig.pfeil }}</a></th><th class="zahl">Brutto</th><th class="zahl">bezahlt/verrechnet</th><th class="zahl"><a href="{{ kopf.offen.url }}">offen {{ kopf.offen.pfeil }}</a></th><th class="zahl"><a href="{{ kopf.ueberfaellig.url }}">überfällig {{ kopf.ueberfaellig.pfeil }}</a></th><th>Mahnstufe</th></tr>
     {% for z in zeilen %}
     <tr><td>{% if z.ist_gutschrift %}<a href="{% if z.beleg.vorgaenger_id %}{% url 'finanzen:beleg' z.beleg.vorgaenger_id %}{% else %}{% url 'verkauf:beleg' z.beleg.pk %}{% endif %}">{{ z.beleg.nummer }}</a>{% else %}<a href="{% url 'finanzen:beleg' z.beleg.pk %}">{{ z.beleg.nummer }}</a>{% include "verkauf/versand_marke.html" with b=z.beleg %}{% endif %}</td>
         <td><a href="{% url 'finanzen:offene_posten' %}?kunde={{ z.beleg.kunde.pk }}">{{ z.beleg.kunde.name1 }}</a></td>
@@ -20,5 +28,6 @@
         <td class="zahl">{% if z.ueberfaellig %}{{ z.ueberfaellig }} Tage{% endif %}</td><td>{{ z.mahnstufe|default:"–" }}</td></tr>
     {% empty %}<tr><td colspan="9">Keine offenen Posten.</td></tr>{% endfor %}
   </table>
+  {% include "seiten.html" %}
 </div>
 {% endblock %}
