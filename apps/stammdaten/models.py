@@ -365,6 +365,13 @@ class Lieferant(Partner):
         return self.kurzname or (self.name1.split() or [self.nummer])[0]
 
 
+def lieferanten_auswahl(gesperrte: bool = False):
+    """Lieferanten für Auswahlfelder, alphabetisch nach Kurzname (ohne Eintrag nach Name 1); Standard ohne gesperrte."""
+    from django.db.models.functions import Coalesce, Lower, NullIf
+    liste = Lieferant.objects.all() if gesperrte else Lieferant.objects.filter(gesperrt=False)
+    return liste.order_by(Lower(Coalesce(NullIf("kurzname", models.Value("")), "name1")), Lower("name1"), "nummer")
+
+
 class LieferantMandant(Zeitstempel):
     """Pro Mandant: eigene Kundennummer beim Lieferanten."""
 
@@ -835,9 +842,9 @@ class Preislistenartikel(models.Model):
     class Meta:
         verbose_name = "Preislistenartikel"
         verbose_name_plural = "Preislistenartikel"
-        ordering = ["lieferant", "bezeichnung"]
+        ordering = ["lieferant_id", "bezeichnung"]
         constraints = [models.UniqueConstraint(fields=["lieferant", "bestellnummer"], name="preislistenartikel_eindeutig")]
-        indexes = [models.Index(fields=["bezeichnung"])]
+        indexes = [models.Index(fields=["bezeichnung"]), models.Index(fields=["lieferant", "bezeichnung"], name="pla_lieferant_bez_idx")]
 
     def __str__(self):
         return f"[{self.lieferant.kurz}] {self.herstellernummer or self.bestellnummer} – {self.bezeichnung}"

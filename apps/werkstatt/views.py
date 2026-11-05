@@ -6,6 +6,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
+from apps.kern.seiten import blaettern
 from apps.stammdaten.models import Artikel, Kunde
 from apps.verkauf.views import mit_mandant
 
@@ -44,8 +45,9 @@ def liste(request):
     for wort in q.split():
         reparaturen = reparaturen.filter(Q(nummer__icontains=wort) | Q(geraet__icontains=wort) | Q(seriennummer__icontains=wort)
                                          | Q(kunde__name1__icontains=wort) | Q(kunde__nummer__icontains=wort))
+    seite, parameter = blaettern(request, reparaturen)
     return render(request, "werkstatt/liste.html", {
-        "reparaturen": reparaturen[:300], "status": status, "q": q, "stati": Status.choices})
+        "reparaturen": seite, "seite": seite, "parameter": parameter, "status": status, "q": q, "stati": Status.choices})
 
 
 @mit_mandant
@@ -101,7 +103,7 @@ def schutz(view):
 @schutz
 def status(request, reparatur_id):
     reparatur = holen(request, reparatur_id)
-    meldung = services.status_setzen(reparatur, request.POST.get("status"), request.user)
+    meldung = services.status_setzen(reparatur, request.POST.get("status"), request.user, mail=bool(request.POST.get("mail")))
     messages.success(request, f"Status: {reparatur.get_status_display()}. {meldung or ''}")
     return redirect("werkstatt:detail", reparatur_id=reparatur.pk)
 
