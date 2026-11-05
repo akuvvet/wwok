@@ -49,8 +49,13 @@ def gutgeschrieben(beleg) -> Decimal:
 
 
 def angerechnet(beleg) -> Decimal:
-    """Auf die Rechnung verrechnete Anzahlungen (Zahlungen auf Proforma-Rechnung oder Bestellung)."""
+    """Auf die Rechnung verrechnete Guthaben (Zahlungen auf Proforma/Bestellung, Überzahlung anderer Rechnungen)."""
     return beleg.anzahlungen.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0")
+
+
+def abgegeben(beleg) -> Decimal:
+    """Von diesem Beleg (Überzahlung, Proforma, Bestellung) an andere Rechnungen verrechnetes Guthaben."""
+    return beleg.anzahlung_verrechnungen.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0")
 
 
 def angerechnet_im_druck(beleg) -> Decimal:
@@ -86,8 +91,8 @@ def offen(beleg) -> Decimal:
     if beleg.art == Belegart.PROFORMA:
         from .anzahlung import proforma_offen
         return proforma_offen(beleg)
-    if beleg.art == Belegart.RECHNUNG:
-        return beleg.summe_brutto - bezahlt(beleg) - gutgeschrieben(beleg) - angerechnet(beleg)
+    if beleg.art == Belegart.RECHNUNG:  # + abgegeben: verrechnete Überzahlung ist nicht mehr Guthaben dieser Rechnung
+        return beleg.summe_brutto - bezahlt(beleg) - gutgeschrieben(beleg) - angerechnet(beleg) + abgegeben(beleg)
     return beleg.summe_brutto - bezahlt(beleg) - gutgeschrieben(beleg)
 
 
@@ -111,7 +116,8 @@ def offene_rechnungen_zeilen(belege):
     heute = timezone.localdate()
     zeilen = []
     for b in belege:
-        bez, gut = b.summe_bezahlt + b.summe_angerechnet, b.summe_gutgeschrieben  # Anzahlungen zählen als bezahlt
+        # Anzahlungen zählen als bezahlt, weiterverrechnete Überzahlung nicht mehr
+        bez, gut = b.summe_bezahlt + b.summe_angerechnet - b.summe_abgegeben, b.summe_gutgeschrieben
         rest = b.summe_brutto - bez - gut
         if abs(rest) < CENT:
             continue
@@ -139,10 +145,11 @@ def _rechnungen_mit_summen(mandant, kunde=None):
         .annotate(summe_bezahlt=Coalesce(summe(Zahlung, "beleg"), null),
                   summe_gutgeschrieben=Coalesce(summe(Gutschriftverrechnung, "rechnung"), null),
                   summe_angerechnet=Coalesce(summe(Anzahlungsverrechnung, "rechnung"), null),
+                  summe_abgegeben=Coalesce(summe(Anzahlungsverrechnung, "quelle"), null),
                   letzte_mahnstufe=models.Subquery(letzte.values("stufe")[:1]),
                   letzte_mahnung_datum=models.Subquery(letzte.values("datum")[:1])) \
         .annotate(rest_db=models.F("summe_brutto") - models.F("summe_bezahlt") - models.F("summe_gutgeschrieben")
-                  - models.F("summe_angerechnet")) \
+                  - models.F("summe_angerechnet") + models.F("summe_abgegeben")) \
         .filter(models.Q(rest_db__gt=Decimal("0.005")) | models.Q(rest_db__lt=Decimal("-0.005"))) \
         .order_by("belegdatum", "id")
     if kunde is not None:
@@ -261,6 +268,13 @@ def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, s
         raise ValueError(f"{beleg} ist storniert – keine weiteren Zahlungen.")
     if betrag == 0:
         raise ValueError("Betrag darf nicht 0 sein.")
+    if betrag < 0 and beleg.art == Belegart.RECHNUNG and beleg.anzahlung_verrechnungen.exists():
+        # Rückzahlung einer Überzahlung, die schon teils verrechnet ist: höchstens das freie Guthaben
+        Beleg.objects.select_for_update().get(pk=beleg.pk)
+        frei = max(-offen(beleg), Decimal("0"))
+        if -betrag > frei + CENT / 2:
+            raise ValueError(f"Frei sind nur {frei:.2f} € Guthaben; der Rest ist mit anderen Rechnungen verrechnet.".replace(".", ",", 1)
+                             + " Bitte zuerst die Verrechnung aufheben.")
     if betrag < 0 and beleg.art in (Belegart.PROFORMA, Belegart.AUFTRAG):
         # Rückzahlung/Storno: was schon mit einer Rechnung verrechnet ist, muss an der Proforma/Bestellung bleiben
         Beleg.objects.select_for_update().get(pk=beleg.pk)
@@ -327,9 +341,16 @@ def kontoauszug(mandant, kunde):
         posten.append((b.belegdatum, 0, b.id, str(b), vorzeichen * b.summe_brutto, b))
     for z in Zahlung.objects.filter(mandant=mandant, beleg__kunde=kunde).select_related("beleg"):
         posten.append((z.datum, 1, z.id, f"Zahlung {z.get_zahlart_display()} zu {z.beleg}", -z.betrag, z.beleg))
+    for v in Anzahlungsverrechnung.objects.filter(mandant=mandant, rechnung__kunde=kunde).select_related("quelle", "rechnung"):
+        text = (f"Verrechnung aufgehoben: {v.quelle} → {v.rechnung} ({v.storno_grund})" if v.storno_zu_id
+                else f"Verrechnet: Guthaben {v.quelle} → {v.rechnung}")
+        posten.append((v.datum, 2, v.id, text, None, v.rechnung, v.betrag))
     posten.sort(key=lambda p: p[:3])
     saldo, zeilen = Decimal("0"), []
-    for datum, _, _, text, betrag, beleg in posten:
+    for datum, _, _, text, betrag, beleg, *info in posten:
+        if betrag is None:  # nur zur Nachvollziehbarkeit: ändert den Saldo nicht
+            zeilen.append({"datum": datum, "text": text, "betrag": None, "info": info[0], "saldo": saldo, "beleg": beleg})
+            continue
         saldo += betrag
         zeilen.append({"datum": datum, "text": text, "betrag": betrag, "saldo": saldo, "beleg": beleg})
     return zeilen, saldo

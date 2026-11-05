@@ -161,8 +161,9 @@ def offene_posten(mandant, heute) -> dict:
     bezahlt = _summe_je_beleg(Zahlung, "beleg")
     verrechnet_re = _summe_je_beleg(Gutschriftverrechnung, "rechnung")
     anzahlung_re = _summe_je_beleg(Anzahlungsverrechnung, "rechnung")
+    abgegeben_re = _summe_je_beleg(Anzahlungsverrechnung, "quelle")  # weiterverrechnete Überzahlung
     rechnungen = (Beleg.objects.filter(mandant=mandant, art=Belegart.RECHNUNG, abgeschlossen=True)
-                  .annotate(rest=F("summe_brutto") - bezahlt - verrechnet_re - anzahlung_re)
+                  .annotate(rest=F("summe_brutto") - bezahlt - verrechnet_re - anzahlung_re + abgegeben_re)
                   .filter(Q(rest__gte=CENT) | Q(rest__lte=-CENT)).order_by()
                   .values_list("rest", "belegdatum", "zahlungsbedingung__tage_netto"))
     anzahl, betrag, ueberfaellig_anzahl, ueberfaellig_betrag = 0, Decimal("0"), 0, Decimal("0")
