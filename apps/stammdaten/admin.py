@@ -368,10 +368,18 @@ class OnlineStatusFilter(admin.SimpleListFilter):
 
 @admin.register(m.Kategorie)
 class KategorieAdmin(admin.ModelAdmin):
-    list_display = ["name", "nummer", "eltern", "online", "shop_status", "artikel_im_shop"]
+    list_display = ["name", "nummer", "eltern", "online", "shop_status", "artikel_im_shop", "im_shop"]
     list_filter = [OnlineStatusFilter, "online"]
     search_fields = ["name", "nummer"]
     list_select_related = ["eltern__eltern"]  # der Name zeigt die übergeordneten Ebenen
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("shop_zuordnungen__shop")
+
+    @admin.display(description="Kategorie im Shop")
+    def im_shop(self, obj):
+        """Je Shop: von wwok angelegt oder einer vorhandenen Shop-Kategorie zugeordnet (Issue 59)."""
+        return ", ".join(f"{z.shop.name}: {'angelegt' if z.angelegt else 'zugeordnet'}" for z in obj.shop_zuordnungen.all()) or "–"
     change_form_template = "admin/stammdaten/kategorie/change_form.html"
 
     @admin.display(description="Shop")

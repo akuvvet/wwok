@@ -111,6 +111,8 @@ class ShopKategorie(models.Model):
     kategorie = models.ForeignKey("stammdaten.Kategorie", on_delete=models.CASCADE, related_name="shop_zuordnungen")
     kategorie_id_extern = models.CharField(max_length=64)
     im_shop_aktiv = models.BooleanField(default=True)
+    angelegt = models.BooleanField("von wwok angelegt", default=False,
+                                   help_text="Nur von wwok angelegte Shop-Kategorien werden beim Umbenennen oder Verschieben in wwok nachgezogen")
 
     class Meta:
         verbose_name = "Shop-Kategorie"
