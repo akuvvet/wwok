@@ -10,10 +10,10 @@
   {% if artikel.typ == 'L' %}
   <p><span class="marke">Leistung</span> ohne Lager, Bestellung und Wareneingang</p>
   <div class="raster">
-    <div>VK1 netto<br><strong style="font-size:22px">{{ artikel.vk1|floatformat:2 }} €</strong></div>
-    <div>VK2 netto<br><strong>{{ artikel.vk2|floatformat:2 }} €</strong></div>
-    <div>VK3 netto<br><strong>{{ artikel.vk3|floatformat:2 }} €</strong></div>
-    <div>Kosten (EK) netto<br><strong>{% if artikel.kosten is not None %}{{ artikel.kosten|floatformat:2 }} €{% else %}–{% endif %}</strong></div>
+    <div>VK1 netto<br><strong style="font-size:22px">{{ artikel.vk1|floatformat:"2g" }} €</strong></div>
+    <div>VK2 netto<br><strong>{{ artikel.vk2|floatformat:"2g" }} €</strong></div>
+    <div>VK3 netto<br><strong>{{ artikel.vk3|floatformat:"2g" }} €</strong></div>
+    <div>Kosten (EK) netto<br><strong>{% if artikel.kosten is not None %}{{ artikel.kosten|floatformat:"2g" }} €{% else %}–{% endif %}</strong></div>
     <div>Steuersatz<br>{{ artikel.steuersatz.prozent|floatformat:"-2" }} %</div>
     <div>Einheit<br>{{ artikel.mengeneinheit }}</div>
     <div>Leistungskategorie<br>{{ artikel.leistungskategorie|default:"–" }}</div>
@@ -26,8 +26,8 @@
     <div>verfügbar<br><strong style="font-size:22px">{{ verfuegbar|floatformat:"-3" }}</strong></div>
     <div>bestellt (offen)<br><strong style="font-size:22px">{{ bestellt|floatformat:"-3" }}</strong></div>
     <div>Reparaturbestand (nicht verkaufbar)<br><strong style="font-size:22px">{{ reparatur|floatformat:"-3" }}</strong></div>
-    <div>EK netto<br>{% if ek is not None %}<strong>{{ ek|floatformat:2 }} €</strong> <span class="fein">({{ ek_quelle }}{% if ek_datum %}, {{ ek_datum|date:"d.m.Y" }}{% endif %})</span>{% else %}<strong class="gefahr-text">EK fehlt</strong>{% endif %}</div>
-    <div>letzter Wareneingang<br>{% if letzter_we %}{{ letzter_we.wareneingang.datum|date:"d.m.Y" }} · {{ letzter_we.menge|floatformat:"-3" }} × {{ letzter_we.ek|floatformat:2 }} €{% else %}–{% endif %}</div>
+    <div>EK netto<br>{% if ek is not None %}<strong>{{ ek|floatformat:"2g" }} €</strong> <span class="fein">({{ ek_quelle }}{% if ek_datum %}, {{ ek_datum|date:"d.m.Y" }}{% endif %})</span>{% else %}<strong class="gefahr-text">EK fehlt</strong>{% endif %}</div>
+    <div>letzter Wareneingang<br>{% if letzter_we %}{{ letzter_we.wareneingang.datum|date:"d.m.Y" }} · {{ letzter_we.menge|floatformat:"-3" }} × {{ letzter_we.ek|floatformat:"2g" }} €{% else %}–{% endif %}</div>
     <div>Einheit<br>{{ artikel.mengeneinheit }}</div>
   </div>
   {% if daten.maximalbestand and bestand > daten.maximalbestand %}<p class="warnung" style="margin-top:12px">Über Maximalbestand ({{ daten.maximalbestand }}).</p>{% endif %}
@@ -41,12 +41,12 @@
   <div class="scroll"><table>
     <thead><tr><th>Nummer</th><th>Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">EK</th><th class="zahl">VK</th><th class="zahl">Marge</th></tr></thead>
     <tbody>{% for z in kalkulation.zeilen %}<tr><td><a href="{% url 'lager:artikel' z.pk %}">{{ z.nummer }}</a></td><td>{{ z.bezeichnung }}</td><td class="zahl">{{ z.menge|floatformat:"-3" }}</td>
-      <td class="zahl">{% if z.ek is None %}–{% else %}{{ z.ek|floatformat:2 }}{% endif %}</td><td class="zahl">{% if z.vk is None %}–{% else %}{{ z.vk|floatformat:2 }}{% endif %}</td>
-      <td class="zahl">{% if z.marge is None %}–{% else %}{{ z.marge|floatformat:2 }} %{% endif %}</td></tr>
+      <td class="zahl">{% if z.ek is None %}–{% else %}{{ z.ek|floatformat:"2g" }}{% endif %}</td><td class="zahl">{% if z.vk is None %}–{% else %}{{ z.vk|floatformat:"2g" }}{% endif %}</td>
+      <td class="zahl">{% if z.marge is None %}–{% else %}{{ z.marge|floatformat:"2g" }} %{% endif %}</td></tr>
     {% empty %}<tr><td colspan="6">Noch keine Komponenten – über „Bearbeiten“ → Komponenten hinzufügen.</td></tr>{% endfor %}</tbody>
-    {% if kalkulation.zeilen %}<tfoot><tr><td colspan="3"><strong>Summe Komponenten</strong></td><td class="zahl"><strong>{{ kalkulation.ek|floatformat:2 }}{% if not kalkulation.vollstaendig %} *{% endif %}</strong></td>
-      <td class="zahl"><strong>{{ kalkulation.vk|floatformat:2 }}{% if not kalkulation.vollstaendig %} *{% endif %}</strong></td><td class="zahl"><strong>{% if kalkulation.marge is not None %}{{ kalkulation.marge|floatformat:2 }} %{% if not kalkulation.vollstaendig %} *{% endif %}{% else %}–{% endif %}</strong></td></tr>
-      <tr><td colspan="4">Gruppenpreis (VK1)</td><td class="zahl"><strong>{% if kalkulation.preis is not None %}{{ kalkulation.preis|floatformat:2 }}{% else %}–{% endif %}</strong></td><td class="zahl"><strong>{% if kalkulation.preis_marge is not None %}{{ kalkulation.preis_marge|floatformat:2 }} %{% if not kalkulation.vollstaendig %} *{% endif %}{% else %}–{% endif %}</strong></td></tr></tfoot>{% endif %}
+    {% if kalkulation.zeilen %}<tfoot><tr><td colspan="3"><strong>Summe Komponenten</strong></td><td class="zahl"><strong>{{ kalkulation.ek|floatformat:"2g" }}{% if not kalkulation.vollstaendig %} *{% endif %}</strong></td>
+      <td class="zahl"><strong>{{ kalkulation.vk|floatformat:"2g" }}{% if not kalkulation.vollstaendig %} *{% endif %}</strong></td><td class="zahl"><strong>{% if kalkulation.marge is not None %}{{ kalkulation.marge|floatformat:"2g" }} %{% if not kalkulation.vollstaendig %} *{% endif %}{% else %}–{% endif %}</strong></td></tr>
+      <tr><td colspan="4">Gruppenpreis (VK1)</td><td class="zahl"><strong>{% if kalkulation.preis is not None %}{{ kalkulation.preis|floatformat:"2g" }}{% else %}–{% endif %}</strong></td><td class="zahl"><strong>{% if kalkulation.preis_marge is not None %}{{ kalkulation.preis_marge|floatformat:"2g" }} %{% if not kalkulation.vollstaendig %} *{% endif %}{% else %}–{% endif %}</strong></td></tr></tfoot>{% endif %}
   </table></div>
   {% if kalkulation.zeilen and not kalkulation.vollstaendig %}<p class="fein" style="margin:6px 0 0">* Bei einer Komponente fehlt EK oder VK.</p>{% endif %}
 </div>
@@ -96,7 +96,7 @@
   <h2>Lieferanten</h2>
   <table>
     <tr><th>Lieferant</th><th>Bestellnummer</th><th class="zahl">EK netto</th><th class="zahl">Bestand</th><th class="zahl">Lieferzeit</th><th>Preisliste vom</th></tr>
-    {% for l in lieferanten %}<tr><td>{{ l.lieferant.kurz }}</td><td>{{ l.bestellnummer }}</td><td class="zahl">{% if l.ek is not None %}{{ l.ek|floatformat:2 }}{% else %}–{% endif %}</td>
+    {% for l in lieferanten %}<tr><td>{{ l.lieferant.kurz }}</td><td>{{ l.bestellnummer }}</td><td class="zahl">{% if l.ek is not None %}{{ l.ek|floatformat:"2g" }}{% else %}–{% endif %}</td>
       <td class="zahl">{{ l.bestand|default_if_none:"–" }}</td><td class="zahl">{% if l.lieferzeit_tage is not None %}{{ l.lieferzeit_tage }} Tage{% else %}–{% endif %}</td>
       <td>{{ l.aktualisiert_am|date:"d.m.Y"|default:"–" }}</td></tr>{% endfor %}
   </table>

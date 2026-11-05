@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block titel %}Werkstatt – wwok{% endblock %}
+{% block titel %}Reparaturen – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Werkstatt · Mandant {{ request.mandant }}</h1>
+  <h1>Reparaturen · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile" data-livefilter>
     <div><label for="q">Suche (Auftrag, Gerät, Seriennummer, Kunde)</label><input id="q" name="q" value="{{ q }}" size="34" autofocus></div>
     <div><label>Status</label><select name="status"><option value="offen" {% if status == 'offen' %}selected{% endif %}>offene</option>

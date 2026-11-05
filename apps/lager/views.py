@@ -46,6 +46,27 @@ def suche(q):
 SEITENGROESSEN = (25, 50, 100, 200)
 
 
+def kategorien_baum():
+    """Alle Kategorien als flache Liste (Hauptkategorie, darunter eingerückt die Unterkategorien) für das Filter-Auswahlfeld."""
+    alle = list(Kategorie.objects.order_by("name"))
+    kinder = {}
+    for k in alle:
+        kinder.setdefault(k.eltern_id, []).append(k)
+    ergebnis, gesehen = [], set()
+
+    def anhaengen(eltern_id, tiefe):
+        for k in kinder.get(eltern_id, []):
+            if k.pk in gesehen:  # Schutz gegen Zyklen
+                continue
+            gesehen.add(k.pk)
+            k.einrueckung = "  " * (tiefe - 1) + "– " if tiefe else ""
+            ergebnis.append(k)
+            anhaengen(k.pk, tiefe + 1)
+
+    anhaengen(None, 0)
+    return ergebnis
+
+
 @mit_mandant
 def uebersicht(request):
     q = request.GET.get("q", "").strip()
@@ -88,7 +109,7 @@ def uebersicht(request):
     return render(request, "lager/uebersicht.html", {
         "zeilen": zeilen, "q": q, "nur_bestand": nur_bestand, "lagerwert": lagerwert.quantize(Decimal("0.01")),
         "seite": seite, "parameter": parameter.urlencode(), "kategorie": kategorie, "pro_seite": pro_seite,
-        "seitengroessen": SEITENGROESSEN, "kategorien": Kategorie.objects.filter(eltern__isnull=True)})
+        "seitengroessen": SEITENGROESSEN, "kategorien": kategorien_baum()})
 
 
 @mit_mandant

@@ -8,9 +8,9 @@
     <td title="{{ z.bestellnummer }}"><strong>{{ z.lieferant.kurz }}</strong>{% if forloop.first and z.empfehlung %} <span class="marke ok">günstigste Wahl</span>{% endif %}
       {% if z.hinweise %}<br><span class="fein">{{ z.hinweise|join:" · " }}</span>{% endif %}</td>
     <td>{% if z.bestand is None %}?{% else %}{{ z.bestand }}{% endif %}{% if z.lieferzeit is not None %} · {{ z.lieferzeit }} Tage{% endif %}</td>
-    <td class="zahl">{{ z.ek|floatformat:2 }}</td>
-    <td class="zahl">{% if z.versand_offen %}?{% elif z.versandfrei %}frei{% else %}{{ z.versand|floatformat:2 }}{% endif %}</td>
-    <td class="zahl"><strong>{{ z.gesamt|floatformat:2 }}{% if z.versand_offen %} + ?{% endif %}</strong></td>
+    <td class="zahl">{{ z.ek|floatformat:"2g" }}</td>
+    <td class="zahl">{% if z.versand_offen %}?{% elif z.versandfrei %}frei{% else %}{{ z.versand|floatformat:"2g" }}{% endif %}</td>
+    <td class="zahl"><strong>{{ z.gesamt|floatformat:"2g" }}{% if z.versand_offen %} + ?{% endif %}</strong></td>
     <td class="zahl">{% if position and position.bestellung.lieferant_id == z.lieferant.pk %}<span class="marke">aktuell</span>{% else %}
       <form method="post" action="{% url 'einkauf:preisvergleich_bestellen' %}"{% if aktuelle.lieferant_id == z.lieferant.pk %} data-eigener{% endif %}>{% csrf_token %}
         <input type="hidden" name="lieferant" value="{{ z.lieferant.pk }}"><input type="hidden" name="menge" value="{{ menge|floatformat:'-3' }}">

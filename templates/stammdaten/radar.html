@@ -16,10 +16,10 @@
     <tbody>{% for e, b, euro in zeilen %}<tr>
       <td><a href="{% url 'stammdaten:artikel_bearbeiten' e.artikel.pk %}">{{ e.artikel.nummer }} {{ e.artikel.bezeichnung }}</a></td>
       <td class="zahl">{{ e.menge|floatformat:"-3" }}</td>
-      <td class="zahl">{{ e.basis|floatformat:2 }} <small>({{ e.basis_quelle }})</small></td>
-      <td class="zahl">{{ e.vk|floatformat:2 }}</td>
-      <td class="zahl">{% if b and b.diff is not None %}{{ b.diff|floatformat:2 }}{% elif kategorie == "senkung" %}{{ e.vorschlag|floatformat:2 }}{% else %}–{% endif %}</td>
-      <td class="zahl"><strong>{{ euro|floatformat:2 }} €</strong></td>
+      <td class="zahl">{{ e.basis|floatformat:"2g" }} <small>({{ e.basis_quelle }})</small></td>
+      <td class="zahl">{{ e.vk|floatformat:"2g" }}</td>
+      <td class="zahl">{% if b and b.diff is not None %}{{ b.diff|floatformat:"2g" }}{% elif kategorie == "senkung" %}{{ e.vorschlag|floatformat:"2g" }}{% else %}–{% endif %}</td>
+      <td class="zahl"><strong>{{ euro|floatformat:"2g" }} €</strong></td>
       <td><form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="artikel" value="{{ e.artikel.pk }}">
         {% if kategorie == "senkung" %}<button type="submit" name="aktion" value="vk_uebernehmen">VK übernehmen</button>{% endif %}
         <button type="submit" name="aktion" value="gesehen" class="leise">Gesehen</button></form></td>

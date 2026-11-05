@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titel %}Verkauf – wwok{% endblock %}
+{% block titel %}Kunde – wwok{% endblock %}
 {% block inhalt %}
 {% if not mandant %}
 <div class="karte">
@@ -18,7 +18,7 @@
 {% endif %}
 {% if mandant %}
 <div class="karte">
-  <h2>Kunde suchen</h2>
+  <h1>Kunde</h1>
   <form method="get" class="zeile" data-livefilter>
     <div><label for="q">Name, Nummer oder Ort (<code>*</code> = alle, <code>Mül*</code> = beginnt mit)</label>
       <input id="q" name="q" value="{{ q }}" autofocus size="40"></div>
@@ -61,7 +61,7 @@
     <thead><tr><th>Beleg</th><th>Datum</th><th>Kunde</th><th class="zahl">Brutto</th></tr></thead>
     <tbody>
     {% for b in offene %}<tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(Entwurf)" }}</a>{% include "verkauf/versand_marke.html" %}</td>
-      <td>{{ b.belegdatum|date:"d.m.Y" }}</td><td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td><td class="zahl">{{ b.summe_brutto|floatformat:2 }}</td></tr>
+      <td>{{ b.belegdatum|date:"d.m.Y" }}</td><td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td><td class="zahl">{{ b.summe_brutto|floatformat:"2g" }}</td></tr>
     {% empty %}<tr><td colspan="4">Keine offenen Belege.</td></tr>{% endfor %}
     </tbody></table></div>
 </div>

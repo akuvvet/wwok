@@ -6,14 +6,14 @@
   <h1>{{ r.lieferant.name1 }} – Rechnung {{ r.rechnungsnummer }}</h1>
   <div class="raster">
     <div>Datum<br>{{ r.datum|date:"d.m.Y" }}</div><div>fällig<br>{{ r.faellig|date:"d.m.Y" }}</div>
-    <div>Netto / Steuer<br>{{ r.netto|floatformat:2 }} / {{ r.steuer }} €</div><div>Brutto<br><strong>{{ r.brutto }} €</strong></div>
+    <div>Netto / Steuer<br>{{ r.netto|floatformat:"2g" }} / {{ r.steuer|floatformat:"2g" }} €</div><div>Brutto<br><strong>{{ r.brutto|floatformat:"2g" }} €</strong></div>
     <div>zu zahlen<br><strong>{{ zahlbetrag }} €</strong>{% if r.skonto_bis %}<br><small>Skonto {{ r.skonto_prozent }} % bis {{ r.skonto_bis|date:"d.m.Y" }}</small>{% endif %}</div>
-    <div>Status<br>{{ r.get_status_display }}{% if r.bezahlt_am %}<br>{{ r.bezahlt_am|date:"d.m.Y" }}, {{ r.bezahlter_betrag|floatformat:2 }} €{% endif %}</div>
+    <div>Status<br>{{ r.get_status_display }}{% if r.bezahlt_am %}<br>{{ r.bezahlt_am|date:"d.m.Y" }}, {{ r.bezahlter_betrag|floatformat:"2g" }} €{% endif %}</div>
   </div>
   {% if abgleich.verknuepft %}<p style="margin-top:12px">
-    {% if abgleich.ok %}Wareneingänge netto {{ abgleich.wareneingang_netto|floatformat:2 }} € – passt zur Rechnung.
-    {% elif abgleich.bestaetigt %}Abweichung {{ abgleich.differenz }} € zum Wareneingang ({{ abgleich.wareneingang_netto|floatformat:2 }} €) – bewusst bestätigt, siehe Verlauf.
-    {% else %}<span class="warnung" style="display:inline-block">Abweichung: Wareneingänge netto {{ abgleich.wareneingang_netto|floatformat:2 }} €, Rechnung {{ r.netto|floatformat:2 }} € (Differenz {{ abgleich.differenz }} €).
+    {% if abgleich.ok %}Wareneingänge netto {{ abgleich.wareneingang_netto|floatformat:"2g" }} € – passt zur Rechnung.
+    {% elif abgleich.bestaetigt %}Abweichung {{ abgleich.differenz|floatformat:"2g" }} € zum Wareneingang ({{ abgleich.wareneingang_netto|floatformat:"2g" }} €) – bewusst bestätigt, siehe Verlauf.
+    {% else %}<span class="warnung" style="display:inline-block">Abweichung: Wareneingänge netto {{ abgleich.wareneingang_netto|floatformat:"2g" }} €, Rechnung {{ r.netto|floatformat:"2g" }} € (Differenz {{ abgleich.differenz|floatformat:"2g" }} €).
       Zahlung und SEPA-Export sind gesperrt, bis die Beträge korrigiert oder die Abweichung bestätigt ist.</span>{% endif %}</p>{% endif %}
   {% if abgleich.offen and r.status != 'bezahlt' %}
   <div class="raster" style="margin-top:8px">
@@ -54,7 +54,7 @@
   <h2>Verknüpfte Wareneingänge</h2>
   <form method="post">{% csrf_token %}
     {% for w in kandidaten %}<label style="display:flex;gap:8px;align-items:center;opacity:1"><input type="checkbox" name="wareneingang" value="{{ w.pk }}" {% if w.pk in verknuepft %}checked{% endif %}>
-      {{ w.nummer }} · {{ w.datum|date:"d.m.Y" }} · {{ w.rechnungswert|floatformat:2 }} € netto · {{ w.lieferschein }}</label>
+      {{ w.nummer }} · {{ w.datum|date:"d.m.Y" }} · {{ w.rechnungswert|floatformat:"2g" }} € netto · {{ w.lieferschein }}</label>
     {% empty %}<p>Keine gebuchten Wareneingänge dieses Lieferanten.</p>{% endfor %}
     <p><button type="submit" class="leise">Verknüpfung speichern</button></p>
   </form>
