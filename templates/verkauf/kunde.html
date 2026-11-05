@@ -15,7 +15,7 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 5.72 17.4 1.86l-1.29 1.53 4.6 3.86L22 5.72zM7.88 3.39 6.6 1.86 2 5.71l1.29 1.53 4.59-3.85zM12.5 8H11v6l4.75 2.85.75-1.23-4-2.37V8zM12 4a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 16a7 7 0 1 1 0-14 7 7 0 0 1 0 14z"/></svg></summary>
       <div class="mehr">
         <strong>Wiedervorlage</strong>
-        {% for w in wiedervorlagen %}<form method="post" action="{% url 'verkauf:wiedervorlage_erledigt' w.pk %}">{% csrf_token %}
+        {% for w in wiedervorlagen %}<form method="post" action="{% url 'verkauf:wiedervorlage_erledigt' w.pk %}">{% csrf_token %}<input type="hidden" name="weiter" value="{{ request.path }}">
           <div class="fein">{{ w.faellig|date:"d.m.Y" }}</div><div>{{ w.text }}</div><button class="leise" type="submit">erledigt</button></form>{% endfor %}
         <form method="post" action="{% url 'verkauf:wiedervorlage_neu' kunde.pk %}">{% csrf_token %}
           <label>fällig am</label><input type="date" name="faellig" required>

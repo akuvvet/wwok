@@ -9,7 +9,7 @@
       <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a>
     </p>
     <form method="post" action="{% url 'einkauf:bestellung_neu' %}" class="zeile">{% csrf_token %}
-      <div><label>Neue Bestellung bei</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.kurz }} – {{ l.name1 }}</option>{% endfor %}</select></div>
+      <div><label for="f-lieferant">Neue Bestellung bei</label><select id="f-lieferant" name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.kurz }} – {{ l.name1 }}</option>{% endfor %}</select></div>
       <button type="submit">Anlegen</button>
     </form>
   </div>
@@ -19,5 +19,6 @@
       <td class="zahl">{{ b.summe_netto|floatformat:2 }}</td><td><span class="marke {% if b.status != 'entwurf' %}ok{% endif %}">{{ b.get_status_display }}</span></td></tr>
     {% empty %}<tr><td colspan="5">Keine Bestellungen.</td></tr>{% endfor %}</tbody>
   </table></div>
+  {% include "seiten.html" %}
 </div>
 {% endblock %}

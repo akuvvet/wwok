@@ -63,6 +63,24 @@ class LastschriftTest(TestCase):
         r = self.export([zweite])
         self.assertEqual(ET.fromstring(r.content).find(".//p:SeqTp", NS).text, "FRST")  # aufgehobene zählt nicht
 
+    def test_aufheben_ohne_grund_wird_abgelehnt(self):
+        self.export([self.re])
+        ls = Lastschrift.objects.get()
+        self.client.post(reverse("finanzen:lastschrift_aufheben", args=[ls.pk]), {"grund": "  "})
+        self.assertFalse(Lastschrift.objects.get().aufgehoben)
+
+    def test_ignorierter_bankumsatz_wieder_oeffnen(self):
+        from .models import Bankumsatz
+        u = Bankumsatz.objects.create(mandant=self.m, buchungsdatum=date.today(), betrag=Decimal("5"), name="X",
+                                      zweck="Z", pruefsumme="abc")
+        url = reverse("finanzen:bank_zuordnen", args=[u.pk])
+        self.client.post(url, {"aktion": "ignorieren"})
+        u.refresh_from_db()
+        self.assertEqual(u.status, "ignoriert")
+        self.client.post(url, {"aktion": "oeffnen"})
+        u.refresh_from_db()
+        self.assertEqual(u.status, "offen")
+
     def test_mandat_fehlt_blockiert(self):
         re2 = self.rechnung(self.ohne)
         r = self.export([re2], einzug=self.morgen)

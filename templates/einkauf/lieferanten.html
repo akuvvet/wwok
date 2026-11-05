@@ -5,7 +5,7 @@
 <div class="karte">
   <h1>Lieferanten</h1>
   <form method="get" class="zeile" data-livefilter>
-    <div><label>Suche</label><input name="q" value="{{ q }}" placeholder="Name, Kurzname, Ort, Nummer" autofocus></div>
+    <div><label for="f-q">Suche</label><input id="f-q" name="q" value="{{ q }}" placeholder="Name, Kurzname, Ort, Nummer" autofocus></div>
     <noscript><button type="submit" class="leise">Suchen</button></noscript>
     <a class="knopf" data-modal="{% url 'stammdaten:lieferant_neu' %}" href="{% url 'einkauf:lieferanten' %}">+ Neuer Lieferant</a>
   </form>
@@ -18,6 +18,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a></td></tr>
     {% empty %}<tr><td colspan="7">{% if q %}{% include "filter_leer.html" %}{% else %}Keine Lieferanten.{% endif %}</td></tr>{% endfor %}
     </tbody></table></div>
+  {% include "seiten.html" %}
   </div>
 </div>
 {% endblock %}

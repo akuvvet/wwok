@@ -1,5 +1,49 @@
 {% extends "base.html" %}
 {% block titel %}{{ r.nummer }} – Werkstatt – wwok{% endblock %}
+{% block skript %}
+<script>
+  // Artikelsuche mit Vorschlagsliste (verkauf:api_artikel): Auswahl füllt Artikelnr., Bezeichnung und Preis vor
+  (function () {
+    var feld = document.getElementById('wsartikel'), box = document.getElementById('wsliste');
+    if (!feld) return;
+    var bez = document.getElementById('wsbez'), preis = document.getElementById('wspreis');
+    var liste = [], aktiv = -1, timer, nr = 0;
+    function zeige() {
+      box.innerHTML = '';
+      liste.forEach(function (t, i) {
+        var d = document.createElement('div');
+        d.style.cssText = 'padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--rand);' + (i === aktiv ? 'background:var(--grund)' : '');
+        d.textContent = t.nummer + ' – ' + t.bezeichnung + (t.preis ? '  · ' + t.preis + ' €' : '');
+        d.addEventListener('mousedown', function (e) { e.preventDefault(); waehle(i); });
+        box.appendChild(d);
+      });
+      box.style.display = liste.length ? 'block' : 'none';
+    }
+    function waehle(i) {
+      var t = liste[i]; if (!t) return;
+      feld.value = t.nummer; bez.value = t.bezeichnung; preis.value = t.preis ? t.preis.replace('.', ',') : '';
+      liste = []; zeige();
+    }
+    function suche() {
+      var q = feld.value.trim(), n = ++nr;
+      if (q.length < 2) { liste = []; zeige(); return; }
+      fetch("{% url 'verkauf:api_artikel' %}?typ=A&kunde={{ r.kunde.pk }}&q=" + encodeURIComponent(q), {credentials: 'same-origin'}).then(function (x) { return x.json(); }).then(function (d) {
+        if (n !== nr) return;
+        liste = d.treffer.filter(function (t) { return t.typ !== 'P'; }); aktiv = liste.length ? 0 : -1; zeige();
+      });
+    }
+    feld.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(suche, 200); });
+    feld.addEventListener('keydown', function (e) {
+      if (!liste.length) return;
+      if (e.key === 'ArrowDown') { aktiv = Math.min(aktiv + 1, liste.length - 1); zeige(); e.preventDefault(); }
+      else if (e.key === 'ArrowUp') { aktiv = Math.max(aktiv - 1, 0); zeige(); e.preventDefault(); }
+      else if (e.key === 'Enter' && aktiv >= 0) { waehle(aktiv); e.preventDefault(); }
+      else if (e.key === 'Escape') { liste = []; zeige(); e.stopPropagation(); }
+    });
+    feld.addEventListener('blur', function () { setTimeout(function () { box.style.display = 'none'; }, 150); });
+  })();
+</script>
+{% endblock %}
 {% block inhalt %}
 <a href="{% url 'werkstatt:liste' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
@@ -13,6 +57,7 @@
   <p style="margin-top:12px"><strong>Fehler:</strong> {{ r.fehler|linebreaksbr }}<br><strong>Zubehör:</strong> {{ r.zubehoer|default:"–" }}</p>
   <form method="post" action="{% url 'werkstatt:status' r.pk %}" class="zeile">{% csrf_token %}
     {% for w, n in stati %}{% if w != r.status and w != 'storniert' and w != 'rma' %}<button name="status" value="{{ w }}" type="submit" class="leise">→ {{ n }}</button>{% endif %}{% endfor %}
+    <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="mail" checked> Kunde per Mail benachrichtigen</label>
   </form>
   <p style="margin-top:8px"><a class="knopf leise" href="{% url 'werkstatt:schein' r.pk 'annahme' %}" target="_blank">Annahmeschein</a>
      <a class="knopf leise" href="{% url 'werkstatt:schein' r.pk 'abhol' %}" target="_blank">Abholschein</a>
@@ -26,23 +71,24 @@
     {% for p in positionen %}
     <tr><td>{{ p.get_art_display }}</td><td>{{ p.artikel.nummer|default:"" }} {{ p.bezeichnung }}</td><td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
         <td class="zahl">{{ p.einzelpreis }}</td><td class="zahl">{{ p.netto|floatformat:2 }}</td>
-        <td>{% if not r.rechnung and not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:position_loeschen' r.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit">×</button></form>{% endif %}</td></tr>
+        <td>{% if not r.rechnung and not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:position_loeschen' r.pk p.pk %}" data-frage="Position wirklich löschen?">{% csrf_token %}<button class="gefahr" type="submit">×</button></form>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="6">Noch nichts erfasst.</td></tr>{% endfor %}
     <tr><td colspan="4"><strong>Summe netto</strong></td><td class="zahl"><strong>{{ netto|floatformat:2 }}</strong></td><td></td></tr>
   </table>
   {% if not r.rechnung and not r.teile_gebucht %}
   <form method="post" action="{% url 'werkstatt:position' r.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
     <div><label>Art</label><select name="art"><option value="T">Teil</option><option value="A">Arbeitszeit</option></select></div>
-    <div><label>Artikelnr. (Teil)</label><input name="artikel" size="14"></div>
-    <div><label>Bezeichnung</label><input name="bezeichnung" size="26"></div>
+    <div><label>Artikelnr. (Teil)</label><div style="position:relative"><input id="wsartikel" name="artikel" size="14" autocomplete="off" placeholder="Nr. oder Name">
+      <div id="wsliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:420px;max-height:280px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
+    <div><label>Bezeichnung</label><input id="wsbez" name="bezeichnung" size="26"></div>
     <div><label>Menge/Std.</label><input name="menge" value="1" size="5"></div>
-    <div><label>Preis netto</label><input name="preis" size="8"></div>
+    <div><label>Preis netto</label><input id="wspreis" name="preis" size="8"></div>
     <button type="submit" class="symbol voll" data-tip="Position übernehmen" aria-label="Position übernehmen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg></button>
   </form>
   {% endif %}
   <div class="zeile" style="margin-top:12px">
     {% if r.garantie %}
-      {% if not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:garantie_buchen' r.pk %}">{% csrf_token %}<button type="submit">Garantie: Teile aus Lager abbuchen</button></form>{% else %}<span>Teile sind abgebucht.</span>{% endif %}
+      {% if not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:garantie_buchen' r.pk %}" data-frage="Teile jetzt aus dem Lager abbuchen? Das lässt sich nicht rückgängig machen.">{% csrf_token %}<button type="submit">Garantie: Teile aus Lager abbuchen</button></form>{% else %}<span>Teile sind abgebucht.</span>{% endif %}
     {% elif r.rechnung %}<a class="knopf" href="{% url 'verkauf:beleg' r.rechnung.pk %}">Rechnung {{ r.rechnung }}</a>
     {% else %}<form method="post" action="{% url 'werkstatt:rechnung' r.pk %}">{% csrf_token %}<button type="submit">Rechnung erstellen</button></form>{% endif %}
   </div>

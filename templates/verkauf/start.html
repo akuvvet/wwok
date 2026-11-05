@@ -50,7 +50,7 @@
     <tbody>{% for w in wiedervorlagen %}<tr><td>{{ w.faellig|date:"d.m.Y" }}</td>
       <td><a href="{% url 'verkauf:kunde' w.kunde_id %}">{{ w.kunde.name1 }}</a></td>
       <td>{{ w.text }}{% if w.beleg %} · <a href="{% url 'verkauf:beleg' w.beleg_id %}">{{ w.beleg }}</a>{% endif %}</td>
-      <td><form method="post" action="{% url 'verkauf:wiedervorlage_erledigt' w.pk %}">{% csrf_token %}<button class="leise" type="submit">erledigt</button></form></td></tr>{% endfor %}
+      <td><form method="post" action="{% url 'verkauf:wiedervorlage_erledigt' w.pk %}">{% csrf_token %}<input type="hidden" name="weiter" value="{{ request.path }}"><button class="leise" type="submit">erledigt</button></form></td></tr>{% endfor %}
     </tbody></table>{% endif %}
 </div>
 {% endif %}
