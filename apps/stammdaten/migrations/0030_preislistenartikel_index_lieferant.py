@@ -5,7 +5,7 @@ class Migration(migrations.Migration):
     """Index (lieferant, bezeichnung) für Sortierung/Lieferantenfilter der Preislistenartikel; verändert keine Daten."""
 
     dependencies = [
-        ("stammdaten", "0027_preislistenartikel_masse"),
+        ("stammdaten", "0029_kunde_anrede"),
     ]
 
     operations = [
