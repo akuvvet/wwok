@@ -33,7 +33,7 @@
     <tbody>{% for h in historie %}<tr><td>{{ h.beleg.nummer }}</td><td>{{ h.beleg.kunde.name1 }}</td><td class="zahl">{{ h.betrag }}</td><td>{{ h.einzugsdatum|date:"d.m.Y" }}</td><td>{{ h.get_sequenz_display }}</td>
       <td>{% if h.aufgehoben %}aufgehoben: {{ h.aufgehoben_grund }}{% else %}
         <form method="post" action="{% url 'finanzen:lastschrift_aufheben' h.pk %}" class="zeile" style="gap:4px">{% csrf_token %}
-          <input name="grund" placeholder="Grund zum Aufheben" size="22"><button class="leise" type="submit">Aufheben</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+          <input name="grund" placeholder="Grund zum Aufheben" size="22" required><button class="leise" type="submit">Aufheben</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
 </div>
 {% endif %}
 {% endblock %}
