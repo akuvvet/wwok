@@ -43,7 +43,7 @@ class KundeAdmin(admin.ModelAdmin):
     readonly_fields = ["erstkontakt", "angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [KundeMandantInline, KundenanschriftInline, AnsprechpartnerKundeInline, KundenpreisInline]
     fieldsets = [
-        ("Grunddaten", {"fields": ["nummer", ("name1", "name2", "name3"), "strasse", ("plz", "ort", "land"),
+        ("Grunddaten", {"fields": [("nummer", "anrede"), ("name1", "name2", "name3"), "strasse", ("plz", "ort", "land"),
                                    ("telefon", "email", "webseite"), ("gesellschaftsform", "inhaber_gf")]}),
         ("Einstufung", {"fields": [("kundenart", "preisstufe"), "zahlungsbedingung", "gesperrt"]}),
         ("Hinweis", {"fields": ["hinweis"]}),

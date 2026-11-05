@@ -227,8 +227,15 @@ class Preisstufe(models.IntegerChoices):
     VK3 = 3, "VK3 – Händler"
 
 
+class Kundenanrede(models.TextChoices):
+    FIRMA = "Firma", "Firma"
+    HERR = "Herr", "Herr"
+    FRAU = "Frau", "Frau"
+
+
 class Kunde(Partner):
     nummer = models.CharField("Kundennummer", max_length=20, unique=True)
+    anrede = models.CharField("Anrede", max_length=10, choices=Kundenanrede.choices, blank=True)
     kundenart = models.CharField("Kundenart", max_length=20, choices=Kundenart.choices,
                                  default=Kundenart.ENDKUNDE)
     preisstufe = models.PositiveSmallIntegerField("Preisstufe", choices=Preisstufe.choices,
