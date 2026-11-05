@@ -7,7 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -1202,6 +1202,21 @@ def belege(request):
     return render(request, "verkauf/belege.html", {
         "seite": seite, "q": q, "art": art, "status": status, "von": zeitraum["von"], "bis": zeitraum["bis"],
         "arten": Belegart.choices, "parameter": parameter.urlencode(), "anzahl": seite.paginator.count})
+
+@mit_mandant
+def suche(request):
+    """Globale Suche der Kopfzeile: eindeutige Belegnummer → Beleg, eindeutige Kundennummer → Kundenkarte,
+    sonst die Liste „Alle Belege“ mit der Suche."""
+    q = request.GET.get("q", "").strip()
+    if q:
+        belege_treffer = list(Beleg.objects.filter(mandant=request.mandant, nummer__iexact=q).values_list("pk", flat=True)[:2])
+        if len(belege_treffer) == 1:
+            return redirect("verkauf:beleg", beleg_id=belege_treffer[0])
+        kunden_treffer = list(Kunde.objects.filter(nummer__iexact=q, anonymisiert=False).values_list("pk", flat=True)[:2])
+        if len(kunden_treffer) == 1:
+            return redirect("verkauf:kunde", kunde_id=kunden_treffer[0])
+    ziel = reverse("verkauf:belege")
+    return redirect(ziel + "?" + urlencode({"q": q}) if q else ziel)
 
 @mit_mandant
 @require_POST

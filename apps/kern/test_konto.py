@@ -34,3 +34,42 @@ class KontoTest(TestCase):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("Neu-Passwort-2026!"))
         self.assertEqual(self.client.post(reverse("logout")).status_code, 302)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class KopfzeileTest(TestCase):
+    def setUp(self):
+        from apps.kern.models import Mandant
+        from apps.stammdaten.models import Kunde
+        from apps.verkauf.models import Beleg, Belegart
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        self.kunde = Kunde.objects.create(nummer="4711", name1="Muster GmbH")
+        self.beleg = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.kunde, nummer="AN-1")
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+
+    def test_kopfzeile_hat_suche_und_passwortlink(self):
+        r = self.client.get(reverse("dashboard"))
+        self.assertContains(r, 'id="kopfsuche"')
+        self.assertContains(r, 'href="' + reverse("password_change") + '"')
+
+    def test_suche_belegnummer_oeffnet_beleg(self):
+        r = self.client.get(reverse("verkauf:suche"), {"q": "an-1"})
+        self.assertRedirects(r, reverse("verkauf:beleg", args=[self.beleg.pk]), fetch_redirect_response=False)
+
+    def test_suche_kundennummer_oeffnet_kundenkarte(self):
+        r = self.client.get(reverse("verkauf:suche"), {"q": "4711"})
+        self.assertRedirects(r, reverse("verkauf:kunde", args=[self.kunde.pk]), fetch_redirect_response=False)
+
+    def test_suche_sonst_alle_belege_mit_q(self):
+        r = self.client.get(reverse("verkauf:suche"), {"q": "Muster"})
+        self.assertRedirects(r, reverse("verkauf:belege") + "?q=Muster", fetch_redirect_response=False)
+        r = self.client.get(reverse("verkauf:suche"), {"q": ""})
+        self.assertRedirects(r, reverse("verkauf:belege"), fetch_redirect_response=False)
+
+    def test_passwort_aendern_seite_im_layout(self):
+        r = self.client.get(reverse("password_change"))
+        self.assertContains(r, "Passwort ändern")
+        self.assertContains(r, 'id="kopfsuche"')
