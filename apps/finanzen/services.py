@@ -185,7 +185,13 @@ def mahnung_erstellen(beleg, stufe_nr, benutzer=None, heute=None) -> Mahnung:
 
 
 @transaction.atomic
-def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, storno_zu=None, storno_grund="") -> Zahlung:
+def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, storno_zu=None, storno_grund="",
+                  offen_bisher=None) -> Zahlung:
+    """offen_bisher: offener Betrag, den die Maske gezeigt hat; weicht er ab, wurde schon gebucht (Doppelklick)."""
+    if offen_bisher is not None:
+        Beleg.objects.select_for_update().get(pk=beleg.pk)  # Sperre gegen gleichzeitiges Doppelabsenden
+        if offen_bisher != offen(beleg):
+            raise ValueError("Der offene Betrag hat sich inzwischen geändert (evtl. schon gebucht). Bitte prüfen und neu buchen.")
     if beleg.art not in (Belegart.RECHNUNG, Belegart.AUFTRAG) or (beleg.art == Belegart.RECHNUNG and not beleg.abgeschlossen):
         raise ValueError("Zahlungen können nur auf abgeschlossene Rechnungen oder Bestellungen gebucht werden.")
     if betrag == 0:
