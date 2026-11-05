@@ -38,7 +38,7 @@
 <div class="db-kopf">
   <h1>Dashboard · {{ request.mandant }}</h1>
   <p class="zeile" style="margin:0">
-    {% for t in zeitraeume %}<a class="knopf {% if t != tage %}leise{% endif %}" href="?tage={{ t }}">{% if t == 365 %}1 Jahr{% else %}{{ t }} Tage{% endif %}</a>{% endfor %}
+    {% for t in zeitraeume %}<a class="knopf {% if t != tage %}leise{% endif %}"{% if t == tage %} aria-current="true"{% endif %} href="?tage={{ t }}">{% if t == 365 %}1 Jahr{% else %}{{ t }} Tage{% endif %}</a>{% endfor %}
   </p>
 </div>
 <p class="fein">Zeitraum: {{ von|date:"d.m.Y" }} bis {{ bis|date:"d.m.Y" }}, Vergleich mit {{ kacheln.vorher_von|date:"d.m.Y" }} bis {{ kacheln.vorher_bis|date:"d.m.Y" }}. Alle Beträge netto, außer offene Posten.</p>

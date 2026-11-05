@@ -205,7 +205,7 @@ class DashboardTest(TestCase):
         self.assertEqual(k["lieferanten"]["bestellungen_anzahl"], len(eb.context["bestellungen"]))
         self.assertEqual(len(eb.context["bestellungen"]), 2)
         # Links im Dashboard
-        html = self.client.get(reverse("kern:dashboard")).content.decode()
+        html = self.client.get(reverse("dashboard")).content.decode()
         for teil in ("art=AB&amp;status=dashboard", "art=AN&amp;status=dashboard", "status=bestellt"):
             self.assertTrue(teil in html or teil.replace("&amp;", "&") in html, teil)
 
@@ -213,14 +213,15 @@ class DashboardTest(TestCase):
         from apps.einkauf.models import Lieferantenrechnung
         from apps.stammdaten.models import Lieferant
         self.mit_mandant()
-        art = Artikel.objects.create(nummer="A1", bezeichnung="Teil")
+        art = Artikel.objects.create(nummer="A1", bezeichnung="Teil", steuersatz=Steuersatz.objects.get_or_create(bezeichnung="19", defaults={"prozent": Decimal("19")})[0])
         heute = timezone.localdate()
-        b = self.beleg(Belegart.RECHNUNG, netto="100", tag=heute)
+        b = self.beleg(Belegart.RECHNUNG, netto="100", tag=heute, abgeschlossen=False)  # Position erst, dann abschließen
         Position.objects.create(beleg=b, artikel=art, bezeichnung="Teil", einzelpreis=Decimal("100"))
+        Beleg.objects.filter(pk=b.pk).update(abgeschlossen=True)
         lief = Lieferant.objects.create(nummer="L1", name1="Lieferant AG")
         Lieferantenrechnung.objects.create(mandant=self.m, lieferant=lief, rechnungsnummer="R1", datum=heute,
                                            faellig=heute, netto=Decimal("50"), brutto=Decimal("59.5"))
-        html = self.client.get(reverse("kern:dashboard")).content.decode()
+        html = self.client.get(reverse("dashboard")).content.decode()
         self.assertIn(reverse("lager:artikel", args=[art.pk]), html)
         self.assertIn(reverse("stammdaten:lieferant_bearbeiten", args=[lief.pk]), html)
 

@@ -943,6 +943,8 @@ Diese Regeln sind mit dem Nutzer abgestimmt und im Code umgesetzt. Änderungen n
 
 ## 19. Betrieb: Datenimporte, Zeitpläne, Geheimnisse, Tests
 
+Protokoll: Alles geht mit Zeit, Stufe und Name auf die Konsole (`journalctl -u wwok`), auch `django.security` (fremde Hosts, CSRF) und fehlgeschlagene Anmeldungen (Logger `wwok.anmeldung`, nur Benutzername und IP, nie das Passwort). Empfehlung (nicht Teil der Software): in nginx `limit_req` für `/konto/login/` setzen.
+
 ### 19.1 Datenimporte (Verwaltungsbefehle)
 
 Aufruf auf dem Server als Systembenutzer, im Ordner `app`:

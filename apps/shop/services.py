@@ -14,11 +14,11 @@ from django.utils.html import linebreaks
 from apps.finanzen.models import Zahlart
 from apps.finanzen.services import zahlung_buchen
 from apps.lager.models import bestand, gruppen_verfuegbar, reserviert
-from apps.stammdaten.models import Anschriftart, Ansprechpartner, Artikel, Kunde, Kundenanschrift, Stammnummer, Zahlungsbedingung
+from apps.stammdaten.models import Anschriftart, Ansprechpartner, Artikel, Kategorie, Kunde, Kundenanschrift, Stammnummer, Zahlungsbedingung
 from apps.stammdaten.preise import stufenpreis
 from apps.verkauf.models import Beleg, Belegart, Position
 
-from .models import ShopArtikel, ShopBestellung, SyncProtokoll
+from .models import ShopArtikel, ShopBestellung, ShopKategorie, SyncProtokoll
 from .shopware import BILDTYPEN, STANDARD_WAEHRUNG_EUR, ShopFehler, ShopwareClient
 
 CENT = Decimal("0.01")
@@ -245,15 +245,21 @@ def regel_pruefen(shop, client) -> bool:
 def nicht_mehr_online(shop, client, alle=False) -> list:
     """Zuvor gemeldete Artikel, die offline sind, im Shop deaktivieren. Gelöscht wird nichts; Artikel, die wwok nie
     gemeldet hat, bleiben unberührt, auch wenn sie im Shop stehen."""
-    zuordnungen = list(ShopArtikel.objects.filter(shop=shop, im_shop_aktiv=True).exclude(
-        artikel__online=True, artikel__nicht_aktiv=False).select_related("artikel"))
+    sichtbar = Artikel.objects.shop_sichtbar().values("pk")
+    zuordnungen = list(ShopArtikel.objects.filter(shop=shop, im_shop_aktiv=True).exclude(artikel__in=sichtbar).select_related("artikel"))
     if not zuordnungen:
         return []
-    if len(zuordnungen) > MAX_DEAKTIVIEREN and not alle:  # z. B. Importfehler: nicht den ganzen Shop abschalten
+    offline = Kategorie.offline_ids()
+    # Bewusst über eine Offline-Kategorie abgeschaltet: kein Importfehler, die Schutzgrenze gilt dafür nicht
+    wegen_kategorie = [z for z in zuordnungen if z.artikel.online and not z.artikel.nicht_aktiv and z.artikel.kategorie_id in offline]
+    sonstige = [z for z in zuordnungen if z not in wegen_kategorie]
+    if len(sonstige) > MAX_DEAKTIVIEREN and not alle:  # z. B. Importfehler: nicht den ganzen Shop abschalten
         SyncProtokoll.objects.create(shop=shop, art="abgleich", erfolgreich=False, meldung=(
-            f"{len(zuordnungen)} Artikel wären im Shop zu deaktivieren, das ist ungewöhnlich viel. Nichts deaktiviert. "
+            f"{len(sonstige)} Artikel wären im Shop zu deaktivieren, das ist ungewöhnlich viel. Nichts deaktiviert. "
             "Stimmt es, „Bestand & Preise senden“ mit „alle Artikel“ auslösen."))
-        return []
+        zuordnungen = wegen_kategorie
+        if not zuordnungen:
+            return []
     vorhanden = [z.produkt_id for z in zuordnungen if client.produkt_vorhanden(z.produkt_id)]  # nie über die Nummer: sie kann inzwischen einem fremden Produkt gehören
     if vorhanden:
         client.produkte_aktualisieren([{"id": produkt_id, "active": False} for produkt_id in vorhanden])
@@ -261,6 +267,28 @@ def nicht_mehr_online(shop, client, alle=False) -> list:
         z.im_shop_aktiv = False
         z.save(update_fields=["im_shop_aktiv"])
     return vorhanden
+
+
+def kategorien_abgleichen(shop, client) -> int:
+    """Shop-Kategorien an den Online-Status der Kategorien in wwok anpassen. Nur Kategorien, die wwok zugeordnet hat;
+    fremde Shop-Kategorien bleiben unberührt. Gibt die Zahl der umgeschalteten Kategorien zurück."""
+    offline = Kategorie.offline_ids()
+    bekannt = set(ShopKategorie.objects.filter(shop=shop).values_list("kategorie_id", flat=True))
+    neu = Kategorie.objects.filter(artikel__shop_zuordnungen__shop=shop).exclude(pk__in=bekannt).distinct()
+    if neu:  # erst über den Namen (nur eindeutig), danach immer über die ID
+        karte = _nach_name(client.kategorien())
+        for k in neu:
+            treffer = karte.get(k.name.strip().casefold(), [])
+            if len(treffer) == 1:
+                ShopKategorie.objects.get_or_create(shop=shop, kategorie=k, defaults={"kategorie_id_extern": treffer[0]})
+    zu_aendern = [z for z in ShopKategorie.objects.filter(shop=shop) if z.im_shop_aktiv == (z.kategorie_id in offline)]
+    if not zu_aendern:
+        return 0
+    client.kategorien_aktiv_setzen([(z.kategorie_id_extern, z.kategorie_id not in offline) for z in zu_aendern])
+    for z in zu_aendern:
+        z.im_shop_aktiv = z.kategorie_id not in offline
+        z.save(update_fields=["im_shop_aktiv"])
+    return len(zu_aendern)
 
 
 def abgleichen(shop, client=None, alle=False) -> dict:
@@ -271,8 +299,12 @@ def abgleichen(shop, client=None, alle=False) -> dict:
     except ShopFehler as fehler:  # Bestand und Preise müssen trotzdem raus; beim nächsten Abgleich wird erneut deaktiviert
         deaktiviert = []
         SyncProtokoll.objects.create(shop=shop, art="abgleich", erfolgreich=False, meldung=f"Deaktivieren fehlgeschlagen: {fehler}"[:500])
+    try:
+        kategorien_abgleichen(shop, client)
+    except ShopFehler as fehler:  # beim nächsten Abgleich erneut
+        SyncProtokoll.objects.create(shop=shop, art="abgleich", erfolgreich=False, meldung=f"Kategorien nicht umgeschaltet: {fehler}"[:500])
     regel_ok = regel_pruefen(shop, client)
-    artikel = list(Artikel.objects.filter(online=True, nicht_aktiv=False, typ__in=["A", "G"]).select_related("steuersatz"))
+    artikel = list(Artikel.objects.shop_sichtbar().filter(typ__in=["A", "G"]).select_related("steuersatz"))
     ids = client.produkt_ids([a.nummer for a in artikel])
     payload, vorgemerkt, nicht_im_shop = [], [], 0
     for a in artikel:
@@ -412,6 +444,8 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
     kategorie_id = treffer[0] if len(treffer) == 1 else ""
     if name and not kategorie_id:
         lauf["ergebnis"]["kategorie_fehlt"].add(name)
+    if kategorie_id:  # Zuordnung merken: danach schaltet wwok genau diese Shop-Kategorie
+        ShopKategorie.objects.get_or_create(shop=shop, kategorie_id=a.kategorie_id, defaults={"kategorie_id_extern": kategorie_id})
     herstellername = a.hersteller.name if a.hersteller_id else ""
     stand = hashlib.sha256(json.dumps([daten, kategorie_id, herstellername], sort_keys=True).encode()).hexdigest()
     bilder_stand = hashlib.sha256(json.dumps([(b.pk, b.bild.name) for b in a.bilder.all()]).encode()).hexdigest()
@@ -495,7 +529,7 @@ def artikeldaten_senden(shop, client=None, alle=False, nummer="", zeitlimit=ZEIT
     ende = time.monotonic() + zeitlimit
     shop.letzter_artikelabgleich = timezone.now()  # gleich zu Beginn, damit der nächste Zeitplan-Aufruf nicht parallel startet
     shop.save(update_fields=["letzter_artikelabgleich"])
-    artikel = Artikel.objects.filter(online=True, nicht_aktiv=False, typ__in=["A", "G"]) \
+    artikel = Artikel.objects.shop_sichtbar().filter(typ__in=["A", "G"]) \
         .select_related("steuersatz", "kategorie", "hersteller").prefetch_related("bilder")
     if nummer:
         artikel = artikel.filter(nummer=nummer)
