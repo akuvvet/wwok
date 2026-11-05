@@ -45,6 +45,45 @@ class FinanzenTest(TestCase):
         self.assertEqual(services.offen(b), Decimal("-19.00"))  # Gutschrift über alles: 19 € zu viel gezahlt
         self.assertEqual(len(services.offene_rechnungen(self.m)), 1)
 
+    def test_offene_rechnungen_ergebnis_wie_einzelberechnung(self):
+        """Vergleichstest: die schnelle Abfrage liefert dieselben Werte wie offen()/bezahlt()/gutgeschrieben() je Beleg."""
+        a = self.rechnung(tage_alt=30)
+        b = self.rechnung(tage_alt=20, netto="50")
+        c = self.rechnung(tage_alt=10, netto="10")
+        d = self.rechnung(tage_alt=3)
+        services.zahlung_buchen(a, Decimal("19"), date.today(), "ue")
+        services.zahlung_buchen(b, Decimal("59.50"), date.today(), "ue")  # voll bezahlt -> nicht offen
+        g = c.gutschrift_erzeugen()
+        g.abschliessen()
+        services.gutschrift_verrechnen(g, c, Decimal("5"))
+        services.mahnung_erstellen(a, 1)
+        zeilen = services.offene_rechnungen(self.m)
+        self.assertEqual([z["beleg"] for z in zeilen], [a, c, d])
+        for z in zeilen:
+            beleg = z["beleg"]
+            self.assertEqual(z["offen"], services.offen(beleg))
+            self.assertEqual(z["bezahlt"], services.bezahlt(beleg))
+            self.assertEqual(z["gutschrift"], services.gutgeschrieben(beleg))
+        self.assertEqual([z["mahnstufe"] for z in zeilen], [1, 0, 0])
+
+    def test_startseite_abfragen_unabhaengig_von_rechnungsanzahl(self):
+        services.stufen(self.m)  # Standardstufen vorab anlegen
+
+        def abfragen():
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+            with CaptureQueriesContext(connection) as ctx:
+                services.mahnvorschlag(self.m)
+            return len(ctx)
+
+        self.rechnung(tage_alt=30)
+        wenige = abfragen()
+        for i in range(4):
+            r = self.rechnung(tage_alt=40 + i)
+            services.zahlung_buchen(r, Decimal("10"), date.today(), "ue")
+            services.mahnung_erstellen(r, 1)
+        self.assertEqual(abfragen(), wenige)
+
     def test_zahlung_unveraenderlich_und_nur_auf_abgeschlossene_rechnung(self):
         b = self.rechnung()
         z = services.zahlung_buchen(b, Decimal("10"), date.today(), "ba")
