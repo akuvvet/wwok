@@ -80,6 +80,8 @@ def bestellungen(request):
     liste = Bestellung.objects.filter(mandant=request.mandant).select_related("lieferant")
     if status == "offen":
         liste = liste.filter(status__in=[BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL])
+    elif status == "bestellt":  # wie die Dashboard-Kachel: bestellt + teilweise geliefert
+        liste = liste.filter(status__in=[BestellStatus.BESTELLT, BestellStatus.TEIL])
     elif status in BestellStatus.values:
         liste = liste.filter(status=status)
     seite, parameter = blaettern(request, liste.order_by("-datum", "-id"))
