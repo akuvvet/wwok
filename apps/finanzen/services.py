@@ -48,6 +48,17 @@ def gutgeschrieben(beleg) -> Decimal:
     return beleg.gutschrift_verrechnungen.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0")
 
 
+def summen_je_beleg(belege) -> dict:
+    """Zahlungen, verrechnete Gutschriften (auf Rechnungen) und Verrechnungen (von Gutschriften) für viele Belege in je einer Abfrage.
+    Rückgabe: {"bezahlt": {pk: Betrag}, "gutgeschrieben": {pk: Betrag}, "verrechnet": {pk: Betrag}}; fehlende Schlüssel = 0."""
+    ids = [b.pk for b in belege]
+    def summe(qs, feld):
+        return {z[feld]: z["s"] for z in qs.order_by().values(feld).annotate(s=models.Sum("betrag"))}
+    return {"bezahlt": summe(Zahlung.objects.filter(beleg_id__in=ids), "beleg_id"),
+            "gutgeschrieben": summe(Gutschriftverrechnung.objects.filter(rechnung_id__in=ids), "rechnung_id"),
+            "verrechnet": summe(Gutschriftverrechnung.objects.filter(gutschrift_id__in=ids), "gutschrift_id")}
+
+
 def gutschrift_rest(gutschrift) -> Decimal:
     """Noch nicht verrechneter Betrag einer Gutschrift."""
     return gutschrift.summe_brutto - (gutschrift.verrechnungen.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0"))
@@ -265,7 +276,10 @@ def kasse_buchen(mandant, art, betrag, text, datum=None, beleg=None, benutzer=No
 
 
 def kassenstand(mandant) -> Decimal:
-    return sum((k.signierter_betrag for k in Kassenbuch.objects.filter(mandant=mandant)), Decimal("0"))
+    dez = models.DecimalField(max_digits=12, decimal_places=2)
+    vorzeichen = models.Case(models.When(art=Kassenbuch.EINNAHME, then=models.F("betrag")),
+                             default=-models.F("betrag"), output_field=dez)
+    return Kassenbuch.objects.filter(mandant=mandant).aggregate(s=models.Sum(vorzeichen, output_field=dez))["s"] or Decimal("0")
 
 
 def kontoauszug(mandant, kunde):

@@ -1,4 +1,6 @@
 from django.contrib import messages
+from django.db.models import F, Prefetch, Window
+from django.db.models.functions import RowNumber
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -6,7 +8,7 @@ from apps.kern.rechte import nur_admin
 from apps.verkauf.views import mit_mandant
 
 from . import services
-from .models import Shop, ShopBestellung
+from .models import Shop, ShopBestellung, SyncProtokoll
 from .shopware import ShopFehler
 
 ZEITLIMIT_MASKE = 12  # Sekunden; der Webserver bricht nach 30 Sekunden ab, eine Shop-Anfrage darf ebenso lange dauern
@@ -14,7 +16,11 @@ ZEITLIMIT_MASKE = 12  # Sekunden; der Webserver bricht nach 30 Sekunden ab, eine
 
 @mit_mandant
 def uebersicht(request):
-    shops = Shop.objects.filter(mandant=request.mandant).prefetch_related("protokolle")
+    # nur die letzten 3 Protokollzeilen je Shop, in einer Abfrage
+    letzte = SyncProtokoll.objects.annotate(
+        rang=Window(RowNumber(), partition_by=F("shop_id"), order_by=[F("zeitpunkt").desc(), F("id").desc()])).filter(rang__lte=3)
+    shops = Shop.objects.filter(mandant=request.mandant).prefetch_related(
+        Prefetch("protokolle", queryset=SyncProtokoll.objects.filter(pk__in=letzte.values("pk")), to_attr="letzte_protokolle"))
     return render(request, "shop/uebersicht.html", {
         "shops": shops, "bestellungen": ShopBestellung.objects.filter(shop__mandant=request.mandant).select_related("shop", "beleg", "beleg__kunde")[:30]})
 

@@ -1,6 +1,4 @@
 """Vorläufige Pflegemasken über den Django-Admin – bis die eigenen Masken stehen."""
-import threading
-
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
@@ -137,7 +135,6 @@ class GruppenKomponenteInline(KopierteZeilenMixin, admin.TabularInline):
     verbose_name_plural = "Komponenten (nur bei Typ G)"
 
 
-_anfrage = threading.local()
 AMPEL_SYMBOL = {"rot": "🔴", "gelb": "🟡", "blau": "🔵", "gruen": "🟢", "grau": "⚪"}
 
 
@@ -169,6 +166,7 @@ class ArtikelAdmin(admin.ModelAdmin):
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "radar_ampel", "online", "aktiv"]
     list_filter = [AuffaelligFilter, "typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
     search_fields = ["nummer", "bezeichnung", "herstellernummer", "ean"]
+    list_select_related = ["hersteller", "kategorie__eltern__eltern"]
     readonly_fields = ["ek_anzeige", "shop_hinweis", "angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [ArtikelMandantInline, ArtikelLieferantInline, GruppenKomponenteInline, ArtikelBildInline]
 
@@ -228,20 +226,20 @@ class ArtikelAdmin(admin.ModelAdmin):
 
     @admin.display(description="Ampel")
     def radar_ampel(self, obj):
-        mandant = getattr(_anfrage, "mandant", None)
-        if mandant is None or obj.typ == m.Artikeltyp.G:
-            return ""
-        from . import radar
-        farbe = radar.ampel(obj, mandant)
-        return AMPEL_SYMBOL.get(farbe, "")
+        return AMPEL_SYMBOL.get(getattr(obj, "_radar_farbe", ""), "")
 
     def changelist_view(self, request, extra_context=None):
         from apps.kern.kontext import mandant_oder_none
-        _anfrage.mandant = mandant_oder_none(request)  # Ampel gilt für den gewählten Mandanten (je Thread, nie mandantenübergreifend)
-        try:
-            return super().changelist_view(request, extra_context)
-        finally:
-            _anfrage.mandant = None
+        from . import radar
+        antwort = super().changelist_view(request, extra_context)
+        cl = getattr(antwort, "context_data", None) and antwort.context_data.get("cl")
+        mandant = mandant_oder_none(request)  # Ampel gilt für den gewählten Mandanten
+        if cl is not None and mandant is not None:
+            seite = list(cl.result_list)  # die Seite wird einmal geladen; die Ampeln für alle Zeilen auf einmal berechnen
+            farben = radar.ampeln(seite, mandant)
+            for artikel in seite:
+                artikel._radar_farbe = farben.get(artikel.pk, "")
+        return antwort
 
     @admin.display(description="Aktiv", boolean=True, ordering="-nicht_aktiv")
     def aktiv(self, obj):
@@ -349,7 +347,7 @@ class LeistungsartikelAdmin(admin.ModelAdmin):
             **self.admin_site.each_context(request), "title": "Leistungsartikel importieren", "fehler": fehler})
 
 
-admin.site.register([m.Zahlungsbedingung, m.Steuersatz, m.Hersteller])
+admin.site.register([m.Zahlungsbedingung, m.Steuersatz])
 
 
 class OnlineStatusFilter(admin.SimpleListFilter):
@@ -373,6 +371,7 @@ class KategorieAdmin(admin.ModelAdmin):
     list_display = ["name", "nummer", "eltern", "online", "shop_status", "artikel_im_shop"]
     list_filter = [OnlineStatusFilter, "online"]
     search_fields = ["name", "nummer"]
+    list_select_related = ["eltern__eltern"]  # der Name zeigt die übergeordneten Ebenen
     change_form_template = "admin/stammdaten/kategorie/change_form.html"
 
     @admin.display(description="Shop")
@@ -401,6 +400,12 @@ class KategorieAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
         if betroffen is not None:
             messages.warning(request, f"{betroffen} Artikel werden im Shop deaktiviert (beim nächsten Abgleich, oder sofort mit „Bestand & Preise senden“).")
+
+
+@admin.register(m.Hersteller)
+class HerstellerAdmin(admin.ModelAdmin):
+    list_filter = ["online"]
+    search_fields = ["name", "kennzeichen"]
 
 
 @admin.register(m.PreisVorgabe)

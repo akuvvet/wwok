@@ -81,6 +81,14 @@ def reserviert(mandant, artikel) -> Decimal:
     return offen.filter(offen__gt=0).aggregate(s=models.Sum("offen"))["s"] or Decimal("0")
 
 
+def reserviert_je_artikel(mandant, artikel_ids) -> dict:
+    """{artikel_id: reservierte Menge} wie reserviert(), aber für viele Artikel in einer Abfrage."""
+    from apps.verkauf.models import Belegart, Position, mit_offener_menge
+    offen = mit_offener_menge(Position.objects.filter(artikel_id__in=list(artikel_ids), beleg__mandant=mandant,
+                                                      beleg__art=Belegart.AUFTRAG))
+    return {z["artikel_id"]: z["s"] for z in offen.filter(offen__gt=0).order_by().values("artikel_id").annotate(s=models.Sum("offen"))}
+
+
 class Reparaturart(models.TextChoices):
     ZUGANG = "ZU", "Zugang aus Gutschrift"
     LAGER = "LB", "In Lagerbestand umgebucht"

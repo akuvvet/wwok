@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
 from .models import ArtikelMandant, Artikeltyp, EkHerkunft, PreisVorgabe, _ek_quelle
-from .preise import aufschlag
+from .preise import LADEN, aufschlag
 
 EK_STELLEN = Decimal("0.0001")
 CENT = Decimal("0.01")
@@ -100,10 +100,10 @@ def wareneingang_ek(mandant, artikel, bestand_alt, menge, preis):
 
 # ---- VK -------------------------------------------------------------------------------------------
 
-def marge_stufe(artikel, stufe):
+def marge_stufe(artikel, stufe, vorgabe=LADEN):
     """Zielmarge der Stufe als Bruchteil (0,2 = 20 %): Artikel vor Kategorie vor global. Die hinterlegten Aufschläge (% auf den EK)
     sind gleichwertig umgerechnet: Marge = Aufschlag / (100 + Aufschlag); EK × (1 + a) = EK / (1 − m)."""
-    prozent = aufschlag(artikel, stufe)
+    prozent = aufschlag(artikel, stufe, vorgabe)
     return None if prozent is None else prozent / (Decimal("100") + prozent)
 
 

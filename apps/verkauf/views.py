@@ -117,6 +117,16 @@ def start(request):
         "offene": offene})
 
 
+def _berechnete_lieferscheine(ids) -> set:
+    """IDs der Lieferscheine aus `ids`, die schon in eine Rechnung übernommen wurden (zwei Abfragen für beliebig viele Belege)."""
+    ids = list(ids)
+    if not ids:
+        return set()
+    direkt = set(Beleg.objects.filter(vorgaenger_id__in=ids, art=Belegart.RECHNUNG).values_list("vorgaenger_id", flat=True))
+    sammel = set(Beleg.lieferscheine.through.objects.filter(to_beleg_id__in=ids).values_list("to_beleg_id", flat=True))
+    return direkt | sammel
+
+
 @mit_mandant
 def kunde_detail(request, kunde_id):
     from datetime import date
@@ -151,17 +161,29 @@ def kunde_detail(request, kunde_id):
     seite = Paginator(belege, 25).get_page(request.GET.get("seite"))
     zeilen = []
     seite.object_list = Beleg.versand_markieren(seite.object_list)
+    # Summen, Positionen und Abrechenbarkeit für die ganze Seite gesammelt (keine Abfragen je Zeile)
+    summen = fin.summen_je_beleg(seite.object_list)
+    positionen = {}
+    for p in Position.objects.filter(beleg__in=seite.object_list).select_related("artikel").order_by("beleg_id", "pk"):
+        positionen.setdefault(p.beleg_id, []).append(p)
+    ls_ids = [b.pk for b in seite.object_list if b.art == Belegart.LIEFERSCHEIN and b.abgeschlossen]
+    berechnet = _berechnete_lieferscheine(ls_ids)
+    null = Decimal("0")
     for b in seite.object_list:
         rechnung = b.art == Belegart.RECHNUNG and b.abgeschlossen
         gutschrift = b.art == Belegart.GUTSCHRIFT and b.abgeschlossen
+        erledigt = summen["bezahlt"].get(b.pk, null) + summen["gutgeschrieben"].get(b.pk, null)
         zeilen.append({
             "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None,
-            "bezahlt": fin.bezahlt(b) + fin.gutgeschrieben(b) if rechnung else None,
-            "offen": fin.offen(b) if rechnung else -fin.gutschrift_rest(b) if gutschrift else None,
+            "bezahlt": erledigt if rechnung else None,
+            "offen": b.summe_brutto - erledigt if rechnung else
+                     -(b.summe_brutto - summen["verrechnet"].get(b.pk, null)) if gutschrift else None,
+            "abrechenbar": b.pk in ls_ids and b.pk not in berechnet,
             "bezug": b.vorgaenger if b.vorgaenger_id and b.vorgaenger.nummer else None,
-            "positionen": list(b.positionen.select_related("artikel")[:15])})
-    offene_lieferscheine = sum(1 for b in Beleg.objects.filter(kunde=kunde, mandant=request.mandant, art=Belegart.LIEFERSCHEIN,
-                                                                abgeschlossen=True) if b.abrechenbar)
+            "positionen": positionen.get(b.pk, [])[:15]})
+    lieferscheine = list(Beleg.objects.filter(kunde=kunde, mandant=request.mandant, art=Belegart.LIEFERSCHEIN,
+                                              abgeschlossen=True).values_list("pk", flat=True))
+    offene_lieferscheine = len(lieferscheine) - len(_berechnete_lieferscheine(lieferscheine))
     mandantendaten = kunde.mandantendaten.filter(mandant=request.mandant).first()
     offen = fin.kunde_offen(request.mandant, kunde)
     limit = mandantendaten.kreditlimit if mandantendaten else None
