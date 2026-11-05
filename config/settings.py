@@ -144,12 +144,18 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = "DENY"
 
-# Fehler (500) mit Traceback ins Journal des Dienstes schreiben (journalctl -u wwok)
+# Protokoll auf die Konsole (journalctl -u wwok): mit Zeit, Stufe und Name.
+# django.security (fremde Hosts, CSRF) und django.request (Fehler) werden auch ohne DEBUG erfasst.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
-    "loggers": {"django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False}},
+    "formatters": {"standard": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "standard"}},
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
+        "django.security": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+    },
 }
 
 SESSION_COOKIE_AGE = 60 * 60 * 10  # 10 Stunden = ein Arbeitstag

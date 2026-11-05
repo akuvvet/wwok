@@ -1,9 +1,11 @@
 """Schreibt bei jeder Änderung an Stammdaten automatisch einen Protokolleintrag."""
+from django.contrib.auth.signals import user_login_failed
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.forms.models import model_to_dict
 import json
+import logging
 
 from .middleware import aktueller_benutzer
 
@@ -51,6 +53,14 @@ def _protokolliere_speichern(sender, instance, created, **kwargs):
         vorher=None if created else getattr(instance, "_protokoll_vorher", None),
         nachher=_als_dict(instance),
     )
+
+
+@receiver(user_login_failed)
+def _protokolliere_fehlanmeldung(sender, credentials, request=None, **kwargs):
+    """Nur Benutzername und IP, niemals das Passwort."""
+    name = str((credentials or {}).get("username", ""))[:150]
+    ip = request.META.get("REMOTE_ADDR", "?") if request is not None else "?"
+    logging.getLogger("wwok.anmeldung").warning("Anmeldung fehlgeschlagen: Benutzer=%r IP=%s", name, ip)
 
 
 @receiver(post_delete)
