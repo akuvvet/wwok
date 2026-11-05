@@ -101,7 +101,7 @@ def schutz(view):
 @schutz
 def status(request, reparatur_id):
     reparatur = holen(request, reparatur_id)
-    meldung = services.status_setzen(reparatur, request.POST.get("status"), request.user)
+    meldung = services.status_setzen(reparatur, request.POST.get("status"), request.user, mail=bool(request.POST.get("mail")))
     messages.success(request, f"Status: {reparatur.get_status_display()}. {meldung or ''}")
     return redirect("werkstatt:detail", reparatur_id=reparatur.pk)
 

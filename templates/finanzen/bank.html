@@ -24,11 +24,13 @@
       <td>
         {% if u.status == 'zugeordnet' %}{{ u.vorschlag.nummer }}
         {% elif u.status == 'ignoriert' %}ignoriert
+        <form method="post" action="{% url 'finanzen:bank_zuordnen' u.pk %}" style="display:inline">{% csrf_token %}
+          <button type="submit" name="aktion" value="oeffnen" class="leise">wieder öffnen</button></form>
         {% else %}
         <form method="post" action="{% url 'finanzen:bank_zuordnen' u.pk %}" class="zeile">{% csrf_token %}
           <input name="rechnung" placeholder="RE2026-00001" value="{{ u.vorschlag.nummer|default:'' }}" size="14">
           <button type="submit">Buchen</button>
-          <button type="submit" name="aktion" value="ignorieren" class="leise">Ignorieren</button>
+          <button type="submit" name="aktion" value="ignorieren" class="leise" data-frage="Diesen Umsatz ignorieren?">Ignorieren</button>
         </form>
         {% if u.vorschlag %}<small style="color:var(--warn)">Vorschlag: Betrag weicht vom offenen Betrag ab</small>{% endif %}
         {% endif %}
