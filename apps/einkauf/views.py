@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -274,12 +274,13 @@ def preislistenartikel(request):
     for wort in q.split():
         eintraege = eintraege.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
                                      | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))
-    seite = Paginator(eintraege.order_by("lieferant__nummer", "bezeichnung"), 50).get_page(request.GET.get("seite"))
+    seite = Paginator(eintraege.order_by("lieferant_id", "bezeichnung"), 50).get_page(request.GET.get("seite"))
     parameter = request.GET.copy()
     parameter.pop("seite", None)
     return render(request, "einkauf/preislistenartikel.html", {
         "seite": seite, "parameter": parameter.urlencode(), "q": q, "lieferant": lieferant,
-        "verknuepft": request.GET.get("verknuepft") == "1", "lieferanten": lieferanten_auswahl(gesperrte=True).filter(preislistenartikel__isnull=False).distinct()})
+        "verknuepft": request.GET.get("verknuepft") == "1", "lieferanten": lieferanten_auswahl(gesperrte=True).filter(
+            Exists(Preislistenartikel.objects.filter(lieferant_id=OuterRef("pk"))))})
 
 
 @mit_mandant
