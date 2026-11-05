@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>{% block titel %}wwok{% endblock %}</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b5cad'/%3E%3Cpath d='M6 9l4.5 14L16 13l5.5 10L26 9' fill='none' stroke='%23fff' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
-  :root { --text:#1b1f24; --grund:#f4f5f7; --karte:#fff; --rand:#d5d9df; --akzent:#0b5cad; --warn:#b42318; --ok:#067647; --feld:#fff; --feldrand:#9aa3af; }
+  :root { color-scheme: light dark; --text:#1b1f24; --grund:#f4f5f7; --karte:#fff; --rand:#d5d9df; --akzent:#0b5cad; --warn:#b42318; --hinweis:#b7791f; --ok:#067647; --feld:#fff; --feldrand:#9aa3af; }
   @media (prefers-color-scheme: dark) {
-    :root { --text:#e6e8eb; --grund:#14171b; --karte:#1d2126; --rand:#343a42; --akzent:#6aa9ec; --warn:#f97066; --ok:#47cd89; --feld:#323a44; --feldrand:#6b7686; }
+    :root { --hinweis:#f6c453; --text:#e6e8eb; --grund:#14171b; --karte:#1d2126; --rand:#343a42; --akzent:#6aa9ec; --warn:#f97066; --ok:#47cd89; --feld:#323a44; --feldrand:#6b7686; }
   }
   * { box-sizing: border-box; }
   body { margin:0; font:15px/1.4 system-ui, sans-serif; color:var(--text); background:var(--grund); }
@@ -191,11 +192,12 @@
   .toasts { position:fixed; top:64px; right:16px; z-index:2000; display:flex; flex-direction:column; gap:8px; width:min(380px,calc(100vw - 32px)); pointer-events:none; }
   .toast { position:relative; overflow:hidden; pointer-events:auto; display:flex; gap:8px; align-items:flex-start; padding:10px 12px 14px; border-radius:6px; border:1px solid var(--akzent); color:var(--akzent); background:var(--karte); box-shadow:0 4px 14px rgba(0,0,0,.25); animation:toast-ein .2s ease-out; }
   .toast.error { border-color:var(--warn); color:var(--warn); } .toast.success { border-color:var(--ok); color:var(--ok); }
-  .toast.warning { border-color:#b7791f; color:#b7791f; }
+  .toast.warning { border-color:var(--hinweis); color:var(--hinweis); }
   .toast .toast-text { flex:1; color:var(--text); }
   .toast .toast-zu { background:transparent; border:0; color:inherit; padding:0 4px; font-size:18px; line-height:1; cursor:pointer; }
   .toast .toast-zeit { display:none; position:absolute; left:0; bottom:0; height:4px; width:100%; background:currentColor; transform-origin:left; animation:toast-zeit 3s linear forwards; }
   .toasts.mit-js .toast-zeit { display:block; }
+  .toasts.mit-js .toast.bleibt .toast-zeit { display:none; }
   .toast.pause .toast-zeit { animation-play-state:paused; }
   .toast.weg { opacity:0; transition:opacity .2s; }
   @keyframes toast-ein { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:none; } }
@@ -363,8 +365,9 @@
       function weg() { clearTimeout(uhr); t.classList.add('weg'); setTimeout(function () { t.remove(); }, 200); }
       function laufen() { start = Date.now(); uhr = setTimeout(weg, rest); t.classList.remove('pause'); }
       function anhalten() { clearTimeout(uhr); rest = Math.max(500, rest - (Date.now() - start)); t.classList.add('pause'); }
-      t.addEventListener('mouseenter', anhalten); t.addEventListener('mouseleave', laufen);
       var zu = t.querySelector('.toast-zu'); if (zu) zu.addEventListener('click', weg);
+      if (t.classList.contains('error') || t.classList.contains('warning')) { t.classList.add('bleibt'); return; }
+      t.addEventListener('mouseenter', anhalten); t.addEventListener('mouseleave', laufen);
       laufen();
     }
     window.wwokToast = function (text, typ) {
