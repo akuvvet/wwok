@@ -52,10 +52,10 @@ class WerkstattTest(TestCase):
         with mock.patch.object(services, "statusmail") as sm:
             self.client.post(url, {"status": Status.FERTIG})  # Haken nicht gesetzt
             sm.assert_not_called()
-            self.client.post(url, {"status": Status.ABGEHOLT, "mail": "on"})
+            self.client.post(url, {"status": Status.IN_REPARATUR, "mail": "on"})  # Status mit Statusmail
             sm.assert_called_once()
         r.refresh_from_db()
-        self.assertEqual(r.status, Status.ABGEHOLT)
+        self.assertEqual(r.status, Status.IN_REPARATUR)
 
     def test_rechnung_aus_teilen_und_arbeitszeit(self):
         r = self.annehmen()
