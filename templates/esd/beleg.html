@@ -11,7 +11,7 @@
         <td>{{ v.datum|date:"d.m.Y H:i" }}</td><td>{{ v.get_status_display }}</td>
         <td>{% if v.status == 'aktiv' %}<form method="post" action="{% url 'esd:rueckgabe' v.pk %}" class="zeile">{% csrf_token %}
           <button name="entscheidung" value="freigeben" class="leise" type="submit" title="Key wird wieder vergebbar">Key freigeben</button>
-          <button name="entscheidung" value="sperren" class="gefahr" type="submit" title="Key wird nie wieder vergeben">Key sperren</button></form>{% endif %}</td></tr>
+          <button name="entscheidung" value="sperren" class="gefahr" type="submit" data-frage="Key endgültig sperren? Er wird nie wieder vergeben." title="Key wird nie wieder vergeben">Key sperren</button></form>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="5">Noch keine Keys vergeben.</td></tr>{% endfor %}
   </table>
   {% if vergaben %}<p style="margin-top:12px"><a class="knopf" href="{% url 'esd:mail' b.pk %}">Keys per E-Mail an den Kunden senden</a>

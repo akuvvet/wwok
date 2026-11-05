@@ -238,6 +238,11 @@ def bank_zuordnen(request, umsatz_id):
         umsatz.status = Bankumsatz.IGNORIERT
         umsatz.save(update_fields=["status"])
         return redirect("finanzen:bank")
+    if request.POST.get("aktion") == "oeffnen":
+        if umsatz.status == Bankumsatz.IGNORIERT:
+            umsatz.status = Bankumsatz.OFFEN
+            umsatz.save(update_fields=["status"])
+        return redirect("finanzen:bank")
     nummer = request.POST.get("rechnung", "").strip().upper()
     beleg = Beleg.objects.filter(mandant=request.mandant, art=Belegart.RECHNUNG, nummer=nummer, abgeschlossen=True).first() \
         if nummer else umsatz.vorschlag

@@ -13,6 +13,7 @@
   <p style="margin-top:12px"><strong>Fehler:</strong> {{ r.fehler|linebreaksbr }}<br><strong>Zubehör:</strong> {{ r.zubehoer|default:"–" }}</p>
   <form method="post" action="{% url 'werkstatt:status' r.pk %}" class="zeile">{% csrf_token %}
     {% for w, n in stati %}{% if w != r.status and w != 'storniert' and w != 'rma' %}<button name="status" value="{{ w }}" type="submit" class="leise">→ {{ n }}</button>{% endif %}{% endfor %}
+    <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="mail" checked> Kunde per Mail benachrichtigen</label>
   </form>
   <p style="margin-top:8px"><a class="knopf leise" href="{% url 'werkstatt:schein' r.pk 'annahme' %}" target="_blank">Annahmeschein</a>
      <a class="knopf leise" href="{% url 'werkstatt:schein' r.pk 'abhol' %}" target="_blank">Abholschein</a>
@@ -26,7 +27,7 @@
     {% for p in positionen %}
     <tr><td>{{ p.get_art_display }}</td><td>{{ p.artikel.nummer|default:"" }} {{ p.bezeichnung }}</td><td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
         <td class="zahl">{{ p.einzelpreis }}</td><td class="zahl">{{ p.netto|floatformat:2 }}</td>
-        <td>{% if not r.rechnung and not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:position_loeschen' r.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit">×</button></form>{% endif %}</td></tr>
+        <td>{% if not r.rechnung and not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:position_loeschen' r.pk p.pk %}" data-frage="Position wirklich löschen?">{% csrf_token %}<button class="gefahr" type="submit">×</button></form>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="6">Noch nichts erfasst.</td></tr>{% endfor %}
     <tr><td colspan="4"><strong>Summe netto</strong></td><td class="zahl"><strong>{{ netto|floatformat:2 }}</strong></td><td></td></tr>
   </table>
@@ -42,7 +43,7 @@
   {% endif %}
   <div class="zeile" style="margin-top:12px">
     {% if r.garantie %}
-      {% if not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:garantie_buchen' r.pk %}">{% csrf_token %}<button type="submit">Garantie: Teile aus Lager abbuchen</button></form>{% else %}<span>Teile sind abgebucht.</span>{% endif %}
+      {% if not r.teile_gebucht %}<form method="post" action="{% url 'werkstatt:garantie_buchen' r.pk %}" data-frage="Teile jetzt aus dem Lager abbuchen? Das lässt sich nicht rückgängig machen.">{% csrf_token %}<button type="submit">Garantie: Teile aus Lager abbuchen</button></form>{% else %}<span>Teile sind abgebucht.</span>{% endif %}
     {% elif r.rechnung %}<a class="knopf" href="{% url 'verkauf:beleg' r.rechnung.pk %}">Rechnung {{ r.rechnung }}</a>
     {% else %}<form method="post" action="{% url 'werkstatt:rechnung' r.pk %}">{% csrf_token %}<button type="submit">Rechnung erstellen</button></form>{% endif %}
   </div>

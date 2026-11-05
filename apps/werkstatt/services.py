@@ -43,7 +43,7 @@ def statusmail(reparatur, benutzer=None):
 
 
 @transaction.atomic
-def status_setzen(reparatur, status, benutzer=None) -> str:
+def status_setzen(reparatur, status, benutzer=None, mail=True) -> str:
     if status not in Status.values:
         raise ValueError("Unbekannter Status.")
     reparatur.status = status
@@ -54,7 +54,7 @@ def status_setzen(reparatur, status, benutzer=None) -> str:
         reparatur.abgeholt_am = heute
         reparatur.fertig_am = reparatur.fertig_am or heute
     reparatur.save()
-    return statusmail(reparatur, benutzer) if status in STATUS_MIT_MAIL else None
+    return statusmail(reparatur, benutzer) if mail and status in STATUS_MIT_MAIL else None
 
 
 def position_hinzufuegen(reparatur, art, bezeichnung, menge, preis, artikel=None) -> ReparaturPosition:
