@@ -13,11 +13,11 @@ class KundeAnredeTest(TestCase):
         self.assertIn("anrede", grund)
 
     def test_speichern(self):
-        form = KundeForm({"nummer": "K-ANR-1", "anrede": "Frau", "name1": "Muster", "land": "DE"})
+        form = KundeForm({"nummer": "K-ANR-1", "anrede": "Frau", "name1": "Muster", "land": "DE", "kundenart": "endkunde", "preisstufe": "1"})
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.save().anrede, "Frau")
 
     def test_ungueltige_anrede(self):
-        form = KundeForm({"nummer": "K-ANR-2", "anrede": "Dr.", "name1": "Muster", "land": "DE"})
+        form = KundeForm({"nummer": "K-ANR-2", "anrede": "Dr.", "name1": "Muster", "land": "DE", "kundenart": "endkunde", "preisstufe": "1"})
         self.assertFalse(form.is_valid())
         self.assertIn("anrede", form.errors)
