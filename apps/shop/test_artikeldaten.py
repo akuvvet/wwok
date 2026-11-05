@@ -20,7 +20,7 @@ from apps.lager.services import buche_manuell
 from apps.stammdaten.models import Artikel, ArtikelBild, Hersteller, Kategorie, Steuersatz
 
 from . import services
-from .models import Shop, ShopArtikel, ShopBestellung, SyncProtokoll
+from .models import Shop, ShopArtikel, ShopBestellung, ShopKategorie, SyncProtokoll
 from .shopware import ShopFehler, ShopwareClient
 from .tests import FakeClient
 
@@ -80,12 +80,13 @@ class ArtikeldatenTest(Basis):
         c.shop_kategorien = [{"id": "k1", "name": "notebooks "}]
         services.artikeldaten_senden(self.shop, c)
         self.assertEqual(c.gesendet[0]["categories"], [{"id": "k1"}])
-        for liste in ([], [{"id": "k1", "name": "Notebooks"}, {"id": "k2", "name": "Notebooks"}]):
-            c = self.client_fuer(A1="p")
-            c.shop_kategorien = liste
-            erg = services.artikeldaten_senden(self.shop, c, alle=True)
-            self.assertNotIn("categories", c.gesendet[0])
-            self.assertEqual(erg["kategorie_fehlt"], {"Notebooks"})
+        ShopKategorie.objects.all().delete()
+        c = self.client_fuer(A1="p")
+        c.shop_kategorien = [{"id": "k1", "name": "Notebooks"}, {"id": "k2", "name": "Notebooks"}]  # mehrdeutig: nichts anlegen
+        erg = services.artikeldaten_senden(self.shop, c, alle=True)
+        self.assertNotIn("categories", c.gesendet[0])
+        self.assertEqual(erg["kategorie_fehlt"], {"Notebooks"})
+        self.assertFalse(hasattr(c, "kategorien_geschrieben"))
         self.assertIn("Notebooks", SyncProtokoll.objects.filter(art="artikeldaten").first().meldung)
 
     def test_hersteller_wird_zugeordnet_oder_einmal_angelegt(self):
@@ -200,17 +201,14 @@ class ArtikeldatenRandfaelle(Basis):
         services.artikeldaten_senden(self.shop, d, alle=True)
         self.assertNotIn("isCloseout", d.gesendet[0])
 
-    def test_spaeter_angelegte_kategorie_wird_nachgetragen(self):
+    def test_fehlende_kategorie_wird_angelegt(self):
         self.a.kategorie = Kategorie.objects.create(name="Notebooks", online=True)
         self.a.save()
         c = self.client_fuer(A1="p")
-        self.assertEqual(services.artikeldaten_senden(self.shop, c)["kategorie_fehlt"], {"Notebooks"})
-        c = self.client_fuer(A1="p")
-        self.assertEqual(services.artikeldaten_senden(self.shop, c)["kategorie_fehlt"], {"Notebooks"})  # Hinweis bleibt
-        c = self.client_fuer(A1="p")
-        c.shop_kategorien = [{"id": "k1", "name": "Notebooks"}]
-        services.artikeldaten_senden(self.shop, c)
-        self.assertEqual(c.gesendet[0]["categories"], [{"id": "k1"}])
+        erg = services.artikeldaten_senden(self.shop, c)
+        ext = services.feste_id(self.shop, "kategorie", self.a.kategorie_id)
+        self.assertEqual((erg["kategorie_fehlt"], erg["kategorie_neu"]), (set(), ["Notebooks"]))
+        self.assertEqual(c.gesendet[0]["categories"], [{"id": ext}])
 
     def test_kategoriewechsel_entfernt_nur_die_eigene_alte(self):
         self.a.kategorie = Kategorie.objects.create(name="Notebooks", online=True)
@@ -622,7 +620,8 @@ class OfflineTest(Basis):
         self.kat = Kategorie.objects.create(name="Notebooks", eltern=self.ober, online=online)
         self.a.kategorie = self.kat
         self.a.save()
-        self.shop_kategorien = [{"id": "k-ober", "name": "Hardware"}, {"id": "k-unter", "name": "Notebooks"}, {"id": "k-fremd", "name": "Fremd"}]
+        self.shop_kategorien = [{"id": "k-ober", "name": "Hardware", "parentId": "wurzel"},
+                                {"id": "k-unter", "name": "Notebooks", "parentId": "k-ober"}, {"id": "k-fremd", "name": "Fremd", "parentId": "wurzel"}]
 
     def shop_client(self):
         c = FakeClient(self.shop, produkte={"A1": "prod-1"})
@@ -845,3 +844,94 @@ class MaskeTest(Basis):
         self.assertContains(seite, f"SHOP_SECRET_{self.shop.pk}")
         self.assertContains(seite, f'href="{reverse("shop:uebersicht")}"')
         self.assertEqual(self.client.get(reverse("admin:shop_shop_add")).status_code, 200)
+
+
+class ShopKategorieAnlegenTest(Basis):
+    """Issue 59: fehlende Kategorie samt Eltern im Shop anlegen, über den Pfad zuordnen, Änderungen nur für eigene nachziehen."""
+
+    def pfad(self):
+        self.hw = Kategorie.objects.create(name="Hardware", online=True)
+        self.nb = Kategorie.objects.create(name="Notebooks", eltern=self.hw, online=True)
+        self.a.kategorie = self.nb
+        self.a.save()
+
+    def shop_c(self, kategorien=()):
+        c = self.client_fuer(A1="p")
+        c.shop_kategorien = list(kategorien)
+        return c
+
+    def test_pfad_wird_unter_der_hauptnavigation_angelegt_und_nicht_doppelt(self):
+        self.pfad()
+        c = self.shop_c()
+        erg = services.artikeldaten_senden(self.shop, c)
+        hw, nb = services.feste_id(self.shop, "kategorie", self.hw.pk), services.feste_id(self.shop, "kategorie", self.nb.pk)
+        self.assertEqual([(k["id"], k["name"], k["parentId"]) for k in c.kategorien_geschrieben],
+                         [(hw, "Hardware", "wurzel"), (nb, "Notebooks", hw)])
+        self.assertEqual(c.gesendet[0]["categories"], [{"id": nb}])
+        self.assertEqual(erg["kategorie_neu"], ["Hardware", "Hardware › Notebooks"])
+        self.assertIn("2 Kategorie(n) im Shop angelegt", SyncProtokoll.objects.filter(art="artikeldaten").first().meldung)
+        self.assertTrue(all(z.angelegt for z in ShopKategorie.objects.all()))
+        d = self.shop_c([{"id": hw, "name": "Hardware", "parentId": "wurzel"}, {"id": nb, "name": "Notebooks", "parentId": hw}])
+        services.artikeldaten_senden(self.shop, d, alle=True)
+        self.assertFalse(hasattr(d, "kategorien_geschrieben"))  # zweiter Lauf: nichts doppelt
+        self.assertEqual(d.gesendet[0]["categories"], [{"id": nb}])
+
+    def test_gleichnamige_unterkategorien_ueber_den_pfad(self):
+        netz = Kategorie.objects.create(name="Netzwerk", online=True)
+        audio = Kategorie.objects.create(name="Audio", online=True)
+        kabel = Kategorie.objects.create(name="Kabel", eltern=audio, online=True)
+        Kategorie.objects.create(name="Kabel", eltern=netz, online=True)
+        self.a.kategorie = kabel
+        self.a.save()
+        c = self.shop_c([{"id": "s-netz", "name": "Netzwerk", "parentId": "wurzel"}, {"id": "s-netzkabel", "name": "Kabel", "parentId": "s-netz"},
+                         {"id": "s-audio", "name": "Audio", "parentId": "wurzel"}, {"id": "s-audiokabel", "name": "Kabel", "parentId": "s-audio"}])
+        services.artikeldaten_senden(self.shop, c)
+        self.assertEqual(c.gesendet[0]["categories"], [{"id": "s-audiokabel"}])
+        self.assertFalse(hasattr(c, "kategorien_geschrieben"))
+        self.assertFalse(ShopKategorie.objects.get(kategorie=kabel).angelegt)  # vorhandene übernommen
+
+    def test_vorhandene_ebene_wird_genutzt_nur_rest_angelegt(self):
+        self.pfad()
+        c = self.shop_c([{"id": "s-hw", "name": "hardware ", "parentId": "wurzel"}])
+        services.artikeldaten_senden(self.shop, c)
+        self.assertEqual([(k["name"], k["parentId"]) for k in c.kategorien_geschrieben], [("Notebooks", "s-hw")])
+
+    def test_offline_kategorie_wird_nicht_angelegt(self):
+        self.pfad()
+        Kategorie.objects.filter(pk=self.hw.pk).update(online=False)
+        c = self.shop_c()
+        services.artikeldaten_senden(self.shop, c)
+        self.assertEqual((c.gesendet, getattr(c, "kategorien_geschrieben", [])), ([], []))  # Artikel ist nicht sichtbar, nichts angelegt
+
+    def test_ohne_online_artikel_wird_nichts_angelegt(self):
+        self.pfad()
+        Artikel.objects.filter(pk=self.a.pk).update(online=False)
+        c = self.shop_c()
+        services.artikeldaten_senden(self.shop, c)
+        self.assertFalse(hasattr(c, "kategorien_geschrieben"))
+
+    def test_umbenennen_und_verschieben_nur_fuer_eigene(self):
+        self.pfad()
+        c = self.shop_c([{"id": "s-hw", "name": "Hardware", "parentId": "wurzel"}])  # Hardware: vorhanden (fremd)
+        services.artikeldaten_senden(self.shop, c)
+        nb = services.feste_id(self.shop, "kategorie", self.nb.pk)
+        stand = [{"id": "s-hw", "name": "Hardware", "parentId": "wurzel"}, {"id": nb, "name": "Notebooks", "parentId": "s-hw"}]
+        neu = Kategorie.objects.create(name="Mobil", online=True)
+        Kategorie.objects.filter(pk=self.nb.pk).update(name="Laptops", eltern=neu)
+        Kategorie.objects.filter(pk=self.hw.pk).update(name="Rechner")  # fremde Shop-Kategorie: nicht umbenennen
+        d = self.shop_c(stand)
+        erg = services.artikeldaten_senden(self.shop, d, alle=True)
+        mobil = services.feste_id(self.shop, "kategorie", neu.pk)
+        self.assertEqual([(k["id"], k["name"], k["parentId"]) for k in d.kategorien_geschrieben],
+                         [(mobil, "Mobil", "wurzel"), (nb, "Laptops", mobil)])
+        self.assertEqual(erg["kategorie_geaendert"], ["Mobil › Laptops"])
+        self.assertNotIn("s-hw", [k["id"] for k in d.kategorien_geschrieben])
+
+    def test_fehler_beim_anlegen_stoppt_artikel_nicht(self):
+        self.pfad()
+        c = self.shop_c()
+        c.kategorie_fehler = ShopFehler("403 Recht fehlt")
+        erg = services.artikeldaten_senden(self.shop, c)
+        self.assertNotIn("categories", c.gesendet[0])
+        self.assertTrue(any("403 Recht fehlt" in f for f in erg["fehler"]))
+        self.assertEqual(erg["neu"] + erg["aktualisiert"], 1)

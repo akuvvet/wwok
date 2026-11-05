@@ -57,6 +57,14 @@ class FakeClient(ShopwareClient):
     def kategorien(self):
         return getattr(self, "shop_kategorien", [])
 
+    def navigationswurzel(self):
+        return getattr(self, "wurzel", "wurzel")
+
+    def kategorien_schreiben(self, payload):
+        if getattr(self, "kategorie_fehler", None):
+            raise self.kategorie_fehler
+        self.kategorien_geschrieben = getattr(self, "kategorien_geschrieben", []) + list(payload)
+
     def kategorien_aktiv_setzen(self, aenderungen):
         self.kategorie_aktiv = getattr(self, "kategorie_aktiv", []) + list(aenderungen)
 

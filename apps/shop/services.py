@@ -405,6 +405,96 @@ def _nach_name(eintraege) -> dict:
     return karte
 
 
+class KategorieKarte:
+    """Shop-Kategorien eines Laufs (Issue 59): Zuordnung über die gespeicherte Zuordnung, sonst über den Pfad ab der
+    Hauptnavigation des Verkaufskanals; fehlende Kategorien werden samt fehlender Eltern angelegt. Nur online
+    Kategorien, nur beim Senden eines Online-Artikels. Umbenennen/Verschieben in wwok wird nur für Kategorien
+    nachgezogen, die wwok selbst angelegt hat; fremde Shop-Kategorien bleiben unberührt."""
+
+    def __init__(self, shop, client, ergebnis):
+        self.shop, self.client, self.ergebnis = shop, client, ergebnis
+        self.eintraege = {e["id"]: {"name": (e.get("name") or "").strip(), "eltern": e.get("parentId") or ""}
+                          for e in client.kategorien()}
+        self.zuordnung = {z.kategorie_id: z for z in ShopKategorie.objects.filter(shop=shop)}
+        self.offline = Kategorie.offline_ids()
+        self._wurzel, self.fertig = None, {}
+
+    def wurzel(self) -> str:
+        if self._wurzel is None:
+            self._wurzel = self.client.navigationswurzel()
+        return self._wurzel
+
+    def _kinder(self, eltern, name) -> list:
+        n = name.casefold()
+        return [i for i, e in self.eintraege.items() if e["eltern"] == eltern and e["name"].casefold() == n]
+
+    def _ueberall(self, name) -> list:
+        n = name.casefold()
+        return [i for i, e in self.eintraege.items() if e["name"].casefold() == n]
+
+    def _merken(self, k, ext, angelegt=False):
+        angelegt = angelegt or ext == feste_id(self.shop, "kategorie", k.pk)  # auch nach zurückgerolltem Artikel erkennbar
+        z, _ = ShopKategorie.objects.update_or_create(shop=self.shop, kategorie=k, defaults={"kategorie_id_extern": ext, "angelegt": angelegt})
+        self.zuordnung[k.pk] = z
+
+    def id_fuer(self, k, tiefe=0) -> str:
+        """Shop-ID der Kategorie; "" = nicht zuzuordnen (mehrdeutig, offline oder Fehler)."""
+        if k.pk in self.fertig:
+            return self.fertig[k.pk]
+        self.fertig[k.pk] = ext = self._ermitteln(k, tiefe)
+        return ext
+
+    def _ermitteln(self, k, tiefe) -> str:
+        if k.pk in self.offline or tiefe > 10:
+            return ""
+        name = k.name.strip()
+        eltern = k.eltern
+        z = self.zuordnung.get(k.pk)
+        if z and z.kategorie_id_extern in self.eintraege:  # bekannt: über die ID, nie mehr über den Namen
+            if z.angelegt:
+                self._nachziehen(k, z.kategorie_id_extern, eltern, tiefe)
+            return z.kategorie_id_extern
+        eltern_ext = self.id_fuer(eltern, tiefe + 1) if eltern else self.wurzel()
+        if eltern and not eltern_ext:
+            return ""
+        treffer = self._kinder(eltern_ext, name)
+        if not treffer and not eltern:  # Hauptkategorie: wie bisher auch anderswo im Shop, wenn der Name eindeutig ist
+            treffer = self._ueberall(name)
+        if len(treffer) == 1:
+            self._merken(k, treffer[0])
+            return treffer[0]
+        if treffer:  # mehrdeutig: nichts anlegen, nichts raten
+            self.ergebnis["kategorie_fehlt"].add(str(k))
+            return ""
+        ext = feste_id(self.shop, "kategorie", k.pk)  # gleichbleibend: ein wiederholter Lauf legt nichts doppelt an
+        try:
+            self.client.kategorien_schreiben([{"id": ext, "name": name, "parentId": eltern_ext, "active": True, "visible": True,
+                                               "type": "page", "displayNestedProducts": True}])
+        except ShopFehler as fehler:
+            self.ergebnis["fehler"].append(f"Kategorie {k}: {fehler}")
+            return ""
+        self.eintraege[ext] = {"name": name, "eltern": eltern_ext}
+        self._merken(k, ext, angelegt=True)
+        self.ergebnis["kategorie_neu"].append(str(k))
+        return ext
+
+    def _nachziehen(self, k, ext, eltern, tiefe):
+        """Von wwok angelegte Kategorie: Name und Elternkategorie wie in wwok."""
+        eltern_ext = self.id_fuer(eltern, tiefe + 1) if eltern else self.wurzel()
+        if not eltern_ext:
+            return
+        jetzt, soll = self.eintraege[ext], {"name": k.name.strip(), "eltern": eltern_ext}
+        if jetzt == soll:
+            return
+        try:
+            self.client.kategorien_schreiben([{"id": ext, "name": soll["name"], "parentId": soll["eltern"]}])
+        except ShopFehler as fehler:
+            self.ergebnis["fehler"].append(f"Kategorie {k}: {fehler}")
+            return
+        self.eintraege[ext] = soll
+        self.ergebnis["kategorie_geaendert"].append(str(k))
+
+
 def _hersteller_id(shop, client, karte, name) -> str:
     schluessel = name.strip().casefold()
     if schluessel not in karte:
@@ -439,13 +529,7 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
     daten = produktdaten(a)
     if nummer_geaendert:
         daten["productNumber"] = a.nummer
-    name = a.kategorie.name if a.kategorie_id else ""
-    treffer = lauf["kategorien"].get(name.strip().casefold(), []) if name else []
-    kategorie_id = treffer[0] if len(treffer) == 1 else ""
-    if name and not kategorie_id:
-        lauf["ergebnis"]["kategorie_fehlt"].add(name)
-    if kategorie_id:  # Zuordnung merken: danach schaltet wwok genau diese Shop-Kategorie
-        ShopKategorie.objects.get_or_create(shop=shop, kategorie_id=a.kategorie_id, defaults={"kategorie_id_extern": kategorie_id})
+    kategorie_id = lauf["kategorien"].id_fuer(a.kategorie) if a.kategorie_id else ""  # fehlt sie, wird sie angelegt
     herstellername = a.hersteller.name if a.hersteller_id else ""
     stand = hashlib.sha256(json.dumps([daten, kategorie_id, herstellername], sort_keys=True).encode()).hexdigest()
     bilder_stand = hashlib.sha256(json.dumps([(b.pk, b.bild.name) for b in a.bilder.all()]).encode()).hexdigest()
@@ -544,8 +628,9 @@ def artikeldaten_senden(shop, client=None, alle=False, nummer="", zeitlimit=ZEIT
         artikel.sort(key=zuletzt)
     try:
         ids = client.produkt_ids([a.nummer for a in artikel])
-        ergebnis = {"neu": 0, "aktualisiert": 0, "unveraendert": 0, "ohne_preis": 0, "offen": 0, "fehler": [], "kategorie_fehlt": set()}
-        lauf = {"kategorien": _nach_name(client.kategorien()), "hersteller": _nach_name(client.hersteller()), "ergebnis": ergebnis,
+        ergebnis = {"neu": 0, "aktualisiert": 0, "unveraendert": 0, "ohne_preis": 0, "offen": 0, "fehler": [], "kategorie_fehlt": set(),
+                    "kategorie_neu": [], "kategorie_geaendert": []}
+        lauf = {"kategorien": KategorieKarte(shop, client, ergebnis), "hersteller": _nach_name(client.hersteller()), "ergebnis": ergebnis,
                 "steuern": {Decimal(str(s["taxRate"])).normalize(): s["id"] for s in client.steuern()}, "ende": ende,
                 "regel_ok": regel_pruefen(shop, client)}
     except ShopFehler as fehler:
@@ -560,6 +645,8 @@ def artikeldaten_senden(shop, client=None, alle=False, nummer="", zeitlimit=ZEIT
                 ergebnis[_artikel_senden(shop, client, a, zuordnungen.get(a.pk), ids.get(a.nummer), lauf, alle)] += 1
         except ShopFehler as fehler:
             ergebnis["fehler"].append(f"{a.nummer}: {fehler}")
+            lauf["kategorien"].fertig.clear()  # die Transaktion des Artikels ist zurückgerollt: Zuordnungen neu ermitteln
+            lauf["kategorien"].zuordnung = {z.kategorie_id: z for z in ShopKategorie.objects.filter(shop=shop)}
     if ergebnis["offen"] and shop.artikeldaten_takt:  # beim nächsten Zeitplan-Aufruf weitermachen, nicht erst nach dem Takt
         shop.letzter_artikelabgleich = timezone.now() - timedelta(minutes=shop.artikeldaten_takt)
         shop.save(update_fields=["letzter_artikelabgleich"])
@@ -573,6 +660,10 @@ def artikeldaten_meldung(e: dict) -> str:
         teile.append(f"{e['ohne_preis']} ohne Preis nicht angelegt")
     if e["offen"]:
         teile.append(f"{e['offen']} noch offen, nächster Lauf macht weiter")
+    if e.get("kategorie_neu"):
+        teile.append(f"{len(e['kategorie_neu'])} Kategorie(n) im Shop angelegt: " + ", ".join(e["kategorie_neu"]))
+    if e.get("kategorie_geaendert"):
+        teile.append("Kategorie im Shop angepasst: " + ", ".join(e["kategorie_geaendert"]))
     if e["kategorie_fehlt"]:
         teile.append("Kategorie im Shop nicht eindeutig gefunden: " + ", ".join(sorted(e["kategorie_fehlt"])))
     if e["fehler"]:

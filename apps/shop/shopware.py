@@ -96,7 +96,21 @@ class ShopwareClient:
             self.api("POST", "/api/_action/sync", {"write-products": {"entity": "product", "action": "upsert", "payload": payload[i:i + 100]}})
 
     def kategorien(self) -> list:
-        return self._alle("category", ["id", "name"])
+        return self._alle("category", ["id", "name", "parentId"])
+
+    def navigationswurzel(self) -> str:
+        """Hauptnavigation des Verkaufskanals: Unter ihr legt wwok fehlende Kategorien an."""
+        kanal = self.verkaufskanal()
+        daten = self.api("POST", "/api/search/sales-channel", {
+            "ids": [kanal], "includes": {"sales_channel": ["id", "navigationCategoryId"]}}).get("data", [])
+        wurzel = daten[0].get("navigationCategoryId") if daten else ""
+        if not wurzel:
+            raise ShopFehler("Der Verkaufskanal hat keine Hauptnavigation (Kategorie-Einstiegspunkt) – bitte in Shopware einstellen.")
+        return wurzel
+
+    def kategorien_schreiben(self, payload: list):
+        """Kategorien anlegen oder ändern (upsert); nur die übergebenen Felder werden geschrieben."""
+        self.api("POST", "/api/_action/sync", {"write-kategorien": {"entity": "category", "action": "upsert", "payload": payload}})
 
     def kategorien_aktiv_setzen(self, aenderungen: list):
         """aenderungen: Liste (Kategorie-ID im Shop, aktiv). Ändert nur das Feld active, sonst nichts."""
