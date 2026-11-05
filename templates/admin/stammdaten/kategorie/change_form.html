@@ -6,10 +6,29 @@ document.addEventListener("DOMContentLoaded", function () {
   var form = document.getElementById("kategorie_form");
   var haken = document.getElementById("id_online");
   if (!form || !haken) return;
+  // Eigener Dialog statt Browser-Fenster (die Admin-Seiten laden das Dialog-Skript der Hauptseiten nicht)
+  var frage = "{{ betroffen_artikel }} Artikel werden im Shop deaktiviert (inkl. Unterkategorien). Kategorie wirklich offline schalten?";
   form.addEventListener("submit", function (e) {
-    if (!haken.checked && !confirm("{{ betroffen_artikel }} Artikel werden im Shop deaktiviert (inkl. Unterkategorien). Kategorie wirklich offline schalten?")) {
-      e.preventDefault();
-    }
+    if (haken.checked || form.dataset.bestaetigt) return;
+    e.preventDefault();
+    var knopf = e.submitter;
+    var d = document.createElement("dialog"), p = document.createElement("p"), ja = document.createElement("button"), nein = document.createElement("button");
+    d.style.cssText = "max-width:min(520px,92vw);padding:20px;border-radius:10px";
+    p.textContent = frage;
+    ja.type = nein.type = "button";
+    ja.textContent = "Ja, offline schalten";
+    nein.textContent = "Abbrechen";
+    nein.style.marginLeft = "8px";
+    ja.addEventListener("click", function () {
+      form.dataset.bestaetigt = "1";
+      d.close();
+      form.requestSubmit(knopf || undefined);
+    });
+    nein.addEventListener("click", function () { d.close(); });
+    d.addEventListener("close", function () { d.remove(); });
+    d.append(p, ja, nein);
+    document.body.appendChild(d);
+    d.showModal();
   });
 });
 </script>

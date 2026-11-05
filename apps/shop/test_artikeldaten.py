@@ -624,56 +624,56 @@ class OfflineTest(Basis):
         self.a.save()
         self.shop_kategorien = [{"id": "k-ober", "name": "Hardware"}, {"id": "k-unter", "name": "Notebooks"}, {"id": "k-fremd", "name": "Fremd"}]
 
-    def client(self):
+    def shop_client(self):
         c = FakeClient(self.shop, produkte={"A1": "prod-1"})
         c.shop_kategorien = self.shop_kategorien
         return c
 
     def test_kategorie_offline_deaktiviert_artikel_und_shop_kategorie_und_online_bringt_zurueck(self):
         self.kategorie_mit_artikel()
-        services.artikeldaten_senden(self.shop, self.client())
-        services.abgleichen(self.shop, self.client())
+        services.artikeldaten_senden(self.shop, self.shop_client())
+        services.abgleichen(self.shop, self.shop_client())
         self.kat.online = False
         self.kat.save()
-        c = self.client()
+        c = self.shop_client()
         erg = services.abgleichen(self.shop, c)
         self.assertEqual(c.gesendet, [{"id": "prod-1", "active": False}])
         self.assertEqual(erg["deaktiviert"], 1)
         self.assertEqual(c.kategorie_aktiv, [("k-unter", False)])  # nur die zugeordnete, nie "k-fremd"
-        d = self.client()
+        d = self.shop_client()
         services.abgleichen(self.shop, d)
         self.assertEqual((d.gesendet, getattr(d, "kategorie_aktiv", [])), ([], []))  # nur einmal
         self.kat.online = True
         self.kat.save()
-        e = self.client()
+        e = self.shop_client()
         services.abgleichen(self.shop, e)
         self.assertIs(e.gesendet[0]["active"], True)
         self.assertEqual(e.kategorie_aktiv, [("k-unter", True)])
 
     def test_artikel_mit_haken_aus_bleibt_nach_kategorie_online_offline(self):
         self.kategorie_mit_artikel()
-        services.artikeldaten_senden(self.shop, self.client())
-        services.abgleichen(self.shop, self.client())
+        services.artikeldaten_senden(self.shop, self.shop_client())
+        services.abgleichen(self.shop, self.shop_client())
         self.a.online = False
         self.a.save()
-        services.abgleichen(self.shop, self.client())
+        services.abgleichen(self.shop, self.shop_client())
         self.kat.online = False
         self.kat.save()
-        services.abgleichen(self.shop, self.client())
+        services.abgleichen(self.shop, self.shop_client())
         self.kat.online = True
         self.kat.save()
-        c = self.client()
+        c = self.shop_client()
         services.abgleichen(self.shop, c)
         self.assertEqual(c.gesendet, [])
         self.assertFalse(ShopArtikel.objects.get().im_shop_aktiv)
 
     def test_elternkategorie_offline_schaltet_unterkategorie_ab(self):
         self.kategorie_mit_artikel()
-        services.artikeldaten_senden(self.shop, self.client())
-        services.abgleichen(self.shop, self.client())
+        services.artikeldaten_senden(self.shop, self.shop_client())
+        services.abgleichen(self.shop, self.shop_client())
         self.ober.online = False
         self.ober.save()
-        c = self.client()
+        c = self.shop_client()
         services.abgleichen(self.shop, c)
         self.assertEqual(c.gesendet, [{"id": "prod-1", "active": False}])
         self.assertIn(self.kat.pk, Kategorie.offline_ids())
