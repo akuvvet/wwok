@@ -98,7 +98,7 @@ class OffenePostenBlaetternTest(TestCase):
         for _ in range(55):
             self.rechnung(k)
         url = reverse("finanzen:offene_posten")
-        r1 = self.client.get(url, {"q": "kunde", "sort": "-offen", "nur": ""})
+        r1 = self.client.get(url, {"q": "kunde", "sort": "-offen"})
         self.assertEqual(len(r1.context["zeilen"]), 50)
         self.assertContains(r1, "q=kunde&amp;sort=-offen&seite=2")
         r2 = self.client.get(url, {"q": "kunde", "sort": "-offen", "seite": 2})
