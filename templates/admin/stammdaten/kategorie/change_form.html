@@ -1,0 +1,17 @@
+{% extends "admin/change_form.html" %}
+{% block extrahead %}{{ block.super }}
+{% if kategorie_war_online %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var form = document.getElementById("kategorie_form");
+  var haken = document.getElementById("id_online");
+  if (!form || !haken) return;
+  form.addEventListener("submit", function (e) {
+    if (!haken.checked && !confirm("{{ betroffen_artikel }} Artikel werden im Shop deaktiviert (inkl. Unterkategorien). Kategorie wirklich offline schalten?")) {
+      e.preventDefault();
+    }
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

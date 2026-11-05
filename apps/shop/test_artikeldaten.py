@@ -74,7 +74,7 @@ class ArtikeldatenTest(Basis):
         self.assertEqual(c.gesendet[0]["name"], "Notebook neu")
 
     def test_kategorie_nur_bei_eindeutigem_namen(self):
-        self.a.kategorie = Kategorie.objects.create(name="Notebooks")
+        self.a.kategorie = Kategorie.objects.create(name="Notebooks", online=True)
         self.a.save()
         c = self.client_fuer(A1="p")
         c.shop_kategorien = [{"id": "k1", "name": "notebooks "}]
@@ -201,7 +201,7 @@ class ArtikeldatenRandfaelle(Basis):
         self.assertNotIn("isCloseout", d.gesendet[0])
 
     def test_spaeter_angelegte_kategorie_wird_nachgetragen(self):
-        self.a.kategorie = Kategorie.objects.create(name="Notebooks")
+        self.a.kategorie = Kategorie.objects.create(name="Notebooks", online=True)
         self.a.save()
         c = self.client_fuer(A1="p")
         self.assertEqual(services.artikeldaten_senden(self.shop, c)["kategorie_fehlt"], {"Notebooks"})
@@ -213,12 +213,12 @@ class ArtikeldatenRandfaelle(Basis):
         self.assertEqual(c.gesendet[0]["categories"], [{"id": "k1"}])
 
     def test_kategoriewechsel_entfernt_nur_die_eigene_alte(self):
-        self.a.kategorie = Kategorie.objects.create(name="Notebooks")
+        self.a.kategorie = Kategorie.objects.create(name="Notebooks", online=True)
         self.a.save()
         c = self.client_fuer(A1="p")
         c.shop_kategorien = [{"id": "k1", "name": "Notebooks"}, {"id": "k2", "name": "Tablets"}]
         services.artikeldaten_senden(self.shop, c)
-        self.a.kategorie = Kategorie.objects.create(name="Tablets")
+        self.a.kategorie = Kategorie.objects.create(name="Tablets", online=True)
         self.a.save()
         d = self.client_fuer(A1="p")
         d.shop_kategorien = c.shop_kategorien
@@ -616,6 +616,91 @@ class OfflineTest(Basis):
         c = FakeClient(self.shop, produkte={"A1": "prod-1"})
         services.abgleichen(self.shop, c)
         self.assertEqual(c.gesendet, [{"id": "prod-1", "active": False}])
+
+    def kategorie_mit_artikel(self, online=True):
+        self.ober = Kategorie.objects.create(name="Hardware", online=True)
+        self.kat = Kategorie.objects.create(name="Notebooks", eltern=self.ober, online=online)
+        self.a.kategorie = self.kat
+        self.a.save()
+        self.shop_kategorien = [{"id": "k-ober", "name": "Hardware"}, {"id": "k-unter", "name": "Notebooks"}, {"id": "k-fremd", "name": "Fremd"}]
+
+    def client(self):
+        c = FakeClient(self.shop, produkte={"A1": "prod-1"})
+        c.shop_kategorien = self.shop_kategorien
+        return c
+
+    def test_kategorie_offline_deaktiviert_artikel_und_shop_kategorie_und_online_bringt_zurueck(self):
+        self.kategorie_mit_artikel()
+        services.artikeldaten_senden(self.shop, self.client())
+        services.abgleichen(self.shop, self.client())
+        self.kat.online = False
+        self.kat.save()
+        c = self.client()
+        erg = services.abgleichen(self.shop, c)
+        self.assertEqual(c.gesendet, [{"id": "prod-1", "active": False}])
+        self.assertEqual(erg["deaktiviert"], 1)
+        self.assertEqual(c.kategorie_aktiv, [("k-unter", False)])  # nur die zugeordnete, nie "k-fremd"
+        d = self.client()
+        services.abgleichen(self.shop, d)
+        self.assertEqual((d.gesendet, getattr(d, "kategorie_aktiv", [])), ([], []))  # nur einmal
+        self.kat.online = True
+        self.kat.save()
+        e = self.client()
+        services.abgleichen(self.shop, e)
+        self.assertIs(e.gesendet[0]["active"], True)
+        self.assertEqual(e.kategorie_aktiv, [("k-unter", True)])
+
+    def test_artikel_mit_haken_aus_bleibt_nach_kategorie_online_offline(self):
+        self.kategorie_mit_artikel()
+        services.artikeldaten_senden(self.shop, self.client())
+        services.abgleichen(self.shop, self.client())
+        self.a.online = False
+        self.a.save()
+        services.abgleichen(self.shop, self.client())
+        self.kat.online = False
+        self.kat.save()
+        services.abgleichen(self.shop, self.client())
+        self.kat.online = True
+        self.kat.save()
+        c = self.client()
+        services.abgleichen(self.shop, c)
+        self.assertEqual(c.gesendet, [])
+        self.assertFalse(ShopArtikel.objects.get().im_shop_aktiv)
+
+    def test_elternkategorie_offline_schaltet_unterkategorie_ab(self):
+        self.kategorie_mit_artikel()
+        services.artikeldaten_senden(self.shop, self.client())
+        services.abgleichen(self.shop, self.client())
+        self.ober.online = False
+        self.ober.save()
+        c = self.client()
+        services.abgleichen(self.shop, c)
+        self.assertEqual(c.gesendet, [{"id": "prod-1", "active": False}])
+        self.assertIn(self.kat.pk, Kategorie.offline_ids())
+        self.assertIsNone(self.kat.offline_grund().eltern_id)
+        self.assertEqual(self.kat.offline_grund(), self.ober)
+
+    def test_neue_kategorie_ist_standardmaessig_offline_und_artikel_nicht_sichtbar(self):
+        k = Kategorie.objects.create(name="Neu")
+        self.assertFalse(k.online)
+        self.a.kategorie = k
+        self.a.save()
+        self.assertFalse(Artikel.objects.shop_sichtbar().filter(pk=self.a.pk).exists())
+        self.assertTrue(Artikel.objects.wegen_kategorie_offline().filter(pk=self.a.pk).exists())
+
+    def test_artikel_ohne_kategorie_unveraendert_sichtbar(self):
+        self.assertTrue(Artikel.objects.shop_sichtbar().filter(pk=self.a.pk).exists())
+
+    def test_schutzgrenze_blockiert_bewusst_abgeschaltete_kategorie_nicht(self):
+        kat = Kategorie.objects.create(name="Masse", online=True)
+        Artikel.objects.bulk_create([Artikel(nummer=f"M{i}", bezeichnung="x", steuersatz=self.st, vk1=D("1"), online=True, kategorie=kat)
+                                     for i in range(51)])
+        produkte = {f"M{i}": f"p{i}" for i in range(51)}
+        services.abgleichen(self.shop, FakeClient(self.shop, produkte=produkte))
+        kat.online = False
+        kat.save()
+        c = FakeClient(self.shop, produkte=produkte)
+        self.assertEqual(services.abgleichen(self.shop, c)["deaktiviert"], 51)
 
     def test_nie_gemeldeter_artikel_bleibt_im_shop_unberuehrt(self):
         Artikel.objects.create(nummer="OFF", bezeichnung="x", steuersatz=self.st, vk1=D("1"))
