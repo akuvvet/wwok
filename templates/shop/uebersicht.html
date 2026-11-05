@@ -20,7 +20,7 @@
       <input name="nummer" size="16" placeholder="nur Artikelnummer" aria-label="nur diese Artikelnummer">
       <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="alle"> alle Artikel (nicht nur Änderungen)</label></form>
     <p style="margin:6px 0 0;font-size:13px;opacity:.8">Artikeldaten: {{ s.get_artikeldaten_takt_display }} · zuletzt {{ s.letzter_artikelabgleich|date:"d.m.Y H:i"|default:"noch nie" }}. Einstellbar unter <a href="/verwaltung/shop/shop/{{ s.pk|stringformat:"d" }}/change/">Verwaltung → Shops</a>. Leere Felder überschreiben im Shop nichts.</p>{% endif %}
-    {% for p in s.protokolle.all|slice:":3" %}<p style="margin:6px 0 0;font-size:13px;{% if not p.erfolgreich %}color:var(--warn){% endif %}">{{ p.zeitpunkt|date:"d.m. H:i" }} · {{ p.art }}: {{ p.meldung }}</p>{% endfor %}
+    {% for p in s.letzte_protokolle %}<p style="margin:6px 0 0;font-size:13px;{% if not p.erfolgreich %}color:var(--warn){% endif %}">{{ p.zeitpunkt|date:"d.m. H:i" }} · {{ p.art }}: {{ p.meldung }}</p>{% endfor %}
   </div>
   {% empty %}<p>Noch kein Shop angelegt.</p>{% endfor %}
 </div>

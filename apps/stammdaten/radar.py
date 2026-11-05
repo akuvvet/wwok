@@ -18,7 +18,8 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from .ekkalk import QUELLEN, abweichung_prozent, ek_import, kalkulations_ek, marge_stufe, vk_uebernahme, vk_vorschlag_aus
-from .models import Artikel, ArtikelMandant, Artikeltyp, PreisVorgabe, RadarGesehen
+from .models import Artikel, ArtikelLieferant, ArtikelMandant, Artikeltyp, EkHerkunft, PreisVorgabe, RadarGesehen
+from .preise import LADEN
 
 NULL = Decimal("0")
 QUELLEN_RADAR = {**QUELLEN, "kosten": "Kosten"}
@@ -157,8 +158,11 @@ def _geaendert(alt, neu, einst) -> bool:
     return d > 0 and d >= einst["euro"] and (alt == 0 or d / abs(alt) * 100 >= einst["prozent"])
 
 
-def eintrag(artikel, mandant, bestand=None, offen=None, einst=None, jetzt=None) -> Eintrag | None:
-    """Radar-Auswertung eines Artikels im Mandanten; None, wenn der Artikel nie gemeldet wird (Typ G, L ohne Kosten, P ohne Menge)."""
+def eintrag(artikel, mandant, bestand=None, offen=None, einst=None, jetzt=None, *, am=LADEN, gesehen_zeile=LADEN, imp=LADEN,
+            vorgabe=LADEN) -> Eintrag | None:
+    """Radar-Auswertung eines Artikels im Mandanten; None, wenn der Artikel nie gemeldet wird (Typ G, L ohne Kosten, P ohne Menge).
+    am, gesehen_zeile, imp, vorgabe: bereits geladene Werte (ArtikelMandant, RadarGesehen, Import-EK, PreisVorgabe) für Listen;
+    ohne Angabe werden sie hier geladen."""
     if artikel.typ == Artikeltyp.G:
         return None
     einst = einst or einstellungen()
@@ -170,8 +174,14 @@ def eintrag(artikel, mandant, bestand=None, offen=None, einst=None, jetzt=None) 
     menge = max(bestand, NULL) + offen
     if artikel.typ == Artikeltyp.P and menge <= 0:
         return None
-    am = ArtikelMandant.objects.filter(artikel=artikel, mandant=mandant).first()
-    imp = ek_import(artikel)
+    if am is LADEN:
+        am = ArtikelMandant.objects.filter(artikel=artikel, mandant=mandant).first()
+    if imp is LADEN:
+        imp = ek_import(artikel)
+    if vorgabe is LADEN:
+        vorgabe = PreisVorgabe.objects.first()
+    auf_99 = bool(vorgabe and vorgabe.rundung_99)
+    marge = marge_stufe(artikel, 1, vorgabe)
     if artikel.typ == Artikeltyp.L:
         if artikel.kosten is None:
             return None
@@ -180,14 +190,14 @@ def eintrag(artikel, mandant, bestand=None, offen=None, einst=None, jetzt=None) 
         k = kalkulations_ek(bestand, am.ek_avg if am else None, imp, am.ek_we if am else None,
                             am.ek2 if am else None, am.ek2_fix if am else False)
         ek_kalk, quelle = k.ek_kalk, k.quelle
-        vorschlag = vk_vorschlag_aus(ek_kalk, marge_stufe(artikel, 1))
+        vorschlag = vk_vorschlag_aus(ek_kalk, marge, auf_99)
         vk_fix = am.vk_fix1 if am else False
     ek_avg = am.ek_avg if am else None
     basis, basis_quelle, befunde = bewerte(
         bestand=bestand, ek_avg=ek_avg, ek_import_wert=imp, ek_kalk=ek_kalk, quelle=quelle, vk=artikel.vk1, vorschlag=vorschlag,
-        vk_fix=vk_fix, ziel_marge=marge_stufe(artikel, 1), einst=einst, ek2=am.ek2 if am else None,
+        vk_fix=vk_fix, ziel_marge=marge, einst=einst, ek2=am.ek2 if am else None,
         ek2_datum=am.ek2_datum if am else None, ek_we=am.ek_we if am else None, jetzt=jetzt)
-    g = RadarGesehen.objects.filter(artikel=artikel, mandant=mandant).first()
+    g = RadarGesehen.objects.filter(artikel=artikel, mandant=mandant).first() if gesehen_zeile is LADEN else gesehen_zeile
     gesehen = g is not None and not any(_geaendert(a, n, einst) for a, n in ((g.ek_kalk, ek_kalk), (g.ek_avg, ek_avg), (g.vk, artikel.vk1)))
     senkung = (artikel.typ != Artikeltyp.L and not vk_fix and artikel.vk1 is not None
                and vk_uebernahme(artikel.vk1, vorschlag, False) == "senkung_pruefen")
@@ -200,6 +210,34 @@ def ampel(artikel, mandant) -> str:
     """Ampelfarbe für die Artikelliste: rot, gelb, blau, gruen, grau oder leer. Ausgeblendete Artikel zeigen ihre Ampel weiter."""
     e = eintrag(artikel, mandant)
     return e.ampel if e else ""
+
+
+def ampeln(artikel_liste, mandant) -> dict:
+    """{artikel_pk: Ampelfarbe} für eine ganze Liste (Seite der Artikelverwaltung) mit gesammelten Abfragen statt je Zeile.
+    Gleiche Farben wie ampel(); Artikel ohne Eintrag (Typ G, L ohne Kosten, P ohne Menge) fehlen im Ergebnis.
+    Voraussetzung für wenige Abfragen: kategorie__eltern__eltern per select_related geladen."""
+    from apps.lager.models import Lagerbewegung
+    artikel_liste = [a for a in artikel_liste if a.typ != Artikeltyp.G]
+    ids = [a.pk for a in artikel_liste]
+    if not ids:
+        return {}
+    bestaende = {z["artikel_id"]: z["s"] for z in Lagerbewegung.objects.filter(mandant=mandant, artikel_id__in=ids)
+                 .order_by().values("artikel_id").annotate(s=Sum("menge"))}
+    offen = offene_mengen(mandant, ids)
+    mandantendaten = {am.artikel_id: am for am in ArtikelMandant.objects.filter(mandant=mandant, artikel_id__in=ids)}
+    gesehen = {g.artikel_id: g for g in RadarGesehen.objects.filter(mandant=mandant, artikel_id__in=ids)}
+    guenstigst = {}
+    for al in ArtikelLieferant.objects.filter(artikel_id__in=ids, ek__gt=0).order_by("artikel_id", "ek"):
+        guenstigst.setdefault(al.artikel_id, al.ek)
+    einst, vorgabe = einstellungen(), PreisVorgabe.objects.first()
+    ergebnis = {}
+    for a in artikel_liste:
+        imp = a.durchschnitts_ek if a.durchschnitts_ek and a.ek_herkunft != EkHerkunft.WARENEINGANG else guenstigst.get(a.pk)
+        e = eintrag(a, mandant, bestaende.get(a.pk, NULL) or NULL, offen.get(a.pk, NULL), einst, am=mandantendaten.get(a.pk),
+                    gesehen_zeile=gesehen.get(a.pk), imp=imp, vorgabe=vorgabe)
+        if e:
+            ergebnis[a.pk] = e.ampel
+    return ergebnis
 
 
 def offene_mengen(mandant, artikel_ids=None, heute=None) -> dict:

@@ -14,7 +14,7 @@ from apps.verkauf.views import mit_mandant
 
 from apps.verkauf.models import Beleg, Position
 
-from .models import Bewegungsart, Lagerbewegung, Reparaturbewegung, Seriennummer, bestand, reparaturbestand, reserviert
+from .models import Bewegungsart, Lagerbewegung, Reparaturbewegung, Seriennummer, bestand, reparaturbestand, reserviert, reserviert_je_artikel
 from .services import (buche_manuell, inventur, reparatur_ausbuchen, reparatur_umbuchen, retoure_aus_gutschrift,
                        seriennummer_wieder_einlagern, seriennummern_einlagern, seriennummern_zuordnen, umbuchen, zeilen)
 
@@ -71,9 +71,10 @@ def uebersicht(request):
     seite = Paginator(artikel.select_related("steuersatz").prefetch_related("bilder").order_by("nummer"), pro_seite).get_page(request.GET.get("seite"))
     zeilen = []
     eks = ek_je_artikel(seite.object_list)
+    reserviert_summen = reserviert_je_artikel(request.mandant, [a.pk for a in seite.object_list if summen.get(a.pk)])
     for a in seite.object_list:
         b = summen.get(a.pk, Decimal("0"))
-        r = reserviert(request.mandant, a) if b else Decimal("0")
+        r = reserviert_summen.get(a.pk, Decimal("0")) if b else Decimal("0")
         ek, quelle = eks[a.pk]
         zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": b - r, "reparatur": reparatur.get(a.pk, Decimal("0")),
                        "ek": ek, "ek_quelle": quelle})

@@ -10,6 +10,9 @@ class LagerbewegungAdmin(admin.ModelAdmin):
     list_display = ["zeitpunkt", "mandant", "artikel", "art", "menge", "beleg", "benutzer"]
     list_filter = ["mandant", "art"]
     search_fields = ["artikel__nummer", "artikel__bezeichnung", "bemerkung"]
+    list_select_related = ["mandant", "artikel", "beleg", "benutzer"]
+    date_hierarchy = "zeitpunkt"
+    show_full_result_count = False  # viele Zeilen: kein zweites COUNT(*)
 
     def has_add_permission(self, request):
         return False
@@ -31,3 +34,4 @@ class SeriennummerAdmin(admin.ModelAdmin):
     list_display = ["nummer", "artikel", "mandant", "status", "eingang"]
     list_filter = ["mandant", "status"]
     search_fields = ["nummer", "artikel__nummer", "artikel__bezeichnung"]
+    list_select_related = ["mandant", "artikel"]

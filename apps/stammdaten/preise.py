@@ -13,8 +13,12 @@ from .models import Kundenpreis, PreisVorgabe, _ek_quelle
 CENT = Decimal("0.01")
 
 
-def aufschlag(artikel, stufe: int):
-    """Aufschlag in Prozent für die Preisstufe oder None, wenn nirgends einer hinterlegt ist."""
+LADEN = object()  # „noch nicht geladen“ (None bedeutet: es gibt keine Vorgabe)
+
+
+def aufschlag(artikel, stufe: int, vorgabe=LADEN):
+    """Aufschlag in Prozent für die Preisstufe oder None, wenn nirgends einer hinterlegt ist.
+    vorgabe: bereits geladene PreisVorgabe (spart die Abfrage in Listen)."""
     wert = getattr(artikel, f"aufschlag_vk{stufe}", None)
     if wert is not None:
         return wert
@@ -24,7 +28,8 @@ def aufschlag(artikel, stufe: int):
         if wert is not None:
             return wert
         kategorie, schutz = kategorie.eltern, schutz + 1
-    vorgabe = PreisVorgabe.objects.first()
+    if vorgabe is LADEN:
+        vorgabe = PreisVorgabe.objects.first()
     return getattr(vorgabe, f"aufschlag_vk{stufe}", None) if vorgabe else None
 
 

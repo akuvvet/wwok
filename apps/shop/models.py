@@ -114,3 +114,4 @@ class SyncProtokoll(models.Model):
         verbose_name = "Shop-Protokoll"
         verbose_name_plural = "Shop-Protokoll"
         ordering = ["-zeitpunkt"]
+        indexes = [models.Index(fields=["shop", "-zeitpunkt"], name="syncprotokoll_shop_zeit")]

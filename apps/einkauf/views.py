@@ -74,7 +74,7 @@ def lieferanten(request):
 @mit_mandant
 def bestellungen(request):
     status = request.GET.get("status", "offen")
-    liste = Bestellung.objects.filter(mandant=request.mandant).select_related("lieferant")
+    liste = Bestellung.objects.filter(mandant=request.mandant).select_related("lieferant").prefetch_related("positionen")
     if status == "offen":
         liste = liste.filter(status__in=[BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL])
     elif status in BestellStatus.values:
@@ -250,9 +250,10 @@ def api_bestellartikel(request, bestellung_id):
         ek, bestellnr = services.ek_vorschlag(b.mandant, b.lieferant, a)
         treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "ek": vergleich.eur(ek), "bestellnummer": bestellnr,
                         "pl": None, "lieferant": "", "eigener": True})
+    kurz = b.lieferant.kurz  # alle Treffer gehören zum Lieferanten der Bestellung
     for e in eintraege.order_by("bezeichnung")[:15]:
         treffer.append({"nummer": e.nummer, "bezeichnung": e.bezeichnung, "ek": vergleich.eur(e.ek), "bestellnummer": e.bestellnummer,
-                        "pl": e.pk, "lieferant": e.lieferant.kurz, "bestand": e.bestand, "eigener": False})
+                        "pl": e.pk, "lieferant": kurz, "bestand": e.bestand, "eigener": False})
     return JsonResponse({"treffer": treffer})
 
 
@@ -412,7 +413,8 @@ def wareneingaenge(request):
     return render(request, "einkauf/wareneingaenge.html", {
         "liste": Wareneingang.objects.filter(mandant=request.mandant).select_related("lieferant", "bestellung")[:200],
         "lieferanten": Lieferant.objects.filter(gesperrt=False),
-        "offene": Bestellung.objects.filter(mandant=request.mandant, status__in=[BestellStatus.BESTELLT, BestellStatus.TEIL])})
+        "offene": Bestellung.objects.filter(mandant=request.mandant, status__in=[BestellStatus.BESTELLT, BestellStatus.TEIL])
+        .select_related("lieferant")})
 
 
 @mit_mandant
@@ -517,7 +519,8 @@ def wareneingang_buchen(request, we_id):
 @mit_mandant
 def rechnungen(request):
     status = request.GET.get("status", "offen")
-    liste = Lieferantenrechnung.objects.filter(mandant=request.mandant).select_related("lieferant")
+    liste = Lieferantenrechnung.objects.filter(mandant=request.mandant).select_related("lieferant") \
+        .prefetch_related("wareneingaenge__positionen")
     if status in RechnungStatus.values:
         liste = liste.filter(status=status)
     elif status == "offen":

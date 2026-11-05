@@ -14,6 +14,7 @@ class BestellungAdmin(admin.ModelAdmin):
     list_display = ["nummer", "mandant", "lieferant", "datum", "status"]
     list_filter = ["mandant", "status"]
     search_fields = ["nummer", "lieferant__name1"]
+    list_select_related = ["mandant", "lieferant"]
     inlines = [BestellPositionInline]
 
 
@@ -26,6 +27,8 @@ class WareneingangPositionInline(admin.TabularInline):
 class WareneingangAdmin(admin.ModelAdmin):
     list_display = ["nummer", "mandant", "lieferant", "datum", "gebucht"]
     list_filter = ["mandant", "gebucht"]
+    search_fields = ["nummer", "lieferant__name1"]
+    list_select_related = ["mandant", "lieferant"]
     inlines = [WareneingangPositionInline]
 
 
@@ -34,12 +37,15 @@ class LieferantenrechnungAdmin(admin.ModelAdmin):
     list_display = ["rechnungsnummer", "lieferant", "mandant", "datum", "faellig", "brutto", "status"]
     list_filter = ["mandant", "status"]
     search_fields = ["rechnungsnummer", "lieferant__name1"]
+    list_select_related = ["mandant", "lieferant"]
 
 
 @admin.register(Rma)
 class RmaAdmin(admin.ModelAdmin):
     list_display = ["nummer", "mandant", "lieferant", "bezeichnung", "status"]
     list_filter = ["mandant", "status"]
+    search_fields = ["nummer", "bezeichnung", "seriennummer", "lieferant__name1"]
+    list_select_related = ["mandant", "lieferant"]
 
 
 @admin.register(Preislistenprofil)

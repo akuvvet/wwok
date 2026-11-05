@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Count, F, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -27,9 +27,17 @@ def software_kategorien():
 
 @mit_mandant
 def uebersicht(request):
-    zeilen = []
-    for a in Artikel.objects.filter(esd_key=True).order_by("nummer"):
-        zeilen.append({"artikel": a, **services.bestand(request.mandant, a)})
+    # Bestand je Artikel in einer Abfrage (gleiche Zahlen wie services.bestand)
+    mand = Q(esd_keys__mandant=request.mandant)
+    aktiv = mand & Q(esd_keys__status=KeyStatus.AKTIV)
+    artikel_liste = Artikel.objects.filter(esd_key=True).annotate(
+        n_keys=Count("esd_keys", filter=mand),
+        n_gesperrt=Count("esd_keys", filter=mand & Q(esd_keys__status=KeyStatus.GESPERRT)),
+        n_vergeben=Sum("esd_keys__vergeben", filter=mand),
+        n_max=Sum("esd_keys__max_vergaben", filter=aktiv),
+        n_aktiv_vergeben=Sum("esd_keys__vergeben", filter=aktiv)).order_by("nummer")
+    zeilen = [{"artikel": a, "keys": a.n_keys, "frei": max((a.n_max or 0) - (a.n_aktiv_vergeben or 0), 0),
+               "gesperrt": a.n_gesperrt, "vergeben": a.n_vergeben or 0} for a in artikel_liste]
     q = request.GET.get("q", "").strip()
     ids = software_kategorien()
     kandidaten = []
@@ -90,7 +98,7 @@ def artikel(request, artikel_id):
     status = request.GET.get("status", "")
     keys = ESDKey.objects.filter(mandant=request.mandant, artikel=a).prefetch_related("vergaben__kunde")
     if status == "frei":
-        keys = [k for k in keys if k.frei > 0]
+        keys = keys.filter(status=KeyStatus.AKTIV, vergeben__lt=F("max_vergaben"))
     elif status in KeyStatus.values:
         keys = keys.filter(status=status)
     seite = Paginator(keys, 50).get_page(request.GET.get("seite"))
