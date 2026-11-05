@@ -273,6 +273,7 @@ def sperr_schutz(view):
 @sperr_schutz
 def beleg_kopf(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
+    beleg.arbeitsstand_beenden()  # Altdaten: ein früher offener Arbeitsstand wird still beendet
     neue_versandart = request.POST.get("versandart", "").strip()
     versandart_geaendert = neue_versandart != beleg.versandart and not beleg.gesperrt
     if not versandart_geaendert:
@@ -785,6 +786,7 @@ def beleg_pdf_ansicht(request, beleg_id):
 @mit_mandant
 def beleg_mail(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
+    beleg.arbeitsstand_beenden()  # Altdaten: ein früher offener Arbeitsstand wird still beendet
     if beleg.nummer and not beleg.positionen.exists():
         messages.error(request, "Ein Beleg ohne Position kann nicht versendet werden.")
         return redirect("verkauf:beleg", beleg_id=beleg.pk)

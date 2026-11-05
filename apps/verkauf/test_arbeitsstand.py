@@ -109,7 +109,7 @@ class ArbeitsstandTest(TestCase):
 
     def test_abgeschlossener_beleg_bleibt_gesperrt(self):
         re = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.k)
-        Position.objects.create(beleg=re, artikel=self.a, bezeichnung="Gehäuse", einzelpreis=Decimal("100"))
+        Position.objects.create(beleg=re, bezeichnung="Gehäuse", einzelpreis=Decimal("100"))  # freie Position: braucht keinen Lagerbestand
         re.berechne()
         re.abschliessen()
         re.refresh_from_db()
