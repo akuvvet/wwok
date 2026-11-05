@@ -18,7 +18,7 @@ from apps.stammdaten.leistung_import import ImportFehler
 from apps.stammdaten.models import Artikel, Kunde, Lieferant, Preislistenartikel, Steuersatz
 
 from .admin import AboPositionFormset
-from .models import Abo, AboPosition, Beleg, Belegart, BelegGesperrt, Mengenregel, Position, faellige_abos, regel_vorschlag
+from .models import Abo, AboPosition, Beleg, BelegArbeitsstand, Belegart, BelegGesperrt, Mengenregel, Position, faellige_abos, regel_vorschlag
 from .position_import import menge_lesen, positionen_importieren
 
 KOPF = ["pos", "nummer", "benennung", "k", "netto", "menge", "gesamtnetto", "Zusatz_pos", "Kennzeichen"]
@@ -218,24 +218,23 @@ class PositionsimportTest(Grundlage):
         inhalt = b"nummer;menge;netto\n40003;1;5\n" + b";;\n" * 1500
         self.assertEqual(positionen_importieren(self.beleg(), "a.csv", inhalt)[0], 1)
 
-    def test_ansicht_gilt_erst_nach_speichern(self):
+    def test_import_gilt_sofort(self):
         b = self.beleg()
         Position.objects.create(beleg=b, typ="L", bezeichnung="vorher", menge=1, einzelpreis=Decimal("1"))
         b.berechne()
         url = reverse("verkauf:positionen_import", args=[b.pk])
         r = self.client.post(url, {"datei": SimpleUploadedFile("a.xlsx", excel(DATEI_30))}, follow=True)
         self.assertContains(r, "7 Position(en) importiert")
-        self.assertContains(r, "Nicht gespeicherte Änderungen")
+        self.assertNotContains(r, "Nicht gespeicherte Änderungen")
         self.assertEqual(b.positionen.count(), 8)
-        self.client.post(reverse("verkauf:beleg_verwerfen", args=[b.pk]))
-        self.assertEqual(list(b.positionen.values_list("bezeichnung", flat=True)), ["vorher"])
+        self.assertFalse(BelegArbeitsstand.objects.filter(beleg=b).exists())
 
     def test_ansicht_fehler_laesst_beleg_ohne_offenen_stand(self):
         b = self.beleg()
         url = reverse("verkauf:positionen_import", args=[b.pk])
         r = self.client.post(url, {"datei": SimpleUploadedFile("a.csv", b"nummer;menge\n49999;1\n")}, follow=True)
         self.assertContains(r, "Nummer 49999 ist nicht angelegt")
-        self.assertFalse(b.hat_offenen_stand)
+        self.assertFalse(BelegArbeitsstand.objects.filter(beleg=b).exists())
         r = self.client.post(url, {}, follow=True)
         self.assertContains(r, "bis 5 MB")
 
@@ -373,11 +372,7 @@ class HalbmonatTest(Grundlage):
         b = self.beleg()
         positionen_importieren(b, "a.xlsx", excel(DATEI_30))
         url = reverse("verkauf:abo_aus_rechnung", args=[b.pk])
-        b.arbeitsstand_sichern(self.u)
-        r = self.client.post(url, {"monate": "15", "start": "2026-11-01", "bezeichnung": "Apetito"}, follow=True)
-        self.assertContains(r, "nicht gespeicherte Änderungen")
-        self.assertFalse(Abo.objects.exists())
-        b.arbeitsstand_beenden()
+        BelegArbeitsstand.objects.create(beleg=b, daten="{}")  # Altdaten: wird still beendet
         r = self.client.post(url, {"monate": "15", "start": "2026-11-01", "bezeichnung": "Apetito"}, follow=True)
         self.assertContains(r, "5 Position(en) rechnen nach dem Kalender")
         abo = Abo.objects.get()

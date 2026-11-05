@@ -98,6 +98,12 @@ class ShopwareClient:
     def kategorien(self) -> list:
         return self._alle("category", ["id", "name"])
 
+    def kategorien_aktiv_setzen(self, aenderungen: list):
+        """aenderungen: Liste (Kategorie-ID im Shop, aktiv). Ändert nur das Feld active, sonst nichts."""
+        for i in range(0, len(aenderungen), 100):
+            self.api("POST", "/api/_action/sync", {"write-kategorien": {"entity": "category", "action": "upsert", "payload": [
+                {"id": kid, "active": bool(aktiv)} for kid, aktiv in aenderungen[i:i + 100]]}})
+
     def hersteller(self) -> list:
         return self._alle("product_manufacturer", ["id", "name"])
 

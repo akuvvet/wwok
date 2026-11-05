@@ -113,6 +113,8 @@ class WerkstattTest(TestCase):
         self.assertEqual(rep.positionen.get().einzelpreis, Decimal("60.00"))
         self.assertContains(self.client.get(reverse("werkstatt:detail", args=[rep.pk])), "Drucker HP")
         self.assertContains(self.client.get(reverse("werkstatt:liste"), {"q": "abc9"}), rep.nummer)
+        self.assertContains(self.client.get(reverse("werkstatt:liste")), reverse("verkauf:kunde", args=[self.kunde.pk]))
+        self.assertContains(self.client.get(reverse("werkstatt:detail", args=[rep.pk])), reverse("verkauf:api_artikel"))
         for art in ("annahme", "abhol"):
             self.assertEqual(self.client.get(reverse("werkstatt:schein", args=[rep.pk, art]))["Content-Type"], "application/pdf")
         self.assertTrue(schein_pdf(rep, True).startswith(b"%PDF"))

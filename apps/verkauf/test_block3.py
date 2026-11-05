@@ -148,6 +148,13 @@ class Block3Test(TestCase):
         self.assertTrue(w.erledigt and w.erledigt_am)
         self.assertNotContains(self.client.get(reverse("verkauf:start")), "Angebot nachfassen")
 
+    def test_wiedervorlage_erledigt_bleibt_auf_kundenkarte(self):
+        karte = reverse("verkauf:kunde", args=[self.kunde.pk])
+        for weiter, ziel in [(karte, karte), ("", karte), ("https://boese.example/x", karte), ("//boese.example/x", karte)]:
+            w = Wiedervorlage.objects.create(mandant=self.m, kunde=self.kunde, faellig=date.today(), text="x")
+            r = self.client.post(reverse("verkauf:wiedervorlage_erledigt", args=[w.pk]), {"weiter": weiter})
+            self.assertRedirects(r, ziel, fetch_redirect_response=False)
+
     def test_wiedervorlage_anderer_mandant_nicht_erledigbar(self):
         w = Wiedervorlage.objects.create(mandant=self.m2, kunde=self.kunde, faellig=date.today(), text="fremd")
         self.assertEqual(self.client.post(reverse("verkauf:wiedervorlage_erledigt", args=[w.pk])).status_code, 404)
