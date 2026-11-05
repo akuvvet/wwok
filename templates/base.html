@@ -332,11 +332,20 @@
     });
   };
   window.wwokMeldung = function (text) { return wwokDialog(text, [{text: 'OK', wert: true, haupt: true}]); };
+  // Doppelklick-Schutz: nach dem Absenden den Knopf sperren (nicht bei GET-Filtern und Formularen mit eigenem Ziel, z. B. PDF)
+  function sperren(f, knopf) {
+    if ((f.method || 'get').toLowerCase() !== 'post' || (f.target && f.target !== '_self')) return;
+    if (knopf && knopf.formTarget && knopf.formTarget !== '_self') return;
+    var alle = knopf ? [knopf] : f.querySelectorAll('button[type=submit],button:not([type]),input[type=submit]');
+    // erst nach dem Absenden sperren, sonst fehlt name/value des Knopfes in den Formulardaten
+    setTimeout(function () { Array.prototype.forEach.call(alle, function (b) { b.disabled = true; }); }, 0);
+    window.addEventListener('pageshow', function (ev) { if (ev.persisted) Array.prototype.forEach.call(alle, function (b) { b.disabled = false; }); }, {once: true});
+  }
   // Rückfrage vor dem Absenden: data-frage am Formular oder am Knopf
   document.addEventListener('submit', function (e) {
     var f = e.target, knopf = e.submitter, frage = (knopf && knopf.dataset.frage) || f.dataset.frage;
-    if (!frage) return;
-    if (f.dataset.bestaetigt) { delete f.dataset.bestaetigt; return; }
+    if (!frage) { sperren(f, knopf); return; }
+    if (f.dataset.bestaetigt) { delete f.dataset.bestaetigt; sperren(f, knopf); return; }
     e.preventDefault(); e.stopPropagation();
     if (f.dataset.frageAuswahl) { var s = f.elements[f.dataset.frageAuswahl]; frage += ' ' + s.options[s.selectedIndex].text; }
     wwokDialog(frage, [{text: 'Ja', wert: true, haupt: true}, {text: 'Abbrechen', wert: false}]).then(function (ja) {
