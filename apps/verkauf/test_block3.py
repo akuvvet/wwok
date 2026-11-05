@@ -55,11 +55,12 @@ class Block3Test(TestCase):
         antwort = self.client.get(url, {"art": "RE", "q": "Muster", "status": "offen", "von": "2000-01-01"})
         html = antwort.content.decode()
         # Live-Filter tauscht nur diesen Bereich aus; ohne JavaScript bleibt der Knopf „Filtern“
-        self.assertIn('id="belegfilter"', html)
-        self.assertIn('<p id="belegzahl" aria-live="polite">1 Belege</p>', html)  # nur die Anzahl wird vorgelesen
-        self.assertIn(f'<div id="belegergebnis" data-mandant="{self.m.pk}">', html)  # Mandantenwechsel lädt die ganze Seite
+        self.assertIn('<form method="get" class="zeile" data-livefilter>', html)
+        self.assertIn('<p data-zahl aria-live="polite">1 Belege</p>', html)  # nur die Anzahl wird vorgelesen
+        self.assertIn(f'<div data-ergebnis data-mandant="{self.m.pk}">', html)  # Mandantenwechsel lädt die ganze Seite
         self.assertIn('<noscript><button type="submit">Filtern</button></noscript>', html)
-        self.assertIn("timer = setTimeout(filtern, 300)", html)  # Suchtext mit Tipp-Pause
+        self.assertIn("timer = setTimeout(filtern, 300)", html)  # Suchtext mit Tipp-Pause (gemeinsames Skript aus base.html)
+        self.assertEqual(html.count("form[data-livefilter]"), 1)  # kein doppeltes Skript
         self.assertIn('<option value="RE" selected>', html)  # Auswahl bleibt nach dem Neuladen sichtbar
         self.assertIn('value="Muster"', html)
         self.assertIn('value="2000-01-01"', html)

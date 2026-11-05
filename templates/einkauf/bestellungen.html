@@ -6,6 +6,7 @@
   <div class="zeile" style="justify-content:space-between">
     <p class="zeile" style="margin:0">
       <a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">Offene</a>
+      <a class="knopf {% if status != 'bestellt' %}leise{% endif %}" href="?status=bestellt">Bestellt</a>
       <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a>
     </p>
     <form method="post" action="{% url 'einkauf:bestellung_neu' %}" class="zeile">{% csrf_token %}

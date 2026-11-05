@@ -49,14 +49,15 @@
 
 <div class="karte">
   <h2>Belege</h2>
-  <form method="get" class="zeile">
-    <div><label>Belegart</label><select name="art" onchange="this.form.submit()"><option value="">alle</option>
+  <form method="get" class="zeile" data-livefilter>
+    <div><label>Belegart</label><select name="art"><option value="">alle</option>
       {% for wert, name in arten %}<option value="{{ wert }}" {% if filter == wert %}selected{% endif %}>{{ name }}</option>{% endfor %}
       <option value="offen" {% if filter == 'offen' %}selected{% endif %}>nur Entwürfe/offene</option></select></div>
     <div><label>ab Datum</label><input type="date" name="ab" value="{{ ab }}"></div>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="ohne_storno" value="1" {% if ohne_storno %}checked{% endif %}> ohne Storno/Gutschrift</label>
-    <button type="submit" class="leise">Filtern</button>
+    <noscript><button type="submit" class="leise">Filtern</button></noscript>
   </form>
+  <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
   <form method="post" action="{% url 'verkauf:lieferscheine_abrechnen' kunde.pk %}">{% csrf_token %}
   <div class="scroll" style="margin-top:10px">
   <table>
@@ -74,7 +75,7 @@
         <td class="aktionszelle">{% if z.bezug %}<a class="symbol unten links" href="{% url 'verkauf:beleg' z.bezug.pk %}" data-tip="{{ z.bezug.get_art_display }} {{ z.bezug.nummer }}"
                aria-label="Bezug: {{ z.bezug.get_art_display }} {{ z.bezug.nummer }}"><svg aria-hidden="true"><use href="#i-beleg"/></svg></a>{% endif %}</td>
         <td>{% if b.abgeschlossen %}abgeschlossen{% if b.art == 'LS' and not z.abrechenbar %} · berechnet{% endif %}{% else %}Entwurf{% endif %}</td></tr>
-    {% endwith %}{% empty %}<tr><td colspan="9">Keine Belege.</td></tr>{% endfor %}
+    {% endwith %}{% empty %}<tr><td colspan="9">{% if filter or ab or ohne_storno %}{% include "filter_leer.html" %}{% else %}Keine Belege.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>
   </div>
@@ -82,5 +83,6 @@
     <span style="opacity:.7">Es gibt mehrere offene Lieferscheine – wähle die aus, die gemeinsam abgerechnet werden sollen.</span></p>{% endif %}
   </form>
   {% include "seiten.html" %}
+  </div>
 </div>
 {% endblock %}
