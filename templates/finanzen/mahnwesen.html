@@ -5,9 +5,9 @@
   <h1>Mahnwesen · Mandant {{ request.mandant }}</h1>
   <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a></p>
   <h2>Fällige Mahnungen</h2>
-  <form method="post" action="{% url 'finanzen:mahnungen_erstellen' %}">{% csrf_token %}
+  <form method="post" action="{% url 'finanzen:mahnungen_erstellen' %}" id="mahnform">{% csrf_token %}
   <table>
-    <tr><th></th><th>Rechnung</th><th>Kunde</th><th>fällig seit</th><th class="zahl">offen</th><th>Nächste Stufe</th><th class="zahl">Gebühr</th></tr>
+    <tr><th><input type="checkbox" id="mahnalle" checked title="alle / keine"></th><th>Rechnung</th><th>Kunde</th><th>fällig seit</th><th class="zahl">offen</th><th>Nächste Stufe</th><th class="zahl">Gebühr</th></tr>
     {% for z in vorschlag %}
     <tr><td><input type="checkbox" name="auswahl" value="{{ z.beleg.pk }}:{{ z.stufe.stufe }}" checked></td>
         <td><a href="{% url 'finanzen:beleg' z.beleg.pk %}">{{ z.beleg.nummer }}</a></td><td>{{ z.beleg.kunde.name1 }}</td>
@@ -15,7 +15,21 @@
         <td>{{ z.stufe.bezeichnung }}</td><td class="zahl">{{ z.stufe.gebuehr }}</td></tr>
     {% empty %}<tr><td colspan="7">Aktuell ist nichts zu mahnen.</td></tr>{% endfor %}
   </table>
-  {% if vorschlag %}<p><button type="submit">Ausgewählte Mahnungen erstellen</button></p>{% endif %}
+  {% if vorschlag %}<p><button type="submit" id="mahnknopf" data-frage="Ausgewählte Mahnungen erstellen?">Ausgewählte Mahnungen erstellen</button></p>
+  <script>
+  (function () {
+    var f = document.getElementById('mahnform'), alle = document.getElementById('mahnalle'), k = document.getElementById('mahnknopf');
+    function boxen() { return f.querySelectorAll('input[name=auswahl]'); }
+    function zaehlen() {
+      var n = f.querySelectorAll('input[name=auswahl]:checked').length;
+      k.dataset.frage = n + ' Mahnung(en) erstellen?'; k.disabled = n === 0;
+      alle.checked = n === boxen().length;
+    }
+    alle.addEventListener('change', function () { boxen().forEach(function (b) { b.checked = alle.checked; }); zaehlen(); });
+    f.addEventListener('change', function (e) { if (e.target.name === 'auswahl') zaehlen(); });
+    zaehlen();
+  })();
+  </script>{% endif %}
   </form>
 </div>
 <div class="karte">

@@ -5,7 +5,7 @@
 <div class="karte">
   <h1>Lieferanten</h1>
   <form method="get" class="zeile">
-    <div><label>Suche</label><input name="q" value="{{ q }}" placeholder="Name, Kurzname, Ort, Nummer" autofocus></div>
+    <div><label for="f-q">Suche</label><input id="f-q" name="q" value="{{ q }}" placeholder="Name, Kurzname, Ort, Nummer" autofocus></div>
     <button type="submit" class="leise">Suchen</button>
     <a class="knopf" data-modal="{% url 'stammdaten:lieferant_neu' %}" href="{% url 'einkauf:lieferanten' %}">+ Neuer Lieferant</a>
   </form>

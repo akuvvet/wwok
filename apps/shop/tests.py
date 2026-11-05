@@ -57,6 +57,9 @@ class FakeClient(ShopwareClient):
     def kategorien(self):
         return getattr(self, "shop_kategorien", [])
 
+    def kategorien_aktiv_setzen(self, aenderungen):
+        self.kategorie_aktiv = getattr(self, "kategorie_aktiv", []) + list(aenderungen)
+
     def hersteller(self):
         return getattr(self, "shop_hersteller", [])
 

@@ -41,6 +41,22 @@ class WerkstattTest(TestCase):
         self.assertEqual((r.status, r.fertig_am), (Status.FERTIG, date.today()))
         self.assertIsNone(services.status_setzen(r, Status.WARTET))  # keine Mail für diesen Status
 
+    def test_statuswechsel_ohne_haken_sendet_keine_mail(self):
+        self.client.force_login(self.user)
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+        r = self.annehmen()
+        from unittest import mock
+        url = reverse("werkstatt:status", args=[r.pk])
+        with mock.patch.object(services, "statusmail") as sm:
+            self.client.post(url, {"status": Status.FERTIG})  # Haken nicht gesetzt
+            sm.assert_not_called()
+            self.client.post(url, {"status": Status.IN_REPARATUR, "mail": "on"})  # Status mit Statusmail
+            sm.assert_called_once()
+        r.refresh_from_db()
+        self.assertEqual(r.status, Status.IN_REPARATUR)
+
     def test_rechnung_aus_teilen_und_arbeitszeit(self):
         r = self.annehmen()
         with self.assertRaises(ValueError):
@@ -97,6 +113,8 @@ class WerkstattTest(TestCase):
         self.assertEqual(rep.positionen.get().einzelpreis, Decimal("60.00"))
         self.assertContains(self.client.get(reverse("werkstatt:detail", args=[rep.pk])), "Drucker HP")
         self.assertContains(self.client.get(reverse("werkstatt:liste"), {"q": "abc9"}), rep.nummer)
+        self.assertContains(self.client.get(reverse("werkstatt:liste")), reverse("verkauf:kunde", args=[self.kunde.pk]))
+        self.assertContains(self.client.get(reverse("werkstatt:detail", args=[rep.pk])), reverse("verkauf:api_artikel"))
         for art in ("annahme", "abhol"):
             self.assertEqual(self.client.get(reverse("werkstatt:schein", args=[rep.pk, art]))["Content-Type"], "application/pdf")
         self.assertTrue(schein_pdf(rep, True).startswith(b"%PDF"))

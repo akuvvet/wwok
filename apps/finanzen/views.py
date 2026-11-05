@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -84,9 +85,12 @@ def beleg_op(request, beleg_id):
 def zahlung_buchen(request, beleg_id):
     beleg = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
     try:
+        # offen_bisher: offener Betrag, den die Maske gezeigt hat; weicht er ab, wurde schon gebucht (Doppelklick)
+        bisher = request.POST.get("offen_bisher")
         services.zahlung_buchen(beleg, betrag(request.POST.get("betrag")), datum(request.POST.get("datum")),
                                 request.POST.get("zahlart", Zahlart.UEBERWEISUNG),
-                                request.POST.get("bemerkung", "").strip(), request.user)
+                                request.POST.get("bemerkung", "").strip(), request.user,
+                                offen_bisher=betrag(bisher) if bisher else None)
         messages.success(request, "Zahlung gebucht.")
     except ValueError as fehler:
         messages.error(request, str(fehler))
@@ -238,6 +242,11 @@ def bank_zuordnen(request, umsatz_id):
         umsatz.status = Bankumsatz.IGNORIERT
         umsatz.save(update_fields=["status"])
         return redirect("finanzen:bank")
+    if request.POST.get("aktion") == "oeffnen":
+        if umsatz.status == Bankumsatz.IGNORIERT:
+            umsatz.status = Bankumsatz.OFFEN
+            umsatz.save(update_fields=["status"])
+        return redirect("finanzen:bank")
     nummer = request.POST.get("rechnung", "").strip().upper()
     beleg = Beleg.objects.filter(mandant=request.mandant, art=Belegart.RECHNUNG, nummer=nummer, abgeschlossen=True).first() \
         if nummer else umsatz.vorschlag
@@ -257,8 +266,15 @@ def bank_zuordnen(request, umsatz_id):
 @mit_mandant
 def kassenbuch(request):
     from .models import Kassenbuch
+    tokens = request.session.get("kassen_tokens", [])
     if request.method == "POST":
         try:
+            token = request.POST.get("token")
+            if token is not None:  # Formular-Token nur einmal einlösbar: Doppelklick bucht nicht doppelt
+                if token not in tokens:
+                    raise ValueError("Dieser Eintrag wurde bereits gebucht oder die Seite ist veraltet. Bitte das Kassenbuch prüfen.")
+                tokens.remove(token)
+                request.session["kassen_tokens"] = tokens
             summe = betrag(request.POST.get("betrag"))
             if summe <= 0:
                 raise ValueError("Betrag muss positiv sein.")
@@ -270,8 +286,10 @@ def kassenbuch(request):
         except ValueError as fehler:
             messages.error(request, str(fehler))
         return redirect("finanzen:kassenbuch")
+    token = uuid.uuid4().hex
+    request.session["kassen_tokens"] = (tokens + [token])[-20:]
     return render(request, "finanzen/kassenbuch.html", {
-        "eintraege": Kassenbuch.objects.filter(mandant=request.mandant)[:200], "stand": services.kassenstand(request.mandant),
+        "token": token, "eintraege": Kassenbuch.objects.filter(mandant=request.mandant)[:200], "stand": services.kassenstand(request.mandant),
         "heute": date.today().isoformat()})
 
 

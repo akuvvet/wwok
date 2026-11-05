@@ -103,6 +103,21 @@ class ShopArtikel(models.Model):
         constraints = [models.UniqueConstraint(fields=["shop", "artikel"], name="shopartikel_eindeutig")]
 
 
+class ShopKategorie(models.Model):
+    """Zuordnung Kategorie ↔ Kategorie im Shop, sobald wwok sie per Namen eindeutig gefunden hat.
+    Nur zugeordnete Shop-Kategorien schaltet wwok an oder aus; fremde bleiben unberührt."""
+
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="kategorien")
+    kategorie = models.ForeignKey("stammdaten.Kategorie", on_delete=models.CASCADE, related_name="shop_zuordnungen")
+    kategorie_id_extern = models.CharField(max_length=64)
+    im_shop_aktiv = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Shop-Kategorie"
+        verbose_name_plural = "Shop-Kategorien"
+        constraints = [models.UniqueConstraint(fields=["shop", "kategorie"], name="shopkategorie_eindeutig")]
+
+
 class SyncProtokoll(models.Model):
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="protokolle")
     zeitpunkt = models.DateTimeField(default=timezone.now)
