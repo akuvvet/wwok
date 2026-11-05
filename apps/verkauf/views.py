@@ -19,7 +19,7 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import (runden, Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Mengenregel, Position, Ruecknahme, Versand, Versandart,
+from .models import (runden, zahlungsbedingung_vorkasse, Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Mengenregel, Position, Ruecknahme, Versand, Versandart,
                      Wiedervorlage, letzte_preise, regel_vorschlag)
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
@@ -168,15 +168,19 @@ def kunde_detail(request, kunde_id):
         positionen.setdefault(p.beleg_id, []).append(p)
     ls_ids = [b.pk for b in seite.object_list if b.art == Belegart.LIEFERSCHEIN and b.abgeschlossen]
     berechnet = _berechnete_lieferscheine(ls_ids)
+    from apps.finanzen.anzahlung import status_je_proforma
+    pf_status = status_je_proforma(seite.object_list)
     null = Decimal("0")
     for b in seite.object_list:
         rechnung = b.art == Belegart.RECHNUNG and b.abgeschlossen
         gutschrift = b.art == Belegart.GUTSCHRIFT and b.abgeschlossen
-        erledigt = summen["bezahlt"].get(b.pk, null) + summen["gutgeschrieben"].get(b.pk, null)
+        erledigt = summen["bezahlt"].get(b.pk, null) + summen["gutgeschrieben"].get(b.pk, null) + summen["angerechnet"].get(b.pk, null)
+        status = pf_status.get(b.pk)
+        proforma = status is not None and status["code"] != "entwurf"
         zeilen.append({
-            "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None,
-            "bezahlt": erledigt if rechnung else None,
-            "offen": b.summe_brutto - erledigt if rechnung else
+            "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None, "zahlstatus": status,
+            "bezahlt": erledigt if rechnung else status["bezahlt"] if proforma else None,
+            "offen": b.summe_brutto - erledigt if rechnung else status["offen"] if proforma else
                      -(b.summe_brutto - summen["verrechnet"].get(b.pk, null)) if gutschrift else None,
             "abrechenbar": b.pk in ls_ids and b.pk not in berechnet,
             "bezug": b.vorgaenger if b.vorgaenger_id and b.vorgaenger.nummer else None,
@@ -226,6 +230,12 @@ def beleg_neu(request, kunde_id):
         messages.error(request, "Ein Lieferschein entsteht aus einer Bestellung: erst die Bestellung erfassen, "
                                 "dann dort „Als Lieferschein übernehmen“.")
         return redirect("verkauf:kunde", kunde_id=kunde.pk)
+    if art == Belegart.PROFORMA:
+        messages.error(request, "Eine Proforma-Rechnung entsteht aus einer Bestellung: dort unter „Mehr“ → „Kopieren als …“ → „Proforma-Rechnung“.")
+        return redirect("verkauf:kunde", kunde_id=kunde.pk)
+    if art == Belegart.PROFORMA_STORNO:
+        messages.error(request, "Ein Storno entsteht nur aus einer Proforma-Rechnung.")
+        return redirect("verkauf:kunde", kunde_id=kunde.pk)
     beleg = Beleg.objects.create(
         mandant=request.mandant, art=art, kunde=kunde,
         ansprechpartner=kunde.ansprechpartner.filter(hauptkontakt=True).first(),
@@ -262,9 +272,13 @@ def beleg_detail(request, beleg_id):
     md = beleg.kunde.mandantendaten.filter(mandant=beleg.mandant).first()
     limit = md.kreditlimit if md else None
     offen = kunde_offen(beleg.mandant, beleg.kunde)
-    kredit_warnung = bool(limit) and beleg.art != "AN" and not beleg.abgeschlossen and offen + beleg.summe_brutto > limit  # Angebote binden nicht
+    kredit_warnung = bool(limit) and beleg.art not in ("AN", "PF", "SP") and not beleg.abgeschlossen and offen + beleg.summe_brutto > limit  # Angebote binden nicht
     kredit_differenz = (offen + beleg.summe_brutto - limit) if kredit_warnung else None
+    from apps.finanzen import anzahlung
+    pf_status = anzahlung.proforma_status(beleg) if beleg.art == Belegart.PROFORMA else None
     return render(request, "verkauf/beleg.html", {
+        "pf_status": pf_status, "pf_storno": beleg.proforma_storno, "pf_rechnung": beleg.proforma_rechnung,
+        "anzahlungen": list(beleg.anzahlungen.select_related("quelle")) if beleg.art == Belegart.RECHNUNG else [],
         "kredit_warnung": kredit_warnung, "kredit_differenz": kredit_differenz,"kunde_offen": offen, "kreditlimit": limit,
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),
         "hat_lagerartikel": any(p.artikel_id and p.artikel.typ == "A" for p in positionen), "retoure_offen": retoure_offen(beleg),
@@ -300,7 +314,10 @@ def beleg_kopf(request, beleg_id):
     versandart_geaendert = neue_versandart != beleg.versandart and not beleg.gesperrt
     if not versandart_geaendert:
         beleg.versandart = neue_versandart
-    beleg.zahlungsbedingung = Zahlungsbedingung.objects.filter(pk=request.POST.get("zahlungsbedingung") or None).first()
+    if beleg.art == Belegart.PROFORMA:  # immer Vorkasse, egal was gewählt wurde
+        beleg.zahlungsbedingung = zahlungsbedingung_vorkasse()
+    elif beleg.art != Belegart.PROFORMA_STORNO:
+        beleg.zahlungsbedingung = Zahlungsbedingung.objects.filter(pk=request.POST.get("zahlungsbedingung") or None).first()
     if not beleg.gesperrt:
         beleg.ansprechpartner = Ansprechpartner.objects.filter(
             pk=request.POST.get("ansprechpartner") or None, kunde=beleg.kunde).first()
@@ -706,6 +723,44 @@ def beleg_kopieren(request, beleg_id):
     _uebernahme_meldung(request, beleg, neu)
     messages.success(request, f"{beleg.get_art_display()} als {neu.get_art_display()} kopiert.")
     return redirect("verkauf:beleg", beleg_id=neu.pk)
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+def beleg_umwandeln(request, beleg_id):
+    """Vollständig bezahlte Proforma-Rechnung in eine abgeschlossene Rechnung umwandeln (Vorkasse verrechnet)."""
+    from apps.finanzen.anzahlung import proforma_umwandeln
+    beleg = beleg_holen(request, beleg_id)
+    rechnung = proforma_umwandeln(beleg, request.user)
+    messages.success(request, f"{beleg} in {rechnung} umgewandelt – Zahlungsbedingung „Betrag dankend erhalten“, die Zahlung ist verrechnet.")
+    return redirect("verkauf:beleg", beleg_id=rechnung.pk)
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+def beleg_proforma_storno(request, beleg_id):
+    """Proforma-Rechnung stornieren (nach vollständiger Rückzahlung); es entsteht ein eigener Storno-Beleg."""
+    from apps.finanzen.anzahlung import proforma_stornieren
+    beleg = beleg_holen(request, beleg_id)
+    storno = proforma_stornieren(beleg, request.POST.get("grund", ""), request.user)
+    messages.success(request, f"{beleg} storniert – {storno} gespeichert.")
+    return redirect("verkauf:beleg", beleg_id=storno.pk)
+
+
+@mit_mandant
+@xframe_options_sameorigin
+def beleg_lieferschein_pdf(request, beleg_id):
+    """Lieferschein zur Rechnung drucken (ohne Preise); es entsteht kein Beleg und keine Lagerbuchung."""
+    from .pdf import beleg_pdf
+    beleg = beleg_holen(request, beleg_id)
+    if beleg.art != Belegart.RECHNUNG or not beleg.abgeschlossen:
+        messages.error(request, "Einen Lieferschein zum Drucken gibt es nur zu einer abgeschlossenen Rechnung.")
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    antwort = HttpResponse(beleg_pdf(beleg, als_lieferschein=True), content_type="application/pdf")
+    antwort["Content-Disposition"] = f'inline; filename="Lieferschein-{beleg.nummer}.pdf"'
+    return antwort
 
 
 @mit_mandant
@@ -1159,6 +1214,13 @@ def belege(request):
         regel = (dashboard.kundenbestellungen_offen(request.mandant) if art == Belegart.AUFTRAG
                  else dashboard.angebote_offen(request.mandant, timezone.localdate()))
         liste = liste.filter(pk__in=regel.order_by().values("pk"))
+    zahlung = request.GET.get("zahlung", "")  # eigener Parameter: status=offen bedeutet „Entwurf“
+    if zahlung in ("offen", "bezahlt"):
+        from apps.finanzen.anzahlung import status_je_proforma
+        pfs = list(liste.filter(art=Belegart.PROFORMA, abgeschlossen=True).exclude(folgebelege__art=Belegart.PROFORMA_STORNO)
+                   .exclude(folgebelege__art=Belegart.RECHNUNG).order_by())
+        codes = ("offen", "teilbezahlt") if zahlung == "offen" else ("bezahlt", "ueberzahlt")
+        liste = liste.filter(pk__in=[pk for pk, st in status_je_proforma(pfs).items() if st["code"] in codes])
     zeitraum = {}
     for feld, bedingung in (("von", "belegdatum__gte"), ("bis", "belegdatum__lte")):
         wert = request.GET.get(feld, "")
@@ -1172,8 +1234,12 @@ def belege(request):
     parameter.pop("seite", None)
     seite = Paginator(liste.order_by("-belegdatum", "-id"), 50).get_page(request.GET.get("seite"))
     seite.object_list = Beleg.versand_markieren(seite.object_list)
+    from apps.finanzen.anzahlung import status_je_proforma
+    zahlstatus = status_je_proforma(seite.object_list)
+    for b in seite.object_list:
+        b.zahlstatus = zahlstatus.get(b.pk)
     return render(request, "verkauf/belege.html", {
-        "seite": seite, "q": q, "art": art, "status": status, "von": zeitraum["von"], "bis": zeitraum["bis"],
+        "seite": seite, "q": q, "art": art, "status": status, "zahlung": zahlung, "von": zeitraum["von"], "bis": zeitraum["bis"],
         "arten": Belegart.choices, "parameter": parameter.urlencode(), "anzahl": seite.paginator.count})
 
 @mit_mandant

@@ -14,7 +14,7 @@ from apps.verkauf.models import Beleg, Belegart
 from . import services
 from .models import Bankumsatz, Zahlart
 
-RECHNUNGSNR = re.compile(r"RE\s?(\d{4})\s?-?\s?(\d{5,})", re.IGNORECASE)
+RECHNUNGSNR = re.compile(r"(RE|PF)\s?(\d{4})\s?-?\s?(\d{5,})", re.IGNORECASE)  # Rechnung oder Proforma (Vorkasse)
 
 # mögliche Spaltennamen in Bank-CSV-Dateien (klein geschrieben, Umlaute wie in der Datei)
 SPALTEN = {
@@ -128,9 +128,10 @@ def pruefsumme(mandant, u) -> str:
 
 
 def finde_rechnung(mandant, zweck: str):
-    for jahr, nr in RECHNUNGSNR.findall(zweck or ""):
-        beleg = Beleg.objects.filter(mandant=mandant, art=Belegart.RECHNUNG, abgeschlossen=True,
-                                     nummer=f"RE{jahr}-{nr}").first()
+    for art, jahr, nr in RECHNUNGSNR.findall(zweck or ""):
+        art = art.upper()
+        beleg = Beleg.objects.filter(mandant=mandant, art=art, abgeschlossen=True, nummer=f"{art}{jahr}-{nr}") \
+            .exclude(folgebelege__art=Belegart.PROFORMA_STORNO).first()
         if beleg:
             return beleg
     return None

@@ -14,7 +14,7 @@ from .pdf import beleg_pdf
 ARTIKEL = {Belegart.ANGEBOT: "unser Angebot", Belegart.AUFTRAG: "die Bestellbestätigung",
            Belegart.LIEFERSCHEIN: "den Lieferschein", Belegart.RECHNUNG: "die Rechnung",
            Belegart.GUTSCHRIFT: "die Gutschrift", Belegart.NACHLIEFERSCHEIN: "den Nachlieferschein",
-           Belegart.PROFORMA: "die Proforma-Rechnung"}
+           Belegart.PROFORMA: "die Proforma-Rechnung", Belegart.PROFORMA_STORNO: "den Storno zur Proforma-Rechnung"}
 GRUSS = "Mit freundlichen Grüßen\n{firma}"
 BELEG_TEXT = "{anrede},\n\nanbei erhalten Sie %s {nummer}.\n{zahlungstext}\n\nBei Fragen melden Sie sich gerne.\n\n" + GRUSS
 
@@ -39,7 +39,7 @@ STANDARD = {
                                "{anrede},\n\nIhr Gerät {geraet} (Auftrag {nummer}) ist fertig und kann bei uns "
                                "abgeholt werden.\n\n" + GRUSS),
 }
-BELEG_WERTE = ("anrede", "art", "art_mit_artikel", "nummer", "firma", "kunde", "datum", "faelligkeit", "zahlungstext", "betrag")
+BELEG_WERTE = ("anrede", "art", "art_mit_artikel", "nummer", "firma", "kunde", "datum", "faelligkeit", "zahlungstext", "betrag", "bezahlt")
 REPARATUR_WERTE = ("anrede", "geraet", "nummer", "status", "firma", "kunde")
 PLATZHALTER = {
     **{art: BELEG_WERTE for art in Belegart},
@@ -86,7 +86,16 @@ def platzhalter(beleg) -> dict:
         "datum": beleg.belegdatum.strftime("%d.%m.%Y"),
         "faelligkeit": beleg.faellig_am.strftime("%d.%m.%Y") if beleg.faellig_am else "",
         "zahlungstext": beleg.zahlungstext, "betrag": f"{beleg.summe_brutto:.2f}".replace(".", ","),
+        "bezahlt": f"{bezahlt_betrag(beleg):.2f}".replace(".", ","),
     }
+
+
+def bezahlt_betrag(beleg):
+    """Erhaltene Zahlungen: auf Rechnungen inklusive verrechneter Vorkasse/Anzahlung."""
+    from apps.finanzen.services import angerechnet, bezahlt
+    if not beleg.pk:
+        return 0
+    return bezahlt(beleg) + (angerechnet(beleg) if beleg.art == Belegart.RECHNUNG else 0)
 
 
 def ausfuellen(mandant, art, werte: dict):

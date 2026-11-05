@@ -93,7 +93,7 @@ class ZaehlerTest(Basis):
 
     def test_bank_findet_sechsstellige_rechnungsnummern(self):
         from apps.finanzen.bank import RECHNUNGSNR
-        self.assertEqual(RECHNUNGSNR.findall("Rechnung RE2026-100123"), [("2026", "100123")])
+        self.assertEqual(RECHNUNGSNR.findall("Rechnung RE2026-100123"), [("RE", "2026", "100123")])
 
     def test_gleicher_wert_aendert_nichts_auch_wenn_gesperrt(self):
         self.beleg("RE", f"RE{date.today().year}-00001")

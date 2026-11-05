@@ -22,10 +22,13 @@ class AboProformaTest(TestCase):
         self.assertEqual(monate_addieren(date(2026, 1, 31), 1), date(2026, 2, 28))
         self.assertEqual(monate_addieren(date(2026, 11, 15), 3), date(2027, 2, 15))
 
-    def test_proforma_aus_angebot(self):
+    def test_proforma_aus_bestellung(self):
         an = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.kunde)
         Position.objects.create(beleg=an, typ="L", bezeichnung="Beratung", menge=2, einzelpreis=Decimal("50"))
-        pf = an.kopieren_als(Belegart.PROFORMA)
+        with self.assertRaises(ValueError):  # Proforma nur aus einer Bestellung (README 18)
+            an.kopieren_als(Belegart.PROFORMA)
+        ab = an.kopieren_als(Belegart.AUFTRAG)
+        pf = ab.kopieren_als(Belegart.PROFORMA)
         self.assertTrue(pf.nummer.startswith("PF"))  # eigener Nummernkreis
         self.assertEqual((pf.art, pf.positionen.count()), (Belegart.PROFORMA, 1))
         self.assertIsNone(pf.loeschhindernis())

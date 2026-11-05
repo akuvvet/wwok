@@ -17,10 +17,11 @@ from apps.verkauf.views import mit_mandant
 
 from . import bank as bankmodul
 from . import datev as datevmodul
+from . import anzahlung as anzahlungmodul
 from . import services
 from .mahntext import mail_fuer
 from . import lastschrift as lastschriftmodul
-from .models import Gutschriftverrechnung, Lastschrift, Mahnung, Zahlart
+from .models import Anzahlungsverrechnung, Gutschriftverrechnung, Lastschrift, Mahnung, Zahlart
 from .pdf import mahnung_pdf
 
 
@@ -91,7 +92,11 @@ def offene_posten(request):
         neu = "-" + name if sort == name else name
         kopf[name] = {"url": (f"?{basis}&" if basis else "?") + f"sort={neu}",
                       "pfeil": ("▼" if absteigend else "▲") if schluessel == name else ""}
+    proformas = anzahlungmodul.offene_proformas(request.mandant, kunde)
+    for wort in q.lower().split():
+        proformas = [z for z in proformas if wort in op_text(z)]
     return render(request, "finanzen/offene_posten.html", {
+        "proformas": proformas, "proformas_summe": sum((z["offen"] for z in proformas), Decimal("0")),
         "zeilen": seite, "seite": seite, "parameter": parameter, "summe": summe, "ueberfaellig": ueberfaellig,
         "kunde": kunde, "nur": request.GET.get("nur", ""), "q": q, "sort": sort, "kopf": kopf})
 
@@ -106,7 +111,19 @@ def beleg_op(request, beleg_id):
             rest = -z["offen"]
             gutschriften.append({"beleg": z["beleg"], "rest": rest, "vorschlag": min(rest, offen) if offen > 0 else rest})
         gutschriften.sort(key=lambda g: g["beleg"].vorgaenger_id != beleg.pk)
+    quelle = beleg.art in anzahlungmodul.QUELLARTEN
+    guthaben = anzahlungmodul.guthaben(beleg) if quelle else Decimal("0")
+    andere = []
+    if guthaben > 0:  # Guthaben mit anderen offenen Rechnungen desselben Kunden verrechnen
+        for z in services.offene_rechnungen(request.mandant, beleg.kunde):
+            if z["offen"] > 0:
+                andere.append({"beleg": z["beleg"], "offen": z["offen"], "vorschlag": min(z["offen"], guthaben)})
     return render(request, "finanzen/beleg_op.html", {
+        "quelle": quelle, "guthaben": guthaben, "andere_rechnungen": andere,
+        "pf_status": anzahlungmodul.proforma_status(beleg) if beleg.art == Belegart.PROFORMA else None,
+        "anzahlungen": (beleg.anzahlungen if beleg.art == Belegart.RECHNUNG else beleg.anzahlung_verrechnungen)
+        .select_related("quelle", "rechnung", "storniert_durch"),
+        "angerechnet": services.angerechnet(beleg),
         "beleg": beleg, "zahlungen": beleg.zahlungen.all(), "bezahlt": services.bezahlt(beleg),
         "gutschrift": services.gutgeschrieben(beleg), "offen": offen, "gutschriften": gutschriften,
         "verrechnungen": beleg.gutschrift_verrechnungen.select_related("gutschrift", "storniert_durch"),
@@ -171,6 +188,36 @@ def verrechnung_aufheben(request, verrechnung_id):
     except ValueError as fehler:
         messages.error(request, str(fehler))
     return redirect("finanzen:beleg", beleg_id=verrechnung.rechnung_id)
+
+
+@mit_mandant
+@require_POST
+def anzahlung_verrechnen(request, beleg_id):
+    quelle = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
+    nummer = request.POST.get("rechnung", "")
+    rechnung = get_object_or_404(Beleg, pk=nummer if nummer.isdigit() else None, mandant=request.mandant)
+    try:
+        bisher = request.POST.get("guthaben_bisher")
+        anzahlungmodul.anzahlung_verrechnen(quelle, rechnung, betrag(request.POST.get("betrag")), request.user,
+                                            betrag(bisher) if bisher else None)
+        messages.success(request, f"Guthaben aus {quelle} mit {rechnung} verrechnet.")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("finanzen:beleg", beleg_id=quelle.pk)
+
+
+@mit_mandant
+@require_POST
+@nur_admin
+def anzahlung_aufheben(request, verrechnung_id):
+    verrechnung = get_object_or_404(Anzahlungsverrechnung, pk=verrechnung_id, mandant=request.mandant)
+    try:
+        anzahlungmodul.anzahlung_aufheben(verrechnung, request.POST.get("grund"), request.user)
+        messages.success(request, "Verrechnung aufgehoben (Gegenbuchung erstellt).")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("finanzen:beleg", beleg_id=request.POST.get("zurueck") if (request.POST.get("zurueck") or "").isdigit()
+                    else verrechnung.rechnung_id)
 
 
 @mit_mandant
@@ -283,10 +330,10 @@ def bank_zuordnen(request, umsatz_id):
             umsatz.save(update_fields=["status"])
         return redirect("finanzen:bank")
     nummer = request.POST.get("rechnung", "").strip().upper()
-    beleg = Beleg.objects.filter(mandant=request.mandant, art=Belegart.RECHNUNG, nummer=nummer, abgeschlossen=True).first() \
-        if nummer else umsatz.vorschlag
+    beleg = Beleg.objects.filter(mandant=request.mandant, art__in=(Belegart.RECHNUNG, Belegart.PROFORMA), nummer=nummer,
+                                 abgeschlossen=True).first() if nummer else umsatz.vorschlag
     if beleg is None:
-        messages.error(request, f"Rechnung '{nummer}' nicht gefunden.")
+        messages.error(request, f"Rechnung oder Proforma '{nummer}' nicht gefunden.")
     else:
         try:
             bankmodul.zuordnen(umsatz, beleg, request.user)

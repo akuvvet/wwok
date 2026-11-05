@@ -25,7 +25,22 @@ def absatz(text, stil):
     return Paragraph(escape(text or "").replace("\n", "<br/>"), stil)
 
 
-def beleg_pdf(beleg) -> bytes:
+def anzahlungen(beleg) -> list:
+    """Auf die Rechnung verrechnete Anzahlungen: [(Quelle, Betrag, Datum der letzten Zahlung)]."""
+    if beleg.art != Belegart.RECHNUNG or not beleg.pk:
+        return []
+    from django.db.models import Max, Sum
+    zeilen = []
+    # nur beim Abschluss verrechnete Anzahlungen: der ausgestellte Beleg ändert sich später nicht (GoBD)
+    for z in beleg.anzahlungen.filter(bei_abschluss=True, storno_zu__isnull=True).order_by().values("quelle").annotate(s=Sum("betrag")):
+        if z["s"]:
+            quelle = beleg.__class__.objects.get(pk=z["quelle"])
+            zeilen.append((quelle, z["s"], quelle.zahlungen.filter(betrag__gt=0).aggregate(d=Max("datum"))["d"]))
+    return zeilen
+
+
+def beleg_pdf(beleg, als_lieferschein=False) -> bytes:
+    """als_lieferschein: Lieferschein zur Rechnung (ohne Preise und Summen), z. B. nach Vorkasse; bucht nichts."""
     m = beleg.mandant
     basis = getSampleStyleSheet()["Normal"]
     normal = ParagraphStyle("n", parent=basis, fontName="Helvetica", fontSize=9, leading=12)
@@ -33,6 +48,8 @@ def beleg_pdf(beleg) -> bytes:
     titel = ParagraphStyle("t", parent=normal, fontName="Helvetica-Bold", fontSize=14, leading=18)
     fett = ParagraphStyle("f", parent=normal, fontName="Helvetica-Bold")
     entwurf = not beleg.nummer or (beleg.art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT) and not beleg.abgeschlossen)
+    ueberschrift = f"Lieferschein zur Rechnung {beleg.nummer or ''}".strip() if als_lieferschein else \
+        f"{beleg.get_art_display()} {beleg.nummer or ''}".strip()
 
     def seite(canvas, doc):
         canvas.saveState()
@@ -89,11 +106,13 @@ def beleg_pdf(beleg) -> bytes:
     kopf = Table([[absatz(anschrift, normal), rechte_spalte]], colWidths=[100 * mm, 70 * mm])
     kopf.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
     inhalt += [kopf, Spacer(1, 10 * mm),
-               Paragraph(escape(f"{beleg.get_art_display()} {beleg.nummer or ''}".strip()), titel), Spacer(1, 4 * mm)]
+               Paragraph(escape(ueberschrift), titel), Spacer(1, 4 * mm)]
 
     if beleg.vortext:
         inhalt += [absatz(beleg.vortext, normal), Spacer(1, 4 * mm)]
-    zeilen = [[absatz(t, fett) for t in ("Pos.", "Artikel", "Bezeichnung", "Menge", "Preis", "Rabatt", "Netto")]]
+    spalten = ("Pos.", "Artikel", "Bezeichnung", "Menge") if als_lieferschein else (
+        "Pos.", "Artikel", "Bezeichnung", "Menge", "Preis", "Rabatt", "Netto")
+    zeilen = [[absatz(t, fett) for t in spalten]]
     for p in beleg.positionen.select_related("artikel", "preisliste_artikel"):
         text = p.bezeichnung + (f"\n{p.zusatztext}" if p.zusatztext else "")
         if p.lieferschein_id and not p.gruppe_id:
@@ -109,17 +128,28 @@ def beleg_pdf(beleg) -> bytes:
             text += "\nLizenzschlüssel: " + ", ".join(keys)
         if p.gruppe_id:  # Unterartikel einer Gruppe: eingerückt, ohne Einzelpreise
             zeilen.append(["", absatz(p.artikelnummer, normal), absatz("   – " + text, normal),
-                           zahl(p.menge), "", "", ""])
+                           zahl(p.menge), "", "", ""][:len(spalten)])
+            continue
+        if als_lieferschein:
+            zeilen.append([str(p.pos), absatz(p.artikelnummer, normal), absatz(text, normal), zahl(p.menge)])
             continue
         zeilen.append([str(p.pos), absatz(p.artikelnummer, normal), absatz(text, normal),
                        zahl(p.menge), euro(p.einzelpreis), f"{zahl(p.rabatt_prozent)} %" if p.rabatt_prozent else "",
                        euro(p.netto_gesamt)])
-    tabelle = Table(zeilen, colWidths=[12 * mm, 24 * mm, 58 * mm, 17 * mm, 21 * mm, 16 * mm, 22 * mm], repeatRows=1)
+    breiten = [12 * mm, 24 * mm, 117 * mm, 17 * mm] if als_lieferschein else [12 * mm, 24 * mm, 58 * mm, 17 * mm, 21 * mm, 16 * mm, 22 * mm]
+    tabelle = Table(zeilen, colWidths=breiten, repeatRows=1)
     tabelle.setStyle(TableStyle([
         ("FONT", (0, 1), (-1, -1), "Helvetica", 9), ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("ALIGN", (3, 0), (-1, -1), "RIGHT"), ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.black),
         ("LINEBELOW", (0, 1), (-1, -1), 0.25, colors.lightgrey)]))
     inhalt += [tabelle, Spacer(1, 4 * mm)]
+    if als_lieferschein:
+        if beleg.versandanschrift and beleg.versandanschrift != beleg.rechnungsanschrift:
+            inhalt += [absatz("Lieferanschrift:", fett), absatz(beleg.versandanschrift, normal), Spacer(1, 3 * mm)]
+        if beleg.versandart:
+            inhalt += [absatz(f"Versandart: {beleg.versandart}", normal)]
+        doc.build(inhalt, onFirstPage=seite, onLaterPages=seite)
+        return puffer.getvalue()
 
     summen = []
     if beleg.rabatt_prozent:
@@ -135,6 +165,11 @@ def beleg_pdf(beleg) -> bytes:
             summen.append([name, euro(wert)])
     summen += [["Summe netto", euro(beleg.summe_netto)], ["Umsatzsteuer", euro(beleg.summe_steuer)],
                ["Gutschriftbetrag" if beleg.art == Belegart.GUTSCHRIFT else "Gesamtbetrag", euro(beleg.summe_brutto)]]
+    vorab = anzahlungen(beleg)
+    if vorab:
+        erhalten = sum((b for _, b, _ in vorab), Decimal("0"))
+        summen.append(["abzüglich erhaltene Zahlung", "-" + euro(erhalten)])
+        summen.append(["Restbetrag", euro(beleg.summe_brutto - erhalten)])
     st = Table(summen, colWidths=[40 * mm, 30 * mm], hAlign="RIGHT")
     st.setStyle(TableStyle([("ALIGN", (1, 0), (1, -1), "RIGHT"), ("FONT", (0, 0), (-1, -1), "Helvetica", 9),
                             ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 10),
@@ -144,10 +179,19 @@ def beleg_pdf(beleg) -> bytes:
         inhalt += [absatz("Lieferanschrift:", fett), absatz(beleg.versandanschrift, normal), Spacer(1, 3 * mm)]
     if beleg.versandart:
         inhalt += [absatz(f"Versandart: {beleg.versandart}", normal)]
+    for quelle, betrag, datum in vorab:
+        inhalt += [Spacer(1, 3 * mm), absatz(
+            f"Betrag dankend erhalten{f' am {datum:%d.%m.%Y}' if datum else ''}: {euro(betrag)} "
+            f"({quelle.get_art_display()} {quelle.nummer}).", fett)]
+    if beleg.art == Belegart.PROFORMA:
+        inhalt += [Spacer(1, 3 * mm), absatz(f"Bitte geben Sie bei der Zahlung als Verwendungszweck die Nummer {beleg.nummer} an.", fett)]
+    if beleg.art == Belegart.PROFORMA_STORNO:
+        inhalt += [Spacer(1, 3 * mm), absatz("Die Proforma-Rechnung ist storniert. Dieser Beleg ist keine Rechnung und keine Gutschrift "
+                                             "im Sinne des Umsatzsteuergesetzes.", fett)]
     if beleg.art == Belegart.PROFORMA:
         inhalt += [Spacer(1, 3 * mm), absatz("Diese Proforma-Rechnung ist keine Rechnung im Sinne des Umsatzsteuergesetzes. "
                                              "Sie dient der Vorabinformation bzw. der Zahlung im Voraus; die Rechnung folgt mit der Lieferung.", fett)]
-    if beleg.zahlungstext and beleg.art != Belegart.LIEFERSCHEIN:
+    if beleg.zahlungstext and beleg.art not in (Belegart.LIEFERSCHEIN, Belegart.PROFORMA_STORNO):
         inhalt += [Spacer(1, 3 * mm), absatz(beleg.zahlungstext, normal)]
     if beleg.schlusstext:
         inhalt += [Spacer(1, 3 * mm), absatz(beleg.schlusstext, normal)]

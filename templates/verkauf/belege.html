@@ -13,6 +13,10 @@
       <option value="offen" {% if status == "offen" %}selected{% endif %}>Entwurf</option>
       <option value="abgeschlossen" {% if status == "abgeschlossen" %}selected{% endif %}>abgeschlossen</option>
       {% if status == "dashboard" %}<option value="dashboard" selected>offen laut Dashboard</option>{% endif %}</select></div>
+    <div><label for="zahlung">Zahlung (Proforma)</label><select id="zahlung" name="zahlung">
+      <option value="">alle</option>
+      <option value="offen" {% if zahlung == "offen" %}selected{% endif %}>offen / teilbezahlt</option>
+      <option value="bezahlt" {% if zahlung == "bezahlt" %}selected{% endif %}>bezahlt, noch nicht umgewandelt</option></select></div>
     <div><label for="von">von</label><input id="von" type="date" name="von" value="{{ von }}"></div>
     <div><label for="bis">bis</label><input id="bis" type="date" name="bis" value="{{ bis }}"></div>
     <noscript><button type="submit">Filtern</button></noscript>
@@ -28,9 +32,9 @@
       <td>{{ b.belegdatum|date:"d.m.Y" }}</td>
       <td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td>
       <td>{{ b.referenz }}</td>
-      <td>{% if b.abgeschlossen %}abgeschlossen{% else %}Entwurf{% endif %}</td>
+      <td>{% if b.zahlstatus and b.zahlstatus.code != 'entwurf' %}{{ b.zahlstatus.text }}{% elif b.abgeschlossen %}abgeschlossen{% else %}Entwurf{% endif %}</td>
       <td class="zahl">{{ b.summe_netto|floatformat:"2g" }}</td><td class="zahl">{{ b.summe_brutto|floatformat:"2g" }}</td></tr>
-    {% empty %}<tr><td colspan="7">{% if q or art or status or von or bis %}{% include "filter_leer.html" %}{% else %}Keine Belege gefunden.{% endif %}</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="7">{% if q or art or status or zahlung or von or bis %}{% include "filter_leer.html" %}{% else %}Keine Belege gefunden.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>
   </div>
