@@ -468,6 +468,7 @@
   });
 </script>
 {% include "stammdaten/_preiskopplung.html" %}
+{% include "_suchauswahl.html" %}
 <script>
   // Dialog mit Registerkarten: Elemente mit data-modal="URL" laden ihr Formular in einen Dialog und speichern per fetch
   (function () {
@@ -789,7 +790,8 @@
       if (typ) { typ.addEventListener('change', function () { nummerTauschen(); typAnwenden(); }); typAnwenden(); }
       var bereich = dlg.querySelector('[data-komponenten]'); if (bereich) komponentenBereich(bereich);
       var bilderTab = dlg.querySelector('[data-bilder]'); if (bilderTab) bilderBereich(bilderTab);
-      if (dlg.querySelector('[name=vk1][data-ek]')) wwokPreisKopplung(dlg);  // aus stammdaten/_preiskopplung.html
+      if (dlg.querySelector('[name=vk1][data-ek]')) wwokPreisKopplung(dlg);
+      wwokSuchauswahl(dlg);  // aus _suchauswahl.html: lange Auswahllisten (z. B. Kategorie) mit Sofortfilter  // aus stammdaten/_preiskopplung.html
       var fehler = dlg.querySelector('[data-modaltab].mit-fehler'); if (fehler) zeigeTab(fehler.dataset.modaltab);
       var formular = dlg.querySelector('form'); if (!formular) return;
       formular.addEventListener('submit', async function (e) {

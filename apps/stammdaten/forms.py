@@ -99,6 +99,42 @@ ARTIKEL_TABS = [
 ]
 
 
+class SuchAuswahl(forms.Select):
+    """Auswahlliste, die im Browser zum Suchfeld mit Sofortfilter wird (templates/_suchauswahl.html, Issue 58).
+    suche: {Wert: zusätzlicher Suchtext, z. B. Nummer}; offline: Werte mit Marke „offline“."""
+
+    def __init__(self, attrs=None, choices=(), schluessel="", suche=None, offline=()):
+        super().__init__({**(attrs or {}), "data-suchauswahl": schluessel}, choices)
+        self.suche, self.offline = suche or {}, set(offline)
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        wert = getattr(value, "value", value)
+        if wert in self.suche:
+            option["attrs"]["data-suche"] = self.suche[wert]
+        if wert in self.offline:
+            option["attrs"]["data-offline"] = "1"
+        return option
+
+
+def kategorie_suchauswahl(form):
+    """Kategoriefeld als Suchauswahl: Pfad und Nummer durchsuchbar, Offline-Kategorien markiert."""
+    from .models import Kategorie
+    feld = form.fields.get("kategorie")
+    if feld is None:
+        return
+    huelle = feld.widget if hasattr(feld.widget, "widget") else None  # Verwaltung: Wrapper mit „+“/Bearbeiten-Symbolen bleibt
+    alt = huelle.widget if huelle else feld.widget
+    neu = SuchAuswahl(attrs=alt.attrs, schluessel="kategorie",
+                      suche=dict(Kategorie.objects.exclude(nummer=None).values_list("pk", "nummer")),
+                      offline=Kategorie.offline_ids())
+    neu.choices, neu.is_required = alt.choices, alt.is_required
+    if huelle:
+        huelle.widget = neu
+    else:
+        feld.widget = neu
+
+
 class VkVorschlagForm(forms.ModelForm):
     """Leere VK zeigen den Vorschlag aus EK und Aufschlag. Bleibt er unverändert, wird nichts Festes gespeichert und der
     VK folgt weiter dem EK; erst ein selbst eingetippter Preis ist fest."""
@@ -114,6 +150,7 @@ class VkVorschlagForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        kategorie_suchauswahl(self)
         if "ek_manuell" in self.fields:
             self.ek_feld_einrichten()
         # EK als Basis für die Live-Umrechnung VK ↔ Aufschlag in der Maske (wie stufenpreis: ohne Leistungskosten)

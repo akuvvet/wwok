@@ -862,6 +862,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Alle Mailtexte an Kunden und Lieferanten unter Verwaltung → Mailvorlagen je Mandant (Tabelle `verkauf_mailvorlage`): Belege, Bestellung an Lieferanten, Lizenzschlüssel, Versandmitteilung, Mahnung, drei Werkstatt-Statusmails. Fehlende Zeilen entstehen beim Öffnen der Liste mit dem Standardtext aus `apps/verkauf/mail.py`, vorhandene bleiben unverändert; Anlegen und Löschen gesperrt, unbekannte Platzhalter werden beim Speichern abgelehnt. Der Mahntext bleibt an der Mahnstufe, weil er auch im PDF steht, und kommt über `{mahntext}` in die Mail
 - [x] Verwaltung: Kopf und Brotkrümel bleiben beim Scrollen stehen, rechts in den Brotkrümeln „Speichern“ (wie Djangos „Sichern“, nur auf Seiten mit Formular), Vorlage `templates/admin/base_site.html`
 - [x] Proforma-Rechnung als Vorkasse (Issue 57): Vorkasse, Zahlstatus, Umwandlung in die Rechnung mit Verrechnung, Guthaben, Storno-Beleg, Anzahlungen auf Bestellungen, Offene Proformas, Bankabgleich über PF-Nummern
+- [x] Artikel: Kategorie per Suchfeld mit Sofortfilter (Issue 58) in Artikelmaske und Verwaltung – Suche über Pfad und Nummer, mehrere Wörter, „Zuletzt verwendet“ oben, Tastatur; gemeinsamer Baustein `templates/_suchauswahl.html` (`<select data-suchauswahl>`)
 - [ ] Deutsche Post, eBay, Kaufland, Newsletter mit Double-Opt-in, Kategorien-Sync mit Shopware
 - [ ] Auswertungen (Umsatz, Marge, Topseller) und Startseiten-Übersicht mit Wiedervorlagen und fälligen Mahnungen
 
