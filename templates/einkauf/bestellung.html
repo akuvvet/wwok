@@ -80,7 +80,7 @@
       {% if aus_beleg %}<span>aus <a href="{% url 'verkauf:beleg' aus_beleg.pk %}">{{ aus_beleg }}</a></span>{% endif %}</p>
     {% if konditionen %}<dl class="infoblock fein" style="margin-top:6px">{% for name, wert in konditionen %}<dt>{{ name }}:</dt><dd>{{ wert }}</dd>{% endfor %}</dl>{% endif %}
   </div>
-  <div class="summe"><div style="opacity:.7">Summe netto</div><div class="betrag">{{ netto|floatformat:2 }} €</div></div>
+  <div class="summe"><div style="opacity:.7">Summe netto</div><div class="betrag">{{ netto|floatformat:"2g" }} €</div></div>
 </div>
 
 <div class="aktionen">
@@ -103,14 +103,14 @@
     <tbody>{% for p in positionen %}
     <tr><td>{{ p.bezeichnung }}
         <br><span class="fein">{{ p.nummer }}{% if p.bestellnummer %} · Best.-Nr. {{ p.bestellnummer }}{% endif %}{% if p.preisliste_artikel and not p.artikel %} · aus Preisliste{% endif %}{% if p.im_wareneingang %} · im offenen Wareneingang{% endif %}</span>
-        {% if b.status == 'entwurf' and not p.geliefert %}<br><span class="fein">{% if p.alternative %}<span style="color:var(--warn)">Günstiger bei {{ p.alternative.lieferant.kurz }}: {{ p.alternative.gesamt|floatformat:2 }} €{% if p.alternative.versand_offen %} + Versand?{% else %} ({{ p.alternative.ersparnis|floatformat:2 }} € weniger){% endif %}</span> · {% endif %}<a href="{% url 'einkauf:preisvergleich' %}?position={{ p.pk }}">vergleichen</a></span>{% endif %}
+        {% if b.status == 'entwurf' and not p.geliefert %}<br><span class="fein">{% if p.alternative %}<span style="color:var(--warn)">Günstiger bei {{ p.alternative.lieferant.kurz }}: {{ p.alternative.gesamt|floatformat:"2g" }} €{% if p.alternative.versand_offen %} + Versand?{% else %} ({{ p.alternative.ersparnis|floatformat:"2g" }} € weniger){% endif %}</span> · {% endif %}<a href="{% url 'einkauf:preisvergleich' %}?position={{ p.pk }}">vergleichen</a></span>{% endif %}
         {% if p.aenderbar %}<form id="pos{{ p.pk }}" method="post" action="{% url 'einkauf:bestellung_position_aendern' b.pk p.pk %}">{% csrf_token %}</form>{% endif %}</td>
       {% if p.aenderbar %}<td class="zahl"><input form="pos{{ p.pk }}" class="posfeld" name="menge" value="{{ p.menge|floatformat:'-3' }}" inputmode="decimal" aria-label="Menge"></td>
       {% else %}<td class="zahl">{{ p.menge|floatformat:"-3" }}</td>{% endif %}
       {% if mit_lieferung %}<td class="zahl">{{ p.geliefert|floatformat:"-3" }}</td>{% endif %}
       {% if p.aenderbar %}<td class="zahl"><input form="pos{{ p.pk }}" class="posfeld" name="ek" value="{{ p.ek|floatformat:2 }}" inputmode="decimal" aria-label="EK netto"></td>
-      {% else %}<td class="zahl">{{ p.ek|floatformat:2 }}</td>{% endif %}
-      <td class="zahl">{{ p.netto|floatformat:2 }}</td>
+      {% else %}<td class="zahl">{{ p.ek|floatformat:"2g" }}</td>{% endif %}
+      <td class="zahl">{{ p.netto|floatformat:"2g" }}</td>
       <td style="white-space:nowrap">{% if p.aenderbar %}<button form="pos{{ p.pk }}" type="submit" class="leise" title="Menge und Preis speichern">OK</button> {% endif %}{% if not p.geliefert and b.status != 'storniert' %}<form method="post" action="{% url 'einkauf:bestellung_position_loeschen' b.pk p.pk %}" style="display:inline">{% csrf_token %}<button class="gefahr" type="submit" title="Position löschen">×</button></form>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="6" style="padding:16px;text-align:center;opacity:.7">Noch keine Positionen.</td></tr>{% endfor %}</tbody>
   </table></div>

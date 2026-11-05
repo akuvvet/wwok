@@ -29,7 +29,7 @@
       <td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td>
       <td>{{ b.referenz }}</td>
       <td>{% if b.abgeschlossen %}abgeschlossen{% else %}Entwurf{% endif %}</td>
-      <td class="zahl">{{ b.summe_netto|floatformat:2 }}</td><td class="zahl">{{ b.summe_brutto|floatformat:2 }}</td></tr>
+      <td class="zahl">{{ b.summe_netto|floatformat:"2g" }}</td><td class="zahl">{{ b.summe_brutto|floatformat:"2g" }}</td></tr>
     {% empty %}<tr><td colspan="7">{% if q or art or status or von or bis %}{% include "filter_leer.html" %}{% else %}Keine Belege gefunden.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>

@@ -71,7 +71,7 @@ class LagerTest(TestCase):
         s.save()
         r = self.client.get(reverse("lager:uebersicht"), {"q": "maus"})
         self.assertContains(r, "A1")
-        for kopf in ("VK3 netto", "Lager</th>", "Res.</th>", "Frei</th>", "Werk</th>"):
+        for kopf in ("VK3 netto", "Lager</th>", "Res.</th>", "Frei</th>", "Rep.</th>"):
             self.assertContains(r, kopf)
         self.assertLess(r.content.decode().index("Bezeichnung</th>"), r.content.decode().index("VK3 netto"))
         self.assertLess(r.content.decode().index("VK3 netto"), r.content.decode().index("Lager</th>"))
@@ -163,3 +163,57 @@ class ArtikellisteTest(TestCase):
         self.assertContains(r, 'data-bild="/medien/artikel/maus.png"', count=1)  # nur Artikel mit Bild
         self.assertContains(r, 'data-modal="%s"' % reverse("stammdaten:artikel_bearbeiten", args=[self.b.pk]))
         self.assertContains(r, 'class="artikellink"', count=4)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class UebersichtKategorieUndBetragTest(TestCase):
+    def setUp(self):
+        from apps.stammdaten.models import Kategorie
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.haupt = Kategorie.objects.create(name="Hardware")
+        self.unter = Kategorie.objects.create(name="Mäuse", eltern=self.haupt)
+        self.a = Artikel.objects.create(nummer="A1", bezeichnung="Maus", steuersatz=st, kategorie=self.unter,
+                                        vk3=Decimal("12345.67"))
+        self.b = Artikel.objects.create(nummer="A2", bezeichnung="Kabel", steuersatz=st, kategorie=self.haupt)
+        self.c = Artikel.objects.create(nummer="A3", bezeichnung="Ohne", steuersatz=st)
+        self.client.force_login(get_user_model().objects.create_superuser("chef", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+
+    def test_unterkategorie_im_filter_waehlbar_und_eingerueckt(self):
+        r = self.client.get(reverse("lager:uebersicht"))
+        self.assertContains(r, "– Mäuse</option>")
+        html = r.content.decode()
+        self.assertLess(html.index(">Hardware</option>"), html.index("– Mäuse</option>"))  # Unterkategorie unter der Hauptkategorie
+        r = self.client.get(reverse("lager:uebersicht"), {"kategorie": self.unter.pk})
+        self.assertEqual([z["artikel"].nummer for z in r.context["zeilen"]], ["A1"])
+        self.assertContains(r, "selected")
+
+    def test_hauptkategorie_enthaelt_unterkategorie_artikel(self):
+        r = self.client.get(reverse("lager:uebersicht"), {"kategorie": self.haupt.pk})
+        self.assertEqual({z["artikel"].nummer for z in r.context["zeilen"]}, {"A1", "A2"})
+
+    def test_ungueltige_kategorie_wird_ignoriert(self):
+        r = self.client.get(reverse("lager:uebersicht"), {"kategorie": "abc"})
+        self.assertEqual(len(r.context["zeilen"]), 3)
+
+    def test_betrag_mit_tausenderpunkt_titel_und_spaltenkopf(self):
+        r = self.client.get(reverse("lager:uebersicht"))
+        self.assertContains(r, "12.345,67")
+        self.assertContains(r, "<title>Artikel &amp; Bestand – wwok</title>", html=False)
+        self.assertContains(r, '<th class="zahl" title="Reparaturbestand">Rep.</th>')
+
+    def test_eingabefeld_value_ohne_tausenderpunkt(self):
+        from apps.stammdaten.models import Zahlungsbedingung
+        from datetime import date
+        kunde = Kunde.objects.create(nummer="1", name1="Kunde GmbH")
+        zb = Zahlungsbedingung.objects.create(bezeichnung="10 Tage", tage_netto=10, tage_mahnung=11)
+        re = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=kunde, zahlungsbedingung=zb, belegdatum=date.today())
+        Position.objects.create(beleg=re, bezeichnung="Dienst", einzelpreis=Decimal("10000"))
+        re.abschliessen()
+        r = self.client.get(reverse("finanzen:beleg", args=[re.pk]))
+        self.assertContains(r, "11.900,00 €")  # Anzeige mit Tausenderpunkt
+        self.assertContains(r, 'name="betrag" value="11900,00"')  # Eingabefeld unverändert
+        self.assertNotContains(r, 'value="11.900,00"')

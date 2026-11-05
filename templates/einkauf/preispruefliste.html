@@ -25,7 +25,7 @@
     <thead><tr><th>Artikel</th><th>Lieferant</th><th>Bestell-Nr.</th><th class="zahl">bisher</th><th class="zahl">neu</th><th class="zahl">Abweichung</th><th></th></tr></thead>
     <tbody>{% for p in preise %}<tr>
       <td>{{ p.artikel.nummer }} {{ p.artikel.bezeichnung }}</td><td>{{ p.lieferant.name1 }}</td><td>{{ p.bestellnummer }}</td>
-      <td class="zahl">{{ p.ek_alt|floatformat:2 }}</td><td class="zahl">{{ p.ek_neu|floatformat:2 }}</td><td class="zahl">{{ p.abweichung|floatformat:0 }} %</td>
+      <td class="zahl">{{ p.ek_alt|floatformat:"2g" }}</td><td class="zahl">{{ p.ek_neu|floatformat:"2g" }}</td><td class="zahl">{{ p.abweichung|floatformat:0 }} %</td>
       <td><form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="id" value="{{ p.pk }}">
         <button type="submit" name="aktion" value="preis_uebernehmen">Übernehmen</button>
         <button type="submit" name="aktion" value="preis_verwerfen" class="leise">Verwerfen</button></form></td>

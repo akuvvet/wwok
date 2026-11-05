@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titel %}Lager – wwok{% endblock %}
+{% block titel %}Artikel &amp; Bestand – wwok{% endblock %}
 {% block inhalt %}
 <style>
   .artikellink { color:inherit; text-decoration:none; }
@@ -26,31 +26,31 @@
   });
 </script>
 <div class="karte">
-  <h1>Lager · Mandant {{ request.mandant }}</h1>
+  <h1>Artikel &amp; Bestand · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile" data-livefilter>
     <div><label for="q">Artikel suchen (mehrere Wörter, beliebige Reihenfolge)</label>
       <input id="q" name="q" value="{{ q }}" size="34" autofocus></div>
     <div><label for="f-kategorie">Kategorie</label><select id="f-kategorie" name="kategorie"><option value="">alle</option>
-      {% for k in kategorien %}<option value="{{ k.pk }}" {% if kategorie == k.pk|stringformat:"s" %}selected{% endif %}>{{ k.name }}</option>{% endfor %}</select></div>
+      {% for k in kategorien %}<option value="{{ k.pk }}" {% if kategorie == k.pk|stringformat:"s" %}selected{% endif %}>{{ k.einrueckung }}{{ k.name }}</option>{% endfor %}</select></div>
     <div><label for="f-pro-seite">pro Seite</label><select id="f-pro-seite" name="pro_seite">{% for n in seitengroessen %}<option value="{{ n }}" {% if n == pro_seite %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="bestand" value="1" {% if nur_bestand %}checked{% endif %}> nur mit Bestand</label>
     <noscript><button type="submit">Filtern</button></noscript>
     <a class="knopf" data-modal="{% url 'stammdaten:artikel_neu' %}" href="/verwaltung/stammdaten/artikel/add/">+ Neuer Artikel</a>
   </form>
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
-  <p>Lagerwert (EK × Bestand): <strong>{{ lagerwert }} €</strong> · {{ seite.paginator.count }} Artikel</p>
+  <p>Lagerwert (EK × Bestand): <strong>{{ lagerwert|floatformat:"2g" }} €</strong> · {{ seite.paginator.count }} Artikel</p>
   <div class="scroll">
   <table>
-    <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">VK3 netto</th><th class="zahl">Lager</th><th class="zahl">Res.</th><th class="zahl">Frei</th><th class="zahl">Werk</th><th class="zahl">EK netto</th></tr></thead>
+    <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">VK3 netto</th><th class="zahl">Lager</th><th class="zahl">Res.</th><th class="zahl">Frei</th><th class="zahl" title="Reparaturbestand">Rep.</th><th class="zahl">EK netto</th></tr></thead>
     <tbody>
     {% for z in zeilen %}
     <tr><td>{% with bild=z.artikel.bilder.all|first %}{% if bild %}<img src="{{ bild.vorschau_url }}" alt="{{ bild.alt_text|default:z.artikel.bezeichnung }}" loading="lazy" style="width:28px;height:28px;object-fit:contain;vertical-align:middle;margin-right:6px">{% endif %}<a class="artikellink" href="{% url 'lager:artikel' z.artikel.pk %}"{% if bild %} data-bild="{{ bild.vorschau_url }}"{% endif %}>{{ z.artikel.nummer }}</a>{% endwith %}</td>
         <td><a class="artikellink" data-modal="{% url 'stammdaten:artikel_bearbeiten' z.artikel.pk %}" href="/verwaltung/stammdaten/artikel/{{ z.artikel.pk }}/change/" title="Bearbeiten">{{ z.artikel.bezeichnung }}</a></td>
-        <td class="zahl">{% if z.artikel.vk3 is not None %}{{ z.artikel.vk3|floatformat:2 }}{% else %}–{% endif %}</td>
+        <td class="zahl">{% if z.artikel.vk3 is not None %}{{ z.artikel.vk3|floatformat:"2g" }}{% else %}–{% endif %}</td>
         <td class="zahl">{{ z.bestand|floatformat:"-3" }}</td><td class="zahl">{{ z.reserviert|floatformat:"-3" }}</td>
         <td class="zahl"><strong>{{ z.verfuegbar|floatformat:"-3" }}</strong></td>
         <td class="zahl">{% if z.reparatur %}{{ z.reparatur|floatformat:"-3" }}{% endif %}</td>
-        <td class="zahl">{% if z.ek is not None %}<span title="{{ z.ek_quelle }}">{{ z.ek|floatformat:2 }}</span>{% else %}<span class="gefahr-text">EK fehlt</span>{% endif %}</td></tr>
+        <td class="zahl">{% if z.ek is not None %}<span title="{{ z.ek_quelle }}">{{ z.ek|floatformat:"2g" }}</span>{% else %}<span class="gefahr-text">EK fehlt</span>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="8">{% if q or kategorie or nur_bestand %}{% include "filter_leer.html" %}{% else %}Keine Artikel.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>

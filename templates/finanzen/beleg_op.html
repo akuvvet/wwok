@@ -5,10 +5,10 @@
 <div class="karte">
   <h1><a href="{% url 'verkauf:beleg' beleg.pk %}">{{ beleg }}</a> – {{ beleg.kunde.name1 }}</h1>
   <div class="raster">
-    <div>Rechnungsbetrag<br><strong>{{ beleg.summe_brutto|floatformat:2 }} €</strong></div>
-    <div>bezahlt<br><strong>{{ bezahlt|floatformat:2 }} €</strong></div>
-    <div>verrechnete Gutschriften<br><strong>{{ gutschrift|floatformat:2 }} €</strong></div>
-    <div>offen<br><strong style="font-size:20px">{{ offen|floatformat:2 }} €</strong></div>
+    <div>Rechnungsbetrag<br><strong>{{ beleg.summe_brutto|floatformat:"2g" }} €</strong></div>
+    <div>bezahlt<br><strong>{{ bezahlt|floatformat:"2g" }} €</strong></div>
+    <div>verrechnete Gutschriften<br><strong>{{ gutschrift|floatformat:"2g" }} €</strong></div>
+    <div>offen<br><strong style="font-size:20px">{{ offen|floatformat:"2g" }} €</strong></div>
     <div>fällig am<br>{{ faellig|date:"d.m.Y" }}</div>
   </div>
 </div>
@@ -39,7 +39,7 @@
   {% if gutschriften %}<table>
     <tr><th>Gutschrift</th><th>Datum</th><th class="zahl">noch offen</th><th>verrechnen</th></tr>
     {% for g in gutschriften %}<tr><td><a href="{% url 'verkauf:beleg' g.beleg.pk %}">{{ g.beleg.nummer }}</a>{% if not g.beleg.vorgaenger_id %} <em>(ohne Rechnung)</em>{% elif g.beleg.vorgaenger_id != beleg.pk %} <em>(andere Rechnung)</em>{% endif %}</td>
-      <td>{{ g.beleg.belegdatum|date:"d.m.Y" }}</td><td class="zahl">{{ g.rest|floatformat:2 }}</td>
+      <td>{{ g.beleg.belegdatum|date:"d.m.Y" }}</td><td class="zahl">{{ g.rest|floatformat:"2g" }}</td>
       <td><form method="post" action="{% url 'finanzen:gutschrift_verrechnen' beleg.pk %}" class="zeile">{% csrf_token %}
         <input type="hidden" name="gutschrift" value="{{ g.beleg.pk|stringformat:"d" }}"><input type="hidden" name="offen_bisher" value="{{ offen|floatformat:2 }}"><input name="betrag" value="{{ g.vorschlag|floatformat:2 }}" size="10" aria-label="Betrag"><button type="submit">Verrechnen</button></form></td></tr>{% endfor %}
   </table>{% endif %}
