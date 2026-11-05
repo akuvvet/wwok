@@ -5,13 +5,14 @@
 <div class="karte">
   <h1>Preislistenartikel der Lieferanten</h1>
   <p style="opacity:.8">Artikel (Typ P) aus den importierten Preislisten – getrennt von deinen eigenen Artikeln (Typ A). Beim ersten Wareneingang entsteht daraus ein eigener Artikel.</p>
-  <form method="get" class="zeile">
+  <form method="get" class="zeile" data-livefilter>
     <div><label for="q">Suche (mehrere Wörter, beliebige Reihenfolge)</label><input id="q" name="q" value="{{ q }}" size="36" autofocus></div>
     <div><label>Lieferant</label><select name="lieferant"><option value="">alle</option>
       {% for l in lieferanten %}<option value="{{ l.pk }}" {% if lieferant == l.pk|stringformat:"s" %}selected{% endif %}>{{ l.kurz }}</option>{% endfor %}</select></div>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="verknuepft" value="1" {% if verknuepft %}checked{% endif %}> nur mit eigenem Artikel</label>
-    <button type="submit">Suchen</button>
+    <noscript><button type="submit">Suchen</button></noscript>
   </form>
+  <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
   <p>{{ seite.paginator.count }} Treffer</p>
   <div class="scroll"><table>
     <thead><tr><th>Lieferant</th><th title="Herstellernummer">MSKU</th><th title="Bestellnummer des Lieferanten">SKU</th><th>Bezeichnung</th><th>Hersteller</th><th class="zahl" title="Einkaufspreis netto">EK</th><th class="zahl" title="Bestand beim Lieferanten">Lager</th><th title="Verknüpfter eigener Artikel">A-Artikel</th><th></th></tr></thead>
@@ -20,8 +21,9 @@
         <td class="zahl">{{ e.ek|floatformat:2 }}</td><td class="zahl">{{ e.bestand|default_if_none:"" }}</td>
         <td>{% if e.artikel %}<a href="{% url 'lager:artikel' e.artikel.pk %}">{{ e.artikel.nummer }}</a>{% endif %}</td>
         <td class="aktionszelle">{% if not e.artikel %}<a class="symbol unten links" style="width:32px;height:32px" data-tip="Als A-Artikel kopieren" title="Als A-Artikel kopieren" aria-label="Als A-Artikel kopieren" href="{% url 'stammdaten:artikel_neu' %}?kopie_von_pl={{ e.pk }}" data-modal="{% url 'stammdaten:artikel_neu' %}?kopie_von_pl={{ e.pk }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></a>{% endif %}</td></tr>
-    {% empty %}<tr><td colspan="9">Keine Treffer.</td></tr>{% endfor %}</tbody>
+    {% empty %}<tr><td colspan="9">{% if q or lieferant or verknuepft %}{% include "filter_leer.html" %}{% else %}Keine Treffer.{% endif %}</td></tr>{% endfor %}</tbody>
   </table></div>
   {% include "seiten.html" %}
+  </div>
 </div>
 {% endblock %}

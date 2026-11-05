@@ -383,6 +383,60 @@
   })();
 </script>
 <script>
+  // Live-Filter für alle Listen: <form data-livefilter> + Ergebnisbereich <div data-ergebnis data-mandant="…">
+  // (optional <p data-zahl> für die vorgelesene Anzahl). Jede Änderung lädt nur den Ergebnisbereich neu, die Filter stehen in der Adresse
+  // (Neuladen, Zurück, Link teilen). Ohne JavaScript bleibt der Suchknopf im <noscript>.
+  (function () {
+    var form = document.querySelector('form[data-livefilter]'), ergebnis = document.querySelector('[data-ergebnis]');
+    if (!form || !ergebnis) return;
+    function abfrage() {  // nur gesetzte Filter in die Adresse; leere Felder heben ihren Filter auf
+      var bisher = new URLSearchParams(letzte == null ? location.search : letzte);  // zuletzt angefragter Stand, auch wenn die Antwort noch läuft
+      return new URLSearchParams(Array.from(new FormData(form)).map(function (p) {
+        var feld = form.elements[p[0]];  // unvollständiges Datum: bisheriger Wert gilt weiter, die übrigen Filter wirken trotzdem
+        return feld.type === 'date' && feld.validity.badInput ? [p[0], bisher.get(p[0]) || ''] : p;
+      }).filter(function (p) { return p[1] !== ''; })).toString();
+    }
+    var timer, laufend, letzte = abfrage();
+    function filtern() {
+      clearTimeout(timer);
+      var text = abfrage();
+      if (text === letzte) return;
+      letzte = text;
+      var url = location.pathname + (text ? '?' + text : '');
+      if (laufend) laufend.abort();  // alte Anfrage verwerfen
+      laufend = new AbortController();
+      fetch(url, {credentials: 'same-origin', signal: laufend.signal}).then(function (r) {
+        if (!r.ok || r.redirected) throw new Error('Status ' + r.status);
+        return r.text();
+      }).then(function (html) {
+        var seite = new DOMParser().parseFromString(html, 'text/html'), neu = seite.querySelector('[data-ergebnis]');
+        if (!neu) throw new Error('kein Ergebnisbereich');
+        if (neu.dataset.mandant !== ergebnis.dataset.mandant) throw new Error('Mandant gewechselt');  // ganze Seite, damit die Überschrift stimmt
+        ergebnis.innerHTML = neu.innerHTML;
+        var zahl = document.querySelector('[data-zahl]'), zahlNeu = seite.querySelector('[data-zahl]');
+        if (zahl && zahlNeu) zahl.textContent = zahlNeu.textContent;  // nur die Anzahl wird vorgelesen
+        history.replaceState(null, '', url);
+      }).catch(function (fehler) {
+        if (fehler.name === 'AbortError') return;
+        letzte = null;  // nächste Änderung versucht es erneut
+        location.href = url;  // Rückfall: ganze Seite laden (z. B. abgelaufene Anmeldung)
+      });
+    }
+    function spaeter() { clearTimeout(timer); timer = setTimeout(filtern, 300); }  // Tipp-Pause abwarten
+    Array.from(form.elements).forEach(function (feld) {
+      if (!feld.name) return;
+      if (feld.type === 'date') {  // Datum: Tippen mit Pause (das Jahr wird ziffernweise gültig), Verlassen sofort;
+        feld.addEventListener('input', spaeter); feld.addEventListener('keyup', spaeter);  // keyup/blur, weil Chrome ganz leeren nicht als Änderung meldet
+        feld.addEventListener('change', spaeter); feld.addEventListener('blur', filtern);
+      } else if (feld.type === 'text' || feld.type === 'search') {  // Suchtext: ab 2 Zeichen (oder leer = Filter aufheben, * = alle)
+        feld.addEventListener('input', function () { var n = feld.value.trim().length; if (n !== 1 || feld.value.trim() === '*') spaeter(); });
+      } else if (feld.type === 'select-one' || feld.type === 'checkbox' || feld.type === 'radio') {
+        feld.addEventListener('change', filtern);  // Auswahlfelder wirken sofort
+      }
+    });
+    form.addEventListener('submit', function (e) { e.preventDefault(); filtern(); });  // Enter im Suchfeld: sofort
+  })();
+
   // Taste „/“ springt in die Suche der Kopfzeile – nicht, wenn man gerade in einem Feld tippt oder ein Dialog offen ist
   document.addEventListener('keydown', function (e) {
     if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;

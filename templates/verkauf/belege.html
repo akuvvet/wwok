@@ -4,7 +4,7 @@
 <a href="{% url 'verkauf:start' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
   <h1>Alle Belege · Mandant {{ request.mandant }}</h1>
-  <form method="get" class="zeile" id="belegfilter">
+  <form method="get" class="zeile" data-livefilter>
     <div><label for="q">Beleg-Nr., Kunde oder Referenz</label><input id="q" name="q" value="{{ q }}" size="30" autocomplete="off" autofocus></div>
     <div><label for="art">Belegart</label><select id="art" name="art"><option value="">alle</option>
       {% for wert, name in arten %}<option value="{{ wert }}" {% if art == wert %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
@@ -17,8 +17,8 @@
     <div><label for="bis">bis</label><input id="bis" type="date" name="bis" value="{{ bis }}"></div>
     <noscript><button type="submit">Filtern</button></noscript>
   </form>
-  <p id="belegzahl" aria-live="polite">{{ anzahl }} Belege</p>
-  <div id="belegergebnis" data-mandant="{{ request.mandant.pk }}">
+  <p data-zahl aria-live="polite">{{ anzahl }} Belege</p>
+  <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
   <div class="scroll">
   <table>
     <thead><tr><th>Beleg</th><th>Datum</th><th>Kunde</th><th>Referenz</th><th>Status</th><th class="zahl">Netto</th><th class="zahl">Brutto</th></tr></thead>
@@ -30,58 +30,11 @@
       <td>{{ b.referenz }}</td>
       <td>{% if b.abgeschlossen %}abgeschlossen{% else %}Entwurf{% endif %}</td>
       <td class="zahl">{{ b.summe_netto|floatformat:2 }}</td><td class="zahl">{{ b.summe_brutto|floatformat:2 }}</td></tr>
-    {% empty %}<tr><td colspan="7">Keine Belege gefunden.</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="7">{% if q or art or status or von or bis %}{% include "filter_leer.html" %}{% else %}Keine Belege gefunden.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>
   </div>
   {% include "seiten.html" %}
   </div>
 </div>
-<script>
-  // Live-Filter: jede Änderung lädt nur die Ergebnisliste neu, die Filter stehen in der Adresse (Neuladen, Zurück, Link teilen)
-  (function () {
-    var form = document.getElementById('belegfilter'), ergebnis = document.getElementById('belegergebnis'), zahl = document.getElementById('belegzahl');
-    function abfrage() {  // nur gesetzte Filter in die Adresse; leere Felder heben ihren Filter auf
-      var bisher = new URLSearchParams(letzte == null ? location.search : letzte);  // zuletzt angefragter Stand, auch wenn die Antwort noch läuft
-      return new URLSearchParams(Array.from(new FormData(form)).map(function (p) {
-        var feld = form.elements[p[0]];  // unvollständiges Datum: bisheriger Wert gilt weiter, die übrigen Filter wirken trotzdem
-        return feld.type === 'date' && feld.validity.badInput ? [p[0], bisher.get(p[0]) || ''] : p;
-      }).filter(function (p) { return p[1] !== ''; })).toString();
-    }
-    var timer, laufend, letzte = abfrage();
-    function filtern() {
-      clearTimeout(timer);
-      var text = abfrage();
-      if (text === letzte) return;
-      letzte = text;
-      var url = location.pathname + (text ? '?' + text : '');
-      if (laufend) laufend.abort();
-      laufend = new AbortController();
-      fetch(url, {credentials: 'same-origin', signal: laufend.signal}).then(function (r) {
-        if (!r.ok || r.redirected) throw new Error('Status ' + r.status);
-        return r.text();
-      }).then(function (html) {
-        var seite = new DOMParser().parseFromString(html, 'text/html'), neu = seite.getElementById('belegergebnis');
-        if (!neu) throw new Error('keine Belegliste');
-        if (neu.dataset.mandant !== ergebnis.dataset.mandant) throw new Error('Mandant gewechselt');  // ganze Seite, damit die Überschrift stimmt
-        ergebnis.innerHTML = neu.innerHTML;
-        zahl.textContent = seite.getElementById('belegzahl').textContent;  // nur die Anzahl wird vorgelesen
-        history.replaceState(null, '', url);
-      }).catch(function (fehler) {
-        if (fehler.name === 'AbortError') return;
-        letzte = null;  // nächste Änderung versucht es erneut
-        location.href = url;  // Rückfall: ganze Seite laden (z. B. abgelaufene Anmeldung)
-      });
-    }
-    function spaeter() { clearTimeout(timer); timer = setTimeout(filtern, 300); }  // Tipp-Pause abwarten
-    form.q.addEventListener('input', spaeter);
-    ['art', 'status'].forEach(function (name) { form.elements[name].addEventListener('change', filtern); });
-    ['von', 'bis'].forEach(function (name) {  // Datum: Tippen mit Pause (das Jahr wird ziffernweise gültig), Verlassen sofort;
-      var feld = form.elements[name];          // keyup/blur, weil Chrome ganz leeren nicht als Änderung meldet
-      feld.addEventListener('input', spaeter); feld.addEventListener('keyup', spaeter);
-      feld.addEventListener('change', spaeter); feld.addEventListener('blur', filtern);
-    });
-    form.addEventListener('submit', function (e) { e.preventDefault(); filtern(); });  // Enter im Suchfeld: sofort
-  })();
-</script>
 {% endblock %}
