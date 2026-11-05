@@ -1242,4 +1242,7 @@ def wiedervorlage_erledigt(request, wiedervorlage_id):
     w = get_object_or_404(Wiedervorlage, pk=wiedervorlage_id, mandant=request.mandant)
     w.erledigt, w.erledigt_am = True, timezone.localdate()
     w.save()
-    return redirect("verkauf:start")
+    weiter = request.POST.get("weiter", "")  # zurück zur aufrufenden Seite, nur interne Pfade
+    if weiter and url_has_allowed_host_and_scheme(weiter, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return redirect(weiter)
+    return redirect("verkauf:kunde", kunde_id=w.kunde_id)
