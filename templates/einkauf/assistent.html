@@ -12,7 +12,7 @@
     <input type="hidden" name="aktion" value="datei">
     <div class="raster">
       {% if not vorhanden %}
-      <div><label>Lieferant</label><select name="lieferant" required>{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.nummer }} – {{ l.name1 }}</option>{% endfor %}</select></div>
+      <div><label>Lieferant</label><select name="lieferant" required>{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.kurz }} – {{ l.name1 }}</option>{% endfor %}</select></div>
       <div><label>Bezeichnung der Preisliste</label><input name="name" placeholder="z. B. Hauptpreisliste"></div>
       {% endif %}
       <div><label>Datei</label><input type="file" name="datei" required></div>

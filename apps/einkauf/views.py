@@ -10,8 +10,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel
+from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel, lieferanten_auswahl
 from apps.kern.rechte import admin_bei_aenderung, nur_admin
+from apps.kern.seiten import blaettern
 from apps.verkauf.mail import MailFehler, ausfuellen, senden_an
 from apps.verkauf.models import Beleg, Mailart
 from apps.verkauf.views import mit_mandant
@@ -64,11 +65,13 @@ def schutz(ziel, *arg_namen):
 @mit_mandant
 def lieferanten(request):
     q = request.GET.get("q", "").strip()
-    liste = Lieferant.objects.all().order_by("name1")
+    liste = lieferanten_auswahl(gesperrte=True)
     for wort in q.split():
         liste = liste.filter(Q(name1__icontains=wort) | Q(name2__icontains=wort) | Q(kurzname__icontains=wort)
                              | Q(ort__icontains=wort) | Q(nummer__icontains=wort))
-    return render(request, "einkauf/lieferanten.html", {"lieferanten": liste[:300], "q": q, "bereich": "einkauf"})
+    seite, parameter = blaettern(request, liste)
+    return render(request, "einkauf/lieferanten.html", {
+        "lieferanten": seite, "seite": seite, "parameter": parameter, "q": q, "bereich": "einkauf"})
 
 
 @mit_mandant
@@ -79,8 +82,9 @@ def bestellungen(request):
         liste = liste.filter(status__in=[BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL])
     elif status in BestellStatus.values:
         liste = liste.filter(status=status)
+    seite, parameter = blaettern(request, liste.order_by("-datum", "-id"))
     return render(request, "einkauf/bestellungen.html", {
-        "bestellungen": liste[:200], "status": status, "lieferanten": Lieferant.objects.filter(gesperrt=False)})
+        "bestellungen": seite, "seite": seite, "parameter": parameter, "status": status, "lieferanten": lieferanten_auswahl()})
 
 
 @mit_mandant
@@ -275,9 +279,8 @@ def preislistenartikel(request):
     parameter.pop("seite", None)
     return render(request, "einkauf/preislistenartikel.html", {
         "seite": seite, "parameter": parameter.urlencode(), "q": q, "lieferant": lieferant,
-        "verknuepft": request.GET.get("verknuepft") == "1", "lieferanten": sorted(
-            Lieferant.objects.filter(Exists(Preislistenartikel.objects.filter(lieferant_id=OuterRef("pk")))),
-            key=lambda lf: (lf.kurz.lower(), lf.pk))})
+        "verknuepft": request.GET.get("verknuepft") == "1", "lieferanten": lieferanten_auswahl(gesperrte=True).filter(
+            Exists(Preislistenartikel.objects.filter(lieferant_id=OuterRef("pk"))))})
 
 
 @mit_mandant
@@ -411,9 +414,11 @@ def vorschlag(request):
 
 @mit_mandant
 def wareneingaenge(request):
+    seite, parameter = blaettern(request, Wareneingang.objects.filter(mandant=request.mandant)
+                                 .select_related("lieferant", "bestellung").order_by("-datum", "-id"))
     return render(request, "einkauf/wareneingaenge.html", {
-        "liste": Wareneingang.objects.filter(mandant=request.mandant).select_related("lieferant", "bestellung")[:200],
-        "lieferanten": Lieferant.objects.filter(gesperrt=False),
+        "liste": seite, "seite": seite, "parameter": parameter,
+        "lieferanten": lieferanten_auswahl(),
         "offene": Bestellung.objects.filter(mandant=request.mandant, status__in=[BestellStatus.BESTELLT, BestellStatus.TEIL])})
 
 
@@ -524,10 +529,12 @@ def rechnungen(request):
         liste = liste.filter(status=status)
     elif status == "offen":
         liste = liste.exclude(status=RechnungStatus.BEZAHLT)
-    zeilen = [(r, r.abgleich(), r.zahlbetrag()) for r in liste[:300]]
+    seite, parameter = blaettern(request, liste)  # Modellsortierung: fällig, id
+    zeilen =[(r, r.abgleich(), r.zahlbetrag()) for r in seite]
     return render(request, "einkauf/rechnungen.html", {
         "abweichungen": sum(1 for _, a, _ in zeilen if a["offen"]),
-        "zeilen": zeilen, "status": status, "lieferanten": Lieferant.objects.filter(gesperrt=False),
+        "seite": seite, "parameter": parameter,
+        "zeilen": zeilen, "status": status, "lieferanten": lieferanten_auswahl(),
         "heute": date.today().isoformat(), "summe": sum((z[2] for z in zeilen), Decimal("0"))})
 
 
@@ -695,7 +702,7 @@ def sepa_export(request):
 def rma_liste(request):
     return render(request, "einkauf/rma_liste.html", {
         "liste": Rma.objects.filter(mandant=request.mandant).select_related("lieferant"),
-        "lieferanten": Lieferant.objects.filter(gesperrt=False)})
+        "lieferanten": lieferanten_auswahl()})
 
 
 @mit_mandant
@@ -721,7 +728,7 @@ def rma_aus_reparatur(request, reparatur_id):
         rma = services.rma_anlegen(request.mandant, lieferant, rep.geraet, rep.fehler, rep.artikel, rep.seriennummer, rep)
         messages.success(request, f"{rma.nummer} angelegt; Werkstattauftrag steht auf „in Lieferanten-RMA“.")
         return redirect("einkauf:rma", rma_id=rma.pk)
-    return render(request, "einkauf/rma_aus_reparatur.html", {"rep": rep, "lieferanten": Lieferant.objects.filter(gesperrt=False)})
+    return render(request, "einkauf/rma_aus_reparatur.html", {"rep": rep, "lieferanten": lieferanten_auswahl()})
 
 
 @mit_mandant
