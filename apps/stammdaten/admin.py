@@ -67,8 +67,8 @@ class AnsprechpartnerLieferantInline(admin.TabularInline):
 
 @admin.register(m.Lieferant)
 class LieferantAdmin(admin.ModelAdmin):
-    list_display = ["nummer", "name1", "ort", "lieferzeit_tage", "gesperrt"]
-    search_fields = ["nummer", "name1", "ort", "ust_id"]
+    list_display = ["nummer", "kurzname", "name1", "ort", "lieferzeit_tage", "gesperrt"]
+    search_fields = ["nummer", "kurzname", "name1", "ort", "ust_id"]
     readonly_fields = ["angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [LieferantMandantInline, AnsprechpartnerLieferantInline]
 
@@ -429,10 +429,9 @@ class PreislistenartikelAdmin(admin.ModelAdmin):
 
     @admin.display(description="Lieferant", ordering="lieferant__name1")
     def lieferant_kurz(self, obj):
-        """Erstes Wort von Name 1 (leer: Lieferantennummer); voller Text als Tooltip."""
+        """Kurzname (sonst erstes Wort von Name 1, sonst Nummer); voller Text als Tooltip."""
         lf = obj.lieferant
-        kurz = (lf.name1.split() or [lf.nummer])[0]
-        return format_html('<span title="{}">{}</span>', str(lf), kurz)
+        return format_html('<span title="{}">{}</span>', str(lf), lf.kurz)
 
     # Kurze Spaltenköpfe nur in der Liste (voller Begriff als Tooltip); Formulare behalten die langen Feldnamen.
     @admin.display(description=format_html('<span title="{}">{}</span>', "Herstellernummer", "MSKU"), ordering="herstellernummer")

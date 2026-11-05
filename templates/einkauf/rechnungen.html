@@ -28,7 +28,7 @@
     <div><label for="lieferantsuche">Lieferant (Name, Kurzname oder Nummer tippen)</label>
       <input id="lieferantsuche" list="lieferantenliste" size="30" autocomplete="off" required>
       <input type="hidden" name="lieferant" id="lieferantid">
-      <datalist id="lieferantenliste">{% for l in lieferanten %}<option value="{{ l.nummer }} – {{ l.name1 }}{% if l.kurzname %} ({{ l.kurzname }}){% endif %}" data-pk="{{ l.pk }}"></option>{% endfor %}</datalist></div>
+      <datalist id="lieferantenliste">{% for l in lieferanten %}<option value="{{ l.kurz }} – {{ l.name1 }} ({{ l.nummer }})" data-pk="{{ l.pk }}"></option>{% endfor %}</datalist></div>
     <div><label>Rechnungsnr.</label><input name="rechnungsnummer" size="14"></div>
     <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
     <div><label>Netto</label><input name="netto" size="9"></div>
@@ -46,7 +46,7 @@
     <tr><th></th><th>Lieferant</th><th>Rechnung</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">zu zahlen</th><th>Abgleich</th><th>Status</th></tr>
     {% for r, abgleich, zahlbetrag in zeilen %}
     <tr><td>{% if r.status != 'bezahlt' %}<input type="checkbox" name="auswahl" value="{{ r.pk }}">{% endif %}</td>
-        <td>{{ r.lieferant.name1 }}</td><td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a></td>
+        <td><span title="{{ r.lieferant.nummer }} – {{ r.lieferant.name1 }}">{{ r.lieferant.kurz }}</span></td><td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a></td>
         <td>{{ r.datum|date:"d.m.Y" }}</td><td>{{ r.faellig|date:"d.m.Y" }}</td><td class="zahl">{{ r.brutto }}</td>
         <td class="zahl">{{ zahlbetrag }}{% if zahlbetrag != r.brutto %} <small>(Skonto)</small>{% endif %}</td>
         <td>{% if not abgleich.verknuepft %}<span style="opacity:.6">kein Wareneingang</span>{% elif abgleich.ok %}passt{% else %}{% if abgleich.bestaetigt %}Abweichung {{ abgleich.differenz }} € bestätigt{% else %}<span style="color:var(--warn)">Abweichung {{ abgleich.differenz }} € – klären</span>{% endif %}{% endif %}{% if r.bemerkung %}<br><small>{{ r.bemerkung }}</small>{% endif %}</td>

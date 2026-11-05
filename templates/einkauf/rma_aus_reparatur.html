@@ -6,7 +6,7 @@
   <h1>{{ rep.nummer }} in Lieferanten-RMA übernehmen</h1>
   <p>{{ rep.geraet }} · SN {{ rep.seriennummer|default:"–" }}</p>
   <form method="post">{% csrf_token %}
-    <div><label>Lieferant</label><select name="lieferant" autofocus>{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.name1 }}</option>{% endfor %}</select></div>
+    <div><label>Lieferant</label><select name="lieferant" autofocus>{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.kurz }} – {{ l.name1 }}</option>{% endfor %}</select></div>
     <p><button type="submit">RMA anlegen</button></p>
   </form>
 </div>

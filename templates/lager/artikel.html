@@ -96,7 +96,7 @@
   <h2>Lieferanten</h2>
   <table>
     <tr><th>Lieferant</th><th>Bestellnummer</th><th class="zahl">EK netto</th><th class="zahl">Bestand</th><th class="zahl">Lieferzeit</th><th>Preisliste vom</th></tr>
-    {% for l in lieferanten %}<tr><td>{{ l.lieferant.kurzname|default:l.lieferant.name1 }}</td><td>{{ l.bestellnummer }}</td><td class="zahl">{% if l.ek is not None %}{{ l.ek|floatformat:2 }}{% else %}–{% endif %}</td>
+    {% for l in lieferanten %}<tr><td>{{ l.lieferant.kurz }}</td><td>{{ l.bestellnummer }}</td><td class="zahl">{% if l.ek is not None %}{{ l.ek|floatformat:2 }}{% else %}–{% endif %}</td>
       <td class="zahl">{{ l.bestand|default_if_none:"–" }}</td><td class="zahl">{% if l.lieferzeit_tage is not None %}{{ l.lieferzeit_tage }} Tage{% else %}–{% endif %}</td>
       <td>{{ l.aktualisiert_am|date:"d.m.Y"|default:"–" }}</td></tr>{% endfor %}
   </table>
