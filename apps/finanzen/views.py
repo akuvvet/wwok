@@ -9,6 +9,7 @@ from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Kunde
 from apps.kern.rechte import nur_admin
+from apps.kern.seiten import blaettern
 from apps.verkauf.mail import MailFehler, senden
 from apps.verkauf.models import Beleg, Belegart
 from apps.verkauf.views import mit_mandant
@@ -45,20 +46,53 @@ def datum(text):
         raise ValueError(f"Ungültiges Datum: {text}")
 
 
+OP_SORTIERUNG = {
+    "faellig": lambda z: (z["faellig"] or date.max, z["beleg"].pk),
+    "ueberfaellig": lambda z: (z["ueberfaellig"], z["beleg"].pk),
+    "offen": lambda z: (z["offen"], z["beleg"].pk),
+}
+
+
+def op_text(z):
+    k = z["beleg"].kunde
+    return " ".join([z["beleg"].nummer or "", k.name1 or "", k.name2 or "", k.nummer or ""]).lower()
+
+
 @mit_mandant
 def offene_posten(request):
     kunde_id = request.GET.get("kunde", "")
     kunde = Kunde.objects.filter(pk=kunde_id if kunde_id.isdigit() else None).first()
+    q = request.GET.get("q", "").strip()
+    sort = request.GET.get("sort", "")
+    schluessel = sort.lstrip("-")
+    if schluessel not in OP_SORTIERUNG:
+        sort = schluessel = ""
+    absteigend = sort.startswith("-")
     zeilen = sorted(services.offene_rechnungen(request.mandant, kunde) + services.offene_gutschriften(request.mandant, kunde),
                     key=lambda z: (z["beleg"].belegdatum, z["beleg"].pk))
+    if schluessel:
+        zeilen.sort(key=OP_SORTIERUNG[schluessel], reverse=absteigend)
     if request.GET.get("nur") == "ueberfaellig":
         zeilen = [z for z in zeilen if z["ueberfaellig"] > 0]
+    for wort in q.lower().split():
+        zeilen = [z for z in zeilen if wort in op_text(z)]
     summe = sum((z["offen"] for z in zeilen), Decimal("0"))
     ueberfaellig = sum((z["offen"] for z in zeilen if z["ueberfaellig"] > 0), Decimal("0"))
-    Beleg.versand_markieren(z["beleg"] for z in zeilen)  # Versand-Symbol in der Liste
+    seite, parameter = blaettern(request, zeilen)
+    Beleg.versand_markieren(z["beleg"] for z in seite)  # Versand-Symbol in der Liste
+    # Spaltenköpfe: erster Klick aufsteigend, zweiter absteigend; übrige Filter bleiben erhalten
+    basis = request.GET.copy()
+    basis.pop("seite", None)
+    basis.pop("sort", None)
+    basis = basis.urlencode()
+    kopf = {}
+    for name in OP_SORTIERUNG:
+        neu = "-" + name if sort == name else name
+        kopf[name] = {"url": (f"?{basis}&" if basis else "?") + f"sort={neu}",
+                      "pfeil": ("▼" if absteigend else "▲") if schluessel == name else ""}
     return render(request, "finanzen/offene_posten.html", {
-        "zeilen": zeilen, "summe": summe, "ueberfaellig": ueberfaellig, "kunde": kunde,
-        "nur": request.GET.get("nur", "")})
+        "zeilen": seite, "seite": seite, "parameter": parameter, "summe": summe, "ueberfaellig": ueberfaellig,
+        "kunde": kunde, "nur": request.GET.get("nur", ""), "q": q, "sort": sort, "kopf": kopf})
 
 
 @mit_mandant
@@ -225,8 +259,9 @@ def bank(request):
     umsaetze = Bankumsatz.objects.filter(mandant=request.mandant)
     if status in ("offen", "zugeordnet", "ignoriert"):
         umsaetze = umsaetze.filter(status=status)
+    seite, parameter = blaettern(request, umsaetze.select_related("vorschlag", "vorschlag__kunde", "zahlung"))
     return render(request, "finanzen/bank.html", {
-        "umsaetze": umsaetze.select_related("vorschlag", "vorschlag__kunde", "zahlung")[:300], "status": status})
+        "umsaetze": seite, "seite": seite, "parameter": parameter, "status": status})
 
 
 @mit_mandant
@@ -270,8 +305,9 @@ def kassenbuch(request):
         except ValueError as fehler:
             messages.error(request, str(fehler))
         return redirect("finanzen:kassenbuch")
+    seite, parameter = blaettern(request, Kassenbuch.objects.filter(mandant=request.mandant))
     return render(request, "finanzen/kassenbuch.html", {
-        "eintraege": Kassenbuch.objects.filter(mandant=request.mandant)[:200], "stand": services.kassenstand(request.mandant),
+        "eintraege": seite, "seite": seite, "parameter": parameter, "stand": services.kassenstand(request.mandant),
         "heute": date.today().isoformat()})
 
 

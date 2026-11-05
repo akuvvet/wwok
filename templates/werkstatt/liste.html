@@ -19,5 +19,6 @@
         <td>{{ r.get_status_display }}</td></tr>
     {% empty %}<tr><td colspan="6">Keine Aufträge.</td></tr>{% endfor %}
   </table>
+  {% include "seiten.html" %}
 </div>
 {% endblock %}
