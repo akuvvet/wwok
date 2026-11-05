@@ -15,7 +15,7 @@
 
 <div class="karte">
   <h2>Zahlung buchen</h2>
-  <form method="post" action="{% url 'finanzen:zahlung' beleg.pk %}" class="zeile">{% csrf_token %}
+  <form method="post" action="{% url 'finanzen:zahlung' beleg.pk %}" class="zeile">{% csrf_token %}<input type="hidden" name="offen_bisher" value="{{ offen|floatformat:2 }}">
     <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
     <div><label>Betrag brutto (negativ = Gegenbuchung)</label><input name="betrag" value="{{ offen|floatformat:2 }}" size="10" autofocus></div>
     <div><label>Zahlart</label><select name="zahlart">{% for w, n in zahlarten %}<option value="{{ w }}">{{ n }}</option>{% endfor %}</select></div>

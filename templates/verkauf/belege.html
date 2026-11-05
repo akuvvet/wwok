@@ -10,7 +10,7 @@
       {% for wert, name in arten %}<option value="{{ wert }}" {% if art == wert %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
     <div><label for="status">Status</label><select id="status" name="status">
       <option value="">alle</option>
-      <option value="offen" {% if status == "offen" %}selected{% endif %}>offen (Entwurf)</option>
+      <option value="offen" {% if status == "offen" %}selected{% endif %}>Entwurf</option>
       <option value="abgeschlossen" {% if status == "abgeschlossen" %}selected{% endif %}>abgeschlossen</option></select></div>
     <div><label for="von">von</label><input id="von" type="date" name="von" value="{{ von }}"></div>
     <div><label for="bis">bis</label><input id="bis" type="date" name="bis" value="{{ bis }}"></div>
@@ -27,7 +27,7 @@
       <td>{{ b.belegdatum|date:"d.m.Y" }}</td>
       <td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td>
       <td>{{ b.referenz }}</td>
-      <td>{% if b.abgeschlossen %}abgeschlossen{% else %}offen{% endif %}</td>
+      <td>{% if b.abgeschlossen %}abgeschlossen{% else %}Entwurf{% endif %}</td>
       <td class="zahl">{{ b.summe_netto|floatformat:2 }}</td><td class="zahl">{{ b.summe_brutto|floatformat:2 }}</td></tr>
     {% empty %}<tr><td colspan="7">Keine Belege gefunden.</td></tr>{% endfor %}
     </tbody>
