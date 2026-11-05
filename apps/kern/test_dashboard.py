@@ -167,6 +167,63 @@ class DashboardTest(TestCase):
         self.assertEqual((erg["anzahl"], erg["netto"]), (3, Decimal("550.00")))
         self.assertNotEqual(leer.pk, offen.pk)
 
+    def test_kachelzahlen_gleich_zeilen_der_verlinkten_listen(self):
+        from apps.einkauf.models import Bestellung
+        from apps.stammdaten.models import Lieferant
+        heute = timezone.localdate()
+        self.mit_mandant()
+        # Kundenbestellungen: 2 offen, 1 geliefert, 1 Entwurf zählt mit, 1 ohne Position zählt nicht
+        for netto in ("10", "20"):
+            b = self.beleg(Belegart.AUFTRAG, netto=netto, tag=heute)
+            Position.objects.create(beleg=b, bezeichnung="x", einzelpreis=Decimal("1"))
+        gel = self.beleg(Belegart.AUFTRAG, tag=heute)
+        gp = Position.objects.create(beleg=gel, bezeichnung="x", einzelpreis=Decimal("1"))
+        ls = self.beleg(Belegart.LIEFERSCHEIN, vorgaenger=gel, abgeschlossen=False, tag=heute)
+        Position.objects.create(beleg=ls, bezeichnung="x", einzelpreis=Decimal("1"), quellposition=gp)
+        Beleg.objects.filter(pk=ls.pk).update(abgeschlossen=True)
+        self.beleg(Belegart.AUFTRAG, tag=heute)
+        # Angebote: gültig, abgelaufen, mit Folgebeleg
+        gueltig = self.beleg(Belegart.ANGEBOT, tag=heute, gueltig_bis=heute + timedelta(days=5))
+        abgelaufen = self.beleg(Belegart.ANGEBOT, tag=heute, gueltig_bis=heute - timedelta(days=1))
+        folge = self.beleg(Belegart.ANGEBOT, tag=heute)
+        self.beleg(Belegart.AUFTRAG, tag=heute, vorgaenger=folge, abgeschlossen=False)
+        for b in (gueltig, abgelaufen, folge):
+            Position.objects.create(beleg=b, bezeichnung="x", einzelpreis=Decimal("1"))
+        # Lieferantenbestellungen
+        lief = Lieferant.objects.create(nummer="L1", name1="Lieferant AG")
+        for i, st in enumerate(("entwurf", "bestellt", "teil", "geliefert", "storniert")):
+            Bestellung.objects.create(mandant=self.m, lieferant=lief, nummer=f"B{i}", status=st, datum=heute)
+
+        k = dashboard.kacheln(self.m, 30, heute)
+        ab = self.client.get(reverse("verkauf:belege"), {"art": "AB", "status": "dashboard"})
+        self.assertEqual(k["bestellungen"]["anzahl"], ab.context["anzahl"])
+        self.assertEqual(ab.context["anzahl"], 2)
+        an = self.client.get(reverse("verkauf:belege"), {"art": "AN", "status": "dashboard"})
+        self.assertEqual(dashboard.offene_angebote(self.m, heute), an.context["anzahl"])
+        self.assertEqual(an.context["anzahl"], 1)
+        eb = self.client.get(reverse("einkauf:bestellungen"), {"status": "bestellt"})
+        self.assertEqual(k["lieferanten"]["bestellungen_anzahl"], len(eb.context["bestellungen"]))
+        self.assertEqual(len(eb.context["bestellungen"]), 2)
+        # Links im Dashboard
+        html = self.client.get(reverse("kern:dashboard")).content.decode()
+        for teil in ("art=AB&amp;status=dashboard", "art=AN&amp;status=dashboard", "status=bestellt"):
+            self.assertTrue(teil in html or teil.replace("&amp;", "&") in html, teil)
+
+    def test_top_artikel_und_lieferanten_sind_verlinkt(self):
+        from apps.einkauf.models import Lieferantenrechnung
+        from apps.stammdaten.models import Lieferant
+        self.mit_mandant()
+        art = Artikel.objects.create(nummer="A1", bezeichnung="Teil")
+        heute = timezone.localdate()
+        b = self.beleg(Belegart.RECHNUNG, netto="100", tag=heute)
+        Position.objects.create(beleg=b, artikel=art, bezeichnung="Teil", einzelpreis=Decimal("100"))
+        lief = Lieferant.objects.create(nummer="L1", name1="Lieferant AG")
+        Lieferantenrechnung.objects.create(mandant=self.m, lieferant=lief, rechnungsnummer="R1", datum=heute,
+                                           faellig=heute, netto=Decimal("50"), brutto=Decimal("59.5"))
+        html = self.client.get(reverse("kern:dashboard")).content.decode()
+        self.assertIn(reverse("lager:artikel", args=[art.pk]), html)
+        self.assertIn(reverse("stammdaten:lieferant_bearbeiten", args=[lief.pk]), html)
+
     def test_offene_posten_mit_zahlung_und_ueberfaellig(self):
         from apps.finanzen.models import Zahlung
         zb = Zahlungsbedingung.objects.create(bezeichnung="10 Tage", tage_netto=10, tage_mahnung=20)

@@ -122,22 +122,31 @@ def zeitraumvergleiche(mandant, heute=None) -> list:
     ]
 
 
-def offene_kundenbestellungen(mandant) -> dict:
+def kundenbestellungen_offen(mandant):
+    """Offene Kundenbestellungen (AB) als Abfrage: gemeinsame Regel für Kachel und Belegliste (status=dashboard)."""
     hat_position = Position.objects.filter(beleg=OuterRef("pk"))
     geliefert = Beleg.objects.filter(vorgaenger=OuterRef("pk"), art__in=(Belegart.LIEFERSCHEIN, Belegart.RECHNUNG))
     from apps.verkauf.models import mit_offener_menge
     rueckstand = mit_offener_menge(Position.objects.filter(beleg=OuterRef("pk"))).filter(offen__gt=0)
-    erg = (Beleg.objects.filter(mandant=mandant, art=Belegart.AUFTRAG).filter(Exists(hat_position))
-           .exclude(Exists(geliefert) & ~Exists(rueckstand))  # teilweise gelieferte Bestellungen mit Rückstand bleiben offen
-           .order_by().aggregate(anzahl=Count("pk"), netto=Coalesce(Sum("summe_netto"), NULL)))
+    return (Beleg.objects.filter(mandant=mandant, art=Belegart.AUFTRAG).filter(Exists(hat_position))
+            .exclude(Exists(geliefert) & ~Exists(rueckstand)))  # teilweise gelieferte Bestellungen mit Rückstand bleiben offen
+
+
+def offene_kundenbestellungen(mandant) -> dict:
+    erg = kundenbestellungen_offen(mandant).order_by().aggregate(anzahl=Count("pk"), netto=Coalesce(Sum("summe_netto"), NULL))
     return {"anzahl": erg["anzahl"], "netto": erg["netto"]}
 
 
-def offene_angebote(mandant, heute) -> int:
+def angebote_offen(mandant, heute):
+    """Offene Angebote (AN) als Abfrage: gemeinsame Regel für Kachel und Belegliste (status=dashboard)."""
     hat_position = Position.objects.filter(beleg=OuterRef("pk"))
     folge = Beleg.objects.filter(vorgaenger=OuterRef("pk"))
     return (Beleg.objects.filter(mandant=mandant, art=Belegart.ANGEBOT).filter(Q(gueltig_bis__isnull=True) | Q(gueltig_bis__gte=heute))
-            .filter(Exists(hat_position)).exclude(Exists(folge)).order_by().count())
+            .filter(Exists(hat_position)).exclude(Exists(folge)))
+
+
+def offene_angebote(mandant, heute) -> int:
+    return angebote_offen(mandant, heute).order_by().count()
 
 
 def _summe_je_beleg(modell, feld):

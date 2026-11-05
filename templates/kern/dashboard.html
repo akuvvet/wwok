@@ -44,7 +44,7 @@
 <p class="fein">Zeitraum: {{ von|date:"d.m.Y" }} bis {{ bis|date:"d.m.Y" }}, Vergleich mit {{ kacheln.vorher_von|date:"d.m.Y" }} bis {{ kacheln.vorher_bis|date:"d.m.Y" }}. Alle Beträge netto, außer offene Posten.</p>
 
 <div class="db-kacheln">
-  <a class="db-kachel" href="{% url 'verkauf:belege' %}?art=AB">
+  <a class="db-kachel" href="{% url 'verkauf:belege' %}?art=AB&status=dashboard">
     <div class="titel">Offene Kundenbestellungen</div>
     <div class="gross">{{ kacheln.bestellungen.anzahl }}</div>
     <div class="klein">{{ kacheln.bestellungen.netto|floatformat:"2g" }} € netto, noch nicht geliefert</div>
@@ -65,7 +65,7 @@
       {% endwith %}
       gegenüber Vorzeitraum ({{ kacheln.umsatz.vorher|floatformat:"2g" }} €)</div>
   </a>
-  <a class="db-kachel" href="{% url 'einkauf:bestellungen' %}">
+  <a class="db-kachel" href="{% url 'einkauf:bestellungen' %}?status=bestellt">
     <div class="titel">Lieferanten</div>
     <div class="gross">{{ kacheln.lieferanten.bestellungen_anzahl }} <span style="font-size:14px;font-weight:400">offene Bestellung{{ kacheln.lieferanten.bestellungen_anzahl|pluralize:"en" }}</span></div>
     <div class="klein">{{ kacheln.lieferanten.bestellungen_netto|floatformat:"2g" }} € netto noch offen<br>
@@ -118,7 +118,7 @@
   <a href="{% url 'werkstatt:liste' %}"><span>Offene Reparaturen</span><strong>{{ arbeit.reparaturen }}</strong></a>
   <a href="{% url 'finanzen:mahnwesen' %}"><span>Mahnfällige Rechnungen</span><strong {% if arbeit.mahnungen %}class="db-ab"{% endif %}>{{ arbeit.mahnungen }}</strong></a>
   <a href="{% url 'shop:uebersicht' %}"><span>Shop-Bestellungen im Zeitraum</span><strong>{{ arbeit.shop_bestellungen }}</strong></a>
-  <a href="{% url 'verkauf:belege' %}?art=AN"><span>Offene Angebote (gültig, ohne Folgebeleg)</span><strong>{{ arbeit.angebote }}</strong></a>
+  <a href="{% url 'verkauf:belege' %}?art=AN&status=dashboard"><span>Offene Angebote (gültig, ohne Folgebeleg)</span><strong>{{ arbeit.angebote }}</strong></a>
   <a href="{% url 'verkauf:start' %}"><span>Fällige Wiedervorlagen</span><strong {% if arbeit.wiedervorlagen %}class="db-ab"{% endif %}>{{ arbeit.wiedervorlagen }}</strong></a>
 </div>
 
@@ -134,7 +134,7 @@
   <div class="karte">
     <strong>Top 10 Artikel (Umsatz netto)</strong>
     <table>
-      {% for a in artikel %}<tr><td>{{ forloop.counter }}.</td><td>{{ a.artikel__nummer }}<br><span class="fein">{{ a.artikel__bezeichnung|truncatechars:42 }}</span></td>
+      {% for a in artikel %}<tr><td>{{ forloop.counter }}.</td><td><a href="{% url 'lager:artikel' a.artikel_id %}">{{ a.artikel__nummer }}</a><br><span class="fein">{{ a.artikel__bezeichnung|truncatechars:42 }}</span></td>
         <td class="zahl">{{ a.stueck|floatformat:"-3g" }} Stk.</td><td class="zahl">{{ a.umsatz|floatformat:"2g" }} €</td></tr>
       {% empty %}<tr><td>Keine Artikelumsätze im Zeitraum.</td></tr>{% endfor %}
     </table>
@@ -142,7 +142,7 @@
   <div class="karte">
     <strong>Top Lieferanten (Einkauf netto, nach Rechnungsdatum)</strong>
     <table>
-      {% for l in lieferanten %}<tr><td>{{ forloop.counter }}.</td><td>{{ l.lieferant__name1 }}</td><td class="zahl">{{ l.volumen|floatformat:"2g" }} €</td></tr>
+      {% for l in lieferanten %}<tr><td>{{ forloop.counter }}.</td><td><a href="{% url 'stammdaten:lieferant_bearbeiten' l.lieferant_id %}">{{ l.lieferant__name1 }}</a></td><td class="zahl">{{ l.volumen|floatformat:"2g" }} €</td></tr>
       {% empty %}<tr><td>Keine Lieferantenrechnungen im Zeitraum.</td></tr>{% endfor %}
     </table>
   </div>

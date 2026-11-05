@@ -1186,6 +1186,14 @@ def belege(request):
         liste = liste.filter(abgeschlossen=False)
     elif status == "abgeschlossen":
         liste = liste.filter(abgeschlossen=True)
+    elif status == "dashboard" and art in (Belegart.AUFTRAG, Belegart.ANGEBOT):
+        # genau die Regel der Dashboard-Kachel (offene Kundenbestellungen bzw. offene Angebote)
+        from django.utils import timezone
+
+        from apps.kern import dashboard
+        regel = (dashboard.kundenbestellungen_offen(request.mandant) if art == Belegart.AUFTRAG
+                 else dashboard.angebote_offen(request.mandant, timezone.localdate()))
+        liste = liste.filter(pk__in=regel.order_by().values("pk"))
     zeitraum = {}
     for feld, bedingung in (("von", "belegdatum__gte"), ("bis", "belegdatum__lte")):
         wert = request.GET.get(feld, "")
