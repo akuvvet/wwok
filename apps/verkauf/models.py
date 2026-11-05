@@ -40,6 +40,7 @@ class Belegart(models.TextChoices):
     NACHLIEFERSCHEIN = "NL", "Nachlieferschein"
     PROFORMA = "PF", "Proforma-Rechnung"
     GUTSCHRIFT = "GS", "Gutschrift"
+    PROFORMA_STORNO = "SP", "Storno Proforma"
 
 
 class Mailart(models.TextChoices):
@@ -52,6 +53,7 @@ class Mailart(models.TextChoices):
     NACHLIEFERSCHEIN = "NL", "Nachlieferschein"
     PROFORMA = "PF", "Proforma-Rechnung"
     GUTSCHRIFT = "GS", "Gutschrift"
+    PROFORMA_STORNO = "SP", "Storno Proforma"
     LIEFERANT = "BE", "Bestellung an Lieferanten"
     ESD = "ES", "Lizenzschlüssel"
     VERSAND = "VS", "Versandmitteilung"
@@ -68,7 +70,7 @@ FOLGEBELEG = {
     Belegart.LIEFERSCHEIN: Belegart.RECHNUNG,
 }
 # Diese Belegarten werden erst beim Abschluss nummeriert und danach gesperrt.
-GESPERRT_NACH_ABSCHLUSS = {Belegart.RECHNUNG, Belegart.GUTSCHRIFT}
+GESPERRT_NACH_ABSCHLUSS = {Belegart.RECHNUNG, Belegart.GUTSCHRIFT, Belegart.PROFORMA_STORNO}
 
 
 class Ruecknahme(models.TextChoices):
@@ -86,7 +88,7 @@ class Nummernkreis(models.Model):
     """Zähler je Mandant und Art; er läuft über den Jahreswechsel weiter, das Jahr steht nur in der Nummer."""
 
     # Reihenfolge der Verwaltungsseite; Einkauf und Werkstatt zählen über denselben Kreis, ihre Belege liegen in eigenen Tabellen
-    ARTEN = {"RE": "Rechnungen", "GS": "Gutschriften", "LS": "Lieferscheine", "AN": "Angebote", "PF": "Proforma-Rechnungen",
+    ARTEN = {"RE": "Rechnungen", "GS": "Gutschriften", "LS": "Lieferscheine", "AN": "Angebote", "PF": "Proforma-Rechnungen", "SP": "Stornos zu Proforma-Rechnungen",
              "WS": "Werkstattaufträge", "AB": "Bestellungen", "NL": "Nachlieferscheine", "BE": "Lieferantenbestellungen",
              "WE": "Wareneingänge", "RM": "RMA"}
     QUELLEN = {"WS": "werkstatt.Reparatur", "BE": "einkauf.Bestellung", "WE": "einkauf.Wareneingang", "RM": "einkauf.Rma"}
@@ -236,12 +238,34 @@ class Beleg(Zeitstempel):
 
     @property
     def gesperrt(self) -> bool:
-        return self.abgeschlossen and self.art in GESPERRT_NACH_ABSCHLUSS
+        return self.abgeschlossen and (self.art in GESPERRT_NACH_ABSCHLUSS or self.proforma_fest)
+
+    @property
+    def proforma_fest(self) -> bool:
+        """Abgeschlossene Proforma mit Zahlung, Rechnung oder Storno: Positionen und Beträge sind fest (Nachvollziehbarkeit)."""
+        if self.art != Belegart.PROFORMA or not self.abgeschlossen or not self.pk:
+            return False
+        return self.zahlungen.exists() or self.folgebelege.filter(art__in=(Belegart.RECHNUNG, Belegart.PROFORMA_STORNO)).exists()
+
+    @property
+    def proforma_storno(self):
+        """Storno-Beleg zu dieser Proforma (None = nicht storniert)."""
+        if self.art != Belegart.PROFORMA or not self.pk:
+            return None
+        return self.folgebelege.filter(art=Belegart.PROFORMA_STORNO).first()
+
+    @property
+    def proforma_rechnung(self):
+        """Rechnung, in die diese Proforma umgewandelt wurde (None = noch nicht umgewandelt)."""
+        if self.art != Belegart.PROFORMA or not self.pk:
+            return None
+        return self.folgebelege.filter(art=Belegart.RECHNUNG).first()
 
     @property
     def positionen_gesperrt(self) -> bool:
-        """Positionen sind nach Abschluss fest: bei Rechnung/Gutschrift (GoBD) und bei Lieferschein/Nachlieferschein (Lagerbuchung)."""
-        return self.abgeschlossen and (self.art in GESPERRT_NACH_ABSCHLUSS or self.art in (Belegart.LIEFERSCHEIN, Belegart.NACHLIEFERSCHEIN))
+        """Positionen sind nach Abschluss fest: bei Rechnung/Gutschrift (GoBD), bei Lieferschein/Nachlieferschein (Lagerbuchung)
+        und bei einer Proforma mit Zahlung, Rechnung oder Storno."""
+        return self.abgeschlossen and (self.gesperrt or self.art in (Belegart.LIEFERSCHEIN, Belegart.NACHLIEFERSCHEIN))
 
     @cached_property
     def hat_versand(self) -> bool:
@@ -264,6 +288,10 @@ class Beleg(Zeitstempel):
         if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG, Belegart.PROFORMA) and not (
                 self.art in GESPERRT_NACH_ABSCHLUSS and not self.abgeschlossen and not self.nummer):
             return f"{self.get_art_display()} kann nicht gelöscht werden – Korrektur nur per Storno/Gutschrift."
+        if self.art == Belegart.PROFORMA and self.folgebelege.filter(art__in=(Belegart.RECHNUNG, Belegart.PROFORMA_STORNO)).exists():
+            return "Aus der Proforma-Rechnung ist schon eine Rechnung oder ein Storno entstanden – sie muss erhalten bleiben."
+        if self.art in (Belegart.PROFORMA, Belegart.AUFTRAG) and self.anzahlung_verrechnungen.exists():
+            return "Zahlungen dieses Belegs sind mit einer Rechnung verrechnet – er muss erhalten bleiben."
         if self.rechnungen.exists():  # nur bei Lieferscheinen möglich; Angebote/Bestellungen dürfen nach dem Übernehmen gelöscht werden
             return "Der Beleg wird in einer Rechnung abgerechnet – bitte zuerst diese entfernen."
         if self.mails.exists():
@@ -555,13 +583,25 @@ class Beleg(Zeitstempel):
             gutschrift_buchen(self, benutzer)
         from apps.esd.services import beleg_zuordnen  # ESD-Keys beim Verkauf automatisch zuordnen
         beleg_zuordnen(self, benutzer)
+        if self.art == Belegart.RECHNUNG:  # Anzahlungen aus Proforma/Bestellung in derselben Transaktion verrechnen
+            from apps.finanzen.anzahlung import anzahlungen_verrechnen
+            anzahlungen_verrechnen(self, benutzer)
 
     def folge_pruefen(self, art):
         """Verhindert doppelte Abrechnung und doppelte Lieferung aus demselben Ursprungsbeleg."""
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abrechenbar:
             raise ValueError(f"{self} ist schon abgerechnet (oder nicht abrechenbar).")
-        if self.art == Belegart.AUFTRAG and art in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) and not self.offene_mengen():
-            raise ValueError(f"Zu {self} gibt es schon einen Lieferschein oder eine Rechnung – es ist nichts mehr offen (keine zweite Abrechnung).")
+        if self.art == Belegart.AUFTRAG and art in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA):
+            proforma = self.folgebelege.filter(art=Belegart.PROFORMA).exclude(folgebelege__art=Belegart.PROFORMA_STORNO).first()
+            if proforma:
+                raise ValueError(f"Zu {self} gibt es die {proforma} (Vorkasse): Die Rechnung entsteht dort mit "
+                                 "„In Rechnung umwandeln“, sobald sie bezahlt ist.")
+            if not self.offene_mengen():
+                raise ValueError(f"Zu {self} gibt es schon einen Lieferschein oder eine Rechnung – es ist nichts mehr offen (keine zweite Abrechnung).")
+        if self.art == Belegart.PROFORMA and art == Belegart.RECHNUNG:
+            raise ValueError("Eine Proforma-Rechnung wird mit „In Rechnung umwandeln“ zur Rechnung, sobald sie vollständig bezahlt ist.")
+        if art == Belegart.PROFORMA and self.art != Belegart.AUFTRAG:
+            raise ValueError("Eine Proforma-Rechnung entsteht nur aus einer Bestellung.")
 
     def offene_mengen(self) -> dict:
         """Bestellung: offene Menge je Hauptposition (Menge minus bereits in Lieferschein/Rechnung übernommen), nur > 0.
@@ -610,9 +650,10 @@ class Beleg(Zeitstempel):
 
     def _uebernahme(self, art, entscheidungen):
         """Mengen je Position für die Übernahme einer Bestellung in Lieferschein/Rechnung (sonst None = alles kopieren)."""
-        if self.art != Belegart.AUFTRAG or art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG):
+        if self.art != Belegart.AUFTRAG or art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA):
             return None
-        mengen = self.uebernahme_mengen(entscheidungen)
+        # Proforma: das Offene der Bestellung, ohne Engpass-Rückfrage (es wird noch nichts geliefert)
+        mengen = self.offene_mengen() if art == Belegart.PROFORMA else self.uebernahme_mengen(entscheidungen)
         if not any(m > 0 for m in mengen.values()):
             raise ValueError("Es wird nichts übernommen: Alle Positionen bleiben komplett reserviert in der Bestellung.")
         return mengen
@@ -675,7 +716,8 @@ class Beleg(Zeitstempel):
         """Beliebigen Beleg als neuen Entwurf der gewünschten Belegart kopieren (Gutschrift nur über Storno).
         Optional wird der Ursprungsbeleg danach abgeschlossen (erledigt)."""
         self.arbeitsstand_beenden()
-        if art not in Belegart.values or art == Belegart.GUTSCHRIFT:
+        if art not in Belegart.values or art in (Belegart.GUTSCHRIFT, Belegart.PROFORMA_STORNO) \
+                or self.art == Belegart.PROFORMA_STORNO:
             raise ValueError("Diese Belegart kann nicht als Kopie angelegt werden.")
         if art == Belegart.LIEFERSCHEIN and self.art != Belegart.AUFTRAG:
             raise ValueError("Ein Lieferschein entsteht nur aus einer Bestellung.")
@@ -688,7 +730,8 @@ class Beleg(Zeitstempel):
         nachlieferung = art == Belegart.NACHLIEFERSCHEIN
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
-            zahlungsbedingung=zahlungsbedingung_bezahlt() if nachlieferung else self.zahlungsbedingung,
+            zahlungsbedingung=zahlungsbedingung_bezahlt() if nachlieferung else
+                              zahlungsbedingung_vorkasse() if art == Belegart.PROFORMA else self.zahlungsbedingung,
             rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
             versandkosten=0 if nachlieferung else self.versandkosten, verpackung=0 if nachlieferung else self.verpackung,
@@ -797,6 +840,25 @@ def zahlungsbedingung_bezahlt():
     return zb
 
 
+def zahlungsbedingung_vorkasse():
+    """Zahlungsbedingung jeder Proforma-Rechnung, unabhängig vom Kunden: die als Vorkasse markierte Bedingung
+    (bei mehreren die mit der Bezeichnung „Vorkasse“), sonst wird „Vorkasse“ angelegt."""
+    from apps.stammdaten.models import Zahlungsbedingung
+    alle = list(Zahlungsbedingung.objects.filter(vorkasse=True).order_by("pk"))
+    for zb in alle:
+        if zb.bezeichnung.strip().lower() == "vorkasse":
+            return zb
+    if alle:
+        return alle[0]
+    zb, _ = Zahlungsbedingung.objects.get_or_create(
+        bezeichnung="Vorkasse", defaults={"druck_text": "Zahlbar im Voraus. Die Lieferung erfolgt nach Zahlungseingang.",
+                                          "tage_netto": 0, "vorkasse": True})
+    if not zb.vorkasse:  # gleichnamige Bedingung ohne Markierung
+        Zahlungsbedingung.objects.filter(pk=zb.pk).update(vorkasse=True)
+        zb.vorkasse = True
+    return zb
+
+
 def kopiere_positionen(quelle, ziel, mengen=None):
     """Kopiert alle Positionen samt Gruppenzuordnung in einen anderen Beleg. Stammt die Quelle aus einem
     Lieferschein, bleibt der Lieferschein an der Position vermerkt (Nummer und Datum im Ausdruck).
@@ -821,10 +883,15 @@ def kopiere_positionen(quelle, ziel, mengen=None):
             quellposition=p, preis_fest=p.preis_fest)
 
 
+def stornierte_proformas():
+    """Abfrage der stornierten Proformas: Ihre Positionen gelten nicht als aus der Bestellung übernommen."""
+    return Beleg.objects.filter(art=Belegart.PROFORMA, folgebelege__art=Belegart.PROFORMA_STORNO).values("pk")
+
+
 def mit_offener_menge(positionen):
     """Annotiert Positionen mit `offen`: Menge minus Menge, die in Folgebelege (Lieferschein/Rechnung …) übernommen wurde."""
     uebernommen = (Position.objects.filter(quellposition=OuterRef("pk"), beleg__vorgaenger_id=OuterRef("beleg_id"))
-                   .order_by().values("quellposition").annotate(s=Sum("menge")).values("s"))
+                   .exclude(beleg__in=stornierte_proformas()).order_by().values("quellposition").annotate(s=Sum("menge")).values("s"))
     dez = models.DecimalField(max_digits=10, decimal_places=3)
     return positionen.annotate(offen=F("menge") - Coalesce(Subquery(uebernommen, output_field=dez), Value(Decimal("0")), output_field=dez))
 
@@ -893,8 +960,8 @@ class Position(Zeitstempel):
         """Menge, die aus dieser Bestellposition schon in Lieferschein/Rechnung übernommen wurde."""
         if not self.pk:
             return Decimal("0")
-        return Position.objects.filter(quellposition=self, beleg__vorgaenger_id=self.beleg_id).aggregate(
-            s=Sum("menge"))["s"] or Decimal("0")
+        return Position.objects.filter(quellposition=self, beleg__vorgaenger_id=self.beleg_id).exclude(
+            beleg__in=stornierte_proformas()).aggregate(s=Sum("menge"))["s"] or Decimal("0")
 
     @property
     def offen_menge(self) -> Decimal:

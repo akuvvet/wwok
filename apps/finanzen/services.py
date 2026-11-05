@@ -9,7 +9,7 @@ from apps.verkauf.models import Beleg, Belegart
 
 from apps.kern.models import Mandant
 
-from .models import Gutschriftverrechnung, Kassenbuch, Lastschrift, Mahnstufe, Mahnung, Zahlart, Zahlung
+from .models import Anzahlungsverrechnung, Gutschriftverrechnung, Kassenbuch, Lastschrift, Mahnstufe, Mahnung, Zahlart, Zahlung
 
 CENT = Decimal("0.01")
 STANDARD_STUFEN = [
@@ -48,15 +48,31 @@ def gutgeschrieben(beleg) -> Decimal:
     return beleg.gutschrift_verrechnungen.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0")
 
 
+def angerechnet(beleg) -> Decimal:
+    """Auf die Rechnung verrechnete Anzahlungen (Zahlungen auf Proforma-Rechnung oder Bestellung)."""
+    return beleg.anzahlungen.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0")
+
+
+def angerechnet_im_druck(beleg) -> Decimal:
+    """Anzahlungen, die beim Abschluss der Rechnung verrechnet wurden: Sie stehen unveränderlich im Ausdruck und in der
+    E-Rechnung. Spätere Verrechnungen oder Aufhebungen ändern den ausgestellten Beleg nicht (wie Gutschriftverrechnungen)."""
+    return beleg.anzahlungen.filter(bei_abschluss=True, storno_zu__isnull=True).aggregate(
+        s=models.Sum("betrag"))["s"] or Decimal("0")
+
+
 def summen_je_beleg(belege) -> dict:
     """Zahlungen, verrechnete Gutschriften (auf Rechnungen) und Verrechnungen (von Gutschriften) für viele Belege in je einer Abfrage.
-    Rückgabe: {"bezahlt": {pk: Betrag}, "gutgeschrieben": {pk: Betrag}, "verrechnet": {pk: Betrag}}; fehlende Schlüssel = 0."""
+    Rückgabe: {"bezahlt": {pk: Betrag}, "gutgeschrieben": {pk: Betrag}, "verrechnet": {pk: Betrag},
+    "angerechnet": {pk: Betrag} (Anzahlungen auf Rechnungen), "abgegeben": {pk: Betrag} (von Proforma/Bestellung verrechnet)};
+    fehlende Schlüssel = 0."""
     ids = [b.pk for b in belege]
     def summe(qs, feld):
         return {z[feld]: z["s"] for z in qs.order_by().values(feld).annotate(s=models.Sum("betrag"))}
     return {"bezahlt": summe(Zahlung.objects.filter(beleg_id__in=ids), "beleg_id"),
             "gutgeschrieben": summe(Gutschriftverrechnung.objects.filter(rechnung_id__in=ids), "rechnung_id"),
-            "verrechnet": summe(Gutschriftverrechnung.objects.filter(gutschrift_id__in=ids), "gutschrift_id")}
+            "verrechnet": summe(Gutschriftverrechnung.objects.filter(gutschrift_id__in=ids), "gutschrift_id"),
+            "angerechnet": summe(Anzahlungsverrechnung.objects.filter(rechnung_id__in=ids), "rechnung_id"),
+            "abgegeben": summe(Anzahlungsverrechnung.objects.filter(quelle_id__in=ids), "quelle_id")}
 
 
 def gutschrift_rest(gutschrift) -> Decimal:
@@ -65,6 +81,13 @@ def gutschrift_rest(gutschrift) -> Decimal:
 
 
 def offen(beleg) -> Decimal:
+    """Offener Betrag; Rechnung: abzüglich Zahlungen, verrechneter Gutschriften und Anzahlungen.
+    Proforma: siehe anzahlung.proforma_offen (negativ = Guthaben des Kunden)."""
+    if beleg.art == Belegart.PROFORMA:
+        from .anzahlung import proforma_offen
+        return proforma_offen(beleg)
+    if beleg.art == Belegart.RECHNUNG:
+        return beleg.summe_brutto - bezahlt(beleg) - gutgeschrieben(beleg) - angerechnet(beleg)
     return beleg.summe_brutto - bezahlt(beleg) - gutgeschrieben(beleg)
 
 
@@ -88,7 +111,7 @@ def offene_rechnungen_zeilen(belege):
     heute = timezone.localdate()
     zeilen = []
     for b in belege:
-        bez, gut = b.summe_bezahlt, b.summe_gutgeschrieben
+        bez, gut = b.summe_bezahlt + b.summe_angerechnet, b.summe_gutgeschrieben  # Anzahlungen zählen als bezahlt
         rest = b.summe_brutto - bez - gut
         if abs(rest) < CENT:
             continue
@@ -115,9 +138,11 @@ def _rechnungen_mit_summen(mandant, kunde=None):
         .select_related("kunde", "zahlungsbedingung") \
         .annotate(summe_bezahlt=Coalesce(summe(Zahlung, "beleg"), null),
                   summe_gutgeschrieben=Coalesce(summe(Gutschriftverrechnung, "rechnung"), null),
+                  summe_angerechnet=Coalesce(summe(Anzahlungsverrechnung, "rechnung"), null),
                   letzte_mahnstufe=models.Subquery(letzte.values("stufe")[:1]),
                   letzte_mahnung_datum=models.Subquery(letzte.values("datum")[:1])) \
-        .annotate(rest_db=models.F("summe_brutto") - models.F("summe_bezahlt") - models.F("summe_gutgeschrieben")) \
+        .annotate(rest_db=models.F("summe_brutto") - models.F("summe_bezahlt") - models.F("summe_gutgeschrieben")
+                  - models.F("summe_angerechnet")) \
         .filter(models.Q(rest_db__gt=Decimal("0.005")) | models.Q(rest_db__lt=Decimal("-0.005"))) \
         .order_by("belegdatum", "id")
     if kunde is not None:
@@ -229,10 +254,21 @@ def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, s
         Beleg.objects.select_for_update().get(pk=beleg.pk)  # Sperre gegen gleichzeitiges Doppelabsenden
         if offen_bisher != offen(beleg):
             raise ValueError("Der offene Betrag hat sich inzwischen geändert (evtl. schon gebucht). Bitte prüfen und neu buchen.")
-    if beleg.art not in (Belegart.RECHNUNG, Belegart.AUFTRAG) or (beleg.art == Belegart.RECHNUNG and not beleg.abgeschlossen):
-        raise ValueError("Zahlungen können nur auf abgeschlossene Rechnungen oder Bestellungen gebucht werden.")
+    if beleg.art not in (Belegart.RECHNUNG, Belegart.AUFTRAG, Belegart.PROFORMA) \
+            or (beleg.art in (Belegart.RECHNUNG, Belegart.PROFORMA) and not beleg.abgeschlossen):
+        raise ValueError("Zahlungen können nur auf abgeschlossene Rechnungen, Proforma-Rechnungen oder Bestellungen gebucht werden.")
+    if beleg.art == Belegart.PROFORMA and beleg.proforma_storno and storno_zu is None:
+        raise ValueError(f"{beleg} ist storniert – keine weiteren Zahlungen.")
     if betrag == 0:
         raise ValueError("Betrag darf nicht 0 sein.")
+    if betrag < 0 and beleg.art in (Belegart.PROFORMA, Belegart.AUFTRAG):
+        # Rückzahlung/Storno: was schon mit einer Rechnung verrechnet ist, muss an der Proforma/Bestellung bleiben
+        Beleg.objects.select_for_update().get(pk=beleg.pk)
+        from .anzahlung import abgegeben
+        verrechnet = abgegeben(beleg)
+        if bezahlt(beleg) + betrag < verrechnet - CENT:
+            raise ValueError(f"{verrechnet:.2f} € dieser Zahlungen sind mit einer Rechnung verrechnet.".replace(".", ",", 1)
+                             + " Bitte zuerst die Verrechnung aufheben (Zahlungen der Rechnung), dann zurückzahlen oder stornieren.")
     zahlung = Zahlung.objects.create(mandant=beleg.mandant, beleg=beleg, betrag=betrag, datum=datum, zahlart=zahlart,
                                      bemerkung=bemerkung, benutzer=benutzer, storno_zu=storno_zu, storno_grund=storno_grund)
     if zahlart == Zahlart.BAR:  # Barzahlung läuft ins Kassenbuch

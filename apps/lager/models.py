@@ -74,18 +74,24 @@ def bestand(mandant, artikel) -> Decimal:
         s=models.Sum("menge"))["s"] or Decimal("0")
 
 
+def reservierende_positionen(mandant):
+    """Positionen, die Bestand reservieren: Kundenbestellungen und nicht stornierte Proforma-Rechnungen."""
+    from apps.verkauf.models import Belegart, Position, stornierte_proformas
+    return Position.objects.filter(beleg__mandant=mandant, beleg__art__in=(Belegart.AUFTRAG, Belegart.PROFORMA))         .exclude(beleg__in=stornierte_proformas())
+
+
 def reserviert(mandant, artikel) -> Decimal:
-    """Offene Menge in Kundenbestellungen: bestellt minus schon in Lieferschein/Rechnung übernommen (Rückstand zählt mit)."""
-    from apps.verkauf.models import Belegart, Position, mit_offener_menge
-    offen = mit_offener_menge(Position.objects.filter(artikel=artikel, beleg__mandant=mandant, beleg__art=Belegart.AUFTRAG))
+    """Offene Menge in Kundenbestellungen: bestellt minus schon in Lieferschein/Rechnung übernommen (Rückstand zählt mit).
+    Eine Proforma (Vorkasse) übernimmt die Reservierung ihrer Bestellung, bis sie zur Rechnung wird oder storniert ist."""
+    from apps.verkauf.models import mit_offener_menge
+    offen = mit_offener_menge(reservierende_positionen(mandant).filter(artikel=artikel))
     return offen.filter(offen__gt=0).aggregate(s=models.Sum("offen"))["s"] or Decimal("0")
 
 
 def reserviert_je_artikel(mandant, artikel_ids) -> dict:
     """{artikel_id: reservierte Menge} wie reserviert(), aber für viele Artikel in einer Abfrage."""
-    from apps.verkauf.models import Belegart, Position, mit_offener_menge
-    offen = mit_offener_menge(Position.objects.filter(artikel_id__in=list(artikel_ids), beleg__mandant=mandant,
-                                                      beleg__art=Belegart.AUFTRAG))
+    from apps.verkauf.models import mit_offener_menge
+    offen = mit_offener_menge(reservierende_positionen(mandant).filter(artikel_id__in=list(artikel_ids)))
     return {z["artikel_id"]: z["s"] for z in offen.filter(offen__gt=0).order_by().values("artikel_id").annotate(s=models.Sum("offen"))}
 
 

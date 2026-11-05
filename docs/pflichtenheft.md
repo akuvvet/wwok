@@ -107,7 +107,7 @@ Positionsdetails (z. B. Doppelklick): Zusatztext, Seriennummern, Rabatt.
 
 - Angebot → Bestellung → Lieferschein → Rechnung (per Klick)
 - Angebot in Lieferantenbestellung kopieren (P-Artikel automatisch dem Lieferanten zugeordnet)
-- Proforma-Rechnung (ohne Buchung)
+- Proforma-Rechnung als Vorkasse: nur aus einer Bestellung, Zahlung auf die Proforma, nach vollständiger Zahlung Umwandlung in die Rechnung („Betrag dankend erhalten“), Storno mit eigenem Beleg (README Abschnitt 18)
 - Teillieferung: Geliefertes wird berechnet, Rest bleibt als offene Bestellung verknüpft
 - Nachlieferschein: aus Rechnung kopieren, Menge anpassen, keine neue Rechnung; System fragt, ob vom Lager abgebucht wird
 - Kundenretoure und Gutschrift

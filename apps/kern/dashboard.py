@@ -21,7 +21,7 @@ from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
 from apps.einkauf.models import BestellPosition, BestellStatus, Bestellung, Lieferantenrechnung, RechnungStatus
-from apps.finanzen.models import Gutschriftverrechnung, Zahlung
+from apps.finanzen.models import Anzahlungsverrechnung, Gutschriftverrechnung, Zahlung
 from apps.shop.models import ShopBestellung
 from apps.verkauf.models import Beleg, Belegart, Position, Wiedervorlage
 from apps.werkstatt.models import Reparatur, Status
@@ -125,7 +125,7 @@ def zeitraumvergleiche(mandant, heute=None) -> list:
 def kundenbestellungen_offen(mandant):
     """Offene Kundenbestellungen (AB) als Abfrage: gemeinsame Regel für Kachel und Belegliste (status=dashboard)."""
     hat_position = Position.objects.filter(beleg=OuterRef("pk"))
-    geliefert = Beleg.objects.filter(vorgaenger=OuterRef("pk"), art__in=(Belegart.LIEFERSCHEIN, Belegart.RECHNUNG))
+    geliefert = Beleg.objects.filter(vorgaenger=OuterRef("pk"), art__in=(Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA))         .exclude(art=Belegart.PROFORMA, folgebelege__art=Belegart.PROFORMA_STORNO)  # Proforma (Vorkasse) übernimmt die Bestellung
     from apps.verkauf.models import mit_offener_menge
     rueckstand = mit_offener_menge(Position.objects.filter(beleg=OuterRef("pk"))).filter(offen__gt=0)
     return (Beleg.objects.filter(mandant=mandant, art=Belegart.AUFTRAG).filter(Exists(hat_position))
@@ -160,8 +160,9 @@ def offene_posten(mandant, heute) -> dict:
     nur die offenen Belege (wenige) werden in Python auf Fälligkeit geprüft."""
     bezahlt = _summe_je_beleg(Zahlung, "beleg")
     verrechnet_re = _summe_je_beleg(Gutschriftverrechnung, "rechnung")
+    anzahlung_re = _summe_je_beleg(Anzahlungsverrechnung, "rechnung")
     rechnungen = (Beleg.objects.filter(mandant=mandant, art=Belegart.RECHNUNG, abgeschlossen=True)
-                  .annotate(rest=F("summe_brutto") - bezahlt - verrechnet_re)
+                  .annotate(rest=F("summe_brutto") - bezahlt - verrechnet_re - anzahlung_re)
                   .filter(Q(rest__gte=CENT) | Q(rest__lte=-CENT)).order_by()
                   .values_list("rest", "belegdatum", "zahlungsbedingung__tage_netto"))
     anzahl, betrag, ueberfaellig_anzahl, ueberfaellig_betrag = 0, Decimal("0"), 0, Decimal("0")

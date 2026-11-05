@@ -86,6 +86,44 @@ class Gutschriftverrechnung(models.Model):
         return f"{self.gutschrift} auf {self.rechnung}: {self.betrag} €"
 
 
+class Anzahlungsverrechnung(models.Model):
+    """Zahlung auf eine Proforma-Rechnung oder Bestellung (Vorkasse/Anzahlung), die mit einer Rechnung verrechnet ist.
+    Die Zahlung selbst bleibt mit Datum, Zahlart, Bank und Kasse an der Quelle (keine Umbuchung, keine Scheinbuchung);
+    die Verrechnung mindert nur den offenen Betrag der Rechnung. Unveränderlich, Aufhebung per Gegenbuchung."""
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="+")
+    quelle = models.ForeignKey("verkauf.Beleg", on_delete=models.PROTECT, related_name="anzahlung_verrechnungen",
+                               help_text="Proforma-Rechnung oder Bestellung mit der Zahlung")
+    rechnung = models.ForeignKey("verkauf.Beleg", on_delete=models.PROTECT, related_name="anzahlungen")
+    datum = models.DateField("Datum", default=timezone.localdate)
+    betrag = models.DecimalField("Betrag brutto", max_digits=12, decimal_places=2, help_text="Negativ = Aufhebung")
+    erfasst_am = models.DateTimeField(default=timezone.now)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    storno_zu = models.OneToOneField("self", on_delete=models.PROTECT, null=True, blank=True, related_name="storniert_durch",
+                                     help_text="Gesetzt bei einer Aufhebung: die ursprüngliche Verrechnung")
+    storno_grund = models.CharField("Grund der Aufhebung", max_length=300, blank=True)
+    bei_abschluss = models.BooleanField("beim Abschluss der Rechnung", default=False, editable=False,
+                                        help_text="Nur diese Verrechnungen stehen im Rechnungsdruck (GoBD: der Ausdruck ändert sich nicht)")
+
+    class Meta:
+        verbose_name = "Anzahlungsverrechnung"
+        verbose_name_plural = "Anzahlungsverrechnungen"
+        ordering = ["-datum", "-id"]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise PermissionError("Verrechnungen sind unveränderlich; bitte die Verrechnung aufheben.")
+        if not (self.quelle.mandant_id == self.rechnung.mandant_id == self.mandant_id):
+            raise ValueError("Beleg gehört zu einem anderen Mandanten.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionError("Verrechnungen sind unveränderlich; bitte die Verrechnung aufheben.")
+
+    def __str__(self):
+        return f"{self.quelle} auf {self.rechnung}: {self.betrag} €"
+
+
 class Mahnstufe(models.Model):
     """Einstellbar pro Mandant. Stufe 1: Zahlungserinnerung, 2: 1. Mahnung, 3: 2. Mahnung."""
 

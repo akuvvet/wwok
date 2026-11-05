@@ -14,13 +14,19 @@
       <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}"><strong>{{ beleg.kunde.nummer }} · {{ beleg.kunde.name1 }}</strong></a>
       <span>{{ beleg.belegdatum|date:"d.m.Y" }}</span>
       {% if beleg.art == "RE" %}<span>Lieferdatum: {% if beleg.lieferdatum %}{{ beleg.lieferdatum|date:"d.m.Y" }}{% else %}siehe Positionen{% endif %}</span>{% endif %}
-      {% if beleg.gesperrt %}<span class="marke gesperrt">abgeschlossen &amp; gesperrt</span>
+      {% if pf_status %}<span class="marke{% if pf_status.code == 'bezahlt' or pf_status.code == 'umgewandelt' or pf_status.code == 'ueberzahlt' %} ok{% elif pf_status.code == 'storniert' or pf_status.code == 'offen' or pf_status.code == 'teilbezahlt' %} gesperrt{% endif %}" title="Zahlstatus der Proforma-Rechnung">{{ pf_status.text }}{% if pf_status.code == 'teilbezahlt' or pf_status.code == 'offen' %} · offen {{ pf_status.offen|floatformat:"2g" }} €{% elif pf_status.code == 'ueberzahlt' or pf_status.code == 'guthaben' %} · {{ pf_status.offen|floatformat:"2g" }} €{% endif %}</span>
+      {% elif beleg.gesperrt %}<span class="marke gesperrt">abgeschlossen &amp; gesperrt</span>
       {% elif beleg.abgeschlossen %}<span class="marke ok">abgeschlossen</span>
       {% else %}<span class="marke">Entwurf</span>{% endif %}
       {% if beleg.vorgaenger %}<span>aus <a href="{% url 'verkauf:beleg' beleg.vorgaenger.pk %}">{{ beleg.vorgaenger }}</a></span>{% endif %}
+      {% if pf_rechnung %}<span>→ <a href="{% url 'verkauf:beleg' pf_rechnung.pk %}">{{ pf_rechnung }}</a></span>{% endif %}
+      {% if pf_storno %}<span>→ <a href="{% url 'verkauf:beleg' pf_storno.pk %}">{{ pf_storno }}</a></span>{% endif %}
       {% if beleg.referenz %}<span>Ref.: {{ beleg.referenz }}</span>{% endif %}
     </p>
-    {% if beleg.gesperrt %}<p style="margin:6px 0 0;opacity:.75">Korrektur nur per Storno/Gutschrift. Versandart und Zahlungsbedingung bleiben änderbar.</p>{% endif %}
+    {% if beleg.art == 'PF' and beleg.gesperrt %}<p style="margin:6px 0 0;opacity:.75">Positionen und Beträge sind fest, weil schon gezahlt, umgewandelt oder storniert wurde.</p>
+    {% elif beleg.art == 'SP' %}<p style="margin:6px 0 0;opacity:.75">Storno-Beleg zur Proforma-Rechnung: unveränderlich, kein Umsatz und keine Gutschrift.</p>
+    {% elif beleg.gesperrt %}<p style="margin:6px 0 0;opacity:.75">Korrektur nur per Storno/Gutschrift. Versandart und Zahlungsbedingung bleiben änderbar.</p>{% endif %}
+    {% if anzahlungen %}<p class="zeile" style="margin:6px 0 0">{% for a in anzahlungen %}<span class="marke ok" title="Zahlung bleibt am Ursprungsbeleg; hier nur verrechnet">{% if a.betrag > 0 %}erhalten{% else %}aufgehoben{% endif %} aus <a href="{% url 'verkauf:beleg' a.quelle.pk %}">{{ a.quelle }}</a>: {{ a.betrag|floatformat:"2g" }} €</span>{% endfor %}</p>{% endif %}
     {% if versendungen %}<p class="zeile versandhinweis" style="margin:6px 0 0">{% for v in versendungen %}
       <a class="marke {% if v.kauf_status %}gesperrt{% else %}ok{% endif %}" href="{% url 'verkauf:versand_aufkleber' beleg.pk v.pk %}" target="_blank"
          title="{{ v.etikett_name }} öffnen{% if v.gedruckt_am %} – zuletzt gedruckt {{ v.gedruckt_am|date:'d.m.Y H:i' }}{% endif %}">
@@ -47,16 +53,19 @@
   {% else %}<a class="symbol" data-tip="PDF" aria-label="PDF" href="{% url 'verkauf:beleg_pdf' beleg.pk %}" target="_blank" onclick="setTimeout(function(){location.href='{% url 'verkauf:kunde' beleg.kunde_id %}'},600)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14a2 2 0 0 0 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg></a>{% endif %}
   {% if not druckhindernis %}<a class="symbol" data-tip="Drucken" aria-label="Drucken" href="{% url 'verkauf:beleg_ansicht' beleg.pk %}?druck=1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8H5a3 3 0 0 0-3 3v6h4v4h12v-4h4v-6a3 3 0 0 0-3-3zm-3 11H8v-5h8v5zm3-7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zM18 3H6v4h12V3z"/></svg></a>{% endif %}
   {% if beleg.nummer %}<a class="symbol{% if beleg.mails.exists %} voll{% endif %}" href="{% url 'verkauf:beleg_mail' beleg.pk %}" data-tip="E-Mail{% if beleg.mails.exists %} (bereits versendet){% endif %}" aria-label="E-Mail"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg></a>{% endif %}
-  {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'AB' and beleg.nummer %}<a class="symbol" data-tip="Zahlungen" aria-label="Zahlungen" href="{% url 'finanzen:beleg' beleg.pk %}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18.5c-2.51 0-4.68-1.42-5.76-3.5H15l1-2H8.58c-.05-.33-.08-.66-.08-1s.03-.67.08-1H15l1-2H9.24C10.32 6.92 12.5 5.5 15 5.5c1.61 0 3.09.59 4.23 1.57L21 5.3C19.41 3.87 17.3 3 15 3c-3.92 0-7.24 2.51-8.48 6H3l-1 2h4.06c-.04.33-.06.66-.06 1s.02.67.06 1H3l-1 2h4.52c1.24 3.49 4.56 6 8.48 6 2.31 0 4.41-.87 6-2.3l-1.78-1.77c-1.13.98-2.6 1.57-4.22 1.57z"/></svg></a>{% endif %}
+  {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'PF' and beleg.abgeschlossen or beleg.art == 'AB' and beleg.nummer %}<a class="symbol" data-tip="Zahlungen" aria-label="Zahlungen" href="{% url 'finanzen:beleg' beleg.pk %}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18.5c-2.51 0-4.68-1.42-5.76-3.5H15l1-2H8.58c-.05-.33-.08-.66-.08-1s.03-.67.08-1H15l1-2H9.24C10.32 6.92 12.5 5.5 15 5.5c1.61 0 3.09.59 4.23 1.57L21 5.3C19.41 3.87 17.3 3 15 3c-3.92 0-7.24 2.51-8.48 6H3l-1 2h4.06c-.04.33-.06.66-.06 1s.02.67.06 1H3l-1 2h4.52c1.24 3.49 4.56 6 8.48 6 2.31 0 4.41-.87 6-2.3l-1.78-1.77c-1.13.98-2.6 1.57-4.22 1.57z"/></svg></a>{% endif %}
   {% if beleg.art == 'LS' or beleg.art == 'RE' or beleg.art == 'NL' %}<a class="symbol{% if versendungen %} voll{% endif %}" href="{% url 'verkauf:beleg_versand' beleg.pk %}" data-tip="Versand{% if versendungen %} (Label vorhanden){% else %}: Paket oder Brief{% endif %}" aria-label="Versand"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-einkauf"/></svg></a>{% endif %}
   {% if beleg.esd_vergaben.exists or esd_positionen %}<a class="symbol" data-tip="ESD-Keys" aria-label="ESD-Keys" href="{% url 'esd:beleg' beleg.pk %}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.65 10A6 6 0 1 0 12.65 14H17v4h4v-4h2v-4H12.65zM7 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg></a>{% endif %}
   <details class="menue-mehr"><summary class="symbol" data-tip="Mehr" aria-label="Mehr"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg></summary>
     <div class="mehr">
+      {% if pf_status and not pf_rechnung and not pf_storno %}{% if pf_status.code == 'bezahlt' or pf_status.code == 'ueberzahlt' %}<form method="post" action="{% url 'verkauf:beleg_umwandeln' beleg.pk %}" data-frage="Proforma in eine Rechnung umwandeln? Die Rechnung wird abgeschlossen (Lagerabgang) und erhält „Betrag dankend erhalten“.">{% csrf_token %}<button class="leise" type="submit"><strong>In Rechnung umwandeln</strong></button></form>
+      {% else %}<button class="leise" type="button" disabled title="Erst nach vollständiger Zahlung">In Rechnung umwandeln (erst wenn bezahlt)</button>{% endif %}{% endif %}
+      {% if beleg.art == 'RE' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'verkauf:beleg_lieferschein_pdf' beleg.pk %}" target="_blank">Lieferschein zur Rechnung drucken</a>{% endif %}
       {% if beleg.folgeart %}<form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">Als {{ beleg.folgeart_name }} übernehmen</button></form>{% endif %}
       <details class="untermehr"><summary class="knopf leise">Kopieren als … <span class="fein">▾</span></summary>
         <form method="post" action="{% url 'verkauf:beleg_kopieren' beleg.pk %}" class="kopieren" data-art="{{ beleg.art }}">{% csrf_token %}
           <input type="hidden" name="urbeleg_abschliessen" value="0">
-          {% for wert, name in arten %}{% if wert != 'GS' and wert != 'LS' and wert != 'NL' or wert == 'LS' and beleg.art == 'AB' or wert == 'NL' and beleg.art == 'RE' and beleg.abgeschlossen %}<button class="leise" type="submit" name="art" value="{{ wert }}">{{ name }}</button>{% endif %}{% endfor %}
+          {% for wert, name in arten %}{% if beleg.art == 'SP' %}{% elif wert == 'SP' or wert == 'PF' and beleg.art != 'AB' or wert == 'RE' and beleg.art == 'PF' %}{% elif wert != 'GS' and wert != 'LS' and wert != 'NL' or wert == 'LS' and beleg.art == 'AB' or wert == 'NL' and beleg.art == 'RE' and beleg.abgeschlossen %}<button class="leise" type="submit" name="art" value="{{ wert }}">{{ name }}</button>{% endif %}{% endfor %}
         </form></details>
       {% if beleg.art == 'AN' or beleg.art == 'AB' %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'LS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'werkstatt:reklamation' beleg.pk %}">Gerät reklamiert → Werkstatt</a>{% endif %}
@@ -68,6 +77,9 @@
         <button class="leise" type="submit">Wiederkehrend einrichten</button></form>{% endif %}
       {% if retoure_offen %}<form method="post" action="{% url 'lager:retoure' beleg.pk %}" data-frage="Ware dieser Gutschrift ins Lager zurückbuchen?">{% csrf_token %}<button class="leise" type="submit">Ware ins Lager zurückbuchen</button></form>{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen %}<form method="post" action="{% url 'verkauf:beleg_gutschrift' beleg.pk %}"{% if hat_lagerartikel %} id="gutschriftform"{% else %} data-frage="Gutschrift (Storno) zu dieser Rechnung anlegen?"{% endif %}>{% csrf_token %}<input type="hidden" name="ruecknahme" value=""><button class="gefahr" type="submit">Storno / Gutschrift</button></form>{% endif %}
+      {% if pf_status and not pf_rechnung and not pf_storno %}<form method="post" action="{% url 'verkauf:beleg_proforma_storno' beleg.pk %}" class="kopieren" data-frage="Proforma stornieren? Es entsteht ein Storno-Beleg; danach sind keine Zahlungen und keine Umwandlung mehr möglich.">{% csrf_token %}
+        <input name="grund" maxlength="300" placeholder="Stornogrund (Pflicht)" aria-label="Stornogrund" required>
+        <button class="gefahr" type="submit" title="Erst den gezahlten Betrag zurückzahlen (negative Zahlung)">Proforma stornieren</button></form>{% endif %}
       {% if loeschbar %}<form method="post" action="{% url 'verkauf:beleg_loeschen' beleg.pk %}" data-frage="{{ beleg.get_art_display }} wirklich löschen?">{% csrf_token %}<button class="gefahr" type="submit">{{ beleg.get_art_display }} löschen</button></form>{% endif %}
     </div>
   </details>
@@ -164,7 +176,8 @@
 <div class="karte tabinhalt" id="tab-versand" hidden>
   <div class="raster">
     <div><label>Zahlungsbedingung</label>
-      <select name="zahlungsbedingung"><option value="">–</option>
+      {% if beleg.art == 'PF' %}<input value="{{ beleg.zahlungsbedingung|default:'Vorkasse' }}" disabled title="Proforma-Rechnungen haben immer Vorkasse"><input type="hidden" name="zahlungsbedingung" value="{{ beleg.zahlungsbedingung_id|default_if_none:'' }}">{% endif %}
+      <select name="zahlungsbedingung"{% if beleg.art == 'PF' %} hidden disabled{% endif %}><option value="">–</option>
         {% for z in zahlungsbedingungen %}<option value="{{ z.pk }}" {% if z.pk == beleg.zahlungsbedingung_id %}selected{% endif %}>{{ z.bezeichnung }}</option>{% endfor %}
       </select></div>
     <div><label>Versandart</label><input name="versandart" value="{{ beleg.versandart }}" list="versandarten">

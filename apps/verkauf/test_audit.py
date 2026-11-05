@@ -79,9 +79,10 @@ class AuditVerkaufTest(TestCase):
             ls.kopieren_als(Belegart.RECHNUNG)
         self.assertEqual(Beleg.objects.filter(art=Belegart.RECHNUNG).count(), 1)
 
-    def test_kopie_als_proforma_blockiert_abrechnung_nicht(self):
+    def test_proforma_nicht_aus_lieferschein(self):
         ls = self.lieferschein()
-        ls.kopieren_als(Belegart.PROFORMA)
+        with self.assertRaises(ValueError):  # Proforma entsteht nur aus einer Bestellung
+            ls.kopieren_als(Belegart.PROFORMA)
         self.assertTrue(ls.abrechenbar)
         rechnung_aus_lieferscheinen([ls])
 

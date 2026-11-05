@@ -23,6 +23,14 @@ class ERechnungAusgangFehler(ValueError):
     pass
 
 
+def anzahlung_summe(beleg) -> Decimal:
+    """Auf die Rechnung verrechnete Anzahlungen (0 bei Gutschriften)."""
+    if beleg.art != Belegart.RECHNUNG:
+        return Decimal("0")
+    from apps.finanzen.services import angerechnet_im_druck
+    return angerechnet_im_druck(beleg)
+
+
 def _betrag(wert, stellen=2) -> str:
     return f"{Decimal(wert).quantize(Decimal(1).scaleb(-stellen), rounding=ROUND_HALF_UP):f}"
 
@@ -212,7 +220,10 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
     kind(summen, "ram", "TaxBasisTotalAmount", _betrag(netto))
     kind(summen, "ram", "TaxTotalAmount", _betrag(steuer_summe), currencyID="EUR")
     kind(summen, "ram", "GrandTotalAmount", _betrag(brutto))
-    kind(summen, "ram", "DuePayableAmount", _betrag(brutto))
+    vorab = anzahlung_summe(beleg)  # Vorkasse/Anzahlung aus Proforma oder Bestellung (EN 16931 BT-113)
+    if vorab:
+        kind(summen, "ram", "TotalPrepaidAmount", _betrag(vorab))
+    kind(summen, "ram", "DuePayableAmount", _betrag(brutto - vorab))
 
     ET.indent(wurzel)
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(wurzel, encoding="utf-8")
