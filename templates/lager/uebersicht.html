@@ -30,9 +30,9 @@
   <form method="get" class="zeile">
     <div><label for="q">Artikel suchen (mehrere Wörter, beliebige Reihenfolge)</label>
       <input id="q" name="q" value="{{ q }}" size="34" autofocus></div>
-    <div><label>Kategorie</label><select name="kategorie"><option value="">alle</option>
+    <div><label for="f-kategorie">Kategorie</label><select id="f-kategorie" name="kategorie"><option value="">alle</option>
       {% for k in kategorien %}<option value="{{ k.pk }}" {% if kategorie == k.pk|stringformat:"s" %}selected{% endif %}>{{ k.name }}</option>{% endfor %}</select></div>
-    <div><label>pro Seite</label><select name="pro_seite">{% for n in seitengroessen %}<option value="{{ n }}" {% if n == pro_seite %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+    <div><label for="f-pro-seite">pro Seite</label><select id="f-pro-seite" name="pro_seite">{% for n in seitengroessen %}<option value="{{ n }}" {% if n == pro_seite %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="bestand" value="1" {% if nur_bestand %}checked{% endif %}> nur mit Bestand</label>
     <button type="submit">Filtern</button>
     <a class="knopf" data-modal="{% url 'stammdaten:artikel_neu' %}" href="/verwaltung/stammdaten/artikel/add/">+ Neuer Artikel</a>

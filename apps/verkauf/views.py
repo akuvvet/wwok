@@ -7,7 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -19,7 +19,7 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import (STAND_OFFEN, runden, Abo, AboPosition, Beleg, BelegArbeitsstand, BelegGesperrt, Belegart, Briefprodukt, Mengenregel, Position, Ruecknahme, Versand, Versandart,
+from .models import (runden, Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Mengenregel, Position, Ruecknahme, Versand, Versandart,
                      Wiedervorlage, letzte_preise, regel_vorschlag)
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
@@ -218,12 +218,7 @@ def beleg_detail(request, beleg_id):
     from apps.lager.services import druckhindernis, retoure_offen
     from apps.lager.models import bestand, reserviert
     beleg = beleg_holen(request, beleg_id)
-    arbeitsstand = BelegArbeitsstand.objects.filter(beleg=beleg).select_related("benutzer").first()
-    if arbeitsstand and arbeitsstand.abgelaufen:
-        if beleg.arbeitsstand_ablaufen():
-            messages.warning(request, "Nicht gespeicherte Änderungen an diesem Beleg waren zu alt und wurden verworfen.")
-        beleg.refresh_from_db()
-        arbeitsstand = BelegArbeitsstand.objects.filter(beleg=beleg).select_related("benutzer").first()
+    beleg.arbeitsstand_beenden()  # Altdaten: ein früher offener Arbeitsstand wird still beendet, der aktuelle Stand gilt
     positionen = list(beleg.positionen.select_related("artikel", "preisliste_artikel__lieferant"))
     letzte = {} if beleg.art == Belegart.GUTSCHRIFT else letzte_preise(
         beleg.mandant, beleg.kunde, [p.artikel_id for p in positionen], [p.preisliste_artikel_id for p in positionen], ohne_beleg=beleg.pk)
@@ -248,7 +243,7 @@ def beleg_detail(request, beleg_id):
     kredit_warnung = bool(limit) and beleg.art != "AN" and not beleg.abgeschlossen and offen + beleg.summe_brutto > limit  # Angebote binden nicht
     kredit_differenz = (offen + beleg.summe_brutto - limit) if kredit_warnung else None
     return render(request, "verkauf/beleg.html", {
-        "kredit_warnung": kredit_warnung, "kredit_differenz": kredit_differenz,"kunde_offen": offen, "kreditlimit": limit, "arbeitsstand": arbeitsstand,
+        "kredit_warnung": kredit_warnung, "kredit_differenz": kredit_differenz,"kunde_offen": offen, "kreditlimit": limit,
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),
         "hat_lagerartikel": any(p.artikel_id and p.artikel.typ == "A" for p in positionen), "retoure_offen": retoure_offen(beleg),
         "beleg": beleg, "positionen": positionen, "loeschbar": beleg.loeschhindernis() is None,
@@ -273,56 +268,12 @@ def sperr_schutz(view):
     return umhuellt
 
 
-def bearbeitung(view):
-    """Positionsänderung: Vorher den gespeicherten Stand merken; scheitert die Änderung, gibt es nichts zu speichern."""
-    def umhuellt(request, *args, **kwargs):
-        beleg = beleg_holen(request, kwargs["beleg_id"])
-        neu = beleg.arbeitsstand_sichern(request.user)
-        try:
-            return view(request, *args, **kwargs)
-        except Exception:
-            if neu:
-                beleg.arbeitsstand_beenden()
-            raise
-    umhuellt.__name__ = view.__name__
-    return umhuellt
-
-
-def stand_antwort(request, beleg_id, hatte_stand, text):
-    """Der Dialog beim Verlassen ruft per fetch auf und braucht nur die Bestätigung, ein Weiterleiten hieße dort: nicht geklappt."""
-    if request.headers.get("X-Wwok-Stand"):
-        return JsonResponse({"ok": True})
-    if hatte_stand:
-        messages.success(request, text)
-    else:
-        messages.warning(request, "Es gibt keine offenen Änderungen mehr: Sie wurden bereits übernommen oder verworfen.")
-    return redirect("verkauf:beleg", beleg_id=beleg_id)
-
-
-@mit_mandant
-@require_POST
-@sperr_schutz
-def beleg_speichern(request, beleg_id):
-    """Nicht gespeicherte Positionsänderungen endgültig übernehmen."""
-    beleg = beleg_holen(request, beleg_id)
-    if not beleg.positionen.exists():
-        raise ValueError("Ein Beleg ohne Position lässt sich nicht speichern – bitte eine Position ergänzen oder die Änderungen verwerfen.")
-    return stand_antwort(request, beleg_id, beleg.arbeitsstand_beenden(), "Gespeichert.")
-
-
-@mit_mandant
-@require_POST
-@sperr_schutz
-def beleg_verwerfen(request, beleg_id):
-    """Nicht gespeicherte Positionsänderungen zurücknehmen."""
-    return stand_antwort(request, beleg_id, beleg_holen(request, beleg_id).arbeitsstand_verwerfen(), "Änderungen verworfen.")
-
-
 @mit_mandant
 @require_POST
 @sperr_schutz
 def beleg_kopf(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
+    beleg.arbeitsstand_beenden()  # Altdaten: ein früher offener Arbeitsstand wird still beendet
     neue_versandart = request.POST.get("versandart", "").strip()
     versandart_geaendert = neue_versandart != beleg.versandart and not beleg.gesperrt
     if not versandart_geaendert:
@@ -353,7 +304,6 @@ def beleg_kopf(request, beleg_id):
     beleg.save()
     if not beleg.gesperrt:
         beleg.berechne()
-    beleg.arbeitsstand_beenden()
     messages.success(request, "Gespeichert.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
@@ -411,7 +361,6 @@ def gruppe_wechseln(p, ziel, alter_betrag):
 @mit_mandant
 @require_POST
 @sperr_schutz
-@bearbeitung
 def position_neu(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
     typ = request.POST.get("typ", "A")
@@ -495,15 +444,15 @@ def position_neu(request, beleg_id):
             beleg=beleg, typ=artikel.typ if artikel else typ, artikel=artikel, bezeichnung=bezeichnung,
             menge=menge, einzelpreis=preis, rabatt_prozent=rabatt, steuer_prozent=steuer)
     beleg.berechne()
+    messages.success(request, "Gespeichert.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
 @mit_mandant
 @require_POST
 @sperr_schutz
-@bearbeitung
 def positionen_import(request, beleg_id):
-    """Positionen aus einer CSV- oder Excel-Datei anhängen. Wie jede Positionsänderung gelten sie erst nach dem Speichern."""
+    """Positionen aus einer CSV- oder Excel-Datei anhängen."""
     from apps.stammdaten.leistung_import import ImportFehler
     from .position_import import positionen_importieren
     beleg = beleg_holen(request, beleg_id)
@@ -514,14 +463,13 @@ def positionen_import(request, beleg_id):
         anzahl, netto = positionen_importieren(beleg, datei.name, datei.read())
     except ImportFehler as fehler:
         raise ValueError("\n".join([str(fehler), *fehler.fehler[:20], *(["…"] if len(fehler.fehler) > 20 else [])]))
-    messages.success(request, f"{anzahl} Position(en) importiert, netto {str(netto).replace('.', ',')} €. Bitte prüfen und speichern.")
+    messages.success(request, f"{anzahl} Position(en) importiert, netto {str(netto).replace('.', ',')} €.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
 @mit_mandant
 @require_POST
 @sperr_schutz
-@bearbeitung
 def gruppenpreis(request, beleg_id, position_id):
     """Gesamtpreis der Gruppe festlegen; leer = Summe der Unterpositionen (bei Menge der Gruppe pro Stück)."""
     beleg = beleg_holen(request, beleg_id)
@@ -534,6 +482,7 @@ def gruppenpreis(request, beleg_id, position_id):
     kopf.einzelpreis = preis.quantize(Decimal("0.01"))
     kopf.save()
     beleg.berechne()
+    messages.success(request, "Gespeichert.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
@@ -551,7 +500,6 @@ def gruppenmenge_anpassen(gruppe, menge):
 @mit_mandant
 @require_POST
 @sperr_schutz
-@bearbeitung
 def position_aendern(request, beleg_id, position_id):
     """Menge, Preis, Rabatt, Zusatztext und Gruppe einer Position ändern (Unterpositionen einer Gruppe: kein Preis und Rabatt)."""
     beleg = beleg_holen(request, beleg_id)
@@ -579,13 +527,13 @@ def position_aendern(request, beleg_id, position_id):
     else:
         gruppe_wechseln(p, get_object_or_404(Position, pk=ziel_id, beleg=beleg, typ="G", gruppe__isnull=True) if ziel_id else None, alter_betrag)
     beleg.berechne()
+    messages.success(request, "Gespeichert.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
 @mit_mandant
 @require_POST
 @sperr_schutz
-@bearbeitung
 def position_loeschen(request, beleg_id, position_id):
     beleg = beleg_holen(request, beleg_id)
     p = get_object_or_404(Position, pk=position_id, beleg=beleg)
@@ -593,6 +541,7 @@ def position_loeschen(request, beleg_id, position_id):
         gruppenpreis_erhoehen(p.gruppe, -(p.menge * p.einzelpreis))
     p.delete()
     beleg.berechne()
+    messages.success(request, "Gespeichert.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
@@ -602,7 +551,6 @@ RUECKNAHME_FOLGE = {Ruecknahme.REPARATUR: Ruecknahme.LAGER, Ruecknahme.LAGER: Ru
 @mit_mandant
 @require_POST
 @sperr_schutz
-@bearbeitung
 def position_ruecknahme(request, beleg_id, position_id):
     """Spalte B der Gutschrift: Ein Klick wechselt R → B → keine Ware zurück."""
     beleg = beleg_holen(request, beleg_id)
@@ -838,6 +786,7 @@ def beleg_pdf_ansicht(request, beleg_id):
 @mit_mandant
 def beleg_mail(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
+    beleg.arbeitsstand_beenden()  # Altdaten: ein früher offener Arbeitsstand wird still beendet
     if beleg.nummer and not beleg.positionen.exists():
         messages.error(request, "Ein Beleg ohne Position kann nicht versendet werden.")
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
@@ -856,9 +805,6 @@ def beleg_mail(request, beleg_id):
         if hinweis:
             messages.warning(request, hinweis)
     if request.method == "POST":
-        if beleg.hat_offenen_stand:
-            messages.error(request, STAND_OFFEN)
-            return redirect("verkauf:beleg", beleg_id=beleg.pk)
         an, betreff, text = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
         try:
             versand = beleg_senden(beleg, an, betreff, text, benutzer=request.user)
@@ -1032,9 +978,6 @@ def beleg_versand(request, beleg_id):
     from . import versand as vs
     beleg = beleg_holen(request, beleg_id)
     if request.method == "POST":
-        if beleg.hat_offenen_stand:
-            messages.error(request, STAND_OFFEN)
-            return redirect("verkauf:beleg", beleg_id=beleg.pk)
         aktion = request.POST.get("aktion")
         try:
             gewicht_roh = dezimal(request.POST.get("gewicht"), None)
@@ -1204,6 +1147,21 @@ def belege(request):
         "arten": Belegart.choices, "parameter": parameter.urlencode(), "anzahl": seite.paginator.count})
 
 @mit_mandant
+def suche(request):
+    """Globale Suche der Kopfzeile: eindeutige Belegnummer → Beleg, eindeutige Kundennummer → Kundenkarte,
+    sonst die Liste „Alle Belege“ mit der Suche."""
+    q = request.GET.get("q", "").strip()
+    if q:
+        belege_treffer = list(Beleg.objects.filter(mandant=request.mandant, nummer__iexact=q).values_list("pk", flat=True)[:2])
+        if len(belege_treffer) == 1:
+            return redirect("verkauf:beleg", beleg_id=belege_treffer[0])
+        kunden_treffer = list(Kunde.objects.filter(nummer__iexact=q, anonymisiert=False).values_list("pk", flat=True)[:2])
+        if len(kunden_treffer) == 1:
+            return redirect("verkauf:kunde", kunde_id=kunden_treffer[0])
+    ziel = reverse("verkauf:belege")
+    return redirect(ziel + "?" + urlencode({"q": q}) if q else ziel)
+
+@mit_mandant
 @require_POST
 def wiedervorlage_neu(request, kunde_id):
     kunde = get_object_or_404(Kunde, pk=kunde_id)
@@ -1227,4 +1185,7 @@ def wiedervorlage_erledigt(request, wiedervorlage_id):
     w = get_object_or_404(Wiedervorlage, pk=wiedervorlage_id, mandant=request.mandant)
     w.erledigt, w.erledigt_am = True, timezone.localdate()
     w.save()
-    return redirect("verkauf:start")
+    weiter = request.POST.get("weiter", "")  # zurück zur aufrufenden Seite, nur interne Pfade
+    if weiter and url_has_allowed_host_and_scheme(weiter, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return redirect(weiter)
+    return redirect("verkauf:kunde", kunde_id=w.kunde_id)

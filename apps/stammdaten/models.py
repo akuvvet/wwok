@@ -75,6 +75,9 @@ class Kategorie(Zeitstempel):
     aufschlag_vk1 = models.DecimalField("Aufschlag VK1 %", max_digits=6, decimal_places=2, null=True, blank=True)
     aufschlag_vk2 = models.DecimalField("Aufschlag VK2 %", max_digits=6, decimal_places=2, null=True, blank=True)
     aufschlag_vk3 = models.DecimalField("Aufschlag VK3 %", max_digits=6, decimal_places=2, null=True, blank=True)
+    online = models.BooleanField("online", default=False,
+                                 help_text="Nur Online-Kategorien (und deren Artikel) sind im Shop sichtbar. "
+                                           "Unterkategorien sind nur online, wenn auch alle übergeordneten online sind.")
 
     class Meta:
         verbose_name = "Kategorie"
@@ -83,6 +86,42 @@ class Kategorie(Zeitstempel):
 
     def __str__(self):
         return f"{self.eltern} › {self.name}" if self.eltern_id else self.name
+
+    @staticmethod
+    def offline_ids() -> set:
+        """IDs aller Kategorien, die nicht wirksam online sind (selbst offline oder ein übergeordnetes offline)."""
+        daten = {pk: (eltern, online) for pk, eltern, online in Kategorie.objects.values_list("pk", "eltern_id", "online")}
+        ergebnis = set()
+        for pk in daten:
+            aktuell, gesehen = pk, set()
+            while aktuell is not None and aktuell in daten and aktuell not in gesehen:
+                gesehen.add(aktuell)
+                if not daten[aktuell][1]:
+                    ergebnis.add(pk)
+                    break
+                aktuell = daten[aktuell][0]
+        return ergebnis
+
+    def offline_grund(self):
+        """None, wenn wirksam online; sonst die Kategorie, die sie offline hält (sie selbst oder ein Elternteil)."""
+        aktuell, gesehen = self, set()
+        while aktuell is not None and aktuell.pk not in gesehen:
+            gesehen.add(aktuell.pk)
+            if not aktuell.online:
+                return aktuell
+            aktuell = aktuell.eltern
+        return None
+
+    @property
+    def wirksam_online(self) -> bool:
+        return self.offline_grund() is None
+
+    def mit_unterkategorien(self) -> set:
+        ids, neu = {self.pk}, {self.pk}
+        while neu:
+            neu = set(Kategorie.objects.filter(eltern_id__in=neu).values_list("pk", flat=True)) - ids
+            ids |= neu
+        return ids
 
 
 class Leistungskategorie(Zeitstempel):
@@ -188,8 +227,15 @@ class Preisstufe(models.IntegerChoices):
     VK3 = 3, "VK3 – Händler"
 
 
+class Kundenanrede(models.TextChoices):
+    FIRMA = "Firma", "Firma"
+    HERR = "Herr", "Herr"
+    FRAU = "Frau", "Frau"
+
+
 class Kunde(Partner):
     nummer = models.CharField("Kundennummer", max_length=20, unique=True)
+    anrede = models.CharField("Anrede", max_length=10, choices=Kundenanrede.choices, blank=True)
     kundenart = models.CharField("Kundenart", max_length=20, choices=Kundenart.choices,
                                  default=Kundenart.ENDKUNDE)
     preisstufe = models.PositiveSmallIntegerField("Preisstufe", choices=Preisstufe.choices,
@@ -352,6 +398,16 @@ class EkHerkunft(models.TextChoices):
     WARENEINGANG = "wareneingang", "Wareneingang"
 
 
+class ArtikelQuerySet(models.QuerySet):
+    def shop_sichtbar(self):
+        """Die eine Regel für „im Shop sichtbar“: online, aktiv und keine Kategorie oder Kategorie wirksam online."""
+        return self.filter(online=True, nicht_aktiv=False).exclude(kategorie_id__in=Kategorie.offline_ids())
+
+    def wegen_kategorie_offline(self):
+        """Artikel mit gesetztem Online-Häkchen, die nur wegen ihrer Kategorie nicht im Shop stehen."""
+        return self.filter(online=True, nicht_aktiv=False, kategorie_id__in=Kategorie.offline_ids())
+
+
 class Artikel(Zeitstempel):
     nummer = models.CharField("Artikelnummer", max_length=40, unique=True)
     typ = models.CharField("Typ", max_length=1, choices=Artikeltyp.choices, default=Artikeltyp.A)
@@ -429,6 +485,8 @@ class Artikel(Zeitstempel):
     meta_titel = models.TextField("Metatitel", blank=True)
     meta_description = models.TextField("Meta-Description", blank=True)
     meta_keywords = models.TextField("Meta-Keywords", blank=True)
+
+    objects = ArtikelQuerySet.as_manager()
 
     class Meta:
         verbose_name = "Artikel"
