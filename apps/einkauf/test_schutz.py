@@ -184,7 +184,7 @@ class WareneingangPlausibilitaetTest(TestCase):
         self.assertFalse(we.gebucht)
         self.assertEqual(we.lieferschein, "LS-1")  # Eingaben bleiben gespeichert
         seite = self.client.get(reverse("einkauf:wareneingang", args=[we.pk]) + "?rueckfrage=1")
-        self.assertContains(seite, "Preis ist korrekt, trotzdem buchen")
+        self.assertContains(seite, "Angaben geprüft, trotzdem buchen")
         self.client.post(url, {"versandkosten": "0", "preis_bestaetigt": "on"})
         we.refresh_from_db()
         self.assertTrue(we.gebucht)

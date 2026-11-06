@@ -17,7 +17,7 @@
   <table style="margin-top:12px">
     <tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">bestellt</th><th class="zahl">Menge</th><th class="zahl">EK netto</th><th>Seriennummern</th><th></th></tr>
     {% for p in positionen %}
-    <tr><td>{{ p.artikel.nummer }}</td><td>{{ p.artikel.bezeichnung }}</td><td class="zahl">{% if p.bestellposition %}{{ p.bestellposition.offen|floatformat:"-3" }} offen{% endif %}</td>
+    <tr><td>{{ p.artikel.nummer }}</td><td>{{ p.artikel.bezeichnung }}</td><td class="zahl">{% if p.bestellposition %}{% if we.gebucht %}{{ p.bestellposition.menge|floatformat:"-3" }}{% else %}{{ p.bestellposition.offen|floatformat:"-3" }} offen{% endif %}{% endif %}</td>
       {% if we.gebucht %}<td class="zahl">{{ p.menge|floatformat:"-3" }}</td><td class="zahl">{{ p.ek|floatformat:"2g" }}{% if p.kalk != p.ek %}<br><small title="EK inkl. anteiliger Nebenkosten">Kalk. {{ p.kalk|floatformat:"2g" }}</small>{% endif %}</td><td>{{ p.seriennummern|linebreaksbr }}{% if p.artikel.esd_key %}<small>ESD-Keys:</small><br>{{ p.esd_keys|linebreaksbr }}{% endif %}</td><td></td>
       {% else %}
       <td colspan="4"><form method="post" action="{% url 'einkauf:wareneingang_zeile' we.pk p.pk %}" class="zeile">{% csrf_token %}
@@ -55,7 +55,7 @@
     <div><label>Verpackung netto</label><input name="verpackung" value="{{ we.verpackung }}" size="8" inputmode="decimal"></div>
     <div><label style="display:flex;gap:6px;align-items:center;font-weight:normal"><input type="checkbox" name="nebenkosten_extern" {% if we.nebenkosten_extern %}checked{% endif %}> kommen auf eigener Rechnung (Spedition)</label></div>
     <button type="submit" name="aktion" value="kosten" class="leise">Kosten speichern</button>
-    {% if request.GET.rueckfrage %}<div><label style="display:flex;gap:6px;align-items:center;font-weight:bold"><input type="checkbox" name="preis_bestaetigt" required> Preis ist korrekt, trotzdem buchen</label></div>{% endif %}
+    {% if request.GET.rueckfrage %}<div><label style="display:flex;gap:6px;align-items:center;font-weight:bold"><input type="checkbox" name="preis_bestaetigt" required> Angaben geprüft, trotzdem buchen</label></div>{% endif %}
     <button type="submit">Ins Lager buchen</button>
   </form>
   <p style="opacity:.8;margin:6px 0 0">Nebenkosten werden nach Warenwert auf die Positionen verteilt. Der Kalkulations-EK wird an der Position festgehalten; den EK des Artikels ändert der Wareneingang nicht – maßgebend für VK, Marge und Lagerwert ist der Import-EK. Die Bestellung und der nächste Bestellvorschlag rechnen weiter mit dem Lieferantenpreis.</p>
