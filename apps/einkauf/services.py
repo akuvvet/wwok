@@ -356,9 +356,33 @@ def wareneingang_erfassen(we, artikel, menge=Decimal("1"), ek=None, seriennummer
                                                ek=ek_runden(ek), seriennummern=seriennummern)
 
 
-def wareneingang_aus_bestellung(we):
-    """Offene Mengen der Bestellung als Zeilen vorbelegen."""
-    for bp in we.bestellung.positionen.select_related("preisliste_artikel"):
+def bleibt_offen(we):
+    """Teillieferung: Bestellpositionen, die nach diesem Wareneingang noch offen sind (Rest bleibt bestellt).
+    Vor der Buchung wird die Menge dieses Wareneingangs abgezogen, danach steht sie schon in „geliefert“."""
+    if not we.bestellung_id:
+        return []
+    im_we = {}
+    if not we.gebucht:
+        for p in we.positionen.filter(bestellposition__isnull=False):
+            im_we[p.bestellposition_id] = im_we.get(p.bestellposition_id, Decimal("0")) + p.menge
+    rest = []
+    for bp in we.bestellung.positionen.select_related("artikel"):
+        if bp.artikel_id and bp.artikel.typ == "L":
+            continue
+        diese = im_we.get(bp.pk, Decimal("0"))
+        if bp.offen - diese > 0:
+            rest.append({"bp": bp, "diese": diese, "rest": bp.offen - diese, "fehlt_ganz": not we.gebucht and diese == 0})
+    return rest
+
+
+def wareneingang_aus_bestellung(we, nur=None):
+    """Offene Mengen der Bestellung als Zeilen vorbelegen (nur=Bestellposition: nur diese wieder aufnehmen)."""
+    if we.gebucht:
+        raise ValueError("Der Wareneingang ist bereits gebucht.")
+    positionen = we.bestellung.positionen.select_related("preisliste_artikel")
+    if nur is not None:
+        positionen = positionen.filter(pk=nur.pk)
+    for bp in positionen:
         if bp.artikel_id is None and bp.preisliste_artikel_id:  # Preislistenartikel wird zum eigenen Artikel
             bp.artikel = artikel_aus_preisliste(bp.preisliste_artikel)
             bp.save(update_fields=["artikel"])
