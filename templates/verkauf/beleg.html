@@ -27,6 +27,10 @@
     {% elif beleg.art == 'SP' %}<p style="margin:6px 0 0;opacity:.75">Storno-Beleg zur Proforma-Rechnung: unveränderlich, kein Umsatz und keine Gutschrift.</p>
     {% elif beleg.gesperrt %}<p style="margin:6px 0 0;opacity:.75">Korrektur nur per Storno/Gutschrift. Versandart und Zahlungsbedingung bleiben änderbar.</p>{% endif %}
     {% if anzahlungen %}<p class="zeile" style="margin:6px 0 0">{% for a in anzahlungen %}<span class="marke ok" title="Zahlung bleibt am Ursprungsbeleg; hier nur verrechnet">{% if a.betrag > 0 %}erhalten{% else %}aufgehoben{% endif %} aus <a href="{% url 'verkauf:beleg' a.quelle.pk %}">{{ a.quelle }}</a>: {{ a.betrag|floatformat:"2g" }} €</span>{% endfor %}</p>{% endif %}
+    {% if lieferantenbestellungen %}<div class="lieferantenbestellungen" style="margin:6px 0 0"><small style="opacity:.75">Lieferantenbestellungen:</small>
+      {% for b in lieferantenbestellungen %}<span class="marke {% if b.status == 'storniert' %}gesperrt{% elif b.status != 'entwurf' %}ok{% endif %}" title="{{ b.bemerkung }}"{% if b.status == 'storniert' %} style="text-decoration:line-through"{% endif %}>
+        <a href="{% url 'einkauf:bestellung' b.pk %}">{{ b.nummer }}</a> · {{ b.lieferant.kurz }} · {{ b.datum|date:"d.m.Y" }} · {{ b.get_status_display }}{% if b.angelegt_von %} · {{ b.angelegt_von }}{% endif %}{% if b.aus_beleg_id != beleg.pk %} · aus {{ b.aus_beleg.nummer|default:b.aus_beleg }}{% endif %}</span>
+      {% endfor %}</div>{% endif %}
     {% if versendungen %}<p class="zeile versandhinweis" style="margin:6px 0 0">{% for v in versendungen %}
       <a class="marke {% if v.kauf_status %}gesperrt{% else %}ok{% endif %}" href="{% url 'verkauf:versand_aufkleber' beleg.pk v.pk %}" target="_blank"
          title="{{ v.etikett_name }} öffnen{% if v.gedruckt_am %} – zuletzt gedruckt {{ v.gedruckt_am|date:'d.m.Y H:i' }}{% endif %}">
@@ -106,6 +110,7 @@
         {% if p.lieferschein and not p.gruppe_id %}<br><small style="opacity:.75">Lieferschein {{ p.lieferschein.nummer }} vom {{ p.lieferschein.belegdatum|date:"d.m.Y" }}</small>{% endif %}
         {% if p.rueckstand %}<br><small style="color:var(--warn)" title="Rückstand: wird mit dem Wareneingang reserviert">Rückstand: {{ p.geliefert|floatformat:"-3" }} von {{ p.menge|floatformat:"-3" }} geliefert, {{ p.rueckstand|floatformat:"-3" }} offen</small>{% endif %}
         {% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
+        {% if p.bestellt %}<br><small style="opacity:.75" title="Beim Lieferanten bestellt (ohne Entwürfe und Stornos)">bestellt: {{ p.bestellt|floatformat:"-3" }} von {{ p.menge|floatformat:"-3" }}</small>{% endif %}
         {% if p.artikel and p.artikel.typ == 'A' and beleg.art == 'LS' or p.artikel and p.artikel.typ == 'A' and beleg.art == 'RE' %}
         <details><summary style="cursor:pointer;opacity:.8">Seriennummern{% if p.seriennummern.all %} ({{ p.seriennummern.count }}){% endif %}</summary>
           <form method="post" action="{% url 'lager:position_sn' p.pk %}">{% csrf_token %}

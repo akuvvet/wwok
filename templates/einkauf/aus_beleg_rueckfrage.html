@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titel %}{{ beleg }} – schon beim Lieferanten bestellt – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>{{ beleg }}: schon beim Lieferanten bestellt</h1>
+  <p>Aus dieser Kundenbestellung{% if beleg.vorgaenger %} bzw. ihrem Angebot{% endif %} gibt es bereits Lieferantenbestellungen:</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Nr.</th><th>Lieferant</th><th>Datum</th><th>Status</th><th>angelegt von</th><th>aus</th><th>Bemerkung</th></tr></thead>
+    <tbody>{% for b in bestellungen %}<tr{% if b.status == 'storniert' %} style="text-decoration:line-through;opacity:.6"{% endif %}>
+      <td><a href="{% url 'einkauf:bestellung' b.pk %}" target="_blank">{{ b.nummer }}</a></td><td>{{ b.lieferant.kurz }}</td>
+      <td>{{ b.datum|date:"d.m.Y" }}</td>
+      <td><span class="marke {% if b.status != 'entwurf' and b.status != 'storniert' %}ok{% endif %}">{{ b.get_status_display }}</span>{% if b.status == 'entwurf' %} <small style="opacity:.75">(zählt nicht als bestellt)</small>{% endif %}</td>
+      <td>{{ b.angelegt_von|default:"" }}</td><td>{{ b.aus_beleg.nummer|default:b.aus_beleg }}</td><td>{{ b.bemerkung }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <h2>Positionen</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Artikel</th><th class="zahl">Menge</th><th class="zahl">bestellt</th><th class="zahl">fehlt</th></tr></thead>
+    <tbody>{% for p in positionen %}<tr><td>{% if p.artikelnummer %}<span style="opacity:.7">{{ p.artikelnummer }}</span> {% endif %}{{ p.bezeichnung }}</td>
+      <td class="zahl">{{ p.menge|floatformat:"-3" }}</td><td class="zahl">{{ p.bestellt|floatformat:"-3" }}</td>
+      <td class="zahl">{% if p.fehlt > 0 %}<strong>{{ p.fehlt|floatformat:"-3" }}</strong>{% else %}–{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}" id="rueckfrage">{% csrf_token %}
+    {% if etwas_fehlt %}<p><label><input type="radio" name="modus" value="fehlend" checked> <strong>Nur Fehlendes bestellen</strong> – nur die noch nicht bestellten Mengen</label></p>
+    {% else %}<p><strong>Alle Positionen sind bereits bestellt.</strong></p>{% endif %}
+    <p><label><input type="radio" name="modus" value="komplett"{% if not etwas_fehlt %} checked{% endif %}> <strong>Trotzdem komplett neu bestellen</strong> – alle Positionen erneut</label></p>
+    <p id="grundzeile"><label for="grund">Grund für die erneute Bestellung (Pflicht bei „komplett“)</label>
+      <input id="grund" name="grund" style="width:100%" maxlength="200" placeholder="z. B. Lieferant kann nicht liefern"></p>
+    <p class="zeile"><button type="submit">Lieferantenbestellung anlegen</button><a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Abbrechen (Esc)</a></p>
+  </form>
+</div>
+<script>
+(function () {
+  var f = document.getElementById("rueckfrage"), grund = document.getElementById("grund");
+  function pruefen() { var k = f.querySelector("input[name=modus]:checked"); grund.required = !!k && k.value === "komplett"; }
+  Array.prototype.forEach.call(f.querySelectorAll("input[name=modus]"), function (r) { r.addEventListener("change", pruefen); });
+  pruefen();
+})();
+</script>
+{% endblock %}

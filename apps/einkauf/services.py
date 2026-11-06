@@ -42,9 +42,10 @@ def ek_vorschlag(mandant, lieferant, artikel):
 
 
 @transaction.atomic
-def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None) -> Bestellung:
+def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None, benutzer=None) -> Bestellung:
     return Bestellung.objects.create(mandant=mandant, lieferant=lieferant, nummer=nummer(mandant, "BE"),
-                                     bemerkung=bemerkung, aus_beleg=aus_beleg)
+                                     bemerkung=bemerkung, aus_beleg=aus_beleg,
+                                     angelegt_von=benutzer if benutzer is not None and benutzer.is_authenticated else None)
 
 
 def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None) -> BestellPosition:
@@ -96,28 +97,119 @@ def guenstigster_lieferant(artikel):
             or kandidaten.order_by("ek").first())
 
 
+# ---- Lieferantenbestellung aus Angebot/Kundenbestellung (Issue 61) ------------------------------
+# Bestellt gilt eine Menge erst ab Status „bestellt“ (Entwürfe und Stornos zählen nicht). Lieferantenbestellungen aus dem
+# Angebot zählen auch für die daraus kopierte Kundenbestellung. Die Rückfrage gibt es nur bei Kundenbestellungen.
+ZAEHLT_ALS_BESTELLT = (BestellStatus.BESTELLT, BestellStatus.TEIL, BestellStatus.GELIEFERT)
+MODUS_FEHLEND, MODUS_KOMPLETT = "fehlend", "komplett"
+
+
+def quellbelege(beleg) -> list:
+    """Der Beleg und seine Vorgänger (Angebot/Kundenbestellung), aus denen schon beim Lieferanten bestellt sein kann."""
+    ids, b = [], beleg
+    while b is not None and b.art in (Belegart.ANGEBOT, Belegart.AUFTRAG) and b.pk not in ids and len(ids) < 10:
+        ids.append(b.pk)
+        b = b.vorgaenger
+    return ids
+
+
+def lieferantenbestellungen(beleg):
+    """Alle Lieferantenbestellungen aus diesem Beleg und seinen Vorgängern (Historie, auch Entwürfe und Stornos)."""
+    return (Bestellung.objects.filter(mandant=beleg.mandant, aus_beleg_id__in=quellbelege(beleg))
+            .select_related("lieferant", "aus_beleg", "angelegt_von").order_by("angelegt_am", "id"))
+
+
+def bestellbare_positionen(beleg) -> list:
+    """Positionen, die beim Lieferanten bestellt werden können: Lagerartikel (Typ A) und Preislistenartikel (Typ P)."""
+    return [p for p in beleg.positionen.select_related("artikel", "preisliste_artikel__lieferant")
+            if (p.preisliste_artikel_id and not p.artikel_id) or (p.artikel_id and p.artikel.typ == "A")]
+
+
+def _schluessel(artikel_id, preisliste_artikel):
+    if artikel_id:
+        return "a", artikel_id
+    if preisliste_artikel is not None and preisliste_artikel.artikel_id:  # inzwischen eigener Artikel
+        return "a", preisliste_artikel.artikel_id
+    return "p", preisliste_artikel.pk if preisliste_artikel is not None else None
+
+
+def bestellt_je_position(beleg, positionen=None) -> dict:
+    """{Positions-ID: bestellte Menge}. Zugeordnet über Artikel bzw. Preislistenartikel (auch alte Bestellungen ohne
+    Positionsbezug); mehrere Positionen desselben Artikels werden der Reihe nach bedient."""
+    positionen = bestellbare_positionen(beleg) if positionen is None else positionen
+    vorrat = defaultdict(Decimal)
+    for bp in BestellPosition.objects.filter(bestellung__mandant=beleg.mandant, bestellung__aus_beleg_id__in=quellbelege(beleg),
+                                             bestellung__status__in=ZAEHLT_ALS_BESTELLT).select_related("preisliste_artikel"):
+        vorrat[_schluessel(bp.artikel_id, bp.preisliste_artikel)] += bp.menge
+    ergebnis = {}
+    for p in positionen:
+        k = _schluessel(p.artikel_id, p.preisliste_artikel)
+        menge = min(max(vorrat[k], Decimal("0")), p.menge)
+        vorrat[k] -= menge
+        ergebnis[p.pk] = menge
+    return ergebnis
+
+
+def bestellstand(beleg) -> dict:
+    """Für Rückfrage und Anzeige: Positionen mit bestellt/fehlt, vorhandene Lieferantenbestellungen."""
+    positionen = bestellbare_positionen(beleg)
+    bestellt = bestellt_je_position(beleg, positionen)
+    for p in positionen:
+        p.bestellt = bestellt[p.pk]
+        p.fehlt = p.menge - p.bestellt
+    return {"positionen": positionen, "bestellungen": list(lieferantenbestellungen(beleg)),
+            "etwas_bestellt": any(p.bestellt > 0 for p in positionen), "etwas_fehlt": any(p.fehlt > 0 for p in positionen)}
+
+
+def rueckfrage_noetig(beleg) -> bool:
+    """Nur Kundenbestellungen: Ist schon etwas beim Lieferanten bestellt, wird vor dem erneuten Kopieren gefragt."""
+    return beleg.art == Belegart.AUFTRAG and any(m > 0 for m in bestellt_je_position(beleg).values())
+
+
 @transaction.atomic
-def bestellungen_aus_beleg(beleg) -> list:
-    """Angebot oder Kundenbestellung in Lieferantenbestellungen kopieren: je Lieferant eine Bestellung (günstigster Lieferant)."""
+def bestellungen_aus_beleg(beleg, modus=None, grund="", benutzer=None) -> list:
+    """Angebot oder Kundenbestellung in Lieferantenbestellungen kopieren: je Lieferant eine Bestellung (günstigster Lieferant).
+    Ist bei einer Kundenbestellung schon etwas bestellt, muss modus gewählt sein: „fehlend“ (nur Restmengen) oder
+    „komplett“ (alles erneut, mit Grund)."""
+    from apps.verkauf.models import Beleg
+    Beleg.objects.select_for_update().filter(pk=beleg.pk).first()  # gleichzeitiges Kopieren nacheinander
+    grund = (grund or "").strip()
+    positionen = bestellbare_positionen(beleg)
+    bestellt = bestellt_je_position(beleg, positionen)
+    bemerkung = f"Aus {beleg}"
+    if beleg.art == Belegart.AUFTRAG and any(m > 0 for m in bestellt.values()):
+        if modus == MODUS_FEHLEND:
+            bemerkung += " – nur fehlende Mengen"
+        elif modus == MODUS_KOMPLETT:
+            if not grund:
+                raise ValueError("Für eine erneute komplette Bestellung ist ein Grund nötig.")
+            bemerkung += f" – erneut komplett bestellt: {grund}"
+        else:
+            raise ValueError("Aus dieser Kundenbestellung ist schon beim Lieferanten bestellt – bitte wählen, was bestellt werden soll.")
+    else:
+        modus = MODUS_KOMPLETT
     je_lieferant = defaultdict(list)
     ohne = []
-    for p in beleg.positionen.select_related("artikel", "preisliste_artikel__lieferant"):
-        if p.preisliste_artikel_id and not p.artikel_id:  # Typ P: der Lieferant steht an der Preislistenzeile
-            je_lieferant[p.preisliste_artikel.lieferant].append(p)
+    for p in positionen:
+        menge = p.menge - bestellt[p.pk] if modus == MODUS_FEHLEND else p.menge
+        if menge <= 0:
             continue
-        if not p.artikel_id or p.artikel.typ != "A":
+        if p.preisliste_artikel_id and not p.artikel_id:  # Typ P: der Lieferant steht an der Preislistenzeile
+            je_lieferant[p.preisliste_artikel.lieferant].append((p, menge))
             continue
         al = guenstigster_lieferant(p.artikel)
-        (je_lieferant[al.lieferant] if al else ohne).append(p)
+        (je_lieferant[al.lieferant] if al else ohne).append((p, menge))
+    if modus == MODUS_FEHLEND and not je_lieferant and not ohne:
+        raise ValueError("Alle Positionen sind bereits beim Lieferanten bestellt.")
     ergebnis = []
-    for lieferant, positionen in je_lieferant.items():
-        b = bestellung_anlegen(beleg.mandant, lieferant, f"Aus {beleg}", aus_beleg=beleg)
-        for p in positionen:
-            bestellposition(b, p.artikel, p.menge, preisliste_artikel=p.preisliste_artikel)
+    for lieferant, zeilen_ in je_lieferant.items():
+        b = bestellung_anlegen(beleg.mandant, lieferant, bemerkung, aus_beleg=beleg, benutzer=benutzer)
+        for p, menge in zeilen_:
+            bestellposition(b, p.artikel, menge, preisliste_artikel=p.preisliste_artikel)
         ergebnis.append(b)
     if not ergebnis:
         raise ValueError("Keiner der Artikel hat einen Lieferanten in den Preislisten.")
-    beleg._ohne_lieferant = ohne
+    beleg._ohne_lieferant = [p for p, _ in ohne]
     return ergebnis
 
 
