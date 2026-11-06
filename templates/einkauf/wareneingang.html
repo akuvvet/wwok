@@ -25,7 +25,7 @@
         <textarea name="seriennummern" rows="1" cols="22">{{ p.seriennummern }}</textarea>
         {% if p.artikel.esd_key %}<div style="flex-basis:100%"><label>ESD-Keys – für jedes Stück ein Key, einer pro Zeile ({{ p.menge|floatformat:"-3" }} erwartet)</label>
           <textarea name="esd_keys" rows="{{ p.menge|floatformat:0|default:1 }}" style="width:100%;font-family:monospace" placeholder="XXXXX-XXXXX-XXXXX&#10;oder Volumenkey: KEY;Anzahl">{{ p.esd_keys }}</textarea></div>{% endif %}
-        <button type="submit" class="leise">OK</button><button type="submit" name="aktion" value="loeschen" class="gefahr">×</button>
+        <button type="submit" class="leise">OK</button><button type="submit" name="aktion" value="loeschen" class="gefahr"{% if p.bestellposition %} data-tip="nicht geliefert – bleibt in der Bestellung offen" aria-label="nicht geliefert"{% else %} aria-label="Zeile entfernen"{% endif %}>×</button>
         {% if we.nebenkosten %}<small style="flex-basis:100%" title="EK inkl. anteiliger Nebenkosten">Kalkulations-EK: <strong>{{ p.kalk|floatformat:"2g" }}</strong></small>{% endif %}</form></td>{% endif %}
     </tr>
     {% empty %}<tr><td colspan="7">Noch nichts erfasst – Artikel scannen.</td></tr>{% endfor %}
@@ -33,6 +33,20 @@
     {% if we.nebenkosten %}<tr><td colspan="4">Nebenkosten (Versand {{ we.versandkosten }}, Versicherung {{ we.versicherung }}, Verpackung {{ we.verpackung }}){% if we.nebenkosten_extern %} · auf eigener Rechnung{% endif %}</td><td class="zahl">{{ we.nebenkosten }}</td><td colspan="2"></td></tr>
     <tr><td colspan="4"><strong>Gesamt netto</strong></td><td class="zahl"><strong>{{ we.gesamt_netto|floatformat:"2g" }}</strong></td><td colspan="2"></td></tr>{% endif %}
   </table>
+  {% if bleibt_offen %}
+  <h2 style="margin-top:16px">Teillieferung: bleibt in der Bestellung {{ we.bestellung.nummer }} offen</h2>
+  <p class="fein">{% if we.gebucht %}Diese Mengen sind weiter beim Lieferanten bestellt und kommen mit einem späteren Wareneingang.{% else %}Fehlt eine Position in der Lieferung: Menge verringern oder × („nicht geliefert“). Gebucht wird nur, was oben steht; der Rest bleibt bestellt.{% endif %}</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">bestellt</th><th class="zahl">bisher geliefert</th>{% if not we.gebucht %}<th class="zahl">in dieser Lieferung</th>{% endif %}<th class="zahl">bleibt offen</th>{% if not we.gebucht %}<th></th>{% endif %}</tr></thead>
+    <tbody>{% for z in bleibt_offen %}<tr>
+      <td>{{ z.bp.artikel.nummer|default:z.bp.bestellnummer }}</td><td>{{ z.bp.bezeichnung }}</td>
+      <td class="zahl">{{ z.bp.menge|floatformat:"-3" }}</td><td class="zahl">{{ z.bp.geliefert|floatformat:"-3" }}</td>
+      {% if not we.gebucht %}<td class="zahl">{{ z.diese|floatformat:"-3" }}</td>{% endif %}
+      <td class="zahl"><strong>{{ z.rest|floatformat:"-3" }}</strong></td>
+      {% if not we.gebucht %}<td>{% if z.fehlt_ganz %}<form method="post" action="{% url 'einkauf:wareneingang_aufnehmen' we.pk z.bp.pk %}">{% csrf_token %}<button type="submit" class="leise">doch geliefert</button></form>{% endif %}</td>{% endif %}
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
   {% if not we.gebucht and positionen %}
   <form method="post" action="{% url 'einkauf:wareneingang_buchen' we.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
     <div><label>Lieferschein des Lieferanten</label><input name="lieferschein" value="{{ we.lieferschein }}"></div>

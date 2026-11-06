@@ -453,7 +453,21 @@ def wareneingang_detail(request, we_id):
     positionen = list(we.positionen.select_related("artikel", "bestellposition"))
     for p in positionen:
         p.kalk = p.kalk_ek if we.gebucht and p.kalk_ek is not None else kalkulation[p.pk]
-    return render(request, "einkauf/wareneingang.html", {"we": we, "positionen": positionen, "netto": we.summe_netto})
+    return render(request, "einkauf/wareneingang.html", {"we": we, "positionen": positionen, "netto": we.summe_netto,
+                                                          "bleibt_offen": services.bleibt_offen(we)})
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:wareneingang", "we_id")
+def wareneingang_aufnehmen(request, we_id, bp_id):
+    """Als „nicht geliefert“ entfernte Bestellposition doch mit der offenen Menge in den Wareneingang übernehmen."""
+    we = we_holen(request, we_id)
+    if not we.bestellung_id:
+        raise ValueError("Der Wareneingang gehört zu keiner Bestellung.")
+    bp = get_object_or_404(BestellPosition, pk=bp_id, bestellung=we.bestellung)
+    services.wareneingang_aus_bestellung(we, nur=bp)
+    return redirect("einkauf:wareneingang", we_id=we.pk)
 
 
 @mit_mandant
@@ -479,10 +493,14 @@ def wareneingang_zeile_aendern(request, we_id, position_id):
     if we.gebucht:
         raise ValueError("Der Wareneingang ist bereits gebucht.")
     pos = get_object_or_404(WareneingangPosition, pk=position_id, wareneingang=we)
-    if request.POST.get("aktion") == "loeschen":
+    menge = zahl(request.POST.get("menge"), pos.menge)
+    if request.POST.get("aktion") == "loeschen" or (menge == 0 and pos.bestellposition_id):
+        # nicht geliefert: Zeile raus, die Menge bleibt in der Bestellung offen (Teillieferung)
         pos.delete()
+        if pos.bestellposition_id:
+            messages.info(request, f"{pos.artikel.nummer}: nicht geliefert – bleibt in der Bestellung offen.")
     else:
-        pos.menge = zahl(request.POST.get("menge"), pos.menge)
+        pos.menge = menge
         pos.ek = services.ek_runden(zahl(request.POST.get("ek"), pos.ek))
         if pos.menge <= 0 or pos.ek < 0:
             raise ValueError("Die Menge muss größer als 0 sein und der EK darf nicht negativ sein.")
@@ -522,7 +540,10 @@ def wareneingang_buchen(request, we_id):
                 messages.warning(request, " | ".join(rueckfragen))
                 return redirect(reverse("einkauf:wareneingang", kwargs={"we_id": we.pk}) + "?rueckfrage=1")
         anzahl = services.wareneingang_buchen(we, request.user, bestaetigt=True)
-    messages.success(request, f"{anzahl} Position(en) ins Lager gebucht.")
+    we.refresh_from_db()  # gebucht: „geliefert“ der Bestellung enthält jetzt diese Lieferung
+    rest = services.bleibt_offen(we)
+    messages.success(request, f"{anzahl} Position(en) ins Lager gebucht."
+                     + (f" Teillieferung: {len(rest)} Position(en) bleiben in Bestellung {we.bestellung.nummer} offen." if rest else ""))
     return redirect("einkauf:wareneingang", we_id=we.pk)
 
 
