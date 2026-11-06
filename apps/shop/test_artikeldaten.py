@@ -82,7 +82,8 @@ class ArtikeldatenTest(Basis):
         self.assertEqual(c.gesendet[0]["categories"], [{"id": "k1"}])
         ShopKategorie.objects.all().delete()
         c = self.client_fuer(A1="p")
-        c.shop_kategorien = [{"id": "k1", "name": "Notebooks"}, {"id": "k2", "name": "Notebooks"}]  # mehrdeutig: nichts anlegen
+        c.shop_kategorien = [{"id": "k1", "name": "Notebooks", "parentId": "wurzel"},  # doppelt auf derselben Ebene: nichts anlegen
+                             {"id": "k2", "name": "Notebooks", "parentId": "wurzel"}]
         erg = services.artikeldaten_senden(self.shop, c, alle=True)
         self.assertNotIn("categories", c.gesendet[0])
         self.assertEqual(erg["kategorie_fehlt"], {"Notebooks"})
@@ -889,6 +890,66 @@ class ShopKategorieAnlegenTest(Basis):
         self.assertEqual(c.gesendet[0]["categories"], [{"id": "s-audiokabel"}])
         self.assertFalse(hasattr(c, "kategorien_geschrieben"))
         self.assertFalse(ShopKategorie.objects.get(kategorie=kabel).angelegt)  # vorhandene übernommen
+
+    def test_hauptkategorie_mehrfach_anderswo_wird_unter_der_hauptnavigation_angelegt(self):
+        kabel = Kategorie.objects.create(name="Kabel", online=True)  # in wwok Hauptkategorie (wie aus Mention übernommen)
+        self.a.kategorie = kabel
+        self.a.save()
+        c = self.shop_c([{"id": "s-netz", "name": "Netzwerk", "parentId": "wurzel"}, {"id": "s-netzkabel", "name": "Kabel", "parentId": "s-netz"},
+                         {"id": "s-audio", "name": "Audio", "parentId": "wurzel"}, {"id": "s-audiokabel", "name": "Kabel", "parentId": "s-audio"}])
+        erg = services.artikeldaten_senden(self.shop, c)
+        ext = services.feste_id(self.shop, "kategorie", kabel.pk)
+        self.assertEqual([(k["id"], k["name"], k["parentId"]) for k in c.kategorien_geschrieben], [(ext, "Kabel", "wurzel")])
+        self.assertEqual(c.gesendet[0]["categories"], [{"id": ext}])
+        self.assertEqual((erg["kategorie_fehlt"], erg["kategorie_neu"]), (set(), ["Kabel"]))
+        # einmal angelegt, gilt beim nächsten Lauf die gespeicherte Zuordnung, nichts wird doppelt angelegt
+        d = self.shop_c(c.shop_kategorien + [{"id": ext, "name": "Kabel", "parentId": "wurzel"}])
+        services.artikeldaten_senden(self.shop, d, alle=True)
+        self.assertFalse(hasattr(d, "kategorien_geschrieben"))
+        self.assertEqual(d.gesendet[0]["categories"], [{"id": ext}])
+
+    def test_hauptkategorie_direkt_unter_der_wurzel_hat_vorrang(self):
+        kabel = Kategorie.objects.create(name="Kabel", online=True)
+        self.a.kategorie = kabel
+        self.a.save()
+        c = self.shop_c([{"id": "s-kabel", "name": "Kabel", "parentId": "wurzel"}, {"id": "s-netz", "name": "Netzwerk", "parentId": "wurzel"},
+                         {"id": "s-netzkabel", "name": "Kabel", "parentId": "s-netz"}])
+        services.artikeldaten_senden(self.shop, c)
+        self.assertFalse(hasattr(c, "kategorien_geschrieben"))
+        self.assertEqual(c.gesendet[0]["categories"], [{"id": "s-kabel"}])
+
+    def test_verlorene_zuordnung_der_eigenen_hauptkategorie_wird_wiedergefunden(self):
+        kabel = Kategorie.objects.create(name="Kabel", online=True)
+        self.a.kategorie = kabel
+        self.a.save()
+        ext = services.feste_id(self.shop, "kategorie", kabel.pk)
+        c = self.shop_c([{"id": "s-audio", "name": "Audio", "parentId": "wurzel"}, {"id": "s-audiokabel", "name": "Kabel", "parentId": "s-audio"},
+                         {"id": ext, "name": "Kabel", "parentId": "wurzel"}])
+        services.artikeldaten_senden(self.shop, c)
+        self.assertFalse(hasattr(c, "kategorien_geschrieben"))
+        self.assertEqual(c.gesendet[0]["categories"], [{"id": ext}])
+        self.assertTrue(ShopKategorie.objects.get(kategorie=kabel).angelegt)
+
+    def test_anderswo_schon_vergebene_shop_kategorie_wird_nicht_geteilt(self):
+        netz = Kategorie.objects.create(name="Netzwerk", online=True)
+        netzkabel = Kategorie.objects.create(name="Kabel", eltern=netz, online=True)
+        ShopKategorie.objects.create(shop=self.shop, kategorie=netzkabel, kategorie_id_extern="s-netzkabel")
+        kabel = Kategorie.objects.create(name="Kabel", online=True)
+        self.a.kategorie = kabel
+        self.a.save()
+        c = self.shop_c([{"id": "s-netz", "name": "Netzwerk", "parentId": "wurzel"}, {"id": "s-netzkabel", "name": "Kabel", "parentId": "s-netz"}])
+        services.artikeldaten_senden(self.shop, c)
+        ext = services.feste_id(self.shop, "kategorie", kabel.pk)  # eigene Hauptkategorie statt der von „Netzwerk › Kabel“
+        self.assertEqual([(k["id"], k["parentId"]) for k in c.kategorien_geschrieben], [(ext, "wurzel")])
+
+    def test_hauptkategorie_einmal_anderswo_wird_wie_bisher_uebernommen(self):
+        kabel = Kategorie.objects.create(name="Kabel", online=True)
+        self.a.kategorie = kabel
+        self.a.save()
+        c = self.shop_c([{"id": "s-netz", "name": "Netzwerk", "parentId": "wurzel"}, {"id": "s-netzkabel", "name": "Kabel", "parentId": "s-netz"}])
+        services.artikeldaten_senden(self.shop, c)
+        self.assertFalse(hasattr(c, "kategorien_geschrieben"))
+        self.assertEqual(c.gesendet[0]["categories"], [{"id": "s-netzkabel"}])
 
     def test_vorhandene_ebene_wird_genutzt_nur_rest_angelegt(self):
         self.pfad()
