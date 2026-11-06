@@ -96,3 +96,31 @@ class TeillieferungTest(TestCase):
         self.assertEqual(services.bleibt_offen(we), [])
         self.client.post(reverse("einkauf:wareneingang_zeile", args=[we.pk, p.pk]), {"menge": "0", "ek": "9"})
         self.assertTrue(Wareneingang.objects.get(pk=we.pk).positionen.filter(pk=p.pk).exists())  # Fehler, Zeile bleibt
+
+    def test_zwei_offene_wareneingaenge_buchen_nicht_doppelt(self):
+        """Server-Fall: zwei Wareneingänge zur selben Bestellung, beide mit derselben Ware gebucht → Überlieferung."""
+        from .models import Wareneingang
+        we2 = services.wareneingang_anlegen(self.m, self.lf, self.b)
+        services.wareneingang_aus_bestellung(we2)
+        self.assertEqual(we2.positionen.count(), 0)  # alles steht schon im ersten, noch offenen Wareneingang
+        self.client.post(reverse("einkauf:wareneingang_zeile", args=[self.we.pk, self.zeile(self.tast).pk]), {"aktion": "loeschen"})
+        we3 = services.wareneingang_anlegen(self.m, self.lf, self.b)
+        services.wareneingang_aus_bestellung(we3)
+        self.assertEqual({p.artikel_id: p.menge for p in we3.positionen.all()}, {self.tast.pk: Decimal("2")})
+        # trotzdem doppelt erfasst (z. B. per Scan): beim zweiten Buchen Fehler statt Überlieferung
+        services.wareneingang_erfassen(we2, self.maus, Decimal("5"))
+        services.wareneingang_buchen(self.we)
+        with self.assertRaisesMessage(services.PlausibilitaetFehler, "nur noch 0 offen"):
+            services.wareneingang_buchen(Wareneingang.objects.get(pk=we2.pk))
+        antwort = self.client.post(reverse("einkauf:wareneingang_buchen", args=[we2.pk]), follow=True)
+        self.assertContains(antwort, "Angaben geprüft, trotzdem buchen")
+        self.assertFalse(Wareneingang.objects.get(pk=we2.pk).gebucht)
+        self.assertEqual(bestand(self.m, self.maus), Decimal("5"))
+
+    def test_liste_zeigt_rest_offen_und_gebuchter_we_zeigt_bestellmenge(self):
+        self.client.post(reverse("einkauf:wareneingang_zeile", args=[self.we.pk, self.zeile(self.tast).pk]), {"aktion": "loeschen"})
+        services.wareneingang_buchen(self.we)
+        liste = self.client.get(reverse("einkauf:wareneingaenge"))
+        self.assertContains(liste, "Rest der Bestellung offen")
+        detail = self.client.get(reverse("einkauf:wareneingang", args=[self.we.pk])).content.decode()
+        self.assertNotIn("0 offen", detail)  # nach dem Buchen die Bestellmenge statt der Restmenge

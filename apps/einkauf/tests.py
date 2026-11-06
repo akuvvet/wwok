@@ -177,7 +177,10 @@ class EinkaufTest(TestCase):
         we = services.Wareneingang.objects.get()
         self.client.post(reverse("einkauf:wareneingang_scan", args=[we.pk]), {"code": "4012345678901", "menge": "1"})
         self.assertEqual(we.positionen.get().menge, Decimal("4"))
-        self.client.post(reverse("einkauf:wareneingang_buchen", args=[we.pk]), {"lieferschein": "LS-77"})
+        r = self.client.post(reverse("einkauf:wareneingang_buchen", args=[we.pk]), {"lieferschein": "LS-77"}, follow=True)
+        self.assertContains(r, "nur noch 3 offen, erfasst 4")  # Überlieferung: erst Rückfrage
+        self.assertEqual(bestand(self.m, self.maus), Decimal("0"))
+        self.client.post(reverse("einkauf:wareneingang_buchen", args=[we.pk]), {"lieferschein": "LS-77", "preis_bestaetigt": "1"})
         self.assertEqual(bestand(self.m, self.maus), Decimal("4"))
         for name in ("bestellungen", "vorschlag", "wareneingaenge", "rechnungen", "rma_liste"):
             self.assertEqual(self.client.get(reverse(f"einkauf:{name}")).status_code, 200, name)

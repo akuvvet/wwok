@@ -382,18 +382,40 @@ def wareneingang_aus_bestellung(we, nur=None):
     positionen = we.bestellung.positionen.select_related("preisliste_artikel")
     if nur is not None:
         positionen = positionen.filter(pk=nur.pk)
+    # Mengen, die schon in einem anderen, noch nicht gebuchten Wareneingang dieser Bestellung stehen, nicht doppelt vorbelegen
+    in_anderen = {}
+    for bp_id, menge in WareneingangPosition.objects.filter(
+            wareneingang__bestellung=we.bestellung, wareneingang__gebucht=False, bestellposition__isnull=False
+    ).exclude(wareneingang=we).values_list("bestellposition_id", "menge"):
+        in_anderen[bp_id] = in_anderen.get(bp_id, Decimal("0")) + menge
     for bp in positionen:
         if bp.artikel_id is None and bp.preisliste_artikel_id:  # Preislistenartikel wird zum eigenen Artikel
             bp.artikel = artikel_aus_preisliste(bp.preisliste_artikel)
             bp.save(update_fields=["artikel"])
         if bp.artikel.typ == "L":  # Leistungen kommen nicht ins Lager
             continue
-        if bp.offen > 0 and not we.positionen.filter(bestellposition=bp).exists():
-            WareneingangPosition.objects.create(wareneingang=we, bestellposition=bp, artikel=bp.artikel, menge=bp.offen, ek=bp.ek)
+        menge = bp.offen - in_anderen.get(bp.pk, Decimal("0"))
+        if menge > 0 and not we.positionen.filter(bestellposition=bp).exists():
+            WareneingangPosition.objects.create(wareneingang=we, bestellposition=bp, artikel=bp.artikel, menge=menge, ek=bp.ek)
 
 
 class PlausibilitaetFehler(ValueError):
     """Wareneingangspreis weicht stark vom Ø-EK bzw. Import-EK ab: Rückfrage, gebucht wird erst nach Bestätigung."""
+
+
+def mengen_rueckfragen(we, positionen=None):
+    """Mehr erfasst als in der Bestellung noch offen ist (z. B. schon mit einem anderen Wareneingang gebucht): Rückfrage."""
+    positionen = list(we.positionen.all()) if positionen is None else positionen
+    je_bp = {}
+    for p in positionen:
+        if p.bestellposition_id:
+            je_bp[p.bestellposition_id] = je_bp.get(p.bestellposition_id, Decimal("0")) + p.menge
+    texte = []
+    for bp in BestellPosition.objects.filter(pk__in=je_bp):  # frisch: ein anderer Wareneingang kann schon gebucht sein
+        if je_bp[bp.pk] > bp.offen:
+            texte.append(f"{bp.bezeichnung[:60]}: in der Bestellung nur noch {max(bp.offen, Decimal("0")).normalize():f} offen, erfasst {je_bp[bp.pk].normalize():f} – "
+                         "schon mit einem anderen Wareneingang gebucht? Sonst Überlieferung")
+    return texte
 
 
 def preis_rueckfragen(we, positionen=None):
@@ -439,7 +461,7 @@ def wareneingang_buchen(we, benutzer=None, bestaetigt=False) -> int:
             if vorhanden:
                 raise ValueError(f"{p.artikel.nummer} (ESD): Key bereits im Bestand: {', '.join(list(vorhanden)[:3])}.")
     if not bestaetigt:
-        rueckfragen = preis_rueckfragen(we, positionen)
+        rueckfragen = mengen_rueckfragen(we, positionen) + preis_rueckfragen(we, positionen)
         if rueckfragen:
             raise PlausibilitaetFehler(" | ".join(rueckfragen))
     heute = we.datum

@@ -12,7 +12,7 @@
   </form>
   <table style="margin-top:12px">
     <tr><th>Nr.</th><th>Datum</th><th>Lieferant</th><th>Bestellung</th><th>gebucht</th></tr>
-    {% for w in liste %}<tr><td><a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a></td><td>{{ w.datum|date:"d.m.Y" }}</td><td><span title="{{ w.lieferant.nummer }} – {{ w.lieferant.name1 }}">{{ w.lieferant.kurz }}</span></td><td>{{ w.bestellung.nummer|default:"" }}</td><td>{% if w.gebucht %}ja{% else %}offen{% endif %}</td></tr>
+    {% for w in liste %}<tr><td><a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a></td><td>{{ w.datum|date:"d.m.Y" }}</td><td><span title="{{ w.lieferant.nummer }} – {{ w.lieferant.name1 }}">{{ w.lieferant.kurz }}</span></td><td>{{ w.bestellung.nummer|default:"" }}</td><td>{% if w.gebucht %}ja{% if w.bestellung.status == 'teil' %} <small style="color:var(--warn)">· Rest der Bestellung offen</small>{% endif %}{% else %}offen{% endif %}</td></tr>
     {% empty %}<tr><td colspan="5">Keine Wareneingänge.</td></tr>{% endfor %}
   </table>
   {% include "seiten.html" %}

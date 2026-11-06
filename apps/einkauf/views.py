@@ -535,7 +535,7 @@ def wareneingang_buchen(request, we_id):
             return redirect("einkauf:wareneingang", we_id=we.pk)
         bestaetigt = bool(request.POST.get("preis_bestaetigt"))
         if not bestaetigt:  # Plausibilität: Nebenkosten bleiben gespeichert, gebucht wird erst nach Bestätigung
-            rueckfragen = services.preis_rueckfragen(we)
+            rueckfragen = services.mengen_rueckfragen(we) + services.preis_rueckfragen(we)
             if rueckfragen:
                 messages.warning(request, " | ".join(rueckfragen))
                 return redirect(reverse("einkauf:wareneingang", kwargs={"we_id": we.pk}) + "?rueckfrage=1")
