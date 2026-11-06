@@ -29,7 +29,7 @@
     {% if anzahlungen %}<p class="zeile" style="margin:6px 0 0">{% for a in anzahlungen %}<span class="marke ok" title="Zahlung bleibt am Ursprungsbeleg; hier nur verrechnet">{% if a.betrag > 0 %}erhalten{% else %}aufgehoben{% endif %} aus <a href="{% url 'verkauf:beleg' a.quelle.pk %}">{{ a.quelle }}</a>: {{ a.betrag|floatformat:"2g" }} €</span>{% endfor %}</p>{% endif %}
     {% if lieferantenbestellungen %}<div class="lieferantenbestellungen" style="margin:6px 0 0"><small style="opacity:.75">Lieferantenbestellungen:</small>
       {% for b in lieferantenbestellungen %}<span class="marke {% if b.status == 'storniert' %}gesperrt{% elif b.status != 'entwurf' %}ok{% endif %}" title="{{ b.bemerkung }}"{% if b.status == 'storniert' %} style="text-decoration:line-through"{% endif %}>
-        <a href="{% url 'einkauf:bestellung' b.pk %}">{{ b.nummer }}</a> · {{ b.lieferant.kurz }} · {{ b.datum|date:"d.m.Y" }} · {{ b.get_status_display }}{% if b.angelegt_von %} · {{ b.angelegt_von }}{% endif %}{% if b.aus_beleg_id != beleg.pk %} · aus {{ b.aus_beleg.nummer|default:b.aus_beleg }}{% endif %}</span>
+        <a href="{% url 'einkauf:bestellung' b.pk %}">{{ b.nummer }}</a> · {{ b.lieferant.kurz }} · {{ b.datum|date:"d.m.Y" }} · {% status_symbol "bestellung" b.status b.get_status_display mit_text=True %}{% if b.angelegt_von %} · {{ b.angelegt_von }}{% endif %}{% if b.aus_beleg_id != beleg.pk %} · aus {{ b.aus_beleg.nummer|default:b.aus_beleg }}{% endif %}</span>
       {% endfor %}</div>{% endif %}
     {% if versendungen %}<p class="zeile versandhinweis" style="margin:6px 0 0">{% for v in versendungen %}
       <a class="marke {% if v.kauf_status %}gesperrt{% else %}ok{% endif %}" href="{% url 'verkauf:versand_aufkleber' beleg.pk v.pk %}" target="_blank"

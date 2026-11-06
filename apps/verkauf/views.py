@@ -178,8 +178,12 @@ def kunde_detail(request, kunde_id):
                     - (summen["abgegeben"].get(b.pk, null) if rechnung else null))  # weiterverrechnete Überzahlung
         status = pf_status.get(b.pk)
         proforma = status is not None and status["code"] != "entwurf"
+        re_status = None
+        if rechnung:  # Zahlstatus der Rechnung als Symbol (Issue 62)
+            rest = b.summe_brutto - erledigt
+            re_status = "bezahlt" if rest == 0 else "ueberzahlt" if rest < 0 else "teilbezahlt" if erledigt > 0 else "offen"
         zeilen.append({
-            "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None, "zahlstatus": status,
+            "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None, "zahlstatus": status, "re_status": re_status,
             "bezahlt": erledigt if rechnung else status["bezahlt"] if proforma else None,
             "offen": b.summe_brutto - erledigt if rechnung else status["offen"] if proforma else
                      -(b.summe_brutto - summen["verrechnet"].get(b.pk, null)) if gutschrift else None,

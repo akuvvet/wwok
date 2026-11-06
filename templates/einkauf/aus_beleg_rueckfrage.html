@@ -10,7 +10,7 @@
     <tbody>{% for b in bestellungen %}<tr{% if b.status == 'storniert' %} style="text-decoration:line-through;opacity:.6"{% endif %}>
       <td><a href="{% url 'einkauf:bestellung' b.pk %}" target="_blank">{{ b.nummer }}</a></td><td>{{ b.lieferant.kurz }}</td>
       <td>{{ b.datum|date:"d.m.Y" }}</td>
-      <td><span class="marke {% if b.status != 'entwurf' and b.status != 'storniert' %}ok{% endif %}">{{ b.get_status_display }}</span>{% if b.status == 'entwurf' %} <small style="opacity:.75">(zählt nicht als bestellt)</small>{% endif %}</td>
+      <td>{% status_symbol "bestellung" b.status b.get_status_display mit_text=True %}{% if b.status == 'entwurf' %} <small style="opacity:.75">(zählt nicht als bestellt)</small>{% endif %}</td>
       <td>{{ b.angelegt_von|default:"" }}</td><td>{{ b.aus_beleg.nummer|default:b.aus_beleg }}</td><td>{{ b.bemerkung }}</td></tr>
     {% endfor %}</tbody>
   </table></div>

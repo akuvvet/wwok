@@ -107,8 +107,8 @@
 <div class="karte">
   <h2>Seriennummern</h2>
   <table>
-    <tr><th>Seriennummer</th><th>Status</th><th>Eingang</th><th>Beleg</th><th></th></tr>
-    {% for sn in seriennummern %}<tr><td>{{ sn.nummer }}</td><td>{{ sn.get_status_display }}</td><td>{{ sn.eingang|date:"d.m.Y" }}</td>
+    <tr><th>Seriennummer</th><th>Status{% status_legende "seriennummer" %}</th><th>Eingang</th><th>Beleg</th><th></th></tr>
+    {% for sn in seriennummern %}<tr><td>{{ sn.nummer }}</td><td>{% status_symbol "seriennummer" sn.status sn.get_status_display %}</td><td>{{ sn.eingang|date:"d.m.Y" }}</td>
       <td>{% if sn.position %}<a href="{% url 'verkauf:beleg' sn.position.beleg.pk %}">{{ sn.position.beleg }}</a>{% endif %}</td>
       <td>{% if sn.status == 'verkauft' and not sn.position or sn.status == 'verkauft' and sn.position.beleg.abgeschlossen %}<form method="post" action="{% url 'lager:seriennummer_einlagern' sn.pk %}" data-frage="Seriennummer {{ sn.nummer }} wieder einlagern? Der Bestand bleibt unverändert, ihn bucht die Gutschrift.">{% csrf_token %}<button class="leise" type="submit">Wieder einlagern</button></form>{% endif %}</td></tr>{% endfor %}
   </table>

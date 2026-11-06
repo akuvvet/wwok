@@ -8,7 +8,7 @@
     <div>Datum<br>{{ r.datum|date:"d.m.Y" }}</div><div>fällig<br>{{ r.faellig|date:"d.m.Y" }}</div>
     <div>Netto / Steuer<br>{{ r.netto|floatformat:"2g" }} / {{ r.steuer|floatformat:"2g" }} €</div><div>Brutto<br><strong>{{ r.brutto|floatformat:"2g" }} €</strong></div>
     <div>zu zahlen<br><strong>{{ zahlbetrag }} €</strong>{% if r.skonto_bis %}<br><small>Skonto {{ r.skonto_prozent }} % bis {{ r.skonto_bis|date:"d.m.Y" }}</small>{% endif %}</div>
-    <div>Status<br>{{ r.get_status_display }}{% if r.bezahlt_am %}<br>{{ r.bezahlt_am|date:"d.m.Y" }}, {{ r.bezahlter_betrag|floatformat:"2g" }} €{% endif %}</div>
+    <div>Status<br>{% status_symbol "lieferantenrechnung" r.status r.get_status_display mit_text=True faellig=r.faellig skonto_bis=r.skonto_bis %}{% if r.bezahlt_am %}<br>{{ r.bezahlt_am|date:"d.m.Y" }}, {{ r.bezahlter_betrag|floatformat:"2g" }} €{% endif %}</div>
   </div>
   {% if abgleich.verknuepft %}<p style="margin-top:12px">
     {% if abgleich.ok %}Wareneingänge netto {{ abgleich.wareneingang_netto|floatformat:"2g" }} € – passt zur Rechnung.

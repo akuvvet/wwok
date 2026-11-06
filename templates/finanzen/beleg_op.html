@@ -9,7 +9,7 @@
     <div>bezahlt<br><strong>{{ bezahlt|floatformat:"2g" }} €</strong></div>
     {% if beleg.art == 'RE' %}<div>verrechnete Gutschriften<br><strong>{{ gutschrift|floatformat:"2g" }} €</strong></div>
     {% if angerechnet %}<div>Guthaben/Vorkasse verrechnet<br><strong>{{ angerechnet|floatformat:"2g" }} €</strong></div>{% endif %}{% endif %}
-    {% if pf_status %}<div>Status<br><strong>{{ pf_status.text }}</strong></div>{% endif %}
+    {% if pf_status %}<div>Status<br><strong>{% status_symbol "zahlung" pf_status.code pf_status.text mit_text=True %}</strong></div>{% endif %}
     <div>{% if offen < 0 %}Guthaben{% else %}offen{% endif %}<br><strong style="font-size:20px">{{ offen|floatformat:"2g" }} €</strong></div>
     {% if beleg.art == 'RE' %}<div>fällig am<br>{{ faellig|date:"d.m.Y" }}</div>{% endif %}
   </div>
