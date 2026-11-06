@@ -21,7 +21,7 @@
     <div><label for="bis">bis</label><input id="bis" type="date" name="bis" value="{{ bis }}"></div>
     <noscript><button type="submit">Filtern</button></noscript>
   </form>
-  <p data-zahl aria-live="polite">{{ anzahl }} Belege</p>
+  <p data-zahl aria-live="polite">{{ anzahl }} Belege{% if standard_30 %} (Entwürfe der letzten 30 Tage) · <a href="?status=&amp;von=">alle anzeigen</a>{% endif %}</p>
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
   <div class="scroll">
   <table>

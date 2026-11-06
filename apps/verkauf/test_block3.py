@@ -69,6 +69,28 @@ class Block3Test(TestCase):
         alle = self.client.get(url, {"art": "", "q": "Muster"}).context["seite"].object_list
         self.assertEqual({b.pk for b in alle}, {a.pk, r.pk})
 
+    def test_belegliste_standard_letzte_30_tage(self):
+        neu = self.beleg(Belegart.RECHNUNG)
+        alt = self.beleg(Belegart.RECHNUNG)
+        fertig = self.beleg(Belegart.RECHNUNG)
+        Beleg.objects.filter(pk=alt.pk).update(belegdatum=date.today() - timedelta(days=45))
+        Beleg.objects.filter(pk=fertig.pk).update(abgeschlossen=True)
+        url = reverse("verkauf:belege")
+        antwort = self.client.get(url)
+        self.assertEqual([b.pk for b in antwort.context["seite"].object_list], [neu.pk])  # nur Entwürfe, nur 30 Tage
+        self.assertEqual(antwort.context["von"], (date.today() - timedelta(days=30)).isoformat())
+        self.assertEqual(antwort.context["status"], "offen")
+        self.assertContains(antwort, '<option value="offen" selected>')
+        self.assertContains(antwort, "Entwürfe der letzten 30 Tage")
+        self.assertContains(antwort, 'href="?status=&amp;von="')
+        # Felder geleert, Suche (globale Kopfsuche) oder Dashboard-Link: kein Standardfilter
+        self.assertEqual(self.client.get(url, {"status": "", "von": ""}).context["anzahl"], 3)
+        self.assertEqual(self.client.get(url, {"q": "Muster"}).context["anzahl"], 3)
+        self.assertEqual(self.client.get(url, {"status": "", "von": antwort.context["von"]}).context["anzahl"], 2)
+        self.assertNotContains(self.client.get(url, {"von": ""}), "der letzten 30 Tage")
+        # Blättern behält den Standard
+        self.assertEqual(self.client.get(url, {"seite": "1"}).context["anzahl"], 1)
+
     def test_belegliste_braucht_login(self):
         self.client.logout()
         self.assertEqual(self.client.get(reverse("verkauf:belege")).status_code, 302)
