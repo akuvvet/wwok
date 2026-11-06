@@ -45,7 +45,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'  # wie auf dem Server: neuere Syntax fällt hier schon auf
           cache: pip
 
       - name: Pakete installieren
@@ -100,6 +100,17 @@ jobs:
             echo "DB-Sicherung: $DATEI"
             ls -1t "$APP_BASE"/backups/*.sql.gz | tail -n +21 | xargs -r rm --
 
+            # Rücksprung bei jedem Fehler ab hier (auch bei migrate/collectstatic), nicht erst beim HTTP-Test
+            zurueck() {
+              trap - ERR
+              echo "FEHLER – setze Code zurück auf $ALT (Datenbank-Sicherung: $DATEI)"
+              git reset --hard "$ALT"
+              pip install -q -r requirements.txt || true
+              sudo -n systemctl restart wwok
+              exit 1
+            }
+            trap zurueck ERR
+
             # 2) Neuen Stand einspielen
             git reset --hard origin/main
             source "$APP_BASE/venv/bin/activate"
@@ -114,11 +125,7 @@ jobs:
               -H 'X-Forwarded-Proto: https' http://127.0.0.1:8010/ || echo 000)
             echo "Antwort der Anwendung: HTTP $CODE"
             if [ "$CODE" = "000" ] || [ "$CODE" -ge 500 ]; then
-              echo "FEHLER – setze Code zurück auf $ALT (Datenbank-Sicherung: $DATEI)"
-              git reset --hard "$ALT"
-              pip install -q -r requirements.txt
-              sudo -n systemctl restart wwok
-              exit 1
+              zurueck
             fi
 
       - name: Issue schließen und Branch löschen

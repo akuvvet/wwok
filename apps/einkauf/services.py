@@ -413,7 +413,9 @@ def mengen_rueckfragen(we, positionen=None):
     texte = []
     for bp in BestellPosition.objects.filter(pk__in=je_bp):  # frisch: ein anderer Wareneingang kann schon gebucht sein
         if je_bp[bp.pk] > bp.offen:
-            texte.append(f"{bp.bezeichnung[:60]}: in der Bestellung nur noch {max(bp.offen, Decimal("0")).normalize():f} offen, erfasst {je_bp[bp.pk].normalize():f} – "
+            offen = max(bp.offen, Decimal("0")).normalize()  # außerhalb des f-Strings: Python 3.10 auf dem Server
+            erfasst = je_bp[bp.pk].normalize()
+            texte.append(f"{bp.bezeichnung[:60]}: in der Bestellung nur noch {offen:f} offen, erfasst {erfasst:f} – "
                          "schon mit einem anderen Wareneingang gebucht? Sonst Überlieferung")
     return texte
 
