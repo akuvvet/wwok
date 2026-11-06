@@ -11,10 +11,10 @@
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
   {% if q %}
   <table style="margin-top:12px">
-    <tr><th>Seriennummer</th><th>Artikel</th><th>Status</th><th>Wareneingang</th><th>Verkauft mit</th><th>Kunde</th></tr>
+    <tr><th>Seriennummer</th><th>Artikel</th><th>Status{% status_legende "seriennummer" %}</th><th>Wareneingang</th><th>Verkauft mit</th><th>Kunde</th></tr>
     {% for sn in treffer %}
     <tr><td>{{ sn.nummer }}</td><td><a href="{% url 'lager:artikel' sn.artikel.pk %}">{{ sn.artikel.nummer }}</a> {{ sn.artikel.bezeichnung }}</td>
-        <td>{{ sn.get_status_display }}</td><td>{{ sn.eingang|date:"d.m.Y" }}</td>
+        <td>{% status_symbol "seriennummer" sn.status sn.get_status_display %}</td><td>{{ sn.eingang|date:"d.m.Y" }}</td>
         <td>{% if sn.position %}<a href="{% url 'verkauf:beleg' sn.position.beleg.pk %}">{{ sn.position.beleg }}</a>{% endif %}</td>
         <td>{{ sn.position.beleg.kunde.name1|default:"" }}</td></tr>
     {% empty %}<tr><td colspan="6">{% include "filter_leer.html" %}</td></tr>{% endfor %}
@@ -22,7 +22,7 @@
   {% if reparaturen %}
   <h2 style="margin-top:16px">Werkstatt</h2>
   <table>
-    {% for r in reparaturen %}<tr><td><a href="{% url 'werkstatt:detail' r.pk %}">{{ r.nummer }}</a></td><td>{{ r.geraet }}</td><td>{{ r.seriennummer }}</td><td>{{ r.kunde.name1 }}</td><td>{{ r.get_status_display }}</td></tr>{% endfor %}
+    {% for r in reparaturen %}<tr><td><a href="{% url 'werkstatt:detail' r.pk %}">{{ r.nummer }}</a></td><td>{{ r.geraet }}</td><td>{{ r.seriennummer }}</td><td>{{ r.kunde.name1 }}</td><td>{% status_symbol "werkstatt" r.status r.get_status_display %}</td></tr>{% endfor %}
   </table>
   {% endif %}
   {% endif %}

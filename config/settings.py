@@ -86,6 +86,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
             ],
+            "builtins": ["apps.kern.templatetags.status"],  # {% status_symbol %} ohne {% load %}
         },
     },
 ]

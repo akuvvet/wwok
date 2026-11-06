@@ -35,11 +35,11 @@
   <h2>Offene Proformas (Vorkasse)</h2>
   <p style="opacity:.8">Keine Forderung: Proformas zählen nicht in die Summe oben, nicht ins Mahnwesen und nicht ins Kreditlimit. Negativ = Guthaben des Kunden.</p>
   <table>
-    <tr><th>Proforma</th><th>Kunde</th><th>Datum</th><th>Status</th><th class="zahl">Brutto</th><th class="zahl">bezahlt</th><th class="zahl">offen</th></tr>
+    <tr><th>Proforma</th><th>Kunde</th><th>Datum</th><th>Status{% status_legende "zahlung" %}</th><th class="zahl">Brutto</th><th class="zahl">bezahlt</th><th class="zahl">offen</th></tr>
     {% for z in proformas %}
     <tr><td><a href="{% url 'finanzen:beleg' z.beleg.pk %}">{{ z.beleg.nummer }}</a></td>
       <td><a href="{% url 'finanzen:offene_posten' %}?kunde={{ z.beleg.kunde.pk }}">{{ z.beleg.kunde.name1 }}</a></td>
-      <td>{{ z.beleg.belegdatum|date:"d.m.Y" }}</td><td>{{ z.status.text }}</td>
+      <td>{{ z.beleg.belegdatum|date:"d.m.Y" }}</td><td>{% status_symbol "zahlung" z.status.code z.status.text %}</td>
       <td class="zahl">{{ z.beleg.summe_brutto|floatformat:"2g" }}</td><td class="zahl">{{ z.status.bezahlt|floatformat:"2g" }}</td>
       <td class="zahl"><strong>{{ z.offen|floatformat:"2g" }}</strong></td></tr>{% endfor %}
   </table>

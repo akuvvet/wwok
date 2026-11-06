@@ -25,14 +25,14 @@
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
   <div class="scroll">
   <table>
-    <thead><tr><th>Beleg</th><th>Datum</th><th>Kunde</th><th>Referenz</th><th>Status</th><th class="zahl">Netto</th><th class="zahl">Brutto</th></tr></thead>
+    <thead><tr><th>Beleg</th><th>Datum</th><th>Kunde</th><th>Referenz</th><th>Status{% status_legende "zahlung" %}</th><th class="zahl">Netto</th><th class="zahl">Brutto</th></tr></thead>
     <tbody>
     {% for b in seite.object_list %}
     <tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(Entwurf)" }}</a>{% include "verkauf/versand_marke.html" %}</td>
       <td>{{ b.belegdatum|date:"d.m.Y" }}</td>
       <td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td>
       <td>{{ b.referenz }}</td>
-      <td>{% if b.zahlstatus and b.zahlstatus.code != 'entwurf' %}{{ b.zahlstatus.text }}{% elif b.abgeschlossen %}abgeschlossen{% else %}Entwurf{% endif %}</td>
+      <td>{% if b.zahlstatus and b.zahlstatus.code != 'entwurf' %}{% status_symbol "zahlung" b.zahlstatus.code b.zahlstatus.text %}{% elif b.abgeschlossen %}{% status_symbol "zahlung" "abgeschlossen" %}{% else %}{% status_symbol "zahlung" "entwurf" %}{% endif %}</td>
       <td class="zahl">{{ b.summe_netto|floatformat:"2g" }}</td><td class="zahl">{{ b.summe_brutto|floatformat:"2g" }}</td></tr>
     {% empty %}<tr><td colspan="7">{% if q or art or status or zahlung or von or bis %}{% include "filter_leer.html" %}{% else %}Keine Belege gefunden.{% endif %}</td></tr>{% endfor %}
     </tbody>

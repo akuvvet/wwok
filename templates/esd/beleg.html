@@ -5,10 +5,10 @@
 <div class="karte">
   <h1>ESD-Keys zu <a href="{% url 'verkauf:beleg' b.pk %}">{{ b }}</a> – {{ b.kunde.name1 }}</h1>
   <table>
-    <tr><th>Position</th><th>Key</th><th>Vergeben am</th><th>Status</th><th>Retoure</th></tr>
+    <tr><th>Position</th><th>Key</th><th>Vergeben am</th><th>Status{% status_legende "esd" %}</th><th>Retoure</th></tr>
     {% for v in vergaben %}
     <tr><td>{{ v.position.bezeichnung }}</td><td><code>{{ v.key.key }}</code>{% if v.bemerkung %}<br><small>{{ v.bemerkung }}</small>{% endif %}</td>
-        <td>{{ v.datum|date:"d.m.Y H:i" }}</td><td>{{ v.get_status_display }}</td>
+        <td>{{ v.datum|date:"d.m.Y H:i" }}</td><td>{% status_symbol "esd" v.status v.get_status_display %}</td>
         <td>{% if v.status == 'aktiv' %}<form method="post" action="{% url 'esd:rueckgabe' v.pk %}" class="zeile">{% csrf_token %}
           <button name="entscheidung" value="freigeben" class="leise" type="submit" title="Key wird wieder vergebbar">Key freigeben</button>
           <button name="entscheidung" value="sperren" class="gefahr" type="submit" data-frage="Key endgültig sperren? Er wird nie wieder vergeben." title="Key wird nie wieder vergeben">Key sperren</button></form>{% endif %}</td></tr>

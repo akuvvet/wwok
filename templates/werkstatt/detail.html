@@ -52,7 +52,7 @@
     <div>Kunde<br><a href="{% url 'verkauf:kunde' r.kunde.pk %}">{{ r.kunde.name1 }}</a><br>{{ r.kunde.telefon }}</div>
     <div>Seriennummer<br>{{ r.seriennummer|default:"–" }}{% if r.seriennummer %}<br><a href="{% url 'lager:seriennummern' %}?q={{ r.seriennummer }}">im Lager suchen</a>{% endif %}</div>
     <div>Angenommen<br>{{ r.angenommen_am|date:"d.m.Y" }}{% if r.fertig_am %}<br>fertig {{ r.fertig_am|date:"d.m.Y" }}{% endif %}{% if r.abgeholt_am %}<br>abgeholt {{ r.abgeholt_am|date:"d.m.Y" }}{% endif %}</div>
-    <div>Status<br><strong>{{ r.get_status_display }}</strong>{% if r.garantie %}<br>Garantiefall{% endif %}</div>
+    <div>Status<br><strong>{% status_symbol "werkstatt" r.status r.get_status_display mit_text=True %}</strong>{% if r.garantie %}<br>Garantiefall{% endif %}</div>
   </div>
   <p style="margin-top:12px"><strong>Fehler:</strong> {{ r.fehler|linebreaksbr }}<br><strong>Zubehör:</strong> {{ r.zubehoer|default:"–" }}</p>
   <form method="post" action="{% url 'werkstatt:status' r.pk %}" class="zeile">{% csrf_token %}
