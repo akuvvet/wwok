@@ -1215,7 +1215,10 @@ def belege(request):
     art = request.GET.get("art", "")
     if art in Belegart.values:
         liste = liste.filter(art=art)
-    status = request.GET.get("status", "")
+    # Aufruf ohne Filter (z. B. über das Menü): Standard „Entwurf“ und „letzte 30 Tage“. Ein geleertes Feld zeigt alles;
+    # Links mit eigenen Filtern (Dashboard, globale Suche) bleiben unbegrenzt.
+    standard_30 = not any(k != "seite" for k in request.GET)
+    status = request.GET.get("status", "offen" if standard_30 else "")
     if status == "offen":
         liste = liste.filter(abgeschlossen=False)
     elif status == "abgeschlossen":
@@ -1236,8 +1239,15 @@ def belege(request):
         codes = ("offen", "teilbezahlt") if zahlung == "offen" else ("bezahlt", "ueberzahlt")
         liste = liste.filter(pk__in=[pk for pk, st in status_je_proforma(pfs).items() if st["code"] in codes])
     zeitraum = {}
+    if standard_30:
+        from datetime import timedelta
+
+        from django.utils import timezone
+        zeitraum_standard = {"von": (timezone.localdate() - timedelta(days=30)).isoformat()}
+    else:
+        zeitraum_standard = {}
     for feld, bedingung in (("von", "belegdatum__gte"), ("bis", "belegdatum__lte")):
-        wert = request.GET.get(feld, "")
+        wert = request.GET.get(feld, zeitraum_standard.get(feld, ""))
         try:
             if wert:
                 liste = liste.filter(**{bedingung: date.fromisoformat(wert)})
@@ -1254,7 +1264,7 @@ def belege(request):
         b.zahlstatus = zahlstatus.get(b.pk)
     return render(request, "verkauf/belege.html", {
         "seite": seite, "q": q, "art": art, "status": status, "zahlung": zahlung, "von": zeitraum["von"], "bis": zeitraum["bis"],
-        "arten": Belegart.choices, "parameter": parameter.urlencode(), "anzahl": seite.paginator.count})
+        "standard_30": standard_30, "arten": Belegart.choices, "parameter": parameter.urlencode(), "anzahl": seite.paginator.count})
 
 @mit_mandant
 def suche(request):
