@@ -57,3 +57,32 @@ class DoppelklickSchutzTest(TestCase):
         self.client.post(url, {"art": Kassenbuch.EINNAHME, "betrag": "5", "text": "a", "token": t1})
         self.client.post(url, {"art": Kassenbuch.EINNAHME, "betrag": "5", "text": "b", "token": t2})
         self.assertEqual(Kassenbuch.objects.count(), 2)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class AngebotKopierenTest(TestCase):
+    """Fehler 06.11.2026: „Kopieren als Angebot“ meldete „kann nicht als Kopie angelegt werden“. Der Doppelklick-Schutz
+    sperrte den Knopf, obwohl die Rückfrage „Angebot abschließen?“ das Absenden angehalten hatte; beim erneuten
+    Absenden fehlte dann die Belegart."""
+
+    def setUp(self):
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        self.client.force_login(get_user_model().objects.create_superuser("chef", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+        self.an = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=Kunde.objects.create(nummer="1", name1="K"))
+        Position.objects.create(beleg=self.an, bezeichnung="Dienst", einzelpreis=D("10"))
+        self.an.abschliessen()
+
+    def test_sperre_nur_wenn_das_absenden_nicht_angehalten_wurde(self):
+        seite = self.client.get(reverse("verkauf:beleg", args=[self.an.pk])).content.decode()
+        self.assertIn("if (e && e.defaultPrevented) return;", seite)
+        self.assertIn("sperren(f, knopf, e)", seite)
+
+    def test_angebot_als_angebot_kopieren(self):
+        for urbeleg in ("0", "1"):
+            r = self.client.post(reverse("verkauf:beleg_kopieren", args=[self.an.pk]), {"art": "AN", "urbeleg_abschliessen": urbeleg})
+            neu = Beleg.objects.filter(art=Belegart.ANGEBOT).exclude(pk=self.an.pk).latest("pk")
+            self.assertRedirects(r, reverse("verkauf:beleg", args=[neu.pk]), fetch_redirect_response=False)
+        self.assertEqual(Beleg.objects.filter(art=Belegart.ANGEBOT).count(), 3)
