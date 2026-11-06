@@ -277,8 +277,17 @@ def beleg_detail(request, beleg_id):
     kredit_differenz = (offen + beleg.summe_brutto - limit) if kredit_warnung else None
     from apps.finanzen import anzahlung
     pf_status = anzahlung.proforma_status(beleg) if beleg.art == Belegart.PROFORMA else None
+    lieferantenbestellungen = []
+    if beleg.art in (Belegart.ANGEBOT, Belegart.AUFTRAG):  # Historie der Lieferantenkopien (Issue 61)
+        from apps.einkauf import services as einkauf
+        lieferantenbestellungen = list(einkauf.lieferantenbestellungen(beleg))
+        if lieferantenbestellungen:
+            bestellt = einkauf.bestellt_je_position(beleg)
+            for p in positionen:
+                p.bestellt = bestellt.get(p.pk)
     return render(request, "verkauf/beleg.html", {
         "pf_status": pf_status, "pf_storno": beleg.proforma_storno, "pf_rechnung": beleg.proforma_rechnung,
+        "lieferantenbestellungen": lieferantenbestellungen,
         "anzahlungen": list(beleg.anzahlungen.select_related("quelle")) if beleg.art == Belegart.RECHNUNG else [],
         "kredit_warnung": kredit_warnung, "kredit_differenz": kredit_differenz,"kunde_offen": offen, "kreditlimit": limit,
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),

@@ -33,6 +33,8 @@ class Bestellung(Zeitstempel):
     bemerkung = models.TextField("Bemerkung", blank=True)
     aus_beleg = models.ForeignKey("verkauf.Beleg", on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
                                   help_text="Angebot oder Kundenbestellung, aus dem die Lieferantenbestellung kopiert wurde")
+    angelegt_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name="+", verbose_name="angelegt von", editable=False)
 
     class Meta:
         verbose_name = "Lieferantenbestellung"

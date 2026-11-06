@@ -77,7 +77,7 @@ def lieferanten(request):
 @mit_mandant
 def bestellungen(request):
     status = request.GET.get("status", "offen")
-    liste = Bestellung.objects.filter(mandant=request.mandant).select_related("lieferant").prefetch_related("positionen")
+    liste = Bestellung.objects.filter(mandant=request.mandant).select_related("lieferant", "aus_beleg").prefetch_related("positionen")
     if status == "offen":
         liste = liste.filter(status__in=[BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL])
     elif status == "bestellt":  # wie die Dashboard-Kachel: bestellt + teilweise geliefert
@@ -386,9 +386,12 @@ def bestellung_mail(request, bestellung_id):
 @require_POST
 def bestellung_aus_beleg(request, beleg_id):
     beleg = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
+    modus = request.POST.get("modus") or None
+    if modus is None and services.rueckfrage_noetig(beleg):  # Kundenbestellung schon (teilweise) bestellt: erst fragen
+        return render(request, "einkauf/aus_beleg_rueckfrage.html", {"beleg": beleg, **services.bestellstand(beleg)})
     try:
         beleg.stand_pruefen()
-        liste = services.bestellungen_aus_beleg(beleg)
+        liste = services.bestellungen_aus_beleg(beleg, modus=modus, grund=request.POST.get("grund", ""), benutzer=request.user)
     except ValueError as fehler:
         messages.error(request, str(fehler))
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
