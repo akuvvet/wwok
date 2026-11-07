@@ -300,6 +300,9 @@ def beleg_detail(request, beleg_id):
         "druckhindernis": druckhindernis(beleg),
         "versendungen": list(beleg.versendungen.select_related("briefprodukt")),
         "gruppen": [p for p in positionen if p.typ == "G" and not p.gruppe_id],
+        # Angebot: nach einem G-Artikel landen die folgenden Artikel standardmäßig in der zuletzt angelegten Gruppe
+        "gruppe_vorgabe": max((p.pk for p in positionen if p.typ == "G" and not p.gruppe_id), default=None)
+        if beleg.art == Belegart.ANGEBOT else None,
         "arten": Belegart.choices,
         "zahlungsbedingungen": Zahlungsbedingung.objects.all(), "versandarten": Versandart.objects.filter(aktiv=True),
         "ansprechpartner": beleg.kunde.ansprechpartner.all()})
@@ -421,18 +424,34 @@ def position_neu(request, beleg_id):
     artikel = Artikel.objects.filter(nummer__iexact=nummer, nicht_aktiv=False).select_related("steuersatz").first() if nummer else None
     if nummer and not artikel:
         raise ValueError(f"Artikel '{nummer}' nicht gefunden.")
+    gruppe_id = request.POST.get("gruppe", "")
+    vorbelegt = request.POST.get("gruppe_auto") == "1"  # Angebot: Gruppe nur vorausgewählt, nicht ausdrücklich gewählt
+    if vorbelegt and (
+            typ == "G" or not request.POST.get("pl") and (artikel is None or artikel.typ == "G")):
+        gruppe_id = ""  # nur vorbelegt, nicht gewählt: ein neuer Gruppenkopf oder eine freie Textposition bleibt ohne Gruppe
     menge = dezimal(request.POST.get("menge"), Decimal("1"))
     rabatt = dezimal(request.POST.get("rabatt"), Decimal("0"))
     if menge <= 0:
         raise ValueError("Die Menge muss größer als 0 sein (Rückgaben laufen über die Gutschrift).")
     if not Decimal("0") <= rabatt <= Decimal("100"):
         raise ValueError("Der Rabatt muss zwischen 0 und 100 % liegen.")
+
+    def anderer_steuersatz(steuer, gruppe):  # vorbelegte Gruppe mit anderem Satz: Position ohne Gruppe anlegen statt Fehler
+        if vorbelegt and steuer != gruppe.steuer_prozent:
+            messages.info(request, f"Nicht in die Gruppe „{gruppe.bezeichnung}“ übernommen: anderer Steuersatz.")
+            return True
+        return False
+
+    def kein_rabatt():  # Unterpositionen gehen mit Menge × Preis in den Gruppenpreis ein; ein Rabatt würde verloren gehen
+        if rabatt:
+            raise ValueError("Positionen in einer Gruppe haben keinen eigenen Rabatt – Preis anpassen, "
+                             "Rabatt am Gruppenkopf eintragen oder die Gruppe für diese Position abwählen.")
     if request.POST.get("pl"):  # Artikel aus der Lieferantenpreisliste (Typ P): ohne eigene Artikelanlage verkaufbar
         from apps.stammdaten.models import Steuersatz
         from apps.stammdaten.preise import preislistenpreis
         gruppe_pl = None
-        if request.POST.get("gruppe"):  # Preislistenartikel als Unterposition einer Gruppe
-            gruppe_pl = get_object_or_404(Position, pk=request.POST["gruppe"], beleg=beleg, typ="G", gruppe__isnull=True)
+        if gruppe_id:  # Preislistenartikel als Unterposition einer Gruppe
+            gruppe_pl = get_object_or_404(Position, pk=gruppe_id, beleg=beleg, typ="G", gruppe__isnull=True)
         eintrag = get_object_or_404(Preislistenartikel.objects.select_related("lieferant"), pk=request.POST["pl"])
         preis = dezimal(request.POST.get("preis"))
         if preis is None:
@@ -441,8 +460,11 @@ def position_neu(request, beleg_id):
             raise ValueError("Für Preislistenartikel ist noch kein Aufschlag hinterlegt (Verwaltung → Globale Preisvorgabe) – bitte den Preis eintragen.")
         standard = Steuersatz.objects.filter(nummer=1).first()
         steuer_pl = standard.prozent if standard else Decimal("19")
+        if gruppe_pl and anderer_steuersatz(steuer_pl, gruppe_pl):
+            gruppe_pl = None
         if gruppe_pl:
             steuer_passt_zur_gruppe(steuer_pl, gruppe_pl)
+            kein_rabatt()
         neue_teil = Position.objects.create(
             beleg=beleg, gruppe=gruppe_pl, typ="P", preisliste_artikel=eintrag, bezeichnung=(request.POST.get("bezeichnung", "").strip() or eintrag.bezeichnung)[:255],
             menge=menge, einzelpreis=preis, rabatt_prozent=rabatt, steuer_prozent=steuer_pl)
@@ -451,8 +473,8 @@ def position_neu(request, beleg_id):
         beleg.berechne()
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
     gruppe = None
-    if request.POST.get("gruppe"):  # Unterposition einer frei zusammengestellten Gruppe
-        gruppe = get_object_or_404(Position, pk=request.POST["gruppe"], beleg=beleg, typ="G", gruppe__isnull=True)
+    if gruppe_id:  # Unterposition einer frei zusammengestellten Gruppe
+        gruppe = get_object_or_404(Position, pk=gruppe_id, beleg=beleg, typ="G", gruppe__isnull=True)
         if not artikel:
             raise ValueError("Unterpositionen brauchen einen Artikel.")
     bezeichnung = request.POST.get("bezeichnung", "").strip() or (artikel.bezeichnung if artikel else "")
@@ -460,6 +482,10 @@ def position_neu(request, beleg_id):
         raise ValueError("Artikel oder Bezeichnung fehlt.")
     preis = dezimal(request.POST.get("preis"))
     steuer = artikel.steuersatz.prozent if artikel else Decimal("19")
+    if gruppe and anderer_steuersatz(steuer, gruppe):
+        gruppe = None
+    if gruppe:
+        kein_rabatt()
 
     if artikel and artikel.typ == "G" and not gruppe:  # Gruppenartikel: Komponenten werden als Unterpositionen angelegt
         komponenten = list(artikel.komponenten.select_related("komponente__steuersatz"))

@@ -148,7 +148,8 @@
     <div><label>Artikel (Nr. oder Suchwörter)</label>
       <div style="position:relative"><input name="artikel" id="artikel" size="30" autofocus><input type="hidden" name="pl" id="pl">
         <div id="trefferliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:520px;max-height:320px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
-    {% if gruppen %}<div><label>zu Gruppe</label><select name="gruppe"><option value="">–</option>{% for g in gruppen %}<option value="{{ g.pk }}">{{ g.pos }} {{ g.bezeichnung }}</option>{% endfor %}</select></div>{% endif %}
+    {% if gruppen %}<div><label>zu Gruppe</label><select name="gruppe"><option value="">–</option>{% for g in gruppen %}<option value="{{ g.pk }}"{% if g.pk == gruppe_vorgabe %} selected{% endif %}>{{ g.pos }} {{ g.bezeichnung }}</option>{% endfor %}</select>
+      {% if gruppe_vorgabe %}<input type="hidden" name="gruppe_auto" id="gruppe_auto" value="1" data-vorgabe="{{ gruppe_vorgabe }}">{% endif %}</div>{% endif %}
     <div><label>Bezeichnung (nur bei freier Position)</label><input name="bezeichnung" id="bezeichnung" size="24"></div>
     <div><label>Menge</label><input name="menge" value="1" size="5"></div>
     <div><label>Preis netto</label><input name="preis" id="preis" size="9"></div>
@@ -321,7 +322,7 @@
     try { stand = sessionStorage.getItem(merker); sessionStorage.removeItem(merker); } catch (e) {}
     if (stand !== null) liste.scrollTop = stand === 'unten' ? liste.scrollHeight : Number(stand);
     document.getElementById('tab-positionen').addEventListener('submit', function (e) {  // nach dem Neuladen an derselben Stelle, neue Positionen im Blick
-      var f = e.target, ansEnde = f.matches('[enctype]') || f.id === 'positionsform' && !(f.gruppe && f.gruppe.value);  // Unterpositionen stehen bei ihrer Gruppe
+      var f = e.target, ansEnde = f.matches('[enctype]') || f.id === 'positionsform' && !(f.gruppe && f.gruppe.value && !(f.gruppe_auto && f.gruppe_auto.value === '1'));  // Unterpositionen stehen bei ihrer Gruppe
       try { sessionStorage.setItem(merker, ansEnde ? 'unten' : liste.scrollTop); } catch (x) {}
     });
     liste.addEventListener('toggle', function (e) { if (e.target.open) e.target.scrollIntoView({block: 'nearest'}); }, true);
@@ -354,7 +355,7 @@
     }
     function waehle(i) {
       var t = liste[i]; if (!t) return;
-      feld.value = t.nummer; preis.value = t.preis; typ.value = t.typ; document.getElementById('pl').value = t.pl || '';
+      feld.value = t.nummer; preis.value = t.preis; typ.value = t.typ; document.getElementById('pl').value = t.pl || ''; gruppeAbgleichen();
       aktuellerEk = t.ek === undefined ? '' : t.ek; ekErfassung();
       info.textContent = t.bezeichnung + (t.letzter ? ' · zuletzt bezahlt: ' + t.letzter.preis + ' € netto am ' + t.letzter.datum + ' (' + t.letzter.nummer + ')' : '');
       liste = []; aktiv = -1; zeige();
@@ -371,7 +372,12 @@
           zeige();
         });
     }
-    typ.addEventListener('change', function () { if (feld.value.trim()) { suche(); } feld.focus(); });
+    typ.addEventListener('change', function () { gruppeAbgleichen(); if (feld.value.trim()) { suche(); } feld.focus(); });
+    var gsel = document.querySelector('#positionsform select[name=gruppe]'), gauto = document.getElementById('gruppe_auto');
+    function gruppeAbgleichen() {  // Angebot: vorbelegte Gruppe, solange nicht selbst gewählt; ein G-Artikel wird selbst zur neuen Gruppe
+      if (gsel && gauto && gauto.value === '1') gsel.value = typ.value === 'G' ? '' : gauto.dataset.vorgabe;
+    }
+    if (gsel && gauto) gsel.addEventListener('change', function () { gauto.value = '0'; });  // für diese Position abgewählt oder umgestellt
     feld.addEventListener('input', function () { document.getElementById('pl').value = ''; clearTimeout(timer); timer = setTimeout(suche, 200); });
     feld.addEventListener('keydown', function (e) {
       if (!liste.length) return;
