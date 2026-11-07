@@ -8,7 +8,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from apps.kern.pdfhilfe import logo_elemente
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .models import Belegart
 
@@ -174,7 +174,7 @@ def beleg_pdf(beleg, als_lieferschein=False) -> bytes:
     st.setStyle(TableStyle([("ALIGN", (1, 0), (1, -1), "RIGHT"), ("FONT", (0, 0), (-1, -1), "Helvetica", 9),
                             ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 10),
                             ("LINEABOVE", (0, -1), (-1, -1), 0.8, colors.black)]))
-    inhalt += [st, Spacer(1, 6 * mm)]
+    inhalt += [KeepTogether([st]), Spacer(1, 6 * mm)]  # Summe netto, Umsatzsteuer, Gesamtbetrag nie auf zwei Seiten
     if beleg.versandanschrift and beleg.versandanschrift != beleg.rechnungsanschrift:
         inhalt += [absatz("Lieferanschrift:", fett), absatz(beleg.versandanschrift, normal), Spacer(1, 3 * mm)]
     if beleg.versandart:

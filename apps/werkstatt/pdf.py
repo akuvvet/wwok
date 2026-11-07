@@ -8,7 +8,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from apps.kern.pdfhilfe import logo_elemente
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from apps.verkauf.models import runden
 from apps.verkauf.pdf import absatz, euro, zahl
@@ -48,12 +48,17 @@ def schein_pdf(reparatur, abholung=False) -> bytes:
         steuer = sum((runden(p.netto * p.steuer_prozent / 100) for p in reparatur.positionen.all()), Decimal("0"))
         if reparatur.garantie:
             zeilen.append([absatz("Garantiefall – keine Berechnung", normal), "", "", euro(Decimal("0"))])
-        else:
-            zeilen += [["", "", "Netto", euro(netto)], ["", "", "Steuer", euro(steuer)], ["", "", "Gesamt", euro(netto + steuer)]]
-        t = Table(zeilen, colWidths=[90 * mm, 20 * mm, 30 * mm, 30 * mm], repeatRows=1)
-        t.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), "Helvetica", 9), ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-                               ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.black)]))
-        inhalt += [t, Spacer(1, 6 * mm)]
+        breiten = [90 * mm, 20 * mm, 30 * mm, 30 * mm]
+        stil = [("FONT", (0, 0), (-1, -1), "Helvetica", 9), ("ALIGN", (1, 0), (-1, -1), "RIGHT")]
+        t = Table(zeilen, colWidths=breiten, repeatRows=1)
+        t.setStyle(TableStyle(stil + [("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.black)]))
+        inhalt += [t]
+        if not reparatur.garantie:  # Netto, Steuer, Gesamt nie auf zwei Seiten
+            summen = Table([["", "", "Netto", euro(netto)], ["", "", "Steuer", euro(steuer)], ["", "", "Gesamt", euro(netto + steuer)]],
+                           colWidths=breiten)
+            summen.setStyle(TableStyle(stil))
+            inhalt += [KeepTogether([summen])]
+        inhalt += [Spacer(1, 6 * mm)]
     inhalt += [Spacer(1, 14 * mm), absatz("Ich bestätige, " + ("das Gerät vollständig und in funktionsfähigem Zustand zurückerhalten zu haben." if abholung
                else "das oben beschriebene Gerät zur Reparatur übergeben zu haben.") , normal), Spacer(1, 16 * mm),
                absatz("_______________________________            _______________________________\nDatum, Unterschrift Kunde                                         Datum, Unterschrift " + escape(m.kurzname), klein)]
