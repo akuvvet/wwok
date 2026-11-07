@@ -274,7 +274,8 @@ def kategorien_abgleichen(shop, client) -> int:
     fremde Shop-Kategorien bleiben unberührt. Gibt die Zahl der umgeschalteten Kategorien zurück."""
     offline = Kategorie.offline_ids()
     bekannt = set(ShopKategorie.objects.filter(shop=shop).values_list("kategorie_id", flat=True))
-    neu = Kategorie.objects.filter(artikel__shop_zuordnungen__shop=shop).exclude(pk__in=bekannt).distinct()
+    # nur Hauptkategorien über den Namen; Unterkategorien ordnet die KategorieKarte beim Senden über den Pfad zu
+    neu = Kategorie.objects.filter(artikel__shop_zuordnungen__shop=shop, eltern__isnull=True).exclude(pk__in=bekannt).distinct()
     if neu:  # erst über den Namen (nur eindeutig), danach immer über die ID
         karte = _nach_name(client.kategorien())
         for k in neu:
@@ -428,9 +429,9 @@ class KategorieKarte:
         n = name.casefold()
         return [i for i, e in self.eintraege.items() if e["eltern"] == eltern and e["name"].casefold() == n]
 
-    def _ueberall(self, name) -> list:
-        n = name.casefold()
-        return [i for i, e in self.eintraege.items() if e["name"].casefold() == n]
+    def _ueberall(self, name) -> list:  # ohne Shop-Kategorien, die schon einer anderen wwok-Kategorie gehören
+        n, vergeben = name.casefold(), {z.kategorie_id_extern for z in self.zuordnung.values()}
+        return [i for i, e in self.eintraege.items() if e["name"].casefold() == n and i not in vergeben]
 
     def _merken(self, k, ext, angelegt=False):
         angelegt = angelegt or ext == feste_id(self.shop, "kategorie", k.pk)  # auch nach zurückgerolltem Artikel erkennbar
@@ -458,12 +459,13 @@ class KategorieKarte:
         if eltern and not eltern_ext:
             return ""
         treffer = self._kinder(eltern_ext, name)
-        if not treffer and not eltern:  # Hauptkategorie: wie bisher auch anderswo im Shop, wenn der Name eindeutig ist
-            treffer = self._ueberall(name)
+        if not treffer and not eltern:  # Hauptkategorie: wie bisher auch anderswo im Shop, wenn der Name dort eindeutig ist;
+            anderswo = self._ueberall(name)  # mehrere gleichnamige anderswo (z. B. „Kabel“ unter Audio und Netzwerk):
+            treffer = anderswo if len(anderswo) == 1 else []  # eigene Hauptkategorie anlegen statt raten
         if len(treffer) == 1:
             self._merken(k, treffer[0])
             return treffer[0]
-        if treffer:  # mehrdeutig: nichts anlegen, nichts raten
+        if treffer:  # gleichnamig doppelt auf derselben Ebene im Shop: nichts anlegen, nichts raten
             self.ergebnis["kategorie_fehlt"].add(str(k))
             return ""
         ext = feste_id(self.shop, "kategorie", k.pk)  # gleichbleibend: ein wiederholter Lauf legt nichts doppelt an
@@ -665,7 +667,8 @@ def artikeldaten_meldung(e: dict) -> str:
     if e.get("kategorie_geaendert"):
         teile.append("Kategorie im Shop angepasst: " + ", ".join(e["kategorie_geaendert"]))
     if e["kategorie_fehlt"]:
-        teile.append("Kategorie im Shop nicht eindeutig gefunden: " + ", ".join(sorted(e["kategorie_fehlt"])))
+        teile.append("Kategorie nicht angelegt, weil sie im Shop auf derselben Ebene doppelt vorkommt (im Shop eine umbenennen "
+                     "oder löschen): " + ", ".join(sorted(e["kategorie_fehlt"])))
     if e["fehler"]:
         teile.append(f"{len(e['fehler'])} Probleme: " + "; ".join(e["fehler"][:3]))
     return ", ".join(teile)
