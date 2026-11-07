@@ -69,6 +69,8 @@ FOLGEBELEG = {
     Belegart.AUFTRAG: Belegart.LIEFERSCHEIN,
     Belegart.LIEFERSCHEIN: Belegart.RECHNUNG,
 }
+# Preislistenartikel (P) gibt es nur im Angebot; in diese Belegarten werden sie nicht kopiert (Proforma wird später zur Rechnung).
+P_UNZULAESSIG = (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA)
 # Diese Belegarten werden erst beim Abschluss nummeriert und danach gesperrt.
 GESPERRT_NACH_ABSCHLUSS = {Belegart.RECHNUNG, Belegart.GUTSCHRIFT, Belegart.PROFORMA_STORNO}
 
@@ -320,6 +322,56 @@ class Beleg(Zeitstempel):
                     "Drucken, Abschließen und Versenden geht erst, wenn alle Positionen eigene Artikel (A) sind – "
                     "nach dem Wareneingang werden sie automatisch umgestellt.")
         return ""
+
+    def p_hauptpositionen(self) -> set:
+        """IDs der Hauptpositionen, die als P zählen: P-Positionen selbst und Gruppen mit mindestens einer P-Unterposition."""
+        return {gruppe or pk for pk, gruppe in self.p_positionen().values_list("pk", "gruppe_id")}
+
+    def echte_hauptpositionen(self) -> set:
+        """IDs der Hauptpositionen, die etwas Übernehmbares sind (mit Artikel oder Gruppenkopf); freie Text-/Leerpositionen zählen nicht."""
+        return set(self.positionen.filter(gruppe__isnull=True).filter(
+            models.Q(artikel__isnull=False) | models.Q(typ="G")).values_list("pk", flat=True))
+
+    def _p_vorbereiten(self, art):
+        """Preislistenartikel (P) sind in Bestellung, Lieferschein, Rechnung und Proforma nicht erlaubt.
+        Rückgabe: (IDs der P-Hauptpositionen, die nicht mitkopiert werden, bei Bestellung → LS/RE/PF aber ins Angebot wandern: ja/nein)."""
+        if art not in P_UNZULAESSIG:
+            return set(), False
+        ids = self.p_hauptpositionen()
+        if not ids:
+            return set(), False
+        verschieben = self.art == Belegart.AUFTRAG and art in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA)
+        if not verschieben and not (self.echte_hauptpositionen() - ids):
+            raise ValueError(f"{self.get_art_display()} enthält nur Preislistenartikel (P) – sie bleiben {self.get_art_display()}, "
+                             "bis sie als eigene Artikel (A) angelegt sind.")
+        return ids, verschieben
+
+    def _p_ins_angebot_verschieben(self, ids) -> "Beleg":
+        """Bestellung: P-Positionen (Gruppen samt Unterpositionen) wandern in ein neues Angebot desselben Kunden."""
+        angebot = Beleg.objects.create(
+            mandant=self.mandant, art=Belegart.ANGEBOT, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
+            zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
+            versandanschrift=self.versandanschrift, versandart=self.versandart,
+            versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
+            rabatt_prozent=self.rabatt_prozent, bezugnahme=self.bezugnahme, bearbeiter=self.bearbeiter,
+            referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
+            bemerkung=self.bemerkung, vorgaenger=self)
+        Position.objects.filter(models.Q(pk__in=ids) | models.Q(gruppe_id__in=ids)).update(beleg=angebot)
+        self.berechne()
+        angebot.berechne()
+        return angebot
+
+    def _p_abschluss(self, neu, anzahl, ids, verschieben, angebot):
+        """Meldungsinfo am neuen Beleg; eine umgewandelte Bestellung ohne offene Reste wird abgeschlossen."""
+        if not ids:
+            return
+        neu.p_info = {"anzahl": anzahl, "angebot": angebot, "quelle": self}
+        if verschieben:
+            self.berechne()
+            # Proforma kann storniert werden: die Bestellung bleibt dann bearbeitbar und wird nicht abgeschlossen
+            if neu.art != Belegart.PROFORMA and not self.offene_mengen() and not self.abgeschlossen:
+                self.abschliessen()
+                neu.p_info["abgeschlossen"] = True
 
     def positionen_pruefen(self):
         """Ein Beleg ohne Position darf nicht abgeschlossen, versendet oder weitergeführt werden."""
@@ -636,7 +688,8 @@ class Beleg(Zeitstempel):
         """{Positions-ID: zu übernehmende Menge} für Lieferschein/Rechnung aus einer Bestellung (Standard: alles Offene).
         entscheidungen: {Positions-ID: Menge} für Engpass-Positionen; 0 = komplett reservieren (nichts übernehmen),
         sonst Teillieferung mit dieser Menge (höchstens verfügbar)."""
-        mengen = dict(self.offene_mengen())
+        p_ids = self.p_hauptpositionen()  # Preislistenartikel (P) werden nie übernommen
+        mengen = {pk: m for pk, m in self.offene_mengen().items() if pk not in p_ids}
         if entscheidungen is not None:
             for e in self.uebernahme_engpaesse():
                 pk = e["position"].pk
@@ -653,8 +706,15 @@ class Beleg(Zeitstempel):
         if self.art != Belegart.AUFTRAG or art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA):
             return None
         # Proforma: das Offene der Bestellung, ohne Engpass-Rückfrage (es wird noch nichts geliefert)
-        mengen = self.offene_mengen() if art == Belegart.PROFORMA else self.uebernahme_mengen(entscheidungen)
-        if not any(m > 0 for m in mengen.values()):
+        p_ids = self.p_hauptpositionen()
+        mengen = ({pk: m for pk, m in self.offene_mengen().items() if pk not in p_ids}
+                  if art == Belegart.PROFORMA else self.uebernahme_mengen(entscheidungen))
+        echte = self.echte_hauptpositionen() if p_ids else None  # mit P zählen freie Textpositionen nicht als Übernahme
+        if not any(m > 0 and (echte is None or pk in echte) for pk, m in mengen.items()):
+            if p_ids and not any(pk in echte and pk not in p_ids for pk in self.offene_mengen()):
+                raise ValueError("Die Bestellung enthält nur noch Preislistenartikel (P) – für Lieferschein oder Rechnung ist nichts da. "
+                                 "Sie bleiben in der Bestellung, bis sie im Wareneingang als eigene Artikel (A) angelegt sind; "
+                                 "als Angebot weiterführen: Mehr → Kopieren als → Angebot.")
             raise ValueError("Es wird nichts übernommen: Alle Positionen bleiben komplett reserviert in der Bestellung.")
         return mengen
 
@@ -668,6 +728,9 @@ class Beleg(Zeitstempel):
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
         self.positionen_pruefen()
         self.folge_pruefen(art)
+        p_ids, verschieben = self._p_vorbereiten(art)
+        anzahl = self.p_positionen().count() if p_ids else 0
+        mengen = self._uebernahme(art, entscheidungen)  # prüft vor dem Anlegen: nichts anlegen, wenn nichts zu übernehmen ist
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
@@ -676,10 +739,12 @@ class Beleg(Zeitstempel):
             rabatt_prozent=self.rabatt_prozent,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=self.bemerkung, vorgaenger=self)
-        kopiere_positionen(self, neu, self._uebernahme(art, entscheidungen))
+        angebot = self._p_ins_angebot_verschieben(p_ids) if verschieben else None
+        kopiere_positionen(self, neu, mengen, ausser=p_ids)
         if self.art == Belegart.LIEFERSCHEIN:
             neu.lieferscheine.add(self)
         neu.berechne()
+        self._p_abschluss(neu, anzahl, p_ids, verschieben, angebot)
         return neu
 
 
@@ -727,6 +792,9 @@ class Beleg(Zeitstempel):
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
         self.positionen_pruefen()
         self.folge_pruefen(art)
+        p_ids, verschieben = self._p_vorbereiten(art)
+        anzahl = self.p_positionen().count() if p_ids else 0
+        mengen = self._uebernahme(art, entscheidungen)
         nachlieferung = art == Belegart.NACHLIEFERSCHEIN
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
@@ -739,10 +807,12 @@ class Beleg(Zeitstempel):
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=f"Nachlieferung zu Rechnung {self.nummer}" if nachlieferung else self.bemerkung,
             vorgaenger=self if art != self.art else None)
-        kopiere_positionen(self, neu, self._uebernahme(art, entscheidungen))
+        angebot = self._p_ins_angebot_verschieben(p_ids) if verschieben else None
+        kopiere_positionen(self, neu, mengen, ausser=p_ids)
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG:
             neu.lieferscheine.add(self)
         neu.berechne()
+        self._p_abschluss(neu, anzahl, p_ids, verschieben, angebot)
         if urbeleg_abschliessen and not self.abgeschlossen:
             self.abschliessen()
         return neu
@@ -859,20 +929,22 @@ def zahlungsbedingung_vorkasse():
     return zb
 
 
-def kopiere_positionen(quelle, ziel, mengen=None):
+def kopiere_positionen(quelle, ziel, mengen=None, ausser=()):
     """Kopiert alle Positionen samt Gruppenzuordnung in einen anderen Beleg. Stammt die Quelle aus einem
     Lieferschein, bleibt der Lieferschein an der Position vermerkt (Nummer und Datum im Ausdruck).
     mengen ({Positions-ID: Menge}, nur Hauptpositionen): übernimmt nur diese Positionen mit dieser Menge;
-    Unterpositionen folgen ihrer Gruppe."""
+    Unterpositionen folgen ihrer Gruppe. ausser: IDs von Hauptpositionen (samt Unterpositionen), die nicht kopiert werden."""
     neu = {}
     lieferschein = quelle if quelle.art == Belegart.LIEFERSCHEIN else None
     for p in quelle.positionen.all():
         menge = p.menge
-        if mengen is not None:
-            if p.gruppe_id:
-                if p.gruppe_id not in neu:
-                    continue
-            else:
+        if p.gruppe_id:
+            if (mengen is not None or ausser) and p.gruppe_id not in neu:
+                continue
+        else:
+            if p.pk in ausser:
+                continue
+            if mengen is not None:
                 menge = mengen.get(p.pk, Decimal("0"))
                 if menge <= 0:
                     continue

@@ -5,7 +5,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from apps.kern.models import Mandant
-from apps.stammdaten.models import Artikel, ArtikelLieferant, Hersteller, Kunde, Lieferant, Preislistenartikel, Steuersatz
+from apps.stammdaten.models import Artikel, ArtikelLieferant, Hersteller, Kunde, Lieferant, Preislistenartikel, Stammnummer, Steuersatz
 from apps.verkauf.models import Beleg, Belegart, Position
 
 from . import assistent, preislisten, services
@@ -47,8 +47,10 @@ class PreislistenartikelTest(TestCase):
         Steuersatz.objects.get(nummer=1)
         preislisten.importieren(self.p, API)
         erster = Preislistenartikel.objects.get(bestellnummer="100012")
+        Stammnummer.setzen(Stammnummer.Art.ARTIKEL, 5000)
+        nr = Stammnummer.vorschlag("A")  # Nummer kommt aus dem Nummernkreis, nicht aus der Herstellernummer
         a = services.artikel_aus_preisliste(erster)
-        self.assertEqual((a.nummer, a.typ, a.bezeichnung, a.herstellernummer, a.hersteller.name), ("65051", "A", "Delock DVI Adapter", "65051", "Delock"))
+        self.assertEqual((a.nummer, a.typ, a.bezeichnung, a.herstellernummer, a.hersteller.name), (nr, "A", "Delock DVI Adapter", "65051", "Delock"))
         erster.refresh_from_db()
         self.assertEqual(erster.artikel, a)
         self.assertTrue(ArtikelLieferant.objects.filter(artikel=a, bestellnummer="100012", ek=Decimal("7.90")).exists())
@@ -58,7 +60,7 @@ class PreislistenartikelTest(TestCase):
         self.assertEqual(Hersteller.objects.filter(name="Delock").count(), 1)
         self.assertEqual(services.artikel_aus_preisliste(erster), a)  # nicht doppelt anlegen
         ohne = services.artikel_aus_preisliste(Preislistenartikel.objects.get(bestellnummer="100100"))
-        self.assertEqual(ohne.nummer, "P70272-100100")  # ohne MSKU: Lieferantennummer-Bestellnummer
+        self.assertEqual(ohne.nummer, str(int(nr) + 1))  # ohne MSKU: ebenfalls die nächste Nummer des Nummernkreises
 
     def test_zuruecksetzen_alter_p_artikel(self):
         st = Steuersatz.objects.get(nummer=1)

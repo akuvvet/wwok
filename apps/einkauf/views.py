@@ -1,6 +1,7 @@
 import os
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.db import transaction
@@ -232,7 +233,11 @@ def bestellung_position(request, bestellung_id):
     code = request.POST.get("artikel", "").strip()
     artikel = Artikel.objects.filter(nummer__iexact=code).first() or services.artikel_per_code(code, b.lieferant)
     if artikel is None:
-        raise ValueError(f"Artikel '{code}' nicht gefunden.")
+        eintrag = services.preislisten_treffer(code, b.lieferant)
+        if eintrag is None:
+            raise ValueError(f"Artikel '{code}' nicht gefunden.")
+        services.bestellposition(b, None, menge, ek, preisliste_artikel=eintrag)  # P-Position, kein eigener Artikel
+        return redirect("einkauf:bestellung", bestellung_id=b.pk)
     services.bestellposition(b, artikel, menge, ek)
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
 
@@ -453,20 +458,44 @@ def wareneingang_detail(request, we_id):
     positionen = list(we.positionen.select_related("artikel", "bestellposition"))
     for p in positionen:
         p.kalk = p.kalk_ek if we.gebucht and p.kalk_ek is not None else kalkulation[p.pk]
-    return render(request, "einkauf/wareneingang.html", {"we": we, "positionen": positionen, "netto": we.summe_netto,
-                                                          "bleibt_offen": services.bleibt_offen(we)})
+    p_rueckfrage = None
+    if not we.gebucht and request.GET.get("p_code"):  # Scan traf einen Preislistenartikel ohne eigenen Artikel: erst fragen
+        eintrag = services.preislisten_treffer(request.GET["p_code"], we.lieferant)
+        if eintrag is not None:
+            p_rueckfrage = {"code": request.GET["p_code"], "menge": request.GET.get("menge", "1"), "eintrag": eintrag}
+    return render(request, "einkauf/wareneingang.html", {
+        "we": we, "positionen": positionen, "netto": we.summe_netto, "bleibt_offen": services.bleibt_offen(we),
+        "p_offen": [] if we.gebucht else services.offene_p_positionen(we), "p_rueckfrage": p_rueckfrage})
 
 
 @mit_mandant
 @require_POST
 @schutz("einkauf:wareneingang", "we_id")
 def wareneingang_aufnehmen(request, we_id, bp_id):
-    """Als „nicht geliefert“ entfernte Bestellposition doch mit der offenen Menge in den Wareneingang übernehmen."""
+    """Als „nicht geliefert“ entfernte Bestellposition doch mit der offenen Menge in den Wareneingang übernehmen.
+    Preislistenposition (P) ohne Artikel nur nach Rückfrage (p_anlegen=1): dann wird sie zum eigenen Artikel."""
     we = we_holen(request, we_id)
     if not we.bestellung_id:
         raise ValueError("Der Wareneingang gehört zu keiner Bestellung.")
     bp = get_object_or_404(BestellPosition, pk=bp_id, bestellung=we.bestellung)
-    services.wareneingang_aus_bestellung(we, nur=bp)
+    if bp.artikel_id is None and bp.preisliste_artikel_id and not request.POST.get("p_anlegen"):
+        raise ValueError("Preislistenartikel: Der eigene Artikel wird nur nach Rückfrage angelegt.")
+    services.wareneingang_aus_bestellung(we, nur=bp, p_anlegen=bool(request.POST.get("p_anlegen")))
+    return redirect("einkauf:wareneingang", we_id=we.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:wareneingang", "we_id")
+def wareneingang_p_anlegen(request, we_id):
+    """Nach Rückfrage: offene Preislistenpositionen der Bestellung als eigene Artikel (A) anlegen und übernehmen."""
+    we = we_holen(request, we_id)
+    if not we.bestellung_id:
+        raise ValueError("Der Wareneingang gehört zu keiner Bestellung.")
+    anzahl = len(services.offene_p_positionen(we))
+    with transaction.atomic():
+        services.wareneingang_aus_bestellung(we, p_anlegen=True, nur_p=True)
+    messages.success(request, f"{anzahl} Artikel aus der Preisliste angelegt und übernommen.")
     return redirect("einkauf:wareneingang", we_id=we.pk)
 
 
@@ -479,7 +508,13 @@ def wareneingang_scan(request, we_id):
     code = request.POST.get("code", "").strip()
     artikel = services.artikel_per_code(code, we.lieferant)
     if artikel is None:
-        raise ValueError(f"Code '{code}' keinem Artikel zugeordnet.")
+        eintrag = services.preislisten_treffer(code, we.lieferant)
+        if eintrag is None:
+            raise ValueError(f"Code '{code}' keinem Artikel zugeordnet.")
+        if not request.POST.get("p_anlegen"):  # nie still anlegen: zurück zur Seite mit Rückfrage
+            return redirect(reverse("einkauf:wareneingang", kwargs={"we_id": we.pk})
+                            + "?" + urlencode({"p_code": code, "menge": request.POST.get("menge", "1")}))
+        artikel = services.artikel_aus_preisliste(eintrag)
     services.wareneingang_erfassen(we, artikel, zahl(request.POST.get("menge"), Decimal("1")), zahl(request.POST.get("ek")),
                                    request.POST.get("seriennummern", ""))
     return redirect("einkauf:wareneingang", we_id=we.pk)

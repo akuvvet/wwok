@@ -37,7 +37,7 @@ Hinweis: Gemeinsame Nutzung der Kundendaten durch zwei Firmen rechtlich absicher
 | Typ | Bedeutung | Lagerbestand |
 | --- | --- | --- |
 | A – Artikel | Normale Produkte, Ein- und Verkauf | ja |
-| P – Preisliste | Lieferantenprodukte aus importierten Preislisten, ohne eigene Artikelanlage verkaufbar | nein (wird bei Wareneingang automatisch zu A) |
+| P – Preisliste | Lieferantenprodukte aus importierten Preislisten, ohne eigene Artikelanlage verkaufbar | nein (wird im Wareneingang nach Rückfrage zu A, Nummer aus dem Nummernkreis) |
 | L – Leistung | Dienstleistungen | nein |
 | G – Gruppe | Zusammengesetzte Position: Überschrift mit Gesamtpreis netto/brutto, Unterartikel ohne Einzelpreise | aus Komponenten berechnet |
 
