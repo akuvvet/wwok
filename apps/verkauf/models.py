@@ -274,13 +274,28 @@ class Beleg(Zeitstempel):
         """Gibt es zum Beleg eine Sendung (Label/Etikett)? Listen setzen den Wert vorab für alle Zeilen (versand_markieren)."""
         return self.versendungen.exists()
 
+    @cached_property
+    def lieferscheine_aus_bestellung(self) -> list:
+        """Bestellung: daraus erstellte Lieferscheine (Markierung „L“). Listen setzen den Wert vorab (versand_markieren)."""
+        if self.art != Belegart.AUFTRAG:
+            return []
+        return list(self.folgebelege.filter(art=Belegart.LIEFERSCHEIN).order_by("pk").only("pk", "nummer", "art", "vorgaenger_id"))
+
     @staticmethod
     def versand_markieren(belege):
-        """Setzt hat_versand für eine ganze Liste mit einer Abfrage (statt einer je Zeile)."""
+        """Setzt hat_versand und (bei Bestellungen) die Lieferscheine für die Markierung „L“ für eine ganze Liste
+        mit je einer Abfrage (statt einer je Zeile)."""
         belege = list(belege)
         mit = set(Versand.objects.filter(beleg__in=belege).values_list("beleg_id", flat=True))
+        lieferscheine = {}
+        auftraege = [b.pk for b in belege if b.art == Belegart.AUFTRAG]
+        if auftraege:
+            for ls in Beleg.objects.filter(vorgaenger_id__in=auftraege, art=Belegart.LIEFERSCHEIN).order_by("pk").only(
+                    "pk", "nummer", "art", "vorgaenger_id"):
+                lieferscheine.setdefault(ls.vorgaenger_id, []).append(ls)
         for b in belege:
             b.hat_versand = b.pk in mit
+            b.lieferscheine_aus_bestellung = lieferscheine.get(b.pk, []) if b.art == Belegart.AUFTRAG else []
         return belege
 
     def loeschhindernis(self):

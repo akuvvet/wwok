@@ -19,6 +19,7 @@
       {% elif beleg.abgeschlossen %}<span class="marke ok">abgeschlossen</span>
       {% else %}<span class="marke">Entwurf</span>{% endif %}
       {% if beleg.vorgaenger %}<span>aus <a href="{% url 'verkauf:beleg' beleg.vorgaenger.pk %}">{{ beleg.vorgaenger }}</a></span>{% endif %}
+      {% for l in beleg.lieferscheine_aus_bestellung %}<a class="marke ok" href="{% url 'verkauf:beleg' l.pk %}" title="Lieferschein aus dieser Bestellung">L · {{ l.nummer|default:"(Entwurf)" }}</a>{% endfor %}
       {% if pf_rechnung %}<span>→ <a href="{% url 'verkauf:beleg' pf_rechnung.pk %}">{{ pf_rechnung }}</a></span>{% endif %}
       {% if pf_storno %}<span>→ <a href="{% url 'verkauf:beleg' pf_storno.pk %}">{{ pf_storno }}</a></span>{% endif %}
       {% if beleg.referenz %}<span>Ref.: {{ beleg.referenz }}</span>{% endif %}
