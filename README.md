@@ -907,7 +907,8 @@ Diese Regeln sind mit dem Nutzer abgestimmt und im Code umgesetzt. Änderungen n
 | Thema | Regel |
 | --- | --- |
 | Artikel Typ A | eigene Tabelle `Artikel` mit Lagerbestand |
-| Artikel Typ P | **eigene Tabelle `Preislistenartikel`**, getrennt von A; neben dem Artikel steht der Kurzname des Lieferanten (z. B. API, Kosatec, Ingram). Beim Wareneingang entsteht daraus ein Artikel A |
+| Artikel Typ P | **eigene Tabelle `Preislistenartikel`**, getrennt von A; neben dem Artikel steht der Kurzname des Lieferanten (z. B. API, Kosatec, Ingram). Ein eigener Artikel A entsteht daraus **nie still**, sondern nur nach Rückfrage im Wareneingang (Hinweiskasten „anlegen und übernehmen“, „doch geliefert“ oder Scan mit Bestätigung) und mit einer Nummer aus dem eigenen Nummernkreis; ein vorhandener Artikel mit gleicher Herstellernummer wird nur verknüpft, wenn auch Hersteller oder EAN passen. Code-Eingabe in der Lieferantenbestellung ergibt eine P-Position, keinen Artikel (Entscheidung Nutzer 07.11.2026) |
+| Typ P beim Kopieren | P gibt es nur im Angebot. In Bestellung, Lieferschein, Rechnung und Proforma werden P-Positionen nicht kopiert (eine Gruppe mit P-Unterposition zählt komplett als P): aus dem Angebot bleiben sie im Angebot stehen; aus der Bestellung nach Lieferschein/Rechnung/Proforma wandern sie in ein neues Angebot, die Bestellung ist damit umgewandelt (ohne offene Reste abgeschlossen, bei Proforma nicht). Enthält der Beleg nur P, wird nichts angelegt (Meldung). Entscheidung Nutzer 07.11.2026 |
 | Preisliste neu einlesen | Artikel, die in der Preisliste nicht mehr vorkommen, werden entfernt (mit Schutz: bricht ab, wenn mehr als 50 % verschwinden würden) |
 | Lagerbestand | darf **nie unter 0** fallen |
 | Lieferschein und Rechnung | nur mit ausreichendem Bestand abschließbar, **Druck/PDF ebenfalls gesperrt**, solange der Bestand nicht reicht |

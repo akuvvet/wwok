@@ -732,6 +732,14 @@ def _uebernahme_entscheidungen(request, beleg, art, extra=None):
 
 
 def _uebernahme_meldung(request, beleg, neu):
+    info = getattr(neu, "p_info", None)
+    if info and info.get("angebot"):
+        messages.warning(request, f"{info['anzahl']} Preislistenartikel (P) wurden in das neue Angebot {info['angebot'].nummer} übernommen, "
+                                  f"die Bestellung {beleg.nummer or ''} ist umgewandelt. P gibt es nur im Angebot – "
+                                  "sie bleiben dort, bis sie als eigene Artikel (A) angelegt sind.")
+    elif info:
+        messages.warning(request, f"{info['anzahl']} Preislistenartikel (P) sind im {beleg.get_art_display()} {beleg.nummer or ''} geblieben und nicht mitkopiert – "
+                                  "P gibt es nur im Angebot, bis sie als eigene Artikel (A) angelegt sind.")
     rest = beleg.offene_mengen() if beleg.art == Belegart.AUFTRAG else {}
     if rest:
         messages.info(request, f"Rückstand: {len(rest)} Position(en) der Bestellung {beleg.nummer or ''} bleiben ganz oder teilweise offen "

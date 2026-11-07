@@ -71,15 +71,22 @@ class UmbauTest(TestCase):
         text = " ".join(PdfReader(io.BytesIO(beleg_pdf(b))).pages[0].extract_text().split())
         self.assertIn("PSAZ-650", text)
         self.assertNotIn("API", text)  # beim Kunden erscheint der Lieferant nicht
-        auftrag = b.folgebeleg_erzeugen()
+        with self.assertRaisesMessage(ValueError, "nur Preislistenartikel"):
+            b.folgebeleg_erzeugen()  # P werden nicht in die Bestellung übernommen, sie bleiben im Angebot
+        self.assertFalse(Beleg.objects.filter(art=Belegart.AUFTRAG).exists())
+        # Bestand aus der Zeit vor der Regel (P in einer Bestellung): nicht druckbar, nicht abschließbar, nicht weiterführbar
+        from .models import kopiere_positionen
+        auftrag = Beleg.objects.create(mandant=self.m, art=Belegart.AUFTRAG, kunde=self.kunde, vorgaenger=b)
+        kopiere_positionen(b, auftrag)
+        auftrag.berechne()
         self.assertEqual(auftrag.positionen.get().preisliste_artikel, self.netzteil)
         self.assertIn("Preislistenartikel", auftrag.p_hinweis)
         self.assertEqual(self.client.get(reverse("verkauf:beleg_pdf", args=[auftrag.pk]), follow=True).get("Content-Type"), "text/html; charset=utf-8")
         with self.assertRaisesMessage(ValueError, "nur als Angebot"):
             auftrag.abschliessen()   # P-Positionen: nicht druckbar, nicht abschließbar
-        ls = auftrag.folgebeleg_erzeugen()
-        with self.assertRaisesMessage(ValueError, "nur als Angebot"):
-            ls.abschliessen()
+        with self.assertRaisesMessage(ValueError, "nur noch Preislistenartikel"):
+            auftrag.folgebeleg_erzeugen()
+        self.assertFalse(Beleg.objects.filter(art=Belegart.LIEFERSCHEIN).exists())
         # nach dem Wareneingang wird die Position automatisch zum eigenen Artikel (A)
         from apps.einkauf import services as einkauf_services
         a = einkauf_services.artikel_aus_preisliste(self.netzteil)
@@ -116,8 +123,10 @@ class UmbauTest(TestCase):
         self.assertEqual((pos.artikel, pos.preisliste_artikel, pos.ek, pos.bestellnummer, pos.nummer), (None, self.netzteil, Decimal("40.0000"), "500", "PSAZ-650"))
         self.client.post(reverse("einkauf:bestellung_bestellen", args=[b.pk]))
         we = einkauf.wareneingang_anlegen(self.m, self.api, b)
-        einkauf.wareneingang_aus_bestellung(we)  # hier entsteht der eigene Artikel
-        a = Artikel.objects.get(nummer="PSAZ-650")
+        einkauf.wareneingang_aus_bestellung(we)  # ohne Rückfrage entsteht nichts
+        self.assertFalse(Artikel.objects.filter(herstellernummer="PSAZ-650").exists())
+        einkauf.wareneingang_aus_bestellung(we, p_anlegen=True)  # nach Rückfrage entsteht der eigene Artikel
+        a = Artikel.objects.get(herstellernummer="PSAZ-650")
         self.assertEqual((a.typ, a.hersteller.name, a.herstellernummer), ("A", "Azza", "PSAZ-650"))
         einkauf.wareneingang_buchen(we)
         self.assertEqual(bestand(self.m, a), Decimal("4"))
@@ -125,13 +134,14 @@ class UmbauTest(TestCase):
         self.assertEqual(self.netzteil.artikel, a)
         pos.refresh_from_db()
         self.assertEqual((pos.artikel, pos.geliefert), (a, Decimal("4")))
-        self.assertContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), "PSAZ-650")
+        self.assertContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), a.nummer)  # Nummer aus dem Nummernkreis
 
     def test_scan_im_wareneingang_findet_preislistenartikel(self):
         we = einkauf.wareneingang_anlegen(self.m, self.api)
-        a = einkauf.artikel_per_code("PSAZ-650", self.api)
-        self.assertEqual((a.nummer, a.typ), ("PSAZ-650", "A"))
-        self.assertIsNone(einkauf.artikel_per_code("CS-1", self.api))  # gehört zu einem anderen Lieferanten
+        self.assertIsNone(einkauf.artikel_per_code("PSAZ-650", self.api))  # legt nichts mehr an
+        self.assertEqual(einkauf.preislisten_treffer("PSAZ-650", self.api), self.netzteil)
+        self.assertEqual(Artikel.objects.filter(herstellernummer="PSAZ-650").count(), 0)
+        self.assertIsNone(einkauf.preislisten_treffer("CS-1", self.api))  # gehört zu einem anderen Lieferanten
 
     def test_bestellung_falscher_lieferant_wird_abgelehnt(self):
         b = einkauf.bestellung_anlegen(self.m, self.api)

@@ -274,17 +274,24 @@ def wareneingang_anlegen(mandant, lieferant, bestellung=None, benutzer=None) -> 
 
 @transaction.atomic
 def artikel_aus_preisliste(eintrag):
-    """Aus einem Preislistenartikel (Typ P) wird beim Wareneingang ein eigener Artikel (Typ A)."""
+    """Aus einem Preislistenartikel (Typ P) wird ein eigener Artikel (Typ A) mit Nummer aus dem Nummernkreis.
+    Nur nach Rückfrage aufrufen (nie still). Gibt es schon einen Artikel mit derselben Herstellernummer, wird dieser verknüpft."""
+    eintrag = Preislistenartikel.objects.select_for_update().get(pk=eintrag.pk)  # Doppelklick: zweiter Aufruf sieht den ersten
     if eintrag.artikel_id:
         return eintrag.artikel
-    from apps.stammdaten.models import Hersteller, Steuersatz
-    nummer = (eintrag.herstellernummer or "")[:40]
-    artikel = Artikel.objects.filter(nummer__iexact=nummer).first() if nummer else None
-    if artikel is not None and artikel.herstellernummer.lower() != eintrag.herstellernummer.lower():
-        artikel = None  # gleiche Nummer, aber anderes Produkt
+    from apps.stammdaten.models import Hersteller, Stammnummer, Steuersatz
+    herstellernr = (eintrag.herstellernummer or "").strip()
+    artikel = None
+    if herstellernr:  # nur verknüpfen, wenn auch Hersteller oder EAN passen (Herstellernummern sind nicht eindeutig)
+        for kandidat in Artikel.objects.filter(herstellernummer__iexact=herstellernr).select_related("hersteller").order_by("pk"):
+            hersteller_gleich = bool(eintrag.hersteller and kandidat.hersteller_id
+                                     and kandidat.hersteller.name.strip().lower() == eintrag.hersteller.strip().lower())
+            ean_gleich = bool(eintrag.ean and kandidat.ean and eintrag.ean == kandidat.ean)
+            if hersteller_gleich or ean_gleich:
+                artikel = kandidat
+                break
     if artikel is None:
-        if not nummer or Artikel.objects.filter(nummer__iexact=nummer).exists():
-            nummer = f"P{eintrag.lieferant.nummer}-{eintrag.bestellnummer}"[:40]
+        nummer = Stammnummer.naechste("A")
         steuer = Steuersatz.objects.filter(nummer=1).first() or Steuersatz.objects.order_by("-prozent").first()
         if steuer is None:
             raise ValueError("Es ist kein Steuersatz angelegt.")
@@ -308,9 +315,18 @@ def artikel_aus_preisliste(eintrag):
     return artikel
 
 
+def preislisten_treffer(code: str, lieferant):
+    """Preislistenartikel des Lieferanten ohne eigenen Artikel zu diesem Code (Bestell-, Hersteller- oder EAN-Nummer)."""
+    code = (code or "").strip()
+    if not code or lieferant is None:
+        return None
+    return Preislistenartikel.objects.filter(lieferant=lieferant, artikel__isnull=True).filter(
+        Q(bestellnummer__iexact=code) | Q(herstellernummer__iexact=code) | Q(ean=code)).first()
+
+
 def artikel_per_code(code: str, lieferant=None):
     """Artikel über Scan-Code: EAN, Artikelnummer, Herstellernummer oder Bestellnummer des Lieferanten.
-    Findet sich nur ein Preislistenartikel des Lieferanten, wird daraus der eigene Artikel angelegt."""
+    Legt nie einen Artikel an; Preislistenartikel ohne eigenen Artikel liefert preislisten_treffer()."""
     code = code.strip()
     if not code:
         return None
@@ -324,12 +340,20 @@ def artikel_per_code(code: str, lieferant=None):
     al = al.select_related("artikel").first()
     if al:
         return al.artikel
-    if lieferant is not None:
-        eintrag = Preislistenartikel.objects.filter(lieferant=lieferant).filter(
-            Q(bestellnummer__iexact=code) | Q(herstellernummer__iexact=code) | Q(ean=code)).first()
+    if lieferant is not None:  # Preislistenartikel, der schon einen eigenen Artikel hat
+        eintrag = Preislistenartikel.objects.filter(lieferant=lieferant, artikel__isnull=False).filter(
+            Q(bestellnummer__iexact=code) | Q(herstellernummer__iexact=code) | Q(ean=code)).select_related("artikel").first()
         if eintrag:
-            return artikel_aus_preisliste(eintrag)
+            return eintrag.artikel
     return None
+
+
+def offene_p_positionen(we):
+    """Offene Preislistenpositionen (Typ P) der Bestellung ohne eigenen Artikel, die noch nicht übernommen sind."""
+    if not we.bestellung_id:
+        return []
+    return list(we.bestellung.positionen.filter(artikel__isnull=True, preisliste_artikel__isnull=False)
+                .select_related("preisliste_artikel", "bestellung__lieferant"))
 
 
 @transaction.atomic
@@ -375,13 +399,17 @@ def bleibt_offen(we):
     return rest
 
 
-def wareneingang_aus_bestellung(we, nur=None):
-    """Offene Mengen der Bestellung als Zeilen vorbelegen (nur=Bestellposition: nur diese wieder aufnehmen)."""
+def wareneingang_aus_bestellung(we, nur=None, p_anlegen=False, nur_p=False):
+    """Offene Mengen der Bestellung als Zeilen vorbelegen (nur=Bestellposition: nur diese wieder aufnehmen;
+    nur_p: nur offene Preislistenpositionen ohne Artikel, entfernte A-Positionen bleiben draußen).
+    Preislistenpositionen (P) ohne Artikel werden nur mit p_anlegen=True (nach Rückfrage) zu eigenen Artikeln, sonst bleiben sie offen."""
     if we.gebucht:
         raise ValueError("Der Wareneingang ist bereits gebucht.")
     positionen = we.bestellung.positionen.select_related("preisliste_artikel")
     if nur is not None:
         positionen = positionen.filter(pk=nur.pk)
+    if nur_p:
+        positionen = positionen.filter(artikel__isnull=True, preisliste_artikel__isnull=False)
     # Mengen, die schon in einem anderen, noch nicht gebuchten Wareneingang dieser Bestellung stehen, nicht doppelt vorbelegen
     in_anderen = {}
     for bp_id, menge in WareneingangPosition.objects.filter(
@@ -389,9 +417,13 @@ def wareneingang_aus_bestellung(we, nur=None):
     ).exclude(wareneingang=we).values_list("bestellposition_id", "menge"):
         in_anderen[bp_id] = in_anderen.get(bp_id, Decimal("0")) + menge
     for bp in positionen:
-        if bp.artikel_id is None and bp.preisliste_artikel_id:  # Preislistenartikel wird zum eigenen Artikel
+        if bp.artikel_id is None and bp.preisliste_artikel_id:
+            if not p_anlegen:  # nie still anlegen: bleibt in der Bestellung offen
+                continue
             bp.artikel = artikel_aus_preisliste(bp.preisliste_artikel)
             bp.save(update_fields=["artikel"])
+        if bp.artikel_id is None:
+            continue
         if bp.artikel.typ == "L":  # Leistungen kommen nicht ins Lager
             continue
         menge = bp.offen - in_anderen.get(bp.pk, Decimal("0"))
