@@ -9,7 +9,7 @@ from apps.kern.models import Mandant
 from apps.lager.models import Bewegungsart, bestand, reserviert
 from apps.lager.services import buche_manuell
 from apps.stammdaten.models import Artikel, Kunde, Steuersatz
-from apps.verkauf.models import Beleg, Belegart, Position
+from apps.verkauf.models import Beleg, BelegUebernahme, Belegart, Position
 
 D = Decimal
 
@@ -43,6 +43,9 @@ class UebernahmeBestandTest(TestCase):
         self.assertEqual(r.status_code, 302)
         self.assertEqual(self.ab.folgebelege.get().positionen.get().menge, D("5"))
         self.assertEqual(reserviert(self.m, self.a), D("0"))
+        self.ab.refresh_from_db()
+        self.assertTrue(self.ab.abgeschlossen)  # alles übernommen: die Bestellung ist erledigt (leer, mit Verlauf)
+        self.assertFalse(self.ab.positionen.exists())
 
     def test_engpass_fragt_nach_und_aendert_nichts(self):
         r = self.uebernehmen()  # Abbruch = keine Entscheidung: nur die Rückfrage, nichts passiert
@@ -74,9 +77,12 @@ class UebernahmeBestandTest(TestCase):
         self.assertEqual(r.status_code, 302)
         ls = self.ab.folgebelege.get()
         self.assertEqual(ls.positionen.get().menge, D("5"))
-        self.assertEqual((self.pos.uebernommen, self.pos.offen_menge), (D("5"), D("5")))
+        self.pos.refresh_from_db()
+        self.assertEqual((self.pos.menge, self.pos.offen_menge), (D("5"), D("5")))  # die Bestellung behält nur den Rest
         self.assertEqual(reserviert(self.m, self.a), D("5"))  # Rückstand bleibt reserviert
-        self.assertContains(self.client.get(reverse("verkauf:beleg", args=[self.ab.pk])), "5 von 10 geliefert, 5 offen")
+        seite = self.client.get(reverse("verkauf:beleg", args=[self.ab.pk]))
+        self.assertContains(seite, f"5 übernommen in Lieferschein {ls.nummer}, 5 offen")
+        self.assertContains(seite, "Verlauf der Übernahmen")
         ls.abschliessen()
         self.assertEqual(bestand(self.m, self.a), D("0"))
 
@@ -107,7 +113,9 @@ class UebernahmeBestandTest(TestCase):
         buche_manuell(self.m, self.a, Bewegungsart.WARENEINGANG, D("2"))
         r = self.uebernehmen(**{f"wahl_{self.pos.pk}": "B", f"menge_{self.pos.pk}": "2"})
         self.assertEqual(r.status_code, 302)
-        self.assertEqual((self.pos.uebernommen, self.pos.offen_menge), (D("7"), D("3")))
+        self.pos.refresh_from_db()
+        self.assertEqual((self.pos.menge, self.pos.offen_menge), (D("3"), D("3")))  # 10 bestellt, 5 + 2 übernommen
+        self.assertEqual(sum(e.menge for e in BelegUebernahme.objects.filter(quelle=self.ab)), D("7"))
         self.assertEqual(reserviert(self.m, self.a), D("3"))
 
     def test_rechnung_per_kopieren_fragt_ebenfalls(self):

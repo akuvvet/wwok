@@ -138,9 +138,29 @@ def bestellt_je_position(beleg, positionen=None) -> dict:
     Positionsbezug); mehrere Positionen desselben Artikels werden der Reihe nach bedient."""
     positionen = bestellbare_positionen(beleg) if positionen is None else positionen
     vorrat = defaultdict(Decimal)
-    for bp in BestellPosition.objects.filter(bestellung__mandant=beleg.mandant, bestellung__aus_beleg_id__in=quellbelege(beleg),
-                                             bestellung__status__in=ZAEHLT_ALS_BESTELLT).select_related("preisliste_artikel"):
-        vorrat[_schluessel(bp.artikel_id, bp.preisliste_artikel)] += bp.menge
+    # Teilübernahme: Die Kundenbestellung zeigt nur noch den Rest. Was nach dem Bestellen beim Lieferanten in Lieferschein/Rechnung
+    # wanderte, hat die Lieferantenmenge zuerst verbraucht und darf den Rest nicht als „bestellt“ erscheinen lassen.
+    from apps.verkauf.models import BelegUebernahme
+    uebernahmen = list(BelegUebernahme.objects.filter(quelle_id__in=quellbelege(beleg), artikel__isnull=False))
+    bps = list(BestellPosition.objects.filter(bestellung__mandant=beleg.mandant, bestellung__aus_beleg_id__in=quellbelege(beleg),
+                                              bestellung__status__in=ZAEHLT_ALS_BESTELLT)
+               .select_related("preisliste_artikel", "bestellung"))
+    # Laufender Topf je Artikel in zeitlicher Reihenfolge: Bestellungen füllen ihn, jede Übernahme verbraucht ihn genau einmal
+    # (nicht je Lieferantenposition); eine Übernahme vor der Bestellung findet noch nichts vor und verbraucht nichts.
+    ereignisse = defaultdict(list)  # Artikel-ID -> [(Zeitpunkt, Rang, Menge)]; Rang 0 = Bestellung, 1 = Übernahme
+    for bp in bps:
+        if bp.artikel_id:
+            ereignisse[bp.artikel_id].append((bp.bestellung.angelegt_am, 0, bp.menge))
+        else:
+            vorrat[_schluessel(bp.artikel_id, bp.preisliste_artikel)] += bp.menge
+    for e in uebernahmen:
+        if e.artikel_id in ereignisse:
+            ereignisse[e.artikel_id].append((e.am, 1, -(e.menge * e.vorzeichen)))
+    for artikel_id, liste in ereignisse.items():
+        topf = Decimal("0")
+        for _zeit, _rang, menge in sorted(liste, key=lambda x: (x[0], x[1])):
+            topf = max(topf + menge, Decimal("0"))
+        vorrat[("a", artikel_id)] += topf
     ergebnis = {}
     for p in positionen:
         k = _schluessel(p.artikel_id, p.preisliste_artikel)

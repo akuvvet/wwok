@@ -183,11 +183,15 @@ class UmwandelnTest(TestCase):
         ab = self.beleg(Belegart.AUFTRAG)
         pf = ab.kopieren_als(Belegart.PROFORMA)
         pf.abschliessen()
-        Beleg.objects.create(mandant=self.m, art=Belegart.PROFORMA_STORNO, kunde=self.kunde, vorgaenger=pf)
+        from apps.finanzen.anzahlung import proforma_stornieren
+        proforma_stornieren(pf, "Kunde kauft nicht")  # bucht die Menge zurück in die Bestellung
+        ab.refresh_from_db()
+        self.assertFalse(ab.abgeschlossen)  # wieder geöffnet
         re = ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG)
-        self.assertNotEqual(re.pk, ab.pk)
+        self.assertNotEqual(re.pk, ab.pk)  # Folgebelege vorhanden (Proforma, Storno): Kopie statt Umwandlung
         ab.refresh_from_db()
         self.assertEqual(ab.art, Belegart.AUFTRAG)
+        self.assertEqual(sum(p.menge for p in re.positionen.all()), sum(p.menge for p in pf.positionen.all()))
 
     def test_aktive_proforma_sperrt_die_uebernahme(self):
         ab = self.beleg(Belegart.AUFTRAG)
@@ -368,7 +372,11 @@ class UmwandelnTest(TestCase):
         r = self.client.post(reverse("verkauf:beleg_folgebeleg", args=[ab.pk]), {"von_art": "AB", "art": "RE", f"wahl_{pos}": "B", f"menge_{pos}": "10"}, follow=True)
         neu = Beleg.objects.get(art=Belegart.RECHNUNG)
         self.assertNotEqual(neu.pk, ab.pk)  # Teilmenge: neue Rechnung, Rückstand bleibt in der Bestellung
-        self.assertIn("Rückstand", " ".join(self.meldungen(r)))
+        text = " ".join(self.meldungen(r))
+        self.assertIn("übernommen: 10 ×", text)
+        self.assertIn("bleiben nur noch 1 Position(en) mit dem Rest offen", text)
+        ab.refresh_from_db()
+        self.assertEqual(ab.positionen.get().menge, Decimal("5"))  # 15 bestellt, 10 übernommen: die Bestellung behält nur den Rest
 
     def test_ungueltige_art_im_post_wird_abgelehnt(self):
         ab = self.beleg(Belegart.AUFTRAG)

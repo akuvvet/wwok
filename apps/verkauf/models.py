@@ -394,26 +394,38 @@ class Beleg(Zeitstempel):
             rabatt_prozent=self.rabatt_prozent, bezugnahme=self.bezugnahme, bearbeiter=self.bearbeiter,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=self.bemerkung, vorgaenger=self)
-        Position.objects.filter(models.Q(pk__in=ids) | models.Q(gruppe_id__in=ids)).update(beleg=angebot)
+        for p in Position.objects.filter(models.Q(pk__in=ids) | models.Q(gruppe_id__in=ids)):
+            p.beleg = angebot
+            p.save()  # nicht update(): das Änderungsprotokoll hält das Umhängen fest
         self.berechne()
         angebot.berechne()
         return angebot
 
     def _p_abschluss(self, neu, anzahl, ids, verschieben, angebot):
-        """Meldungsinfo am neuen Beleg; eine umgewandelte Bestellung ohne offene Reste wird abgeschlossen."""
+        """Meldungsinfo am neuen Beleg; eine umgewandelte Bestellung ohne offene Reste wird abgeschlossen (erledigt)."""
         if not ids:
             return
         neu.p_info = {"anzahl": anzahl, "angebot": angebot, "quelle": self}
         if verschieben:
             self.berechne()
-            # Proforma kann storniert werden: die Bestellung bleibt dann bearbeitbar und wird nicht abgeschlossen
+            # Proforma kann storniert werden: die Bestellung wird dann wieder geöffnet (Rückbuchen)
             if neu.art != Belegart.PROFORMA and not self.offene_mengen() and not self.abgeschlossen:
-                self.abschliessen()
+                if self.positionen.exists():
+                    self.abschliessen()
+                else:  # leer gewordene Bestellung: abschliessen() fehlt bei Belegen ohne Position
+                    from .uebernahme import erledigt_wenn_leer
+                    erledigt_wenn_leer(self)
+                neu.p_info["abgeschlossen"] = True
+            elif neu.art != Belegart.PROFORMA and self.abgeschlossen:
                 neu.p_info["abgeschlossen"] = True
 
-    def positionen_pruefen(self):
-        """Ein Beleg ohne Position darf nicht abgeschlossen, versendet oder weitergeführt werden."""
+    def positionen_pruefen(self, art=None):
+        """Ein Beleg ohne Position darf nicht abgeschlossen, versendet oder weitergeführt werden. Eine Bestellung, deren
+        ganze Menge schon in Folgebelege wanderte, ist nicht „leer“, sondern erledigt: Beim Weiterführen (art) gilt dann die
+        Prüfung auf Proforma und offene Mengen."""
         if not self.positionen.exists():
+            if art and self.art == Belegart.AUFTRAG and self.uebernahmen_aus.exists():
+                self.folge_pruefen(art)  # nennt die aktive Proforma bzw. „nichts mehr offen“
             raise ValueError(f"{self} hat keine Position – erst Positionen erfassen.")
 
     @property
@@ -478,6 +490,14 @@ class Beleg(Zeitstempel):
         if not self.pk and not self.nummer and self.art not in GESPERRT_NACH_ABSCHLUSS:
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """Ein Folgebeleg aus einer Bestellung (Rechnungsentwurf, Proforma) gibt die übernommene Menge an die Bestellung zurück."""
+        with transaction.atomic():
+            if self.pk and (not self.abgeschlossen or self.art == Belegart.PROFORMA):  # Gelieferte/abgerechnete Belege geben nichts zurück
+                from .uebernahme import beleg_zurueckbuchen
+                beleg_zurueckbuchen(self, ziel_anpassen=False)  # die Positionen werden ohnehin mitgelöscht
+            return super().delete(*args, **kwargs)
 
     @classmethod
     def leere_entwuerfe_entfernen(cls, mandant, kunde=None, minuten=2):
@@ -818,10 +838,31 @@ class Beleg(Zeitstempel):
             self.berechne()  # Summen wie beim neuen Folgebeleg frisch rechnen
         return self
 
+    def _positionen_uebernehmen(self, neu, mengen, p_ids):
+        """Bestellung → Lieferschein/Rechnung/Proforma: die übernommene Menge WANDERT aus der Bestellung in den Folgebeleg, die
+        Bestellung behält nur den Rest (Verlauf: BelegUebernahme). Alle anderen Fälle sind echte Kopien."""
+        if self.art == Belegart.AUFTRAG and mengen is not None:
+            from . import uebernahme
+            neu.uebernahmen_neu = uebernahme.menge_verschieben(self, neu, mengen)
+            uebernahme.nebenkosten_mitgeben(self, neu)
+        else:
+            kopiere_positionen(self, neu, mengen, ausser=p_ids)
+
+    def _nach_sperre_aktualisieren(self):
+        """Beleg sperren und neu lesen. Wurde er inzwischen umgewandelt (andere Art oder Nummer), ist die Anfrage veraltet."""
+        art, nummer = self.art, self.nummer
+        if Beleg.objects.select_for_update().filter(pk=self.pk).first() is None:
+            return
+        self.refresh_from_db()
+        if (self.art, self.nummer) != (art, nummer):
+            raise ValueError(f"{self} wurde inzwischen umgewandelt – bitte den Beleg neu öffnen.")
+
     @transaction.atomic
     def folgebeleg_erzeugen(self, entscheidungen=None, art=None) -> "Beleg":
         """Nächste Stufe im Belegfluss. Bestellung -> Rechnung (art=RE) ist zusätzlich direkt möglich.
         Rückgabe: bei vollständiger Übernahme von Angebot/Bestellung der umgewandelte Beleg selbst, sonst der neue Beleg."""
+        if self.pk:  # Zeile sperren, bevor der Zustand gelesen wird: Doppelklick/zweiter Tab darf nicht doppelt übernehmen
+            self._nach_sperre_aktualisieren()  # aktueller Stand nach dem Warten auf die Sperre (z. B. Versandkosten schon mitgegeben)
         self.arbeitsstand_beenden()
         art = art or self.folgeart
         if not self.folgeart:
@@ -830,7 +871,7 @@ class Beleg(Zeitstempel):
             raise ValueError(f"Aus {self.get_art_display()} kann kein {Belegart(art).label} übernommen werden.")
         if self.art == Belegart.LIEFERSCHEIN and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
-        self.positionen_pruefen()
+        self.positionen_pruefen(art)
         self.folge_pruefen(art)
         p_ids, verschieben = self._p_vorbereiten(art)
         anzahl = self.p_positionen().count() if p_ids else 0
@@ -846,7 +887,7 @@ class Beleg(Zeitstempel):
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=self.bemerkung, vorgaenger=self)
         angebot = self._p_ins_angebot_verschieben(p_ids) if verschieben else None
-        kopiere_positionen(self, neu, mengen, ausser=p_ids)
+        self._positionen_uebernehmen(neu, mengen, p_ids)
         if self.art == Belegart.LIEFERSCHEIN:
             neu.lieferscheine.add(self)
         neu.berechne()
@@ -874,7 +915,9 @@ class Beleg(Zeitstempel):
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=self.bemerkung, vorgaenger=self.vorgaenger, nl_lager_abbuchen=self.nl_lager_abbuchen)
         ids = [p.pk for p in lieferbar]
-        Position.objects.filter(models.Q(pk__in=ids) | models.Q(gruppe_id__in=ids)).update(beleg=neu)
+        for p in Position.objects.filter(models.Q(pk__in=ids) | models.Q(gruppe_id__in=ids)):
+            p.beleg = neu
+            p.save()  # nicht update(): das Änderungsprotokoll hält das Umhängen fest; der Verlauf der Übernahmen folgt der Position
         Beleg.objects.filter(pk=self.pk).update(versandkosten=0, verpackung=0, versicherung=0)
         self.versandkosten = self.verpackung = self.versicherung = Decimal("0")
         self.berechne()
@@ -885,7 +928,10 @@ class Beleg(Zeitstempel):
     @transaction.atomic
     def kopieren_als(self, art, urbeleg_abschliessen=False, entscheidungen=None) -> "Beleg":
         """Beliebigen Beleg als neuen Entwurf der gewünschten Belegart kopieren (Gutschrift nur über Storno).
-        Optional wird der Ursprungsbeleg danach abgeschlossen (erledigt)."""
+        Optional wird der Ursprungsbeleg danach abgeschlossen (erledigt). Ausnahme: Aus einer Bestellung in Lieferschein,
+        Rechnung oder Proforma wandert die übernommene Menge aus der Bestellung (keine Kopie)."""
+        if self.pk:
+            self._nach_sperre_aktualisieren()  # aktueller Stand nach der Sperre (Versandkosten, Abschluss)
         self.arbeitsstand_beenden()
         if art not in Belegart.values or art in (Belegart.GUTSCHRIFT, Belegart.PROFORMA_STORNO) \
                 or self.art == Belegart.PROFORMA_STORNO:
@@ -896,7 +942,7 @@ class Beleg(Zeitstempel):
             raise ValueError("Ein Nachlieferschein entsteht nur aus einer abgeschlossenen Rechnung.")
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
-        self.positionen_pruefen()
+        self.positionen_pruefen(art)
         self.folge_pruefen(art)
         p_ids, verschieben = self._p_vorbereiten(art)
         anzahl = self.p_positionen().count() if p_ids else 0
@@ -914,7 +960,7 @@ class Beleg(Zeitstempel):
             bemerkung=f"Nachlieferung zu Rechnung {self.nummer}" if nachlieferung else self.bemerkung,
             vorgaenger=self if art != self.art else None)
         angebot = self._p_ins_angebot_verschieben(p_ids) if verschieben else None
-        kopiere_positionen(self, neu, mengen, ausser=p_ids)
+        self._positionen_uebernehmen(neu, mengen, p_ids)
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG:
             neu.lieferscheine.add(self)
         neu.berechne()
@@ -988,6 +1034,75 @@ class BelegUmwandlung(models.Model):
 
     def __str__(self):
         return f"{self.von_art_name} {self.von_nummer or '(Entwurf)'} -> {self.nach_art_name}"
+
+
+class BelegUebernahme(models.Model):
+    """Unveränderlicher Verlauf einer Teilübernahme: Welche Menge wurde wann aus einer Bestellung in welchen Folgebeleg
+    (Lieferschein, Rechnung, Proforma) verschoben, zurückgebucht oder bei der Umstellung von Altdaten übernommen?
+    Der Folgebeleg wird live über die Zielposition gelesen (eine Teillieferung hängt Positionen in einen neuen Beleg um);
+    die Kopien der Art, Nummer und Bezeichnung bleiben auch nach dem Löschen des Belegs lesbar."""
+
+    UEBERNOMMEN, ZURUECK, UMGESTELLT = "U", "Z", "S"
+    RICHTUNGEN = [(UEBERNOMMEN, "übernommen"), (ZURUECK, "zurückgebucht"), (UMGESTELLT, "umgestellt (Altdaten)")]
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="+")
+    quelle = models.ForeignKey(Beleg, on_delete=models.SET_NULL, null=True, blank=True, related_name="uebernahmen_aus")
+    quelle_art = models.CharField("Art der Bestellung", max_length=2, choices=Belegart.choices, default=Belegart.AUFTRAG)
+    quelle_nummer = models.CharField("Nummer der Bestellung", max_length=20, blank=True)
+    ziel = models.ForeignKey(Beleg, on_delete=models.SET_NULL, null=True, blank=True, related_name="uebernahmen_in")
+    ziel_art = models.CharField("Art des Folgebelegs", max_length=2, choices=Belegart.choices)
+    quellposition = models.ForeignKey("Position", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    zielposition = models.ForeignKey("Position", on_delete=models.SET_NULL, null=True, blank=True, related_name="uebernahmen")
+    artikel = models.ForeignKey(Artikel, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    artikelnummer = models.CharField("Artikelnummer", max_length=60, blank=True)
+    bezeichnung = models.CharField("Bezeichnung", max_length=255, blank=True)
+    menge = models.DecimalField("Menge", max_digits=10, decimal_places=3)
+    richtung = models.CharField("Richtung", max_length=1, choices=RICHTUNGEN, default=UEBERNOMMEN)
+    am = models.DateTimeField("am", default=timezone.now)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    class Meta:
+        verbose_name = "Übernahme aus einer Bestellung"
+        verbose_name_plural = "Übernahmen aus Bestellungen"
+        ordering = ["pk"]
+
+    @property
+    def vorzeichen(self) -> int:
+        return -1 if self.richtung == self.ZURUECK else 1
+
+    @property
+    def ziel_beleg(self):
+        """Folgebeleg, in dem die Position heute liegt (None = Beleg gelöscht)."""
+        if self.zielposition_id:
+            return self.zielposition.beleg
+        return self.ziel
+
+    @property
+    def ziel_text(self) -> str:
+        beleg = self.ziel_beleg
+        if beleg is not None:
+            return f"{beleg.get_art_display()} {beleg.nummer or '(Entwurf)'}"
+        return f"{Belegart(self.ziel_art).label} (gelöscht)"
+
+    @property
+    def text(self) -> str:
+        """Zeile für Anzeige und Druck, z. B. „7 × Maus übernommen in Rechnung (Entwurf)“."""
+        menge = f"{self.menge.normalize():f}".replace(".", ",")
+        name = (f"{self.artikelnummer} " if self.artikelnummer else "") + self.bezeichnung
+        if self.richtung == self.ZURUECK:
+            return f"{menge} × {name} zurückgebucht aus {self.ziel_text}"
+        return f"{menge} × {name} übernommen in {self.ziel_text}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise PermissionError("Der Verlauf der Übernahmen ist unveränderlich.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionError("Der Verlauf der Übernahmen ist unveränderlich.")
+
+    def __str__(self):
+        return self.text
 
 
 class Mailvorlage(Zeitstempel):
@@ -1091,14 +1206,19 @@ def kopiere_positionen(quelle, ziel, mengen=None, ausser=()):
             quellposition=p, preis_fest=p.preis_fest)
 
 
+UEBERNAHME_ARTEN = (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA)  # nur diese Folgebelege zählen als Teilübernahme
+
+
 def stornierte_proformas():
     """Abfrage der stornierten Proformas: Ihre Positionen gelten nicht als aus der Bestellung übernommen."""
     return Beleg.objects.filter(art=Belegart.PROFORMA, folgebelege__art=Belegart.PROFORMA_STORNO).values("pk")
 
 
 def mit_offener_menge(positionen):
-    """Annotiert Positionen mit `offen`: Menge minus Menge, die in Folgebelege (Lieferschein/Rechnung …) übernommen wurde."""
-    uebernommen = (Position.objects.filter(quellposition=OuterRef("pk"), beleg__vorgaenger_id=OuterRef("beleg_id"))
+    """Annotiert Positionen mit `offen`: Menge minus Menge, die in Folgebelege (Lieferschein/Rechnung …) übernommen wurde.
+    Verschobene Mengen zählen nicht: sie sind schon aus der Bestellmenge herausgenommen (nur alte Kopien werden abgezogen)."""
+    uebernommen = (Position.objects.filter(quellposition=OuterRef("pk"), beleg__vorgaenger_id=OuterRef("beleg_id"), verschoben=False,
+                                           beleg__art__in=UEBERNAHME_ARTEN)
                    .exclude(beleg__in=stornierte_proformas()).order_by().values("quellposition").annotate(s=Sum("menge")).values("s"))
     dez = models.DecimalField(max_digits=10, decimal_places=3)
     return positionen.annotate(offen=F("menge") - Coalesce(Subquery(uebernommen, output_field=dez), Value(Decimal("0")), output_field=dez))
@@ -1156,6 +1276,10 @@ class Position(Zeitstempel):
                                      help_text="Nur bei Gruppen (Typ G): ein von Hand eingetragener Preis wird nicht aus den Unterpositionen berechnet.")
     steuer_prozent = models.DecimalField("Steuer %", max_digits=5, decimal_places=2, default=Decimal("19"))
     ruecknahme = models.CharField("Bestand (Gutschrift)", max_length=1, blank=True, choices=Ruecknahme.choices)
+    verschoben = models.BooleanField(
+        "aus der Bestellung verschoben", default=False, editable=False,
+        help_text="Die Menge dieser Position im Lieferschein, in der Rechnung oder Proforma wurde aus der Bestellung herausgenommen "
+                  "(die Bestellung behält nur den Rest). Alte Kopien (False) lassen die Bestellmenge unverändert.")
 
     class Meta:
         verbose_name = "Position"
@@ -1165,10 +1289,12 @@ class Position(Zeitstempel):
 
     @property
     def uebernommen(self) -> Decimal:
-        """Menge, die aus dieser Bestellposition schon in Lieferschein/Rechnung übernommen wurde."""
+        """Menge alter Kopien (Altdaten), die noch von der Bestellmenge abzuziehen sind. Neu übernommene Mengen wandern aus der
+        Bestellung heraus (Position.verschoben) und stehen im Verlauf (BelegUebernahme)."""
         if not self.pk:
             return Decimal("0")
-        return Position.objects.filter(quellposition=self, beleg__vorgaenger_id=self.beleg_id).exclude(
+        return Position.objects.filter(quellposition=self, beleg__vorgaenger_id=self.beleg_id, verschoben=False,
+                                       beleg__art__in=UEBERNAHME_ARTEN).exclude(
             beleg__in=stornierte_proformas()).aggregate(s=Sum("menge"))["s"] or Decimal("0")
 
     @property

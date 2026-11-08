@@ -136,7 +136,7 @@ def kunde_detail(request, kunde_id):
     from apps.finanzen import services as fin
     kunde = get_object_or_404(Kunde, pk=kunde_id)
     Beleg.leere_entwuerfe_entfernen(request.mandant, kunde)
-    belege = Beleg.objects.filter(kunde=kunde, mandant=request.mandant, positionen__isnull=False).distinct()         .select_related("kunde", "zahlungsbedingung", "vorgaenger").prefetch_related("umwandlungen")  # Belege ohne Position gelten nicht als gespeichert
+    belege = Beleg.objects.filter(Q(positionen__isnull=False) | Q(uebernahmen_aus__isnull=False), kunde=kunde, mandant=request.mandant).distinct()         .select_related("kunde", "zahlungsbedingung", "vorgaenger").prefetch_related("umwandlungen")  # Belege ohne Position gelten nicht als gespeichert – außer einer Bestellung, deren Menge vollständig in Folgebelege wanderte (erledigt, Verlauf)
     art = request.GET.get("art", "")
     if art == "offen":
         belege = belege.filter(abgeschlossen=False)
@@ -271,9 +271,16 @@ def beleg_detail(request, beleg_id):
                 frei += sum((q.offen_menge for q in beleg.vorgaenger.positionen.filter(artikel=p.artikel)), Decimal("0"))
             if frei < (p.offen_menge if beleg.art == "AB" else p.menge):
                 p.knapp = frei
-        if beleg.art == "AB" and p.pk and not p.gruppe_id:  # Rückstand: „5 von 10 geliefert, 5 offen“
+        if beleg.art == "AB" and p.pk and not p.gruppe_id:  # Altdaten (Kopie): „5 von 10 geliefert, 5 offen“
             p.geliefert = p.uebernommen
             p.rueckstand = p.menge - p.geliefert if p.geliefert > 0 else None
+    from . import uebernahme
+    verlauf_ab = uebernahme.verlauf_aus(beleg) if beleg.art == Belegart.AUFTRAG else []
+    verlauf_ziel = uebernahme.verlauf_in(beleg) if beleg.art in uebernahme.FOLGEARTEN else []
+    if verlauf_ab:  # „7 übernommen in Rechnung …, 3 offen“ an der Bestellposition
+        texte = uebernahme.rueckstand_text(beleg, [p for p in positionen if p.pk and not p.gruppe_id])
+        for p in positionen:
+            p.uebernahme_text = texte.get(p.pk)
     from apps.finanzen.services import kunde_offen
     md = beleg.kunde.mandantendaten.filter(mandant=beleg.mandant).first()
     limit = md.kreditlimit if md else None
@@ -292,6 +299,7 @@ def beleg_detail(request, beleg_id):
                 p.bestellt = bestellt.get(p.pk)
     return render(request, "verkauf/beleg.html", {
         "pf_status": pf_status, "pf_storno": beleg.proforma_storno, "pf_rechnung": beleg.proforma_rechnung,
+        "verlauf_ab": verlauf_ab, "verlauf_ziel": verlauf_ziel,
         "lieferantenbestellungen": lieferantenbestellungen,
         "anzahlungen": list(beleg.anzahlungen.select_related("quelle")) if beleg.art == Belegart.RECHNUNG else [],
         "kredit_warnung": kredit_warnung, "kredit_differenz": kredit_differenz,"kunde_offen": offen, "kreditlimit": limit,
@@ -389,6 +397,8 @@ def gruppe_wechseln(p, ziel, alter_betrag):
     aufgeht, wird der Wechsel abgelehnt, statt still Beträge oder die Steuer zu ändern."""
     alt = p.gruppe
     if ziel:
+        if p.verschoben and not alt:  # Rückbuchen erfasst nur Hauptpositionen: sonst ginge die Menge der Bestellung verloren
+            raise ValueError("Die Position stammt aus der Bestellung (übernommene Menge) und lässt sich nicht in eine Gruppe verschieben.")
         if not (p.artikel_id or p.preisliste_artikel_id):
             raise ValueError("Unterpositionen brauchen einen Artikel.")
         steuer_passt_zur_gruppe(p.steuer_prozent, ziel)
@@ -582,24 +592,34 @@ def gruppenmenge_anpassen(gruppe, menge):
 @sperr_schutz
 def position_aendern(request, beleg_id, position_id):
     """Menge, Preis, Rabatt, Zusatztext und Gruppe einer Position ändern (Unterpositionen einer Gruppe: kein Preis und Rabatt)."""
+    with transaction.atomic():
+        return _position_aendern(request, beleg_id, position_id)
+
+
+def _position_aendern(request, beleg_id, position_id):
     beleg = beleg_holen(request, beleg_id)
     p = get_object_or_404(Position, pk=position_id, beleg=beleg)
     menge = dezimal(request.POST.get("menge"), p.menge)
     if menge <= 0:
         raise ValueError("Die Menge muss größer als 0 sein.")
     alter_betrag = p.menge * p.einzelpreis
+    neuer_preis = rabatt = None
+    if not p.gruppe_id:  # Eingaben zuerst prüfen: scheitert später etwas, wird nichts zurückgebucht und nichts gemeldet
+        neuer_preis = dezimal(request.POST.get("preis"), p.einzelpreis)
+        rabatt = dezimal(request.POST.get("rabatt"), Decimal("0"))
+        if not 0 <= rabatt <= 100:
+            raise ValueError("Der Rabatt muss zwischen 0 und 100 % liegen.")
+    meldungen = []
+    if menge != p.menge and p.verschoben and not p.gruppe_id and not beleg.positionen_gesperrt:
+        meldungen = _mitziehen(p, menge)  # Menge aus der Bestellung: Differenz geht zurück bzw. kommt aus dem Rest
     if beleg.art == Belegart.GUTSCHRIFT and p.typ == "G" and not p.gruppe_id and menge != p.menge:
         gruppenmenge_anpassen(p, menge)  # gebucht werden die Unterpositionen, sie müssen dem Kopf folgen
     p.menge = menge
     p.zusatztext = request.POST.get("zusatztext", "")
     if not p.gruppe_id:
-        neuer_preis = dezimal(request.POST.get("preis"), p.einzelpreis)
         if p.typ == "G" and neuer_preis != p.einzelpreis:
             p.preis_fest = True  # von Hand geänderter Gruppenpreis bleibt stehen
         p.einzelpreis = neuer_preis
-        rabatt = dezimal(request.POST.get("rabatt"), Decimal("0"))
-        if not 0 <= rabatt <= 100:
-            raise ValueError("Der Rabatt muss zwischen 0 und 100 % liegen.")
         p.rabatt_prozent = rabatt
     ziel_id = request.POST.get("gruppe")
     if ziel_id is None or (p.typ == "G" and not p.gruppe_id) or str(p.gruppe_id or "") == ziel_id:
@@ -607,8 +627,30 @@ def position_aendern(request, beleg_id, position_id):
     else:
         gruppe_wechseln(p, get_object_or_404(Position, pk=ziel_id, beleg=beleg, typ="G", gruppe__isnull=True) if ziel_id else None, alter_betrag)
     beleg.berechne()
+    for stufe, text in meldungen:  # erst nach erfolgreichem Speichern melden
+        getattr(messages, stufe)(request, text)
     messages.success(request, "Gespeichert.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
+
+
+def _mitziehen(p, menge) -> list:
+    """Menge einer aus der Bestellung übernommenen Position geändert: Differenz zurückbuchen bzw. aus dem Rest nachziehen.
+    Rückgabe: Meldungen [(Stufe, Text)], die der Aufrufer erst nach erfolgreichem Speichern ausgibt."""
+    from . import uebernahme
+    erg = uebernahme.menge_anpassen(p, menge)
+    ab = p.beleg.vorgaenger
+    if ab is None:
+        return []
+    nr = ab.nummer or ""
+    meldungen = []
+    if erg["zurueck"]:
+        meldungen.append(("info", f"{uebernahme._menge_text(erg['zurueck'])} × {p.bezeichnung} gehen zurück in die Bestellung {nr}."))
+    if erg["nachgezogen"]:
+        meldungen.append(("info", f"{uebernahme._menge_text(erg['nachgezogen'])} × {p.bezeichnung} kommen zusätzlich aus dem Rest der Bestellung {nr}."))
+    if erg["zusatz"]:
+        meldungen.append(("warning", f"{uebernahme._menge_text(erg['zusatz'])} × {p.bezeichnung} sind Zusatzmenge: "
+                                     f"in der Bestellung {nr} ist davon nichts mehr offen, sie bleibt unberührt."))
+    return meldungen
 
 
 @mit_mandant
@@ -617,10 +659,17 @@ def position_aendern(request, beleg_id, position_id):
 def position_loeschen(request, beleg_id, position_id):
     beleg = beleg_holen(request, beleg_id)
     p = get_object_or_404(Position, pk=position_id, beleg=beleg)
-    if p.gruppe_id:  # Unterposition einer Gruppe mit festem Preis: der Preis sinkt um ihren Betrag
-        gruppenpreis_erhoehen(p.gruppe, -(p.menge * p.einzelpreis))
-    p.delete()
-    beleg.berechne()
+    with transaction.atomic():
+        if p.gruppe_id:  # Unterposition einer Gruppe mit festem Preis: der Preis sinkt um ihren Betrag
+            gruppenpreis_erhoehen(p.gruppe, -(p.menge * p.einzelpreis))
+        elif p.verschoben and not beleg.positionen_gesperrt:  # übernommene Menge geht zurück in die Bestellung
+            from . import uebernahme
+            rueck = uebernahme.zurueckbuchen(p, p.menge)
+            if rueck:
+                messages.info(request, f"{uebernahme._menge_text(rueck)} × {p.bezeichnung} gehen zurück in die Bestellung "
+                                       f"{beleg.vorgaenger.nummer or ''}.")
+        p.delete()
+        beleg.berechne()
     messages.success(request, "Gespeichert.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
@@ -755,8 +804,21 @@ def _uebernahme_meldung(request, beleg, neu):
     elif info:
         messages.warning(request, f"{info['anzahl']} Preislistenartikel (P) sind im {beleg.get_art_display()} {beleg.nummer or ''} geblieben und nicht mitkopiert – "
                                   "P gibt es nur im Angebot, bis sie als eigene Artikel (A) angelegt sind.")
-    rest = beleg.offene_mengen() if beleg.art == Belegart.AUFTRAG else {}
-    if rest:
+    if beleg.art != Belegart.AUFTRAG:
+        return
+    from . import uebernahme
+    neu_ = getattr(neu, "uebernahmen_neu", None) or []
+    rest = beleg.offene_mengen()
+    if neu_:
+        teile = ", ".join(f"{uebernahme._menge_text(e.menge)} × {e.bezeichnung}" for e in neu_)
+        text = f"Aus der Bestellung {beleg.nummer or ''} übernommen: {teile}."
+        if rest:
+            text += (f" In der Bestellung bleiben nur noch {len(rest)} Position(en) mit dem Rest offen "
+                     "(für den nächsten Wareneingang reserviert).")
+        else:
+            text += " In der Bestellung ist nichts mehr offen – sie ist erledigt."
+        messages.info(request, text)
+    elif rest:
         messages.info(request, f"Rückstand: {len(rest)} Position(en) der Bestellung {beleg.nummer or ''} bleiben ganz oder teilweise offen "
                                "und sind für den nächsten Wareneingang reserviert.")
 
@@ -1256,7 +1318,7 @@ def belege(request):
     from datetime import date
 
     from django.core.paginator import Paginator
-    liste = Beleg.objects.filter(mandant=request.mandant, positionen__isnull=False).distinct().select_related("kunde").prefetch_related("umwandlungen")
+    liste = Beleg.objects.filter(Q(positionen__isnull=False) | Q(uebernahmen_aus__isnull=False), mandant=request.mandant).distinct().select_related("kunde").prefetch_related("umwandlungen")
     q = request.GET.get("q", "").strip()
     for wort in q.split():
         liste = liste.filter(Q(nummer__icontains=wort) | Q(umwandlungen__von_nummer__icontains=wort) | Q(kunde__name1__icontains=wort) | Q(kunde__nummer__icontains=wort)

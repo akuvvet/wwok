@@ -143,6 +143,11 @@ def beleg_pdf(beleg, als_lieferschein=False) -> bytes:
         ("ALIGN", (3, 0), (-1, -1), "RIGHT"), ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.black),
         ("LINEBELOW", (0, 1), (-1, -1), 0.25, colors.lightgrey)]))
     inhalt += [tabelle, Spacer(1, 4 * mm)]
+    if beleg.art == Belegart.AUFTRAG and beleg.pk:  # Teilübernahme: die Positionen zeigen nur den Rest, das Übernommene steht hier
+        from .uebernahme import pdf_zeilen
+        bereits = pdf_zeilen(beleg)
+        if bereits:
+            inhalt += [KeepTogether([absatz("Bereits geliefert/berechnet:", fett)] + [absatz(z, normal) for z in bereits]), Spacer(1, 4 * mm)]
     if als_lieferschein:
         if beleg.versandanschrift and beleg.versandanschrift != beleg.rechnungsanschrift:
             inhalt += [absatz("Lieferanschrift:", fett), absatz(beleg.versandanschrift, normal), Spacer(1, 3 * mm)]

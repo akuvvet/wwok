@@ -9,7 +9,7 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import Stammnummer
 
 from .mail import PLATZHALTER, STANDARD, vorlage_fehler, vorlagen_anlegen
-from .models import (Abo, AboPosition, Beleg, Briefprodukt, Mailart, MailVersand, Mailvorlage, Mengenregel, Nummernkreis,
+from .models import (Abo, AboPosition, Beleg, BelegUebernahme, Briefprodukt, Mailart, MailVersand, Mailvorlage, Mengenregel, Nummernkreis,
                      Position, Versandart, Wiedervorlage)
 
 
@@ -86,6 +86,24 @@ class MailvorlageAdmin(admin.ModelAdmin):
             vorlage.betreff, vorlage.text = STANDARD[vorlage.art]
             vorlage.save()
         self.message_user(request, f"{len(queryset)} Vorlagen zurückgesetzt.", messages.SUCCESS)
+
+
+@admin.register(BelegUebernahme)
+class BelegUebernahmeAdmin(admin.ModelAdmin):
+    """Nur lesen – Verlauf der Teilübernahmen aus Bestellungen."""
+
+    list_display = ["am", "quelle_nummer", "ziel_art", "artikelnummer", "bezeichnung", "menge", "richtung", "benutzer"]
+    list_filter = ["richtung", "mandant"]
+    search_fields = ["quelle_nummer", "artikelnummer", "bezeichnung"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(MailVersand)

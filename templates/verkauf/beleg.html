@@ -34,6 +34,16 @@
       <table style="font-size:13px"><thead><tr><th>Früher</th><th>Alte Nummer</th><th>Belegdatum</th><th>Umgewandelt in</th><th>Am</th><th>Benutzer</th></tr></thead><tbody>
       {% for u in beleg.verlauf %}<tr><td>{{ u.von_art_name }}</td><td>{{ u.von_nummer|default:"(Entwurf)" }}</td><td>{{ u.von_belegdatum|date:"d.m.Y" }}</td><td>{{ u.nach_art_name }}</td><td>{{ u.am|date:"d.m.Y H:i" }}</td><td>{{ u.benutzer|default:"–" }}</td></tr>{% endfor %}
       </tbody></table></details>{% endif %}
+    {% if verlauf_ab %}<details class="verlauf uebernahmen" style="margin:6px 0 0" open><summary><small>Verlauf der Übernahmen ({{ verlauf_ab|length }})</small></summary>
+      <table style="font-size:13px"><thead><tr><th>Am</th><th>Menge</th><th>Artikel</th><th>Vorgang</th><th>Folgebeleg</th><th>Benutzer</th></tr></thead><tbody>
+      {% for u in verlauf_ab %}<tr><td>{{ u.am|date:"d.m.Y H:i" }}</td><td class="zahl">{{ u.menge|floatformat:"-3" }}</td><td>{{ u.artikelnummer }} {{ u.bezeichnung }}</td><td>{{ u.get_richtung_display }}</td>
+        <td>{% with b=u.ziel_beleg %}{% if b %}<a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(Entwurf)" }}</a>{% else %}{{ u.ziel_text }}{% endif %}{% endwith %}</td><td>{{ u.benutzer|default:"–" }}</td></tr>{% endfor %}
+      </tbody></table></details>{% endif %}
+    {% if verlauf_ziel %}<details class="verlauf uebernahmen" style="margin:6px 0 0" open><summary><small>Aus der Bestellung übernommen ({{ verlauf_ziel|length }})</small></summary>
+      <table style="font-size:13px"><thead><tr><th>Am</th><th>Menge</th><th>Artikel</th><th>Vorgang</th><th>Bestellung</th></tr></thead><tbody>
+      {% for u in verlauf_ziel %}<tr><td>{{ u.am|date:"d.m.Y H:i" }}</td><td class="zahl">{{ u.menge|floatformat:"-3" }}</td><td>{{ u.artikelnummer }} {{ u.bezeichnung }}</td><td>{{ u.get_richtung_display }}</td>
+        <td>{% if u.quelle %}<a href="{% url 'verkauf:beleg' u.quelle.pk %}">Bestellung {{ u.quelle.nummer|default:u.quelle_nummer }}</a>{% else %}Bestellung {{ u.quelle_nummer }} (gelöscht){% endif %}</td></tr>{% endfor %}
+      </tbody></table></details>{% endif %}
     {% if lieferantenbestellungen %}<div class="lieferantenbestellungen" style="margin:6px 0 0"><small style="opacity:.75">Lieferantenbestellungen:</small>
       {% for b in lieferantenbestellungen %}<span class="marke {% if b.status == 'storniert' %}gesperrt{% elif b.status != 'entwurf' %}ok{% endif %}" title="{{ b.bemerkung }}"{% if b.status == 'storniert' %} style="text-decoration:line-through"{% endif %}>
         <a href="{% url 'einkauf:bestellung' b.pk %}">{{ b.nummer }}</a> · {{ b.lieferant.kurz }} · {{ b.datum|date:"d.m.Y" }} · {% status_symbol "bestellung" b.status b.get_status_display mit_text=True %}{% if b.angelegt_von %} · {{ b.angelegt_von }}{% endif %}{% if b.aus_beleg_id != beleg.pk %} · aus {{ b.aus_beleg.nummer|default:b.aus_beleg }}{% endif %}</span>
@@ -116,6 +126,7 @@
         {% if p.zusatztext %}<br><small style="opacity:.75;white-space:pre-line">{{ p.zusatztext }}</small>{% endif %}
         {% if p.letzter %}<br><small style="opacity:.75" title="Netto je Stück nach Rabatten, aus der letzten Rechnung an diesen Kunden">Zuletzt bezahlt: <strong>{{ p.letzter.preis|floatformat:"2g" }} €</strong> am {{ p.letzter.datum|date:"d.m.Y" }} (<a href="{% url 'verkauf:beleg' p.letzter.beleg_id %}">{{ p.letzter.nummer }}</a>)</small>{% endif %}
         {% if p.lieferschein and not p.gruppe_id %}<br><small style="opacity:.75">Lieferschein {{ p.lieferschein.nummer }} vom {{ p.lieferschein.belegdatum|date:"d.m.Y" }}</small>{% endif %}
+        {% if p.uebernahme_text %}<br><small style="color:var(--warn)" title="Die übernommene Menge ist aus der Bestellung herausgenommen; hier steht nur der Rest. Reserviert wird der Rest.">{{ p.uebernahme_text }}</small>{% endif %}
         {% if p.rueckstand %}<br><small style="color:var(--warn)" title="Rückstand: wird mit dem Wareneingang reserviert">Rückstand: {{ p.geliefert|floatformat:"-3" }} von {{ p.menge|floatformat:"-3" }} geliefert, {{ p.rueckstand|floatformat:"-3" }} offen</small>{% endif %}
         {% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
         {% if p.bestellt %}<br><small style="opacity:.75" title="Beim Lieferanten bestellt (ohne Entwürfe und Stornos)">bestellt: {{ p.bestellt|floatformat:"-3" }} von {{ p.menge|floatformat:"-3" }}</small>{% endif %}

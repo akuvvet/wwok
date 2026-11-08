@@ -100,8 +100,8 @@ class PKopierenTest(TestCase):
         self.assertEqual(self.pos(angebot), [(1, "Netzteil")])
         self.assertEqual(angebot.summe_netto, Decimal("50.00"))
         ab.refresh_from_db()
-        self.assertEqual(self.pos(ab), [(1, "Maus")])
-        self.assertEqual(ab.summe_netto, Decimal("40.00"))
+        self.assertEqual(self.pos(ab), [])  # die Maus wanderte in die Rechnung, das Netzteil ins Angebot
+        self.assertEqual(ab.summe_netto, Decimal("0.00"))
         self.assertFalse(ab.p_positionen().exists())
         self.assertTrue(ab.abgeschlossen)
         self.assertEqual(re.p_info["angebot"], angebot)
@@ -134,7 +134,9 @@ class PKopierenTest(TestCase):
         self.assertEqual(angebot.positionen.get(typ="G").pk, kopf.pk)
         self.assertEqual({p.pos for p in angebot.positionen.all()}, {1})  # Unterpositionen tragen die Nummer ihrer Gruppe
         self.assertEqual(angebot.positionen.filter(gruppe=kopf).count(), 2)
-        self.assertEqual(ab.positionen.count(), 1)
+        self.assertEqual(ab.positionen.count(), 0)  # die Maus wanderte in die Rechnung, die Gruppe ins Angebot
+        ab.refresh_from_db()
+        self.assertTrue(ab.abgeschlossen)  # leer gewordene Bestellung = erledigt
         self.assertEqual(re.p_info["anzahl"], 1)
 
     def test_positionsnummern_bleiben_lueckenlos(self):
@@ -148,7 +150,8 @@ class PKopierenTest(TestCase):
         self.assertEqual([p.pos for p in re.positionen.all()], [1, 2])
         self.assertEqual([p.pos for p in angebot.positionen.all()], [1, 2])
         ab.refresh_from_db()
-        self.assertEqual([p.pos for p in ab.positionen.all()], [1, 2])
+        self.assertEqual([p.pos for p in ab.positionen.all()], [])  # beide A-Positionen wanderten in die Rechnung
+        self.assertTrue(ab.abgeschlossen)
 
     def test_bestellung_nur_p_fehler_nichts_verschoben(self):
         ab = self.beleg(Belegart.AUFTRAG, mit_a=False)
@@ -193,8 +196,8 @@ class PKopierenTest(TestCase):
         self.assertEqual(ab.positionen.count(), 2)
         self.assertFalse(ab.abgeschlossen)
 
-    # ---- Proforma: Bestellung bleibt offen, weil die Proforma storniert werden kann -------------------
-    def test_bestellung_zu_proforma_p_im_angebot_bestellung_nicht_abgeschlossen(self):
+    # ---- Proforma: die Menge wandert in die Proforma, der Storno bucht sie zurück --------------------
+    def test_bestellung_zu_proforma_p_im_angebot_storno_oeffnet_bestellung_wieder(self):
         from apps.finanzen.anzahlung import proforma_stornieren
         ab = self.beleg(Belegart.AUFTRAG)
         pf = ab.kopieren_als(Belegart.PROFORMA)
@@ -203,12 +206,13 @@ class PKopierenTest(TestCase):
         angebot = Beleg.objects.get(art=Belegart.ANGEBOT)
         self.assertEqual(self.pos(angebot), [(1, "Netzteil")])
         ab.refresh_from_db()
-        self.assertFalse(ab.abgeschlossen)
+        self.assertTrue(ab.abgeschlossen)  # A ist in der Proforma, P im Angebot: die Bestellung ist leer = erledigt
         self.assertNotIn("abgeschlossen", pf.p_info)
-        self.assertEqual(ab.offene_mengen(), {})  # A ist in der Proforma
+        self.assertEqual(ab.offene_mengen(), {})
+        self.assertFalse(ab.positionen.exists())
         proforma_stornieren(pf, "Kunde kauft nicht")
         ab.refresh_from_db()
-        self.assertFalse(ab.abgeschlossen)
+        self.assertFalse(ab.abgeschlossen)  # Storno bucht die Menge zurück und öffnet die Bestellung wieder
         maus = ab.positionen.get(artikel=self.maus)
         self.assertEqual(ab.offene_mengen(), {maus.pk: Decimal("2.000")})  # A wieder offen
         self.assertFalse(ab.gesperrt)

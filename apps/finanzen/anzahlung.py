@@ -304,6 +304,8 @@ def proforma_stornieren(pf, grund, benutzer=None) -> Beleg:
     if abs(rest) >= CENT:
         raise ValueError(f"Auf {pf} sind noch {rest:.2f} € gezahlt.".replace(".", ",", 1)
                          + " Bitte zuerst den Betrag zurückzahlen (negative Zahlung), dann stornieren.")
+    from apps.verkauf.uebernahme import beleg_zurueckbuchen
+    beleg_zurueckbuchen(pf, ziel_anpassen=False)  # die Menge geht zurück in die Bestellung (Verlauf: zurückgebucht); die Proforma bleibt, wie sie war
     if not pf.abgeschlossen:  # Entwurf wird mit dem Storno festgeschrieben
         pf.berechne()
         Beleg.objects.filter(pk=pf.pk).update(abgeschlossen=True)
