@@ -69,6 +69,8 @@ FOLGEBELEG = {
     Belegart.AUFTRAG: Belegart.LIEFERSCHEIN,
     Belegart.LIEFERSCHEIN: Belegart.RECHNUNG,
 }
+# Beim Übernehmen wird der Beleg selbst umgewandelt (statt kopiert): Angebot -> Bestellung, Bestellung -> Rechnung direkt
+UMWANDELBAR = {(Belegart.ANGEBOT, Belegart.AUFTRAG), (Belegart.AUFTRAG, Belegart.RECHNUNG)}
 # Preislistenartikel (P) gibt es nur im Angebot; in diese Belegarten werden sie nicht kopiert (Proforma wird später zur Rechnung).
 P_UNZULAESSIG = (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA)
 # Diese Belegarten werden erst beim Abschluss nummeriert und danach gesperrt.
@@ -112,7 +114,11 @@ class Nummernkreis(models.Model):
         """Alle vergebenen Nummern der Art, aus den Belegen selbst und nicht aus dem Zähler."""
         modell = apps.get_model(cls.QUELLEN.get(art, "verkauf.Beleg"))
         filter_ = {"mandant": mandant, "nummer__startswith": art, **({} if art in cls.QUELLEN else {"art": art})}
-        return list(modell.objects.filter(**filter_).values_list("nummer", flat=True))
+        nummern = list(modell.objects.filter(**filter_).values_list("nummer", flat=True))
+        if art not in cls.QUELLEN:  # umgewandelte Belege (Angebot -> Bestellung -> Rechnung): die alten Nummern bleiben vergeben
+            nummern += list(BelegUmwandlung.objects.filter(beleg__mandant=mandant, von_art=art).exclude(von_nummer="")
+                            .values_list("von_nummer", flat=True))
+        return nummern
 
     @classmethod
     def gesperrt(cls, mandant: Mandant, art: str, jahr=None) -> bool:
@@ -156,6 +162,8 @@ class Nummernkreis(models.Model):
             zaehler = int(nummer[len(art):].split("-")[1])
         except (ValueError, IndexError):
             return
+        if art not in cls.QUELLEN and BelegUmwandlung.objects.filter(beleg__mandant=mandant, von_art=art, von_nummer=nummer).exists():
+            return  # frühere Nummer eines umgewandelten Belegs: bleibt vergeben
         with transaction.atomic():
             kreis = cls.objects.select_for_update().filter(mandant=mandant, art=art).first()
             # aus der Zeit der Jahreszähler kann derselbe Zählerstand in einem anderen Jahr noch vergeben sein
@@ -315,6 +323,11 @@ class Beleg(Zeitstempel):
         if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG, Belegart.PROFORMA) and not (
                 self.art in GESPERRT_NACH_ABSCHLUSS and not self.abgeschlossen and not self.nummer):
             return f"{self.get_art_display()} kann nicht gelöscht werden – Korrektur nur per Storno/Gutschrift."
+        if self.pk and self.art in GESPERRT_NACH_ABSCHLUSS:  # die frühere Bestellung samt Nummer wäre sonst mit weg
+            letzte = self.umwandlungen.order_by("-pk").first()
+            if letzte:
+                return (f"Die {self.get_art_display()} ist aus {Belegart(letzte.von_art).label} {letzte.von_nummer} umgewandelt "
+                        "und kann nicht gelöscht werden – die frühere Belegnummer muss erhalten bleiben.")
         if self.art == Belegart.PROFORMA and self.folgebelege.filter(art__in=(Belegart.RECHNUNG, Belegart.PROFORMA_STORNO)).exists():
             return "Aus der Proforma-Rechnung ist schon eine Rechnung oder ein Storno entstanden – sie muss erhalten bleiben."
         if self.art in (Belegart.PROFORMA, Belegart.AUFTRAG) and self.anzahlung_verrechnungen.exists():
@@ -433,6 +446,27 @@ class Beleg(Zeitstempel):
     def folgeart_name(self):
         return Belegart(self.folgeart).label if self.folgeart else ""
 
+    @cached_property
+    def verlauf(self) -> list:
+        """Alle Umwandlungen des Belegs (älteste zuerst), z. B. Angebot -> Bestellung -> Rechnung."""
+        return sorted(self.umwandlungen.all(), key=lambda u: u.pk) if self.pk else []  # Listen holen sie vorab (prefetch_related)
+
+    @property
+    def vormals(self) -> str:
+        """Hinweis „Angebot AN2026-00001, Bestellung AB2026-00003“ aus dem Verlauf; leer, wenn der Beleg nie umgewandelt wurde."""
+        return ", ".join(f"{u.von_art_name} {u.von_nummer}".strip() for u in self.verlauf)
+
+    @property
+    def bezug_text(self) -> str:
+        """Bezug im Kopf des Ausdrucks: die letzte frühere Nummer aus dem Verlauf (der direkte Vorgänger-Beleg, z. B. die
+        Bestellung), sonst der Vorgänger mit Nummer; sonst leer."""
+        for u in reversed(self.verlauf):
+            if u.von_nummer:
+                return f"{u.von_art_name} {u.von_nummer}"
+        if self.vorgaenger_id and self.vorgaenger.nummer:
+            return f"{self.vorgaenger.get_art_display()} {self.vorgaenger.nummer}"
+        return ""
+
     def save(self, *args, **kwargs):
         if self.pk and self.gesperrt:
             vorher = Beleg.objects.get(pk=self.pk)
@@ -458,7 +492,7 @@ class Beleg(Zeitstempel):
         anzahl = 0
         for b in kandidaten.order_by("-id"):
             if b.folgebelege.exists() or b.rechnungen.exists() or b.mails.exists() or b.zahlungen.exists() \
-                    or b.lagerbewegungen.exists() or b.versendungen.exists():
+                    or b.lagerbewegungen.exists() or b.versendungen.exists() or b.umwandlungen.exists():
                 continue
             nummer, art = b.nummer, b.art
             b.delete()
@@ -743,12 +777,57 @@ class Beleg(Zeitstempel):
             raise ValueError("Es wird nichts übernommen: Alle Positionen bleiben komplett reserviert in der Bestellung.")
         return mengen
 
+    def umwandlung_moeglich(self, art, mengen, p_ids) -> bool:
+        """Wird beim Übernehmen der Beleg selbst umgewandelt (Angebot -> Bestellung, Bestellung -> Rechnung) statt kopiert?
+        Nur bei vollständiger Übernahme; bei einer Teilübernahme (P-Artikel, Engpass/Teilmenge, schon vorhandene Folgebelege,
+        Zahlungen oder Anzahlungsverrechnungen) entsteht wie bisher ein neuer Beleg und der Rest bleibt im Ursprungsbeleg."""
+        if (self.art, art) not in UMWANDELBAR or p_ids or not self.pk:
+            return False
+        if self.folgebelege.exists():  # auch stornierte Proforma und frühere Kopien: sonst zählten deren Positionen als übernommen
+            return False
+        if art == Belegart.RECHNUNG:
+            if mengen is None or self.zahlungen.exists() or self.anzahlung_verrechnungen.exists():
+                return False
+            for p in self.positionen.filter(pk__in=self.echte_hauptpositionen()):
+                if mengen.get(p.pk, Decimal("0")) != p.menge:
+                    return False
+        return True
+
+    def _umwandeln(self, art) -> "Beleg":
+        """Derselbe Datensatz bekommt die neue Belegart und eine neue Nummer; die alte Nummer bleibt im Verlauf (BelegUmwandlung).
+        Eine Bestellung nummeriert sofort, die Rechnung erst beim Abschließen (lückenlos). Positionen bleiben unverändert."""
+        from apps.kern.middleware import aktueller_benutzer
+        with transaction.atomic():
+            # Zeile sperren und Zustand neu lesen: Doppelklick/zweiter Tab darf nicht zweimal umwandeln
+            aktuell = Beleg.objects.select_for_update().get(pk=self.pk)
+            if (aktuell.art, art) not in UMWANDELBAR or aktuell.art != self.art or aktuell.nummer != self.nummer:
+                raise ValueError(f"{self} wurde inzwischen umgewandelt – bitte den Beleg neu öffnen.")
+            # Bedingungen nach der Sperre erneut prüfen: zwischenzeitlich Folgebeleg/Zahlung -> nicht umwandeln
+            if (aktuell.folgebelege.exists() or aktuell.zahlungen.exists() or aktuell.anzahlung_verrechnungen.exists()):
+                raise ValueError(f"{self}: Inzwischen gibt es Folgebelege oder Zahlungen – bitte den Beleg neu öffnen und erneut übernehmen.")
+            benutzer = aktueller_benutzer()
+            benutzer = benutzer if benutzer is not None and benutzer.is_authenticated else None
+            BelegUmwandlung.objects.create(beleg=self, von_art=self.art, von_nummer=self.nummer or "",
+                                           von_belegdatum=self.belegdatum, nach_art=art, benutzer=benutzer)
+            heute = timezone.localdate()
+            self.art, self.belegdatum, self.abgeschlossen = art, heute, False
+            self.gueltig_bis = self.liefertermin = None
+            self.nummer = None if art in GESPERRT_NACH_ABSCHLUSS else Nummernkreis.naechste(self.mandant, art, heute.year)
+            self.save()  # nicht update(): das Änderungsprotokoll hält den Wechsel von Art und Nummer fest
+            self.__dict__.pop("verlauf", None)
+            self.berechne()  # Summen wie beim neuen Folgebeleg frisch rechnen
+        return self
+
     @transaction.atomic
-    def folgebeleg_erzeugen(self, entscheidungen=None) -> "Beleg":
+    def folgebeleg_erzeugen(self, entscheidungen=None, art=None) -> "Beleg":
+        """Nächste Stufe im Belegfluss. Bestellung -> Rechnung (art=RE) ist zusätzlich direkt möglich.
+        Rückgabe: bei vollständiger Übernahme von Angebot/Bestellung der umgewandelte Beleg selbst, sonst der neue Beleg."""
         self.arbeitsstand_beenden()
-        art = self.folgeart
-        if not art:
+        art = art or self.folgeart
+        if not self.folgeart:
             raise ValueError("Für diese Belegart gibt es keinen Folgebeleg.")
+        if art != self.folgeart and not (self.art == Belegart.AUFTRAG and art == Belegart.RECHNUNG):
+            raise ValueError(f"Aus {self.get_art_display()} kann kein {Belegart(art).label} übernommen werden.")
         if self.art == Belegart.LIEFERSCHEIN and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
         self.positionen_pruefen()
@@ -756,6 +835,8 @@ class Beleg(Zeitstempel):
         p_ids, verschieben = self._p_vorbereiten(art)
         anzahl = self.p_positionen().count() if p_ids else 0
         mengen = self._uebernahme(art, entscheidungen)  # prüft vor dem Anlegen: nichts anlegen, wenn nichts zu übernehmen ist
+        if self.umwandlung_moeglich(art, mengen, p_ids):
+            return self._umwandeln(art)
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
@@ -877,6 +958,36 @@ class Beleg(Zeitstempel):
         if not zb:
             return ""
         return (zb.druck_text or zb.bezeichnung).replace("ff.ff.ffff", self.faellig_am.strftime("%d.%m.%Y"))
+
+
+class BelegUmwandlung(models.Model):
+    """Verlauf eines umgewandelten Belegs: unter welcher Art und Nummer er früher geführt wurde
+    (Angebot -> Bestellung -> Rechnung). Die alten Nummern bleiben vergeben und suchbar."""
+
+    beleg = models.ForeignKey(Beleg, on_delete=models.CASCADE, related_name="umwandlungen")
+    von_art = models.CharField("frühere Belegart", max_length=2, choices=Belegart.choices)
+    von_nummer = models.CharField("frühere Belegnummer", max_length=20, blank=True)
+    von_belegdatum = models.DateField("früheres Belegdatum")
+    nach_art = models.CharField("neue Belegart", max_length=2, choices=Belegart.choices)
+    am = models.DateTimeField("umgewandelt am", default=timezone.now)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    class Meta:
+        verbose_name = "Umwandlung eines Belegs"
+        verbose_name_plural = "Umwandlungen von Belegen"
+        ordering = ["pk"]
+        indexes = [models.Index(fields=["von_art", "von_nummer"])]
+
+    @property
+    def von_art_name(self) -> str:
+        return Belegart(self.von_art).label
+
+    @property
+    def nach_art_name(self) -> str:
+        return Belegart(self.nach_art).label
+
+    def __str__(self):
+        return f"{self.von_art_name} {self.von_nummer or '(Entwurf)'} -> {self.nach_art_name}"
 
 
 class Mailvorlage(Zeitstempel):

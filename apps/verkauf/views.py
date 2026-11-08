@@ -136,7 +136,7 @@ def kunde_detail(request, kunde_id):
     from apps.finanzen import services as fin
     kunde = get_object_or_404(Kunde, pk=kunde_id)
     Beleg.leere_entwuerfe_entfernen(request.mandant, kunde)
-    belege = Beleg.objects.filter(kunde=kunde, mandant=request.mandant, positionen__isnull=False).distinct()         .select_related("kunde", "zahlungsbedingung", "vorgaenger")  # Belege ohne Position gelten nicht als gespeichert
+    belege = Beleg.objects.filter(kunde=kunde, mandant=request.mandant, positionen__isnull=False).distinct()         .select_related("kunde", "zahlungsbedingung", "vorgaenger").prefetch_related("umwandlungen")  # Belege ohne Position gelten nicht als gespeichert
     art = request.GET.get("art", "")
     if art == "offen":
         belege = belege.filter(abgeschlossen=False)
@@ -189,6 +189,7 @@ def kunde_detail(request, kunde_id):
                      -(b.summe_brutto - summen["verrechnet"].get(b.pk, null)) if gutschrift else None,
             "abrechenbar": b.pk in ls_ids and b.pk not in berechnet,
             "bezug": b.vorgaenger if b.vorgaenger_id and b.vorgaenger.nummer else None,
+            "vormals": b.vormals,
             "positionen": positionen.get(b.pk, [])[:15]})
     lieferscheine = list(Beleg.objects.filter(kunde=kunde, mandant=request.mandant, art=Belegart.LIEFERSCHEIN,
                                               abgeschlossen=True).values_list("pk", flat=True))
@@ -682,10 +683,24 @@ def beleg_abschliessen(request, beleg_id):
 @sperr_schutz
 def beleg_folgebeleg(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
-    entscheidungen = _uebernahme_entscheidungen(request, beleg, beleg.folgeart)
+    # Jedes Formular schickt die erwartete Ausgangsart mit: veralteter Tab oder Zurück-Taste nach dem Umwandeln
+    # darf nicht still die nächste Stufe (z. B. einen Lieferschein) auslösen.
+    if request.POST.get("von_art") != beleg.art:
+        messages.error(request, f"{beleg} wurde inzwischen umgewandelt oder geändert – bitte den Beleg neu öffnen. Es wurde nichts übernommen.")
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    art = request.POST.get("art") or beleg.folgeart  # Bestellung: zusätzlich art=RE (direkt als Rechnung übernehmen)
+    entscheidungen = _uebernahme_entscheidungen(request, beleg, art, extra={"art": art, "von_art": beleg.art})
     if isinstance(entscheidungen, HttpResponse):
         return entscheidungen  # Rückfrage bei zu wenig Bestand
-    neu = beleg.folgebeleg_erzeugen(entscheidungen=entscheidungen)
+    vorher = (beleg.art, beleg.get_art_display(), beleg.nummer)
+    neu = beleg.folgebeleg_erzeugen(entscheidungen=entscheidungen, art=art)
+    if neu.pk == beleg.pk:  # der Beleg selbst wurde umgewandelt, es gibt keinen neuen
+        messages.success(request, f"{vorher[1]} {vorher[2] or '(Entwurf)'} in {neu.get_art_display()} "
+                                  f"{neu.nummer or '(Entwurf)'} umgewandelt.")
+        return redirect("verkauf:beleg", beleg_id=neu.pk)
+    if vorher[0] == Belegart.AUFTRAG and art == Belegart.RECHNUNG and (beleg.zahlungen.exists() or beleg.anzahlung_verrechnungen.exists()):
+        messages.info(request, f"Zur Bestellung {vorher[2] or ''} gibt es Zahlungen: Es wurde eine neue Rechnung angelegt, "
+                               "die Bestellung bleibt mit ihren Zahlungen bestehen.")
     _uebernahme_meldung(request, beleg, neu)
     return redirect("verkauf:beleg", beleg_id=neu.pk)
 
@@ -735,7 +750,7 @@ def _uebernahme_meldung(request, beleg, neu):
     info = getattr(neu, "p_info", None)
     if info and info.get("angebot"):
         messages.warning(request, f"{info['anzahl']} Preislistenartikel (P) wurden in das neue Angebot {info['angebot'].nummer} übernommen, "
-                                  f"die Bestellung {beleg.nummer or ''} ist umgewandelt. P gibt es nur im Angebot – "
+                                  f"die Bestellung {beleg.nummer or ''} ist erledigt. P gibt es nur im Angebot – "
                                   "sie bleiben dort, bis sie als eigene Artikel (A) angelegt sind.")
     elif info:
         messages.warning(request, f"{info['anzahl']} Preislistenartikel (P) sind im {beleg.get_art_display()} {beleg.nummer or ''} geblieben und nicht mitkopiert – "
@@ -1241,10 +1256,10 @@ def belege(request):
     from datetime import date
 
     from django.core.paginator import Paginator
-    liste = Beleg.objects.filter(mandant=request.mandant, positionen__isnull=False).distinct().select_related("kunde")
+    liste = Beleg.objects.filter(mandant=request.mandant, positionen__isnull=False).distinct().select_related("kunde").prefetch_related("umwandlungen")
     q = request.GET.get("q", "").strip()
     for wort in q.split():
-        liste = liste.filter(Q(nummer__icontains=wort) | Q(kunde__name1__icontains=wort) | Q(kunde__nummer__icontains=wort)
+        liste = liste.filter(Q(nummer__icontains=wort) | Q(umwandlungen__von_nummer__icontains=wort) | Q(kunde__name1__icontains=wort) | Q(kunde__nummer__icontains=wort)
                              | Q(referenz__icontains=wort))
     art = request.GET.get("art", "")
     if art in Belegart.values:
@@ -1307,6 +1322,9 @@ def suche(request):
     q = request.GET.get("q", "").strip()
     if q:
         belege_treffer = list(Beleg.objects.filter(mandant=request.mandant, nummer__iexact=q).values_list("pk", flat=True)[:2])
+        if not belege_treffer:  # alte Nummer eines umgewandelten Belegs (Angebot/Bestellung): führt zum umgewandelten Beleg
+            belege_treffer = list(Beleg.objects.filter(mandant=request.mandant, umwandlungen__von_nummer__iexact=q)
+                                  .values_list("pk", flat=True).distinct()[:2])
         if len(belege_treffer) == 1:
             return redirect("verkauf:beleg", beleg_id=belege_treffer[0])
         kunden_treffer = list(Kunde.objects.filter(nummer__iexact=q, anonymisiert=False).values_list("pk", flat=True)[:2])

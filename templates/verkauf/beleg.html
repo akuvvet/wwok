@@ -19,6 +19,7 @@
       {% elif beleg.abgeschlossen %}<span class="marke ok">abgeschlossen</span>
       {% else %}<span class="marke">Entwurf</span>{% endif %}
       {% if beleg.vorgaenger %}<span>aus <a href="{% url 'verkauf:beleg' beleg.vorgaenger.pk %}">{{ beleg.vorgaenger }}</a></span>{% endif %}
+      {% if beleg.vormals %}<span class="marke" title="Der Beleg wurde umgewandelt; die alten Nummern bleiben vergeben und suchbar">vormals {{ beleg.vormals }}</span>{% endif %}
       {% for l in beleg.lieferscheine_aus_bestellung %}<a class="marke ok" href="{% url 'verkauf:beleg' l.pk %}" title="Lieferschein aus dieser Bestellung">L · {{ l.nummer|default:"(Entwurf)" }}</a>{% endfor %}
       {% for r in beleg.rechnungen_aus_bestellung %}<a class="marke ok" href="{% url 'verkauf:beleg' r.pk %}" title="Rechnung aus dieser Bestellung">R · {{ r.nummer|default:"(Entwurf)" }}</a>{% endfor %}
       {% if pf_rechnung %}<span>→ <a href="{% url 'verkauf:beleg' pf_rechnung.pk %}">{{ pf_rechnung }}</a></span>{% endif %}
@@ -29,6 +30,10 @@
     {% elif beleg.art == 'SP' %}<p style="margin:6px 0 0;opacity:.75">Storno-Beleg zur Proforma-Rechnung: unveränderlich, kein Umsatz und keine Gutschrift.</p>
     {% elif beleg.gesperrt %}<p style="margin:6px 0 0;opacity:.75">Korrektur nur per Storno/Gutschrift. Versandart und Zahlungsbedingung bleiben änderbar.</p>{% endif %}
     {% if anzahlungen %}<p class="zeile" style="margin:6px 0 0">{% for a in anzahlungen %}<span class="marke ok" title="Zahlung bleibt am Ursprungsbeleg; hier nur verrechnet">{% if a.betrag > 0 %}erhalten{% else %}aufgehoben{% endif %} aus <a href="{% url 'verkauf:beleg' a.quelle.pk %}">{{ a.quelle }}</a>: {{ a.betrag|floatformat:"2g" }} €</span>{% endfor %}</p>{% endif %}
+    {% if beleg.verlauf %}<details class="verlauf" style="margin:6px 0 0"><summary><small>Verlauf ({{ beleg.verlauf|length }} Umwandlung{{ beleg.verlauf|length|pluralize:"en" }})</small></summary>
+      <table style="font-size:13px"><thead><tr><th>Früher</th><th>Alte Nummer</th><th>Belegdatum</th><th>Umgewandelt in</th><th>Am</th><th>Benutzer</th></tr></thead><tbody>
+      {% for u in beleg.verlauf %}<tr><td>{{ u.von_art_name }}</td><td>{{ u.von_nummer|default:"(Entwurf)" }}</td><td>{{ u.von_belegdatum|date:"d.m.Y" }}</td><td>{{ u.nach_art_name }}</td><td>{{ u.am|date:"d.m.Y H:i" }}</td><td>{{ u.benutzer|default:"–" }}</td></tr>{% endfor %}
+      </tbody></table></details>{% endif %}
     {% if lieferantenbestellungen %}<div class="lieferantenbestellungen" style="margin:6px 0 0"><small style="opacity:.75">Lieferantenbestellungen:</small>
       {% for b in lieferantenbestellungen %}<span class="marke {% if b.status == 'storniert' %}gesperrt{% elif b.status != 'entwurf' %}ok{% endif %}" title="{{ b.bemerkung }}"{% if b.status == 'storniert' %} style="text-decoration:line-through"{% endif %}>
         <a href="{% url 'einkauf:bestellung' b.pk %}">{{ b.nummer }}</a> · {{ b.lieferant.kurz }} · {{ b.datum|date:"d.m.Y" }} · {% status_symbol "bestellung" b.status b.get_status_display mit_text=True %}{% if b.angelegt_von %} · {{ b.angelegt_von }}{% endif %}{% if b.aus_beleg_id != beleg.pk %} · aus {{ b.aus_beleg.nummer|default:b.aus_beleg }}{% endif %}</span>
@@ -67,7 +72,8 @@
       {% if pf_status and not pf_rechnung and not pf_storno %}{% if pf_status.code == 'bezahlt' or pf_status.code == 'ueberzahlt' %}<form method="post" action="{% url 'verkauf:beleg_umwandeln' beleg.pk %}" data-frage="Proforma in eine Rechnung umwandeln? Die Rechnung wird abgeschlossen (Lagerabgang) und erhält „Betrag dankend erhalten“.">{% csrf_token %}<button class="leise" type="submit"><strong>In Rechnung umwandeln</strong></button></form>
       {% else %}<button class="leise" type="button" disabled title="Erst nach vollständiger Zahlung">In Rechnung umwandeln (erst wenn bezahlt)</button>{% endif %}{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'verkauf:beleg_lieferschein_pdf' beleg.pk %}" target="_blank">Lieferschein zur Rechnung drucken</a>{% endif %}
-      {% if beleg.folgeart %}<form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">Als {{ beleg.folgeart_name }} übernehmen</button></form>{% endif %}
+      {% if beleg.folgeart %}<form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<input type="hidden" name="von_art" value="{{ beleg.art }}"><button class="leise" type="submit">Als {{ beleg.folgeart_name }} übernehmen</button></form>{% endif %}
+      {% if beleg.art == 'AB' %}<form method="post" action="{% url 'verkauf:beleg_folgebeleg' beleg.pk %}">{% csrf_token %}<input type="hidden" name="von_art" value="{{ beleg.art }}"><input type="hidden" name="art" value="RE"><button class="leise" type="submit">Als Rechnung übernehmen</button></form>{% endif %}
       <details class="untermehr"><summary class="knopf leise">Kopieren als … <span class="fein">▾</span></summary>
         <form method="post" action="{% url 'verkauf:beleg_kopieren' beleg.pk %}" class="kopieren" data-art="{{ beleg.art }}">{% csrf_token %}
           <input type="hidden" name="urbeleg_abschliessen" value="0">

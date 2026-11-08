@@ -259,9 +259,9 @@ class PKopierenTest(TestCase):
         text = " ".join(self.meldungen(r))
         angebot = Beleg.objects.get(art=Belegart.ANGEBOT)
         self.assertIn(f"1 Preislistenartikel (P) wurden in das neue Angebot {angebot.nummer} übernommen", text)
-        self.assertIn("ist umgewandelt", text)
+        self.assertIn("ist erledigt", text)
 
     def test_meldung_beim_folgebeleg_angebot(self):
         an = self.beleg(Belegart.ANGEBOT)
-        r = self.client.post(reverse("verkauf:beleg_folgebeleg", args=[an.pk]), follow=True)
+        r = self.client.post(reverse("verkauf:beleg_folgebeleg", args=[an.pk]), {"von_art": "AN"}, follow=True)
         self.assertIn("Preislistenartikel (P) sind im Angebot", " ".join(self.meldungen(r)))

@@ -100,8 +100,8 @@ def beleg_pdf(beleg, als_lieferschein=False) -> bytes:
         daten.append(["Gültig bis", beleg.gueltig_bis.strftime("%d.%m.%Y")])
     if beleg.liefertermin:
         daten.append(["Liefertermin", beleg.liefertermin.strftime("%d.%m.%Y")])
-    if beleg.vorgaenger and beleg.vorgaenger.nummer:
-        daten.append(["Bezug", f"{beleg.vorgaenger.get_art_display()} {beleg.vorgaenger.nummer}"])
+    if beleg.bezug_text:  # Vorgänger, sonst die letzte frühere Nummer eines umgewandelten Belegs
+        daten.append(["Bezug", beleg.bezug_text])
     rechte_spalte = Table([[absatz(a, klein), absatz(b, normal)] for a, b in daten], colWidths=[28 * mm, 40 * mm])
     kopf = Table([[absatz(anschrift, normal), rechte_spalte]], colWidths=[100 * mm, 70 * mm])
     kopf.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))

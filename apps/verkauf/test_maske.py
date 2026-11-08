@@ -64,6 +64,7 @@ class MaskeTest(TestCase):
             self.assertIn(erwartet, text)
         self.assertNotIn("eilig", text)  # interne Bemerkung wird nicht gedruckt
         folge = self.beleg.folgebeleg_erzeugen()
+        self.assertEqual(folge.pk, self.beleg.pk)  # Angebot -> Bestellung: derselbe Beleg, umgewandelt
         self.assertEqual((folge.referenz, folge.verpackung, folge.schlusstext), ("PO-4711", Decimal("2.00"), "Gültig 14 Tage."))
         seite = self.client.get(reverse("verkauf:beleg", args=[self.beleg.pk]))
         self.assertContains(seite, "Versand &amp; Zahlung")

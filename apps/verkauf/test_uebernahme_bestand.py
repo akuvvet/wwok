@@ -33,7 +33,7 @@ class UebernahmeBestandTest(TestCase):
         self.pos = Position.objects.create(beleg=self.ab, artikel=self.a, bezeichnung="Maus", menge=D("10"), einzelpreis=D("10"))
 
     def uebernehmen(self, **daten):
-        return self.client.post(reverse("verkauf:beleg_folgebeleg", args=[self.ab.pk]), daten)
+        return self.client.post(reverse("verkauf:beleg_folgebeleg", args=[self.ab.pk]), {"von_art": "AB", **daten})
 
     def test_ohne_engpass_keine_rueckfrage(self):
         self.pos.menge = D("5")

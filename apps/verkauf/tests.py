@@ -71,9 +71,16 @@ class VerkaufTest(TestCase):
     def test_belegfluss(self):
         a = self.beleg(Belegart.ANGEBOT)
         Position.objects.create(beleg=a, artikel=self.art, bezeichnung="Maus", einzelpreis=Decimal("8"))
+        alte_nummer = a.nummer
         auftrag = a.folgebeleg_erzeugen()
-        self.assertEqual((auftrag.art, auftrag.vorgaenger, auftrag.positionen.count()), ("AB", a, 1))
+        # Übernehmen wandelt das Angebot um: derselbe Datensatz, neue Art und Nummer, die alte Nummer steht im Verlauf
+        self.assertEqual((auftrag.pk, auftrag.art, auftrag.positionen.count()), (a.pk, "AB", 1))
+        self.assertTrue(auftrag.nummer.startswith("AB"))
+        self.assertEqual(auftrag.umwandlungen.get().von_nummer, alte_nummer)
+        self.assertEqual(Beleg.objects.filter(kunde=a.kunde).count(), 1)
         self.assertEqual(auftrag.summe_brutto, Decimal("9.52"))
+        kopie = auftrag.kopieren_als(Belegart.ANGEBOT)  # Kopieren bleibt immer eine echte Kopie
+        self.assertNotEqual(kopie.pk, auftrag.pk)
 
     def test_masken_und_mandantentrennung(self):
         user = get_user_model().objects.create_user("t", password="x" * 14)
@@ -424,7 +431,7 @@ class UrbelegLoeschenTest(TestCase):
         k = Kunde.objects.create(nummer="1", name1="K")
         angebot = Beleg.objects.create(mandant=m, art=Belegart.ANGEBOT, kunde=k)
         Position.objects.create(beleg=angebot, bezeichnung="X", menge=1, einzelpreis=Decimal("1"))
-        auftrag = angebot.folgebeleg_erzeugen()
+        auftrag = angebot.kopieren_als(Belegart.AUFTRAG)  # Kopie: das Angebot bleibt bestehen (Übernehmen würde es umwandeln)
         self.assertIsNone(angebot.loeschhindernis())
         angebot.delete()
         auftrag.refresh_from_db()
