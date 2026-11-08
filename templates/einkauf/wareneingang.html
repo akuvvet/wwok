@@ -17,7 +17,9 @@
   <form method="post" action="{% url 'einkauf:wareneingang_scan' we.pk %}" class="karte" style="border:2px solid #d97706;margin-top:12px">{% csrf_token %}
     <input type="hidden" name="code" value="{{ p_rueckfrage.code }}"><input type="hidden" name="menge" value="{{ p_rueckfrage.menge }}"><input type="hidden" name="p_anlegen" value="1">
     <p><strong>Code {{ p_rueckfrage.code }}</strong> ist Preislistenartikel „{{ p_rueckfrage.eintrag.bezeichnung }}“ (Lieferant {{ p_rueckfrage.eintrag.lieferant.kurz }}) ohne eigenen Artikel. Als Artikel (A) anlegen und erfassen?</p>
-    <button type="submit">Als Artikel (A) anlegen und erfassen</button> <a href="{% url 'einkauf:wareneingang' we.pk %}">Abbrechen</a>
+    <button type="submit">Als Artikel (A) anlegen und erfassen</button>
+    {% with ziel=p_rueckfrage.formular_url %}<a class="knopf leise" href="{{ ziel }}" data-modal="{{ ziel }}" title="Artikelformular mit den Lieferantendaten öffnen, vor dem Speichern anpassen">Im Formular anlegen …</a>{% endwith %}
+    <a href="{% url 'einkauf:wareneingang' we.pk %}">Abbrechen</a>
   </form>
   {% endif %}
   {% endif %}
@@ -25,8 +27,9 @@
   <div class="karte" style="border:2px solid #d97706;margin-top:12px">
     <h2>Preislistenartikel ohne eigenen Artikel</h2>
     <p class="fein">Diese Positionen der Bestellung sind noch keine eigenen Artikel und werden nicht still übernommen.</p>
-    <table><thead><tr><th>Bestellnr.</th><th>Bezeichnung</th><th class="zahl">Menge</th><th>Lieferant</th></tr></thead>
-      <tbody>{% for bp in p_offen %}<tr><td>{{ bp.bestellnummer }}</td><td>{{ bp.bezeichnung }}</td><td class="zahl">{{ bp.offen|floatformat:"-3" }}</td><td>{{ bp.bestellung.lieferant.kurz }}</td></tr>{% endfor %}</tbody></table>
+    <table><thead><tr><th>Bestellnr.</th><th>Bezeichnung</th><th class="zahl">Menge</th><th>Lieferant</th><th></th></tr></thead>
+      <tbody>{% for bp in p_offen %}<tr><td>{{ bp.bestellnummer }}</td><td>{{ bp.bezeichnung }}</td><td class="zahl">{{ bp.offen|floatformat:"-3" }}</td><td>{{ bp.bestellung.lieferant.kurz }}</td>
+        <td>{% with ziel=bp.formular_url %}<a class="knopf leise" href="{{ ziel }}" data-modal="{{ ziel }}" title="Artikelformular mit den Lieferantendaten öffnen, vor dem Speichern anpassen; nach dem Speichern wird der Artikel übernommen">Im Formular anlegen …</a>{% endwith %}</td></tr>{% endfor %}</tbody></table>
     <form method="post" action="{% url 'einkauf:wareneingang_p_anlegen' we.pk %}" data-frage="{{ p_offen|length }} Artikel werden mit Nummern aus dem Nummernkreis angelegt. Fortfahren?" style="margin-top:8px">{% csrf_token %}
       <button type="submit">Als eigene Artikel (A) anlegen und übernehmen</button>
     </form>

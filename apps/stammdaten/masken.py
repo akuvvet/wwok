@@ -2,6 +2,7 @@
 für den Dialog; gespeichert wird per fetch, bei Fehlern kommt das Fragment mit den Meldungen zurück (Status 422)."""
 import json
 from decimal import Decimal
+from urllib.parse import urlencode
 
 from django import forms as djforms
 from django.core.exceptions import ValidationError
@@ -301,12 +302,25 @@ def artikel_bearbeiten(request, pk=None):
     # P → A (Issue 24): Preislistenartikel als neuen Lagerartikel übernehmen; vorher Dublettenprüfung
     pl_eintrag = (get_object_or_404(Preislistenartikel.objects.select_related("lieferant"), pk=para["kopie_von_pl"])
                   if not pk and not vorlage and para.get("kopie_von_pl", "").isdigit() else None)
+    # aus dem Wareneingang geöffnet: nach dem Speichern den neuen Artikel dort übernehmen (Bestellposition bzw. Scan-Menge)
+    we_bezug, we_fehler, we_para = None, "", {}
+    if pl_eintrag and para.get("we"):
+        from apps.einkauf.services import we_bezug_holen
+        we_bezug = we_bezug_holen(mandant, pl_eintrag, para.get("we"), para.get("we_bp", ""), para.get("we_menge", ""))
+        if we_bezug is None:
+            if request.method != "POST":
+                raise Http404("Wareneingang oder Position nicht (mehr) offen.")
+            # beim Speichern inzwischen gebucht o. Ä.: Meldung im Formular statt Fehlerseite, Bezug bleibt (speichert nie ohne ihn)
+            we_fehler = "Der Wareneingang oder die Position ist nicht mehr offen (z. B. inzwischen gebucht) – es wurde nichts angelegt."
+            we_para = {k: para.get(k, "") for k in ("we", "we_bp", "we_menge")}
+        else:
+            we_para = {"we": we_bezug["we"].pk, "we_bp": we_bezug["bp"].pk if we_bezug["bp"] else "", "we_menge": we_bezug["menge"]}
     if pl_eintrag and request.method == "GET" and not request.GET.get("trotzdem"):
         dubletten = kopie.dubletten_zu_preisliste(pl_eintrag)
         if dubletten:
+            weiter = f"{reverse('stammdaten:artikel_neu')}?{urlencode({'kopie_von_pl': pl_eintrag.pk, 'trotzdem': 1, **we_para})}"
             return render(request, "stammdaten/kopie_dublette.html", {
-                "eintrag": pl_eintrag, "dubletten": dubletten,
-                "weiter": f"{reverse('stammdaten:artikel_neu')}?kopie_von_pl={pl_eintrag.pk}&trotzdem=1"})
+                "eintrag": pl_eintrag, "dubletten": dubletten, "weiter": weiter})
     if pk:
         instanz = get_object_or_404(Artikel, pk=pk)
     elif pl_eintrag:
@@ -315,6 +329,9 @@ def artikel_bearbeiten(request, pk=None):
         instanz = kopie.neuer_artikel(vorlage) if vorlage else Artikel(nummer=Stammnummer.vorschlag(Artikeltyp.A))
     daten = request.POST if request.method == "POST" else None
     form = f.ArtikelForm(daten, instance=instanz)
+    if we_para:  # aus dem Wareneingang: immer Lagerartikel (Typ A), der Typ ist nicht wählbar
+        form.fields["typ"].disabled = True
+        form.fields["typ"].initial = Artikeltyp.A
     if not pk:  # jede Art hat ihren Zähler, die Maske tauscht die Nummer beim Wechsel des Typs
         form.fields["nummer"].widget.attrs["data-vorschlaege"] = json.dumps({t: Stammnummer.vorschlag(t) for t in (Artikeltyp.A, Artikeltyp.L, Artikeltyp.G)})
     if vorlage:
@@ -327,6 +344,9 @@ def artikel_bearbeiten(request, pk=None):
     status = 200
     if request.method == "POST":
         gueltig = alle_gueltig(form, mandantform)
+        if we_fehler:
+            form.add_error(None, we_fehler)
+            gueltig = False
         # der Marker setzt erst das Skript des Reiters: ohne geladenen Reiter bleiben die Komponenten unberührt
         gruppe = form.cleaned_data.get("typ", instanz.typ) == Artikeltyp.G and "komp_geladen" in request.POST
         gewaehlt, anzeige, fehler = komponenten_lesen(request.POST, instanz) if gruppe else ([], komponenten, [])
@@ -337,20 +357,31 @@ def artikel_bearbeiten(request, pk=None):
         for text in bildfehler:
             form.add_error(None, f"Bilder: {text}")
         if gueltig and not fehler and not bildfehler:
-            with transaction.atomic():
+            try:
+                with transaction.atomic():
+                    if not pk:
+                        Stammnummer.belegen(form.cleaned_data["typ"], form.cleaned_data["nummer"])
+                    objekt = form.save()
+                    md = mandantform.save(commit=False)
+                    md.artikel, md.mandant = objekt, mandant
+                    md.save()
+                    if gruppe:
+                        komponenten_speichern(objekt, gewaehlt)
+                    if pl_eintrag:
+                        kopie.preisliste_verknuepfen(objekt, pl_eintrag)
+                    if we_bezug:  # gleiche Transaktion: ist der Wareneingang inzwischen gebucht, wird auch nichts angelegt
+                        from apps.einkauf.services import we_artikel_uebernehmen
+                        we_artikel_uebernehmen(we_bezug, objekt)
+                    bilder_speichern(objekt, bilderplan)  # zuletzt: Dateien erst, wenn alles andere gelungen ist
+            except ValueError as grund:  # z. B. Wareneingang inzwischen gebucht: nichts angelegt, Meldung im Formular
                 if not pk:
-                    Stammnummer.belegen(form.cleaned_data["typ"], form.cleaned_data["nummer"])
-                objekt = form.save()
-                md = mandantform.save(commit=False)
-                md.artikel, md.mandant = objekt, mandant
-                md.save()
-                if gruppe:
-                    komponenten_speichern(objekt, gewaehlt)
-                bilder_speichern(objekt, bilderplan)
-                if pl_eintrag:
-                    kopie.preisliste_verknuepfen(objekt, pl_eintrag)
-            # Neu: zur Artikelseite; Bearbeiten: auf der Seite bleiben, von der aus geöffnet wurde (z. B. Artikelliste)
-            return JsonResponse({"ok": True, "ziel": None if pk else reverse("lager:artikel", args=[objekt.pk])})
+                    form.instance.pk = None
+                form.add_error(None, str(grund))
+            else:
+                if we_bezug:
+                    return JsonResponse({"ok": True, "ziel": reverse("einkauf:wareneingang", args=[we_bezug["we"].pk])})
+                # Neu: zur Artikelseite; Bearbeiten: auf der Seite bleiben, von der aus geöffnet wurde (z. B. Artikelliste)
+                return JsonResponse({"ok": True, "ziel": None if pk else reverse("lager:artikel", args=[objekt.pk])})
         status = 422
     else:
         bildfehler = []
@@ -359,6 +390,6 @@ def artikel_bearbeiten(request, pk=None):
         "tabs": artikel_tabs(form, mandantform, komponenten, bool(form.non_field_errors()),
                              bilder_daten(instanz, bilder_kopie), bool(bildfehler)), "form": form, "neu": not pk, "warnung": "",
         "aktion": request.path, "kunde": False, "mandant": mandant, "kopie_von": vorlage, "kopie_bilder": bool(bilder_kopie),
-        "kopie_von_pl": pl_eintrag, "kopie_artikel": instanz if pk else None})
+        "kopie_von_pl": pl_eintrag, "kopie_artikel": instanz if pk else None, "we_para": we_para})
     antwort.status_code = status
     return antwort

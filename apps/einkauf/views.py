@@ -462,10 +462,20 @@ def wareneingang_detail(request, we_id):
     if not we.gebucht and request.GET.get("p_code"):  # Scan traf einen Preislistenartikel ohne eigenen Artikel: erst fragen
         eintrag = services.preislisten_treffer(request.GET["p_code"], we.lieferant)
         if eintrag is not None:
-            p_rueckfrage = {"code": request.GET["p_code"], "menge": request.GET.get("menge", "1"), "eintrag": eintrag}
+            menge = request.GET.get("menge", "1")
+            p_rueckfrage = {"code": request.GET["p_code"], "menge": menge, "eintrag": eintrag,
+                            "formular_url": artikel_formular_url(eintrag, we, we_menge=menge)}
+    p_offen = [] if we.gebucht else services.offene_p_positionen(we)
+    for bp in p_offen:  # „Im Formular anlegen …“: Artikelmaske mit den Lieferantendaten, nach dem Speichern übernommen
+        bp.formular_url = artikel_formular_url(bp.preisliste_artikel, we, we_bp=bp.pk)
     return render(request, "einkauf/wareneingang.html", {
         "we": we, "positionen": positionen, "netto": we.summe_netto, "bleibt_offen": services.bleibt_offen(we),
-        "p_offen": [] if we.gebucht else services.offene_p_positionen(we), "p_rueckfrage": p_rueckfrage})
+        "p_offen": p_offen, "p_rueckfrage": p_rueckfrage})
+
+
+def artikel_formular_url(eintrag, we, **bezug):
+    """Neuer Artikel aus einem Preislistenartikel, vorausgefüllt, mit Rückweg in den Wareneingang."""
+    return f"{reverse('stammdaten:artikel_neu')}?{urlencode({'kopie_von_pl': eintrag.pk, 'we': we.pk, **bezug})}"
 
 
 @mit_mandant

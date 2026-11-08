@@ -308,11 +308,16 @@ def artikel_aus_preisliste(eintrag):
         lieferant=eintrag.lieferant, bestellnummer=eintrag.bestellnummer,
         defaults={"artikel": artikel, "ek": eintrag.ek, "bestand": eintrag.bestand, "lieferzeit_tage": eintrag.lieferzeit_tage,
                   "preisliste": eintrag.preisliste, "aktualisiert_am": eintrag.aktualisiert_am})
+    p_positionen_umstellen(eintrag, artikel)
+    return artikel
+
+
+def p_positionen_umstellen(eintrag, artikel):
+    """Offene Bestell- und Verkaufspositionen des Preislistenartikels hängen danach am eigenen Artikel (A)."""
     BestellPosition.objects.filter(preisliste_artikel=eintrag, artikel__isnull=True).update(artikel=artikel)
     umstellen = Position.objects.filter(preisliste_artikel=eintrag, artikel__isnull=True).exclude(
         beleg__art__in=("RE", "GS", "SP"), beleg__abgeschlossen=True)  # Verkaufspositionen (außer abgeschlossene Rechnungen, Gutschriften, Proforma-Stornos) werden zu A
     umstellen.update(artikel=artikel, typ="A", preisliste_artikel=None)
-    return artikel
 
 
 def preislisten_treffer(code: str, lieferant):
@@ -354,6 +359,57 @@ def offene_p_positionen(we):
         return []
     return list(we.bestellung.positionen.filter(artikel__isnull=True, preisliste_artikel__isnull=False)
                 .select_related("preisliste_artikel", "bestellung__lieferant"))
+
+
+def we_bezug_holen(mandant, eintrag, we_id, bp_id="", menge=""):
+    """Artikelformular aus dem Wareneingang (P → A mit Formular): prüft den Bezug zum offenen Wareneingang.
+    Mit Bestellposition: offene P-Position genau dieses Preislistenartikels; ohne (Scan): Lieferant des Eintrags = Lieferant
+    des Wareneingangs, Menge > 0. Gibt {"we", "bp", "menge"} zurück oder None, wenn kein gültiger Bezug besteht."""
+    if not str(we_id).isdigit():
+        return None
+    we = Wareneingang.objects.select_related("bestellung").filter(pk=we_id, mandant=mandant, gebucht=False).first()
+    if we is None:
+        return None
+    if str(bp_id).isdigit():
+        if not we.bestellung_id:
+            return None
+        bp = we.bestellung.positionen.filter(pk=bp_id, artikel__isnull=True, preisliste_artikel=eintrag).first()
+        return {"we": we, "bp": bp, "menge": "", "eintrag": eintrag} if bp else None
+    if eintrag.lieferant_id != we.lieferant_id or eintrag.artikel_id is not None:  # Scan: noch ohne eigenen Artikel
+        return None
+    try:
+        menge_wert = Decimal(str(menge).replace(",", ".") or "1")
+    except ArithmeticError:
+        return None
+    if not menge_wert.is_finite() or menge_wert <= 0:
+        return None
+    return {"we": we, "bp": None, "menge": str(menge_wert), "eintrag": eintrag}
+
+
+@transaction.atomic
+def we_artikel_uebernehmen(bezug, artikel):
+    """Nach dem Speichern des Artikelformulars: neuen A-Artikel an die Bestellposition hängen und in den Wareneingang
+    übernehmen (offene Menge), beim Scan mit der gescannten Menge erfassen."""
+    if artikel.typ != "A":  # aus dem Wareneingang entsteht immer ein Lagerartikel (README 18: aus P wird A)
+        raise ValueError("Aus dem Wareneingang wird ein Lagerartikel (Typ A) angelegt – bitte Typ A wählen. Es wurde nichts angelegt.")
+    we = Wareneingang.objects.select_for_update().get(pk=bezug["we"].pk)
+    if we.gebucht:
+        raise ValueError("Der Wareneingang ist inzwischen gebucht – es wurde nichts angelegt.")
+    eintrag = Preislistenartikel.objects.select_for_update().get(pk=bezug["eintrag"].pk)
+    if eintrag.artikel_id != artikel.pk:  # inzwischen anderweitig angelegt (anderer Tab, schneller Weg): keinen zweiten Artikel
+        raise ValueError("Zu diesem Preislistenartikel gibt es inzwischen einen eigenen Artikel – es wurde nichts angelegt. "
+                         "Bitte den Wareneingang neu laden.")
+    bp = bezug["bp"]
+    if bp is not None:
+        bp = BestellPosition.objects.select_for_update().get(pk=bp.pk)
+        if bp.artikel_id is not None and bp.artikel_id != artikel.pk:
+            raise ValueError("Die Position hat inzwischen einen anderen Artikel – bitte den Wareneingang neu laden.")
+        p_positionen_umstellen(bp.preisliste_artikel, artikel)  # wie „anlegen und übernehmen“: auch Verkaufspositionen
+        bp.refresh_from_db()
+        wareneingang_aus_bestellung(we, nur=bp)
+    else:
+        p_positionen_umstellen(bezug["eintrag"], artikel)
+        wareneingang_erfassen(we, artikel, Decimal(bezug["menge"]))
 
 
 @transaction.atomic
