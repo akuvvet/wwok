@@ -57,5 +57,39 @@ class LieferscheinMarkeTest(TestCase):
     def test_andere_belegarten_ohne_markierung(self):
         an = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.kunde)
         self.assertEqual(an.lieferscheine_aus_bestellung, [])
+        self.assertEqual(an.rechnungen_aus_bestellung, [])
         markiert = Beleg.versand_markieren([an])
         self.assertEqual(markiert[0].lieferscheine_aus_bestellung, [])
+        self.assertEqual(markiert[0].rechnungen_aus_bestellung, [])
+
+    def test_bestellung_direkt_in_rechnung_bekommt_markierung_r(self):
+        ab = self.bestellung()
+        self.assertNotContains(self.client.get(reverse("verkauf:beleg", args=[ab.pk])), "Rechnung aus dieser Bestellung")
+        re = ab.kopieren_als(Belegart.RECHNUNG)
+        self.assertEqual(re.vorgaenger_id, ab.pk)
+        re_url = reverse("verkauf:beleg", args=[re.pk])
+        kopf = self.client.get(reverse("verkauf:beleg", args=[ab.pk]))
+        self.assertContains(kopf, f'href="{re_url}" title="Rechnung aus dieser Bestellung">R · {re.nummer or "(Entwurf)"}</a>')
+        self.assertNotContains(kopf, "Lieferschein aus dieser Bestellung")
+        for url, daten in ((reverse("verkauf:belege"), {"status": ""}), (reverse("verkauf:kunde", args=[self.kunde.pk]), {})):
+            with self.subTest(url=url):
+                r = self.client.get(url, daten)
+                self.assertContains(r, 'aria-label="Rechnung erstellt"', count=1)  # nur an der Bestellung
+                self.assertNotContains(r, 'aria-label="Lieferschein erstellt"')
+                self.assertContains(r, f'href="{re_url}" class="marke ok"')
+
+    def test_lieferschein_und_rechnung_beide_markiert_rechnung_aus_ls_zaehlt_nicht(self):
+        ab = self.bestellung()
+        ls = ab.folgebeleg_erzeugen()
+        aus_ls = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde, vorgaenger=ls)
+        markiert = Beleg.versand_markieren([ab])[0]
+        self.assertEqual([x.pk for x in markiert.lieferscheine_aus_bestellung], [ls.pk])
+        self.assertEqual(markiert.rechnungen_aus_bestellung, [])  # Rechnung aus dem Lieferschein zählt nicht
+        # kopieren_als sperrt eine zweite Abrechnung; die Anzeige muss beide Markierungen trotzdem nebeneinander können
+        direkt = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde, vorgaenger=ab)
+        markiert = Beleg.versand_markieren([Beleg.objects.get(pk=ab.pk)])[0]
+        self.assertEqual([x.pk for x in markiert.rechnungen_aus_bestellung], [direkt.pk])
+        self.assertNotIn(aus_ls.pk, [x.pk for x in markiert.rechnungen_aus_bestellung])
+        r = self.client.get(reverse("verkauf:belege"), {"status": ""})
+        self.assertContains(r, 'aria-label="Lieferschein erstellt"', count=1)
+        self.assertContains(r, 'aria-label="Rechnung erstellt"', count=1)

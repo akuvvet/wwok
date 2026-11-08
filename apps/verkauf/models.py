@@ -281,21 +281,31 @@ class Beleg(Zeitstempel):
             return []
         return list(self.folgebelege.filter(art=Belegart.LIEFERSCHEIN).order_by("pk").only("pk", "nummer", "art", "vorgaenger_id"))
 
+    @cached_property
+    def rechnungen_aus_bestellung(self) -> list:
+        """Bestellung: direkt daraus erstellte Rechnungen (Markierung „R“); eine Rechnung aus dem Lieferschein zählt hier
+        nicht, die hängt am Lieferschein. Listen setzen den Wert vorab (versand_markieren)."""
+        if self.art != Belegart.AUFTRAG:
+            return []
+        return list(self.folgebelege.filter(art=Belegart.RECHNUNG).order_by("pk").only("pk", "nummer", "art", "vorgaenger_id"))
+
     @staticmethod
     def versand_markieren(belege):
-        """Setzt hat_versand und (bei Bestellungen) die Lieferscheine für die Markierung „L“ für eine ganze Liste
-        mit je einer Abfrage (statt einer je Zeile)."""
+        """Setzt hat_versand und (bei Bestellungen) die Lieferscheine und Rechnungen für die Markierungen „L“ und „R“
+        für eine ganze Liste mit je einer Abfrage (statt einer je Zeile)."""
         belege = list(belege)
         mit = set(Versand.objects.filter(beleg__in=belege).values_list("beleg_id", flat=True))
-        lieferscheine = {}
+        folge = {Belegart.LIEFERSCHEIN: {}, Belegart.RECHNUNG: {}}
         auftraege = [b.pk for b in belege if b.art == Belegart.AUFTRAG]
         if auftraege:
-            for ls in Beleg.objects.filter(vorgaenger_id__in=auftraege, art=Belegart.LIEFERSCHEIN).order_by("pk").only(
+            for f in Beleg.objects.filter(vorgaenger_id__in=auftraege, art__in=list(folge)).order_by("pk").only(
                     "pk", "nummer", "art", "vorgaenger_id"):
-                lieferscheine.setdefault(ls.vorgaenger_id, []).append(ls)
+                folge[f.art].setdefault(f.vorgaenger_id, []).append(f)
         for b in belege:
             b.hat_versand = b.pk in mit
-            b.lieferscheine_aus_bestellung = lieferscheine.get(b.pk, []) if b.art == Belegart.AUFTRAG else []
+            ist_ab = b.art == Belegart.AUFTRAG
+            b.lieferscheine_aus_bestellung = folge[Belegart.LIEFERSCHEIN].get(b.pk, []) if ist_ab else []
+            b.rechnungen_aus_bestellung = folge[Belegart.RECHNUNG].get(b.pk, []) if ist_ab else []
         return belege
 
     def loeschhindernis(self):
