@@ -33,8 +33,10 @@
     <div><label for="f-kategorie">Kategorie</label><select id="f-kategorie" name="kategorie"><option value="">alle</option>
       {% for k in kategorien %}<option value="{{ k.pk }}" {% if kategorie == k.pk|stringformat:"s" %}selected{% endif %}>{{ k.einrueckung }}{{ k.name }}</option>{% endfor %}</select></div>
     <div><label for="f-pro-seite">pro Seite</label><select id="f-pro-seite" name="pro_seite">{% for n in seitengroessen %}<option value="{{ n }}" {% if n == pro_seite %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
-    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="bestand" value="1" {% if nur_bestand %}checked{% endif %}> nur mit Bestand</label>
-    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="nicht_aktiv" value="1" {% if nicht_aktiv %}checked{% endif %}> Nicht aktiv</label>
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="nicht_aktiv" value="1" {% if nicht_aktiv %}checked{% endif %}> Nicht aktiv</label>
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="bestand" value="1" {% if nur_bestand %}checked{% endif %}> nur mit Bestand</label>
+    </div>
     <noscript><button type="submit">Filtern</button></noscript>
     <a class="knopf" data-modal="{% url 'stammdaten:artikel_neu' %}" href="/verwaltung/stammdaten/artikel/add/">+ Neuer Artikel</a>
   </form>
