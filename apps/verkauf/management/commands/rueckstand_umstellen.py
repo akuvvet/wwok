@@ -5,9 +5,9 @@ from apps.verkauf import uebernahme
 
 
 class Command(BaseCommand):
-    help = ("Stellt offene Bestellungen mit alten Teilübernahmen (Lieferschein/Rechnung als Kopie) auf den Rest um: "
+    help = ("Stellt Bestellungen mit alten Teilübernahmen (Lieferschein/Rechnung als Kopie) auf den Rest um: "
             "Die Bestellung behält nur die noch offene Menge. Standard ist der Probelauf; geändert wird nur mit --ausfuehren. "
-            "Abgeschlossene Bestellungen und solche mit aktiver Proforma werden nur gemeldet. Nichts wird gelöscht; "
+            "Auch beim Kunden versandte Bestellungen werden umgestellt (Status bleibt); solche mit aktiver Proforma werden nur gemeldet. Nichts wird gelöscht; "
             "Positionen mit Rest 0 bleiben mit Menge 0 stehen.")
 
     def add_arguments(self, parser):
@@ -26,10 +26,10 @@ class Command(BaseCommand):
         for fall in uebernahme.altfaelle(mandant):
             ab = fall["beleg"]
             if fall["status"] != "umstellen":
-                grund = "abgeschlossen (beim Kunden versandt)" if fall["status"] == "abgeschlossen" else "aktive Proforma-Rechnung"
-                self.stdout.write(f"{ab} [{ab.mandant}]: nur gemeldet, nicht umgestellt – {grund}.")
+                self.stdout.write(f"{ab} [{ab.mandant}]: nur gemeldet, nicht umgestellt – aktive Proforma-Rechnung.")
                 gemeldet += 1
                 continue
+            versandt = " (beim Kunden versandt, Status bleibt)" if ab.abgeschlossen else ""
             try:
                 plan = uebernahme.altfall_plan(ab)
                 if ausfuehren:
@@ -38,7 +38,7 @@ class Command(BaseCommand):
                 self.stderr.write(f"{ab} [{ab.mandant}]: nicht umgestellt – {e}")
                 fehler += 1
                 continue
-            self.stdout.write(f"{ab} [{ab.mandant}]: {'umgestellt' if ausfuehren else 'würde umgestellt'}")
+            self.stdout.write(f"{ab} [{ab.mandant}]: {'umgestellt' if ausfuehren else 'würde umgestellt'}{versandt}")
             for z in plan:
                 ziele = ", ".join(sorted({f"{k.beleg.get_art_display()} {k.beleg.nummer or '(Entwurf)'}" for k in z["kopien"]}))
                 self.stdout.write(f"    {z['position'].bezeichnung}: {uebernahme._menge_text(z['alt'])} -> {uebernahme._menge_text(z['neu'])} "

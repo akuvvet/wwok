@@ -101,8 +101,8 @@ def alte_kopien(ab) -> dict:
 def erledigt_wenn_leer(ab) -> bool:
     """Eine Bestellung ohne Position ist erledigt (abgeschlossen), ohne abschliessen(): das fehlt bei leeren Belegen."""
     if ab.art == Belegart.AUFTRAG and not ab.abgeschlossen and not ab.positionen.exists():
-        ab.abgeschlossen = True
-        ab.save(update_fields=["abgeschlossen"])
+        ab.abgeschlossen = ab.automatisch_erledigt = True
+        ab.save(update_fields=["abgeschlossen", "automatisch_erledigt"])
         return True
     return False
 
@@ -222,7 +222,8 @@ def zurueckbuchen(p, menge, ziel_anpassen=True) -> Decimal:
         return NULL
     kinder = list(p.unterpositionen.select_related("quellposition"))
     anteile = {t.pk: _anteil(t.menge, rueck, p.menge, t.bezeichnung) for t in kinder}  # erst prüfen, dann schreiben
-    war_erledigt = ab.abgeschlossen and not ab.offene_mengen()
+    # Nur eine vom Programm erledigte Bestellung wird wieder geöffnet; eine beim Kunden versandte behält ihren Status
+    war_erledigt = ab.abgeschlossen and ab.automatisch_erledigt and not ab.offene_mengen()
     kopf = _ab_position(p, ab)
     if kopf is not None:
         kopf = Position.objects.select_for_update().get(pk=kopf.pk)
@@ -250,8 +251,8 @@ def zurueckbuchen(p, menge, ziel_anpassen=True) -> Decimal:
     _eintrag(ab, p.beleg, BelegUebernahme.ZURUECK, rueck, kopf, p, p)
     ab.berechne()
     if war_erledigt:
-        ab.abgeschlossen = False
-        ab.save(update_fields=["abgeschlossen"])
+        ab.abgeschlossen = ab.automatisch_erledigt = False
+        ab.save(update_fields=["abgeschlossen", "automatisch_erledigt"])
     return rueck
 
 
@@ -404,7 +405,8 @@ def rueckstand_text(ab, positionen) -> dict:
 # ---- Altdaten --------------------------------------------------------------------------------------------------------
 def altfaelle(mandant=None) -> list:
     """Bestellungen mit alten Teilübernahmen (Kopien mit verschoben=False, ohne stornierte Proforma):
-    [{"beleg", "status": "umstellen" | "abgeschlossen" | "proforma"}]."""
+    [{"beleg", "status": "umstellen" | "proforma"}]. Auch beim Kunden versandte (abgeschlossene) Bestellungen werden
+    umgestellt; ihr Status bleibt."""
     kopien = (Position.objects.filter(beleg__vorgaenger__art=Belegart.AUFTRAG, beleg__art__in=FOLGEARTEN, verschoben=False,
                                       quellposition__isnull=False)
               .exclude(beleg__in=stornierte_proformas()).values_list("beleg__vorgaenger_id", "quellposition__beleg_id"))
@@ -415,7 +417,7 @@ def altfaelle(mandant=None) -> list:
     ergebnis = []
     for ab in belege.order_by("mandant_id", "pk"):
         aktive_pf = ab.folgebelege.filter(art=Belegart.PROFORMA).exclude(folgebelege__art=Belegart.PROFORMA_STORNO).exists()
-        status = "abgeschlossen" if ab.abgeschlossen else "proforma" if aktive_pf else "umstellen"
+        status = "proforma" if aktive_pf else "umstellen"
         ergebnis.append({"beleg": ab, "status": status})
     return ergebnis
 
@@ -438,13 +440,11 @@ def altfall_plan(ab) -> list:
 
 @transaction.atomic
 def altfall_umstellen(ab) -> list:
-    """Stellt eine offene Bestellung mit alten Teilübernahmen auf den Rest um: Hauptposition und Unterpositionen sinken
+    """Stellt eine Bestellung (auch eine beim Kunden versandte) mit alten Teilübernahmen auf den Rest um: Hauptposition und Unterpositionen sinken
     (anteilig), die alten Kopien werden als verschoben markiert, je Kopie entsteht ein Verlaufseintrag „umgestellt“.
     Positionen mit Rest 0 bleiben mit Menge 0 stehen; ist alles 0, ist die Bestellung erledigt. Nichts wird gelöscht.
     Die Kopien liegen oft in abgeschlossenen (gesperrten) Belegen: nur das Kennzeichen wird dort per update() gesetzt."""
     Beleg.objects.select_for_update().get(pk=ab.pk)
-    if ab.abgeschlossen:
-        raise ValueError(f"{ab} ist abgeschlossen und wird nicht umgestellt.")
     plan = altfall_plan(ab)
     unter = {}
     for t in Position.objects.filter(beleg=ab, gruppe__isnull=False):
@@ -474,6 +474,6 @@ def altfall_umstellen(ab) -> list:
         p.save()
     ab.berechne()
     if not any(p.menge > 0 for p in ab.positionen.filter(gruppe__isnull=True)) and not ab.abgeschlossen:
-        ab.abgeschlossen = True
-        ab.save(update_fields=["abgeschlossen"])
+        ab.abgeschlossen = ab.automatisch_erledigt = True
+        ab.save(update_fields=["abgeschlossen", "automatisch_erledigt"])
     return plan

@@ -284,6 +284,15 @@ class MitziehenTest(TeiluebernahmeBasis):
         self.assertEqual(self.rest(), D("10"))
         self.assertEqual(self.ab.positionen.count(), 1)
 
+    def test_versandte_bestellung_voll_uebernommen_entwurf_loeschen_bleibt_versandt(self):
+        Beleg.objects.filter(pk=self.ab.pk).update(abgeschlossen=True)  # beim Kunden versandt
+        self.ab.refresh_from_db()
+        re = self.uebernehmen({self.pos.pk: D("10")}, art=Belegart.RECHNUNG)
+        self.client.post(reverse("verkauf:beleg_loeschen", args=[re.pk]))
+        self.ab.refresh_from_db()
+        self.assertTrue(self.ab.abgeschlossen)
+        self.assertEqual(self.ab.positionen.get().menge, D("10"))
+
     def test_rechnungsentwurf_loeschen_bucht_alles_zurueck(self):
         Beleg.objects.filter(pk=self.ab.pk).update(versandkosten=D("4.00"))
         self.ab.refresh_from_db()
@@ -405,14 +414,39 @@ class AltdatenBefehlTest(TeiluebernahmeBasis):
         self.client.post(reverse("verkauf:position_aendern", args=[ls.pk, kopie.pk]), {"menge": "6", "preis": "10", "rabatt": "0"})
         self.assertEqual(self.rest(), D("4"))
 
-    def test_abgeschlossene_bestellung_wird_nur_gemeldet(self):
-        self.altfall()
-        Beleg.objects.filter(pk=self.ab.pk).update(abgeschlossen=True)
+    def test_versandte_bestellung_wird_umgestellt_status_bleibt(self):
+        ls, kopie = self.altfall()
+        Beleg.objects.filter(pk=self.ab.pk).update(abgeschlossen=True)  # beim Kunden versandt
+        aus, _ = self.befehl()
+        self.assertIn("würde umgestellt (beim Kunden versandt", aus)
+        self.assertEqual(self.rest(), D("10"))  # Probelauf ändert nichts
         aus, _ = self.befehl("--ausfuehren")
-        self.assertIn("nur gemeldet", aus)
-        self.assertIn("abgeschlossen", aus)
-        self.assertEqual(self.rest(), D("10"))
-        self.assertFalse(BelegUebernahme.objects.exists())
+        self.assertIn("1 umgestellt, 0 nur gemeldet", aus)
+        self.assertEqual(self.rest(), D("3"))
+        self.ab.refresh_from_db()
+        self.assertTrue(self.ab.abgeschlossen)
+        self.assertTrue(BelegUebernahme.objects.filter(richtung=BelegUebernahme.UMGESTELLT).exists())
+        self.client.post(reverse("verkauf:position_aendern", args=[ls.pk, kopie.pk]), {"menge": "6", "preis": "10", "rabatt": "0"})
+        self.assertEqual(self.rest(), D("4"))  # Mitziehen funktioniert auch danach
+
+    def test_versandte_voll_gelieferte_bestellung_bleibt_beim_rueckbuchen_versandt(self):
+        ls, kopie = self.altfall("10")
+        Beleg.objects.filter(pk=self.ab.pk).update(abgeschlossen=True)  # beim Kunden versandt
+        aus, _ = self.befehl("--ausfuehren")
+        self.assertIn("umgestellt (beim Kunden versandt", aus)
+        self.assertEqual(self.rest(), D("0"))
+        self.client.post(reverse("verkauf:position_aendern", args=[ls.pk, kopie.pk]), {"menge": "6", "preis": "10", "rabatt": "0"})
+        self.assertEqual(self.rest(), D("4"))
+        self.ab.refresh_from_db()
+        self.assertTrue(self.ab.abgeschlossen)  # Status „versandt“ bleibt
+        self.assertFalse(self.ab.automatisch_erledigt)
+
+    def test_offene_bestellung_auf_null_wird_automatisch_erledigt_und_ohne_versandt_hinweis(self):
+        self.altfall("10")
+        aus, _ = self.befehl("--ausfuehren")
+        self.assertNotIn("versandt", aus)
+        self.ab.refresh_from_db()
+        self.assertTrue(self.ab.abgeschlossen and self.ab.automatisch_erledigt)
 
     def test_aktive_proforma_wird_nur_gemeldet(self):
         Beleg.objects.create(mandant=self.m, art=Belegart.PROFORMA, kunde=self.kunde, vorgaenger=self.ab)

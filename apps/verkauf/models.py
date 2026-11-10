@@ -229,6 +229,10 @@ class Beleg(Zeitstempel):
     lieferscheine = models.ManyToManyField("self", symmetrical=False, blank=True, related_name="rechnungen",
                                            help_text="Bei Sammelrechnungen: alle Lieferscheine, die abgerechnet werden")
     abgeschlossen = models.BooleanField("abgeschlossen", default=False, editable=False)
+    automatisch_erledigt = models.BooleanField(
+        "automatisch erledigt", default=False, editable=False,
+        help_text="Bestellung: vom Programm abgeschlossen, weil nichts mehr offen war (nicht beim Kunden versandt). "
+                  "Nur eine solche Bestellung wird beim Rückbuchen wieder geöffnet.")
     nl_lager_abbuchen = models.BooleanField(
         "Nachlieferschein: Ware vom Lager abbuchen", null=True, blank=True, editable=False,
         help_text="Leer = noch nicht beantwortet. Ja bei Ersatzlieferung (z. B. defektes Gerät), nein bei bloßer Nachlieferung.")
@@ -412,6 +416,8 @@ class Beleg(Zeitstempel):
             if neu.art != Belegart.PROFORMA and not self.offene_mengen() and not self.abgeschlossen:
                 if self.positionen.exists():
                     self.abschliessen()
+                    self.automatisch_erledigt = True
+                    Beleg.objects.filter(pk=self.pk).update(automatisch_erledigt=True)
                 else:  # leer gewordene Bestellung: abschliessen() fehlt bei Belegen ohne Position
                     from .uebernahme import erledigt_wenn_leer
                     erledigt_wenn_leer(self)
