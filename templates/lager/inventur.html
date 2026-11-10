@@ -9,6 +9,7 @@
       <input id="q" name="q" value="{{ q }}" size="34" autofocus></div>
     <div><label for="f-kategorie">Kategorie</label><select id="f-kategorie" name="kategorie"><option value="">alle</option>
       {% for k in kategorien %}<option value="{{ k.pk }}" {% if kategorie == k.pk|stringformat:"s" %}selected{% endif %}>{{ k.einrueckung }}{{ k.name }}</option>{% endfor %}</select></div>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="nicht_aktiv" value="1" {% if nicht_aktiv %}checked{% endif %}> Nicht aktiv</label>
     <noscript><button type="submit" class="leise">Filtern</button></noscript>
     <button type="button" class="leise" onclick="window.print()">Zählliste drucken</button>
   </form>
@@ -21,7 +22,7 @@
     {% for z in zeilen %}
     <tr><td>{{ z.platz }}</td><td>{{ z.artikel.nummer }}</td><td>{{ z.artikel.bezeichnung }}</td>
         <td class="zahl">{{ z.soll|floatformat:"-3" }}</td><td><input name="gezaehlt_{{ z.artikel.pk }}" size="6" inputmode="decimal" aria-label="gezählt {{ z.artikel.nummer }}"></td></tr>
-    {% empty %}<tr><td colspan="5">{% if q or kategorie %}{% include "filter_leer.html" %}{% else %}Keine Artikel mit Bestand.{% endif %}</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="5">{% if q or kategorie or nicht_aktiv %}{% include "filter_leer.html" %}{% else %}Keine Artikel mit Bestand.{% endif %}</td></tr>{% endfor %}
   </table>
   </div>
   <p><button type="submit">Differenzen buchen</button> <span id="erfasst" style="opacity:.8"></span></p>

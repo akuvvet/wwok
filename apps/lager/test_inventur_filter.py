@@ -39,8 +39,8 @@ class InventurFilterTest(TestCase):
         self.assertEqual(r.status_code, 200)
         return [z["artikel"].nummer for z in r.context["zeilen"]]
 
-    def test_ohne_filter_alle_artikel_mit_bestand_des_mandanten(self):
-        self.assertEqual(sorted(self.nummern()), ["K200", "M100", "X300"])  # ohne Bestand und fremder Mandant fehlen
+    def test_ohne_filter_nur_aktive_artikel_mit_bestand_des_mandanten(self):
+        self.assertEqual(sorted(self.nummern()), ["K200", "M100"])  # nicht aktiv, ohne Bestand und fremder Mandant fehlen
 
     def test_suche_mehrere_woerter_in_beliebiger_reihenfolge(self):
         self.assertEqual(self.nummern(q="schwarz funk"), ["M100"])
@@ -48,14 +48,24 @@ class InventurFilterTest(TestCase):
         self.assertEqual(self.nummern(q="4001234567890"), ["M100"])  # EAN (Scanner)
         self.assertEqual(self.nummern(q="maus"), ["M100"])  # nicht: ohne Bestand, anderer Mandant
 
-    def test_suche_findet_auch_nicht_aktive_artikel_mit_bestand(self):
-        self.assertEqual(self.nummern(q="tastatur"), ["X300"])
+    def test_haken_nicht_aktiv_zeigt_nur_nicht_aktive(self):
+        self.assertEqual(self.nummern(q="tastatur"), [])
+        self.assertEqual(self.nummern(nicht_aktiv="1"), ["X300"])
+        self.assertEqual(self.nummern(nicht_aktiv="1", q="tastatur"), ["X300"])
+        self.assertEqual(self.nummern(nicht_aktiv="1", q="maus"), [])
+        r = self.client.get(reverse("lager:inventur_liste"), {"nicht_aktiv": "1"})
+        self.assertContains(r, 'name="nicht_aktiv" value="1" checked')
+        self.assertNotContains(self.client.get(reverse("lager:inventur_liste")), 'value="1" checked')
+
+    def test_nicht_aktive_lassen_sich_buchen(self):
+        self.client.post(reverse("lager:inventur_liste") + "?nicht_aktiv=1", {f"gezaehlt_{self.alt.pk}": "0"})
+        self.assertEqual(bestand(self.m, self.alt), Decimal("0"))
 
     def test_kategorie_mit_unterkategorien_und_kombiniert_mit_suche(self):
         self.assertEqual(sorted(self.nummern(kategorie=self.haupt.pk)), ["K200", "M100"])
         self.assertEqual(self.nummern(kategorie=self.unter.pk), ["M100"])
         self.assertEqual(self.nummern(kategorie=self.haupt.pk, q="hdmi"), ["K200"])
-        self.assertEqual(sorted(self.nummern(kategorie="abc")), ["K200", "M100", "X300"])
+        self.assertEqual(sorted(self.nummern(kategorie="abc")), ["K200", "M100"])
 
     def test_maske_hat_suchfeld_livefilter_und_unterkategorien(self):
         r = self.client.get(reverse("lager:inventur_liste"), {"q": "hdmi"})

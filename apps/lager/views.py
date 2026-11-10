@@ -304,13 +304,15 @@ def gutschrift_retoure(request, beleg_id):
 @mit_mandant
 def inventur_liste(request):
     """Zählliste mit Erfassung: gezählte Mengen eintragen, Differenzen werden gebucht.
-    Suche und Kategorie grenzen nur die Anzeige ein; gebucht wird jede eingetragene Zählung eines Artikels mit Bestand,
+    Standard: nur aktive Artikel; Haken „Nicht aktiv“ zeigt nur die als nicht aktiv markierten.
+    Suche, Kategorie und dieser Haken grenzen nur die Anzeige ein; gebucht wird jede eingetragene Zählung eines Artikels mit Bestand,
     auch wenn er nach einem Filterwechsel gerade nicht angezeigt wird (die Maske trägt die Werte mit)."""
     summen = {s["artikel"]: s["s"] for s in Lagerbewegung.objects.filter(mandant=request.mandant)
               .values("artikel").annotate(s=Sum("menge"))}
     plaetze = {d.artikel_id: d.lagerplatz for d in ArtikelMandant.objects.filter(mandant=request.mandant)}
     q = request.GET.get("q", "").strip()
     kategorie = request.GET.get("kategorie", "")
+    nicht_aktiv = request.GET.get("nicht_aktiv") == "1"
     alle = Artikel.objects.filter(pk__in=[a for a, s in summen.items() if s], typ="A")
     if request.method == "POST":
         gebucht = 0
@@ -323,8 +325,8 @@ def inventur_liste(request):
                     messages.error(request, f"{a.nummer}: {fehler}")
         messages.success(request, f"{gebucht} Differenzbuchung(en) erstellt.")
         return redirect(request.get_full_path())
-    artikel = nach_kategorie(suche(q, alle) if q else alle, kategorie)
+    artikel = nach_kategorie(suche(q, alle) if q else alle, kategorie).filter(nicht_aktiv=nicht_aktiv)
     zeilen_ = sorted(({"artikel": a, "soll": summen.get(a.pk, Decimal("0")), "platz": plaetze.get(a.pk, "")}
                       for a in artikel.select_related("kategorie")), key=lambda z: (z["platz"], z["artikel"].nummer))
     return render(request, "lager/inventur.html", {
-        "zeilen": zeilen_, "q": q, "kategorie": kategorie, "kategorien": kategorien_baum()})
+        "zeilen": zeilen_, "q": q, "kategorie": kategorie, "nicht_aktiv": nicht_aktiv, "kategorien": kategorien_baum()})
