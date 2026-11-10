@@ -1,7 +1,7 @@
 """
 Vorläufige Belege: Was in der Belegmaske neu entsteht oder umgewandelt wird, ist erst mit „Speichern: abschließen & Nummer
 vergeben“ endgültig. Bis dahin hält ein BelegVorgang den Ausgangszustand von Quelle und Beleg fest; „Verwerfen“ (Rückfrage beim
-Verlassen, „Löschen“ am Beleg, Bereinigung nach 2 Stunden ohne Aktivität) stellt ihn wieder her, als hätte es den Vorgang nie gegeben.
+Verlassen, „Löschen“ am Beleg, Bereinigung, sobald die Maske verlassen ist) stellt ihn wieder her, als hätte es den Vorgang nie gegeben.
 
 - stand_sichern / vorgang_beginnen: Ausgangszustand festhalten (vor der ersten Änderung an der Quelle)
 - beleg_verwerfen: alles zurücknehmen (neuer Beleg, Folgebeleg, Kopie, Umwandlung, Gutschrift, Sammelrechnung)
@@ -435,7 +435,7 @@ def beleg_verwerfen(beleg, benutzer=None, grund="") -> dict | None:
             if stand.get("abschluss_modus") == "angebot":  # aus einem nicht gespeicherten Angebot: als hätte es die Übernahme nie gegeben
                 _verlauf_entfernen(b)
             _loeschen(b)
-            if stand.get("abschluss_modus") == "angebot" and quelle is not None:  # das Angebot bleibt unverändert, neue 2-Stunden-Frist
+            if stand.get("abschluss_modus") == "angebot" and quelle is not None:  # das Angebot bleibt unverändert, neue Frist
                 Beleg.objects.filter(pk=quelle.pk, vorlaeufig=True, abgeschlossen=False).update(zuletzt_aktiv=timezone.now())
     logger.info("Beleg %s verworfen (%s, %s)", beleg.pk, vorgang.get_weg_display(), grund or "von Hand")
     return {"weiter": weiter, "meldungen": meldungen}

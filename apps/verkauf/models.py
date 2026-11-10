@@ -75,8 +75,12 @@ UMWANDELBAR = {(Belegart.ANGEBOT, Belegart.AUFTRAG), (Belegart.AUFTRAG, Belegart
 P_UNZULAESSIG = (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA)
 # Diese Belegarten werden erst beim Abschluss nummeriert und danach gesperrt.
 GESPERRT_NACH_ABSCHLUSS = {Belegart.RECHNUNG, Belegart.GUTSCHRIFT, Belegart.PROFORMA_STORNO}
-# Vorläufige Belege (in der Maske neu angelegt oder umgewandelt, noch nicht abgeschlossen) werden nach so vielen Stunden ohne Aktivität verworfen.
-VORLAEUFIG_STUNDEN = 2
+# Vorläufige Belege (in der Maske neu angelegt oder umgewandelt, noch nicht abgeschlossen): Tab/Browser geschlossen -> sofort verworfen
+# (Signal „verlassen“). Ersatzfrist nur, wenn die offene Maske kein Lebenszeichen mehr sendet (Absturz, Ruhezustand, Netz weg):
+VORLAEUFIG_MINUTEN = 60
+# Nach dem Schließen von Tab oder Browser (Signal „verlassen“) gilt der Beleg nach so vielen Sekunden als verlassen; ein Neuladen hält
+# ihn (die neu geladene Maske meldet sich nach 3 Sekunden, eine zweite offene Maske alle 15 Sekunden).
+VERLASSEN_SEKUNDEN = 30
 
 
 class Ruecknahme(models.TextChoices):
@@ -243,7 +247,7 @@ class Beleg(Zeitstempel):
         help_text="In der Belegmaske neu angelegt oder umgewandelt und noch nicht mit „Speichern: abschließen & Nummer vergeben“ "
                   "gespeichert: ohne Nummer; wird verworfen (alles zurückgenommen), wenn er nicht abgeschlossen wird.")
     zuletzt_aktiv = models.DateTimeField("zuletzt aktiv", null=True, blank=True, editable=False,
-                                         help_text="Vorläufiger Beleg: letzte Aktivität des Benutzers; nach 2 Stunden ohne Aktivität wird verworfen.")
+                                         help_text="Vorläufiger Beleg: letzte Aktivität des Benutzers; ohne Lebenszeichen der geöffneten Maske wird verworfen.")
     abo = models.ForeignKey("Abo", on_delete=models.SET_NULL, null=True, blank=True, related_name="belege", editable=False,
                             help_text="Wiederkehrende Rechnung, aus der die Bestellung entstand")
     summe_netto = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
@@ -597,14 +601,14 @@ class Beleg(Zeitstempel):
 
     @classmethod
     def vorlaeufige_verwerfen(cls, mandant=None, ausfuehren=True, jetzt=None) -> list:
-        """Vorläufige Belege (nicht gespeichert), an denen seit VORLAEUFIG_STUNDEN Stunden nichts mehr getan wurde, werden verworfen:
+        """Vorläufige Belege (nicht gespeichert), deren Maske geschlossen wurde (Signal „verlassen“) oder seit VORLAEUFIG_MINUTEN Minuten kein Lebenszeichen mehr sendet, werden verworfen:
         alles wird zurückgenommen (siehe vorgang.beleg_verwerfen). Je Beleg eine eigene Transaktion; der Zeitpunkt wird unter der
         Sperre erneut geprüft, ein Puls dazwischen verhindert das Verwerfen. Shop-, Abo- und Werkstattbelege und Altentwürfe
         (nicht vorläufig) werden nie angefasst. ausfuehren=False: nur auflisten.
         Rückgabe: Liste von {"beleg", "weg", "verworfen", "fehler"}."""
         from . import vorgang
         jetzt = jetzt or timezone.now()
-        grenze = jetzt - timedelta(hours=VORLAEUFIG_STUNDEN)
+        grenze = jetzt - timedelta(minutes=VORLAEUFIG_MINUTEN)
         zu_alt = models.Q(zuletzt_aktiv__lt=grenze) | models.Q(zuletzt_aktiv__isnull=True, angelegt_am__lt=grenze)
         # Abo-Bezug schützt nur Belege, die selbst dazugehören; ein vorläufiger Folgebeleg oder eine Umwandlung aus einer
         # Abo-Bestellung wird verworfen (die Bestellung steht danach wieder wie vorher da).

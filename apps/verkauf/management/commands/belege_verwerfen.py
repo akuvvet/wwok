@@ -1,14 +1,14 @@
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.kern.models import Mandant
-from apps.verkauf.models import VORLAEUFIG_STUNDEN, Beleg
+from apps.verkauf.models import VORLAEUFIG_MINUTEN, Beleg
 
 
 class Command(BaseCommand):
-    help = (f"Verwirft vorläufige (nicht gespeicherte) Belege, an denen seit {VORLAEUFIG_STUNDEN} Stunden nichts mehr getan wurde: "
+    help = (f"Verwirft vorläufige (nicht gespeicherte) Belege, deren Maske geschlossen wurde oder seit {VORLAEUFIG_MINUTEN} Minuten kein Lebenszeichen sendet: "
             "alles wird zurückgenommen (Mengen in der Bestellung, Umwandlungen, Angebote für Preislistenartikel). Es entstehen keine "
             "Nummernlücken, weil vorläufige Belege keine Nummer haben. Standard ist der Probelauf; verworfen wird nur mit --ausfuehren. "
-            "Shop-, Abo- und Werkstattbelege sowie Altentwürfe werden nie angefasst. Cron: alle 10 Minuten.")
+            "Shop-, Abo- und Werkstattbelege sowie Altentwürfe werden nie angefasst. Cron: jede Minute.")
 
     def add_arguments(self, parser):
         parser.add_argument("--mandant", help="Kurzname des Mandanten (z. B. OKAY); ohne Angabe alle")

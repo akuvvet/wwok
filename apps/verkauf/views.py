@@ -95,7 +95,7 @@ def start(request):
     mandant = mandant_oder_none(request)
     if mandant:
         Beleg.leere_entwuerfe_entfernen(mandant)
-        Beleg.vorlaeufige_verwerfen(mandant)  # nach 2 Stunden ohne Aktivität: nicht gespeicherte Belege werden verworfen
+        Beleg.vorlaeufige_verwerfen(mandant)  # verlassene nicht gespeicherte Belege werden verworfen
     q = request.GET.get("q", "").strip()
     treffer = None
     if mandant and q:
@@ -993,11 +993,23 @@ def beleg_verwerfen_view(request, beleg_id):
 @require_POST
 def beleg_aktiv(request, beleg_id):
     """Puls der geöffneten Belegmaske: hält den vorläufigen Beleg am Leben (zuletzt_aktiv). ok=False: der Beleg wurde inzwischen
-    verworfen (z. B. nach 2 Stunden ohne Aktivität) oder gespeichert; weiter zeigt, wohin die Maske wechseln soll."""
+    verworfen (Maske geschlossen oder ohne Lebenszeichen) oder gespeichert; weiter zeigt, wohin die Maske wechseln soll."""
     if Beleg.objects.filter(pk=beleg_id, mandant=request.mandant, vorlaeufig=True, abgeschlossen=False).update(zuletzt_aktiv=timezone.now()):
         return JsonResponse({"ok": True})
     beleg = Beleg.objects.filter(pk=beleg_id, mandant=request.mandant).first()
     return JsonResponse({"ok": False, "weiter": reverse("verkauf:beleg", args=[beleg.pk]) if beleg else reverse("verkauf:start")})
+
+
+@mit_mandant
+@require_POST
+def beleg_verlassen(request, beleg_id):
+    """Signal beim Schließen von Tab/Browser (navigator.sendBeacon): der nicht gespeicherte Beleg gilt in VERLASSEN_SEKUNDEN als
+    verlassen und wird bei der nächsten Bereinigung verworfen (Cron jede Minute, Start- und Kundenseite). Lädt die Maske neu
+    (F5), setzt ihr Aufruf die Zeit wieder auf jetzt und der Beleg bleibt."""
+    from .models import VERLASSEN_SEKUNDEN, VORLAEUFIG_MINUTEN
+    zeit = timezone.now() - timedelta(minutes=VORLAEUFIG_MINUTEN) + timedelta(seconds=VERLASSEN_SEKUNDEN)
+    Beleg.objects.filter(pk=beleg_id, mandant=request.mandant, vorlaeufig=True, abgeschlossen=False).update(zuletzt_aktiv=zeit)
+    return HttpResponse(status=204)
 
 
 @mit_mandant

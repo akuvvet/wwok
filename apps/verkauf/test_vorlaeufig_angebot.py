@@ -224,7 +224,7 @@ class VerwerfenTest(AngebotBasis):
         self.assertTrue(an.vorlaeufig and not an.abgeschlossen and an.nummer is None)
         self.assertEqual((an.bemerkung, an.vortext), ("intern", "Hallo"))
         self.assertEqual(an.vorgang.weg, Vorgangsweg.NEU)
-        self.assertGreater(an.zuletzt_aktiv, timezone.now() - timedelta(minutes=5))  # neue 2-Stunden-Frist
+        self.assertGreater(an.zuletzt_aktiv, timezone.now() - timedelta(minutes=5))  # neue Frist
         self.assertEqual((self.positionen(an), letzte(self.m, Belegart.ANGEBOT), letzte(self.m, Belegart.RECHNUNG)), vorher)
         self.assertFalse(BelegUebernahme.objects.exists())
         # das Angebot lässt sich danach selbst speichern oder verwerfen

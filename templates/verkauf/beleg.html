@@ -4,7 +4,7 @@
 {% block kundenmenue %}{% include "verkauf/kunde_menue.html" with kunde=beleg.kunde %}{% endblock %}
 {% block inhalt %}
 <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}" data-escape style="display:none">zurück</a>
-{% if beleg.vorlaeufig %}{% with zu=beleg.gehoert_zu_vorgang ziel=beleg.offenes_ziel %}{% if zu %}<div class="warnung vorlaeufig-balken" id="vorlaeufigbalken" role="status"><strong>Nicht gespeichert.</strong> Dieses Angebot gehört zu <a href="{% url 'verkauf:beleg' zu.pk %}">{{ zu.get_art_display }} (nicht gespeichert)</a>: Es bekommt seine Nummer, sobald dieser Beleg gespeichert wird, und wird mit ihm verworfen.</div>{% else %}<div class="warnung vorlaeufig-balken" id="vorlaeufigbalken" role="status"><strong>Nicht gespeichert.</strong> Ohne „Speichern: abschließen &amp; Nummer vergeben“ wird dieser Beleg verworfen{% if beleg.vorgaenger %} (auch die Übernahme aus {{ beleg.vorgaenger }} wird zurückgenommen){% endif %}. Automatisch nach 2 Stunden ohne Aktivität.</div>{% if ziel %}<div class="warnung vorlaeufig-balken" id="zielbalken" role="status" data-bleibt><strong>Daraus ist <a href="{% url 'verkauf:beleg' ziel.pk %}">{{ ziel.get_art_display }} (nicht gespeichert)</a> entstanden.</strong> Das Angebot bekommt seine Nummer, sobald dieser Beleg gespeichert wird; wird er verworfen, bleibt das Angebot unverändert. Verwerfen geht erst, wenn der Beleg gespeichert oder verworfen ist.</div>{% endif %}{% endif %}{% endwith %}{% endif %}
+{% if beleg.vorlaeufig %}{% with zu=beleg.gehoert_zu_vorgang ziel=beleg.offenes_ziel %}{% if zu %}<div class="warnung vorlaeufig-balken" id="vorlaeufigbalken" role="status"><strong>Nicht gespeichert.</strong> Dieses Angebot gehört zu <a href="{% url 'verkauf:beleg' zu.pk %}">{{ zu.get_art_display }} (nicht gespeichert)</a>: Es bekommt seine Nummer, sobald dieser Beleg gespeichert wird, und wird mit ihm verworfen.</div>{% else %}{% if ziel %}<div class="warnung vorlaeufig-balken" id="zielbalken" role="status" data-bleibt><strong>Daraus ist <a href="{% url 'verkauf:beleg' ziel.pk %}">{{ ziel.get_art_display }} (nicht gespeichert)</a> entstanden.</strong> Das Angebot bekommt seine Nummer, sobald dieser Beleg gespeichert wird; wird er verworfen, bleibt das Angebot unverändert. Verwerfen geht erst, wenn der Beleg gespeichert oder verworfen ist.</div>{% endif %}{% endif %}{% endwith %}{% endif %}
 {% if beleg.p_hinweis %}<div class="warnung">{{ beleg.p_hinweis }}</div>{% endif %}
 
 <div class="belegkopf">
@@ -248,7 +248,8 @@
   // Nicht gespeicherter Beleg: Wer ihn verlässt, entscheidet vorher über Abschließen (Nummer vergeben) oder Verwerfen.
   // Dazu Puls (hält den Beleg am Leben) und Rückfrage „Erst abschließen?“ vor dem Übernehmen/Kopieren (nie Ketten nicht gespeicherter Belege).
   (function () {
-    var URL_VERWERFEN = "{% url 'verkauf:beleg_verwerfen' beleg.pk %}", URL_AKTIV = "{% url 'verkauf:beleg_aktiv' beleg.pk %}";
+    var URL_VERWERFEN = "{% url 'verkauf:beleg_verwerfen' beleg.pk %}", URL_AKTIV = "{% url 'verkauf:beleg_aktiv' beleg.pk %}",
+        URL_VERLASSEN = "{% url 'verkauf:beleg_verlassen' beleg.pk %}";
     var abschluss = document.getElementById('abschlussform'), token = (document.querySelector('input[name=csrfmiddlewaretoken]') || {}).value || '';
     var durchlassen = false, laeuft = false, fragt = false, gesendet = false;
     function verwerfen() {
@@ -298,6 +299,13 @@
     HTMLFormElement.prototype.submit = function () { gesendet = true; absenden.call(this); };
     window.addEventListener('submit', function (e) { if (!e.defaultPrevented) gesendet = true; });
     window.addEventListener('beforeunload', function (e) { if (!durchlassen && !gesendet) { e.preventDefault(); e.returnValue = ''; } });
+    // Tab oder Browser geschlossen (oder weg ohne Rückfrage): sofort als verlassen melden, die Bereinigung verwirft den Beleg.
+    // Neuladen hält ihn (der Aufruf der Maske zählt wieder als Lebenszeichen).
+    window.addEventListener('pagehide', function () {
+      if (durchlassen || gesendet || !navigator.sendBeacon) return;
+      var d = new FormData(); d.append('csrfmiddlewaretoken', token);
+      navigator.sendBeacon(URL_VERLASSEN, d);
+    });
     // Übernehmen/Kopieren aus einem nicht gespeicherten Beleg: erst abschließen, dann übernehmen (Server: erst_abschliessen=1)
     document.querySelectorAll('form[data-erst]').forEach(function (f) {
       f.addEventListener('submit', function (e) {
@@ -315,22 +323,25 @@
         });
       }, true);
     });
-    // Puls: alle 5 Minuten, nur bei Bedienung und sichtbarem Tab
-    var bedient = false;
-    ['input', 'keydown', 'click', 'scroll', 'pointerdown'].forEach(function (n) { document.addEventListener(n, function () { bedient = true; }, {capture: true, passive: true}); });
-    setInterval(function () {
-      if (!bedient || document.visibilityState !== 'visible' || durchlassen) return;
-      bedient = false;
+    // Lebenszeichen: kurz nach dem Laden (überholt ein verspätetes „verlassen“ vom Neuladen), dann alle 15 Sekunden, solange die
+    // Maske offen ist (auch im Hintergrund-Tab; dort drosselt der Browser auf etwa einmal pro Minute). Bleibt es aus, wird verworfen.
+    function lebenszeichen() {
+      if (durchlassen) return;
       fetch(URL_AKTIV, {method: 'POST', credentials: 'same-origin', headers: {'X-CSRFToken': token}})
         .then(function (r) { return r.json(); })
         .then(function (d) {
           if (d.ok !== false) return;
           durchlassen = true;
-          wwokToast('Der Beleg wurde inzwischen verworfen oder gespeichert (ohne Aktivität werden nicht gespeicherte Belege nach 2 Stunden verworfen).', 'warning');
+          wwokToast('Der Beleg wurde inzwischen verworfen oder gespeichert.', 'warning');
           setTimeout(function () { location.href = d.weiter; }, 2500);
         })
-        .catch(function () { bedient = true; });  // kein Netz: beim nächsten Takt erneut
-    }, 5 * 60 * 1000);
+        .catch(function () {});  // kein Netz: beim nächsten Takt erneut
+    }
+    setTimeout(lebenszeichen, 3000);
+    // aus dem Zurück/Vor-Cache wiederhergestellt oder wieder sichtbar: gleich melden (ein „verlassen“ von vorhin gilt nicht mehr)
+    window.addEventListener('pageshow', function (e) { if (e.persisted) { gesendet = false; lebenszeichen(); } });
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') lebenszeichen(); });
+    setInterval(lebenszeichen, 15 * 1000);
   })();
 </script>{% endif %}
 <script>

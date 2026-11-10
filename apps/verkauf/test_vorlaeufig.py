@@ -1,5 +1,5 @@
 """Vorläufige Belege: Was in der Belegmaske neu entsteht oder umgewandelt wird, ist erst mit „Speichern: abschließen & Nummer
-vergeben“ endgültig. Ohne Abschluss wird alles zurückgenommen (Verwerfen: Rückfrage, „Löschen“, Bereinigung nach 2 Stunden).
+vergeben“ endgültig. Ohne Abschluss wird alles zurückgenommen (Verwerfen: Rückfrage, „Löschen“, Bereinigung verlassener Belege).
 Ein vorläufiger Beleg hat keine Nummer, ein Verwerfen erzeugt also keine Lücke im Nummernkreis."""
 from datetime import date, timedelta
 from decimal import Decimal
@@ -562,12 +562,12 @@ class BereinigungTest(VorlaeufigBasis):
     def alt(self, beleg, stunden=2, minuten=1):
         Beleg.objects.filter(pk=beleg.pk).update(zuletzt_aktiv=timezone.now() - timedelta(hours=stunden, minutes=minuten))
 
-    def test_nach_zwei_stunden_ohne_aktivitaet_verworfen_vorher_nicht(self):
+    def test_nach_einer_stunde_ohne_lebenszeichen_verworfen_vorher_nicht(self):
         b = self.vorlaeufig(Belegart.RECHNUNG)
-        self.alt(b, 1, 59)
+        self.alt(b, 0, 59)
         self.assertEqual(Beleg.vorlaeufige_verwerfen(), [])
         self.assertTrue(Beleg.objects.filter(pk=b.pk).exists())
-        self.alt(b, 2, 1)
+        self.alt(b, 1, 1)
         liste = Beleg.vorlaeufige_verwerfen()
         self.assertEqual([(e["beleg"].pk, e["verworfen"], e["fehler"]) for e in liste], [(b.pk, True, "")])
         self.assertFalse(Beleg.objects.filter(pk=b.pk).exists())
@@ -661,6 +661,48 @@ class AktivitaetTest(VorlaeufigBasis):
         self.assertFalse(data["ok"])
         self.assertEqual(data["weiter"], reverse("verkauf:start"))
         self.assertEqual(self.client.get(reverse("verkauf:beleg_aktiv", args=[b.pk])).status_code, 405)
+
+    def test_verlassen_signal_verwirft_bei_der_naechsten_bereinigung(self):
+        b = self.vorlaeufig(Belegart.RECHNUNG)
+        r = self.client.post(reverse("verkauf:beleg_verlassen", args=[b.pk]))
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(Beleg.vorlaeufige_verwerfen(), [])  # gleich danach noch nicht: ein Neuladen (F5) hält den Beleg
+        with mock.patch("django.utils.timezone.now", return_value=timezone.now() + timedelta(seconds=35)):
+            liste = Beleg.vorlaeufige_verwerfen()
+        self.assertEqual([(e["beleg"].pk, e["verworfen"]) for e in liste], [(b.pk, True)])
+        self.assertFalse(Beleg.objects.filter(pk=b.pk).exists())
+
+    def test_neuladen_nach_verlassen_signal_haelt_den_beleg(self):
+        # echte Reihenfolge im Browser: neue Seite (GET), dann das verspätete „verlassen“ der alten, dann das Lebenszeichen nach 3 s
+        b = self.vorlaeufig(Belegart.RECHNUNG)
+        self.client.get(reverse("verkauf:beleg", args=[b.pk]))
+        self.client.post(reverse("verkauf:beleg_verlassen", args=[b.pk]))
+        self.client.post(reverse("verkauf:beleg_aktiv", args=[b.pk]))
+        with mock.patch("django.utils.timezone.now", return_value=timezone.now() + timedelta(seconds=35)):
+            self.assertEqual(Beleg.vorlaeufige_verwerfen(), [])
+        self.assertTrue(Beleg.objects.filter(pk=b.pk).exists())
+
+    def test_verlassen_signal_laesst_gespeicherte_und_fremde_belege_in_ruhe(self):
+        b = self.vorlaeufig(Belegart.AUFTRAG)
+        b.abschliessen()
+        self.client.post(reverse("verkauf:beleg_verlassen", args=[b.pk]))
+        self.assertIsNone(Beleg.objects.get(pk=b.pk).zuletzt_aktiv)
+        fremd = Mandant.objects.create(kurzname="ZONE", firmenname="ZONE Handel")
+        f = Beleg.objects.create(mandant=fremd, art=Belegart.RECHNUNG, kunde=self.kunde, vorlaeufig=True)
+        vorgang.vorgang_beginnen(f, Vorgangsweg.NEU)
+        vor = Beleg.objects.get(pk=f.pk).zuletzt_aktiv
+        self.client.post(reverse("verkauf:beleg_verlassen", args=[f.pk]))
+        self.assertEqual(Beleg.objects.get(pk=f.pk).zuletzt_aktiv, vor)
+        self.assertEqual(self.client.get(reverse("verkauf:beleg_verlassen", args=[b.pk])).status_code, 405)
+
+    def test_maske_ohne_hinweisbalken_mit_verlassen_signal(self):
+        b = self.vorlaeufig(Belegart.RECHNUNG)
+        html = self.client.get(reverse("verkauf:beleg", args=[b.pk])).content.decode()
+        self.assertNotIn("Automatisch nach 2 Stunden", html)
+        self.assertNotIn("Ohne „Speichern: abschließen &amp; Nummer vergeben“ wird dieser Beleg verworfen", html)
+        self.assertIn(reverse("verkauf:beleg_verlassen", args=[b.pk]), html)
+        self.assertIn("pagehide", html)
+        self.assertIn("setTimeout(lebenszeichen, 3000)", html)
 
     def test_beleg_aktiv_auf_gespeicherten_beleg_ist_nicht_ok(self):
         b = self.vorlaeufig(Belegart.AUFTRAG)
@@ -836,8 +878,7 @@ class OberflaecheTest(VorlaeufigBasis):
     def test_vorlaeufiger_beleg_zeigt_balken_skript_und_verwerfen(self):
         b = self.vorlaeufig(Belegart.RECHNUNG)
         html = self.seite(b)
-        self.assertIn("vorlaeufigbalken", html)
-        self.assertIn("Nicht gespeichert.", html)
+        self.assertNotIn("vorlaeufigbalken", html)  # kein Hinweisbalken (Wunsch des Nutzers), Marke am Titel genügt
         self.assertIn('id="vorlaeufigskript"', html)
         self.assertIn(reverse("verkauf:beleg_verwerfen", args=[b.pk]), html)
         self.assertIn(reverse("verkauf:beleg_aktiv", args=[b.pk]), html)

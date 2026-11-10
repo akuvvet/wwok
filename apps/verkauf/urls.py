@@ -24,6 +24,7 @@ urlpatterns = [
     path("beleg/<int:beleg_id>/loeschen/", views.beleg_loeschen, name="beleg_loeschen"),
     path("beleg/<int:beleg_id>/verwerfen/", views.beleg_verwerfen_view, name="beleg_verwerfen"),
     path("beleg/<int:beleg_id>/aktiv/", views.beleg_aktiv, name="beleg_aktiv"),
+    path("beleg/<int:beleg_id>/verlassen/", views.beleg_verlassen, name="beleg_verlassen"),
     path("beleg/<int:beleg_id>/abschliessen/", views.beleg_abschliessen, name="beleg_abschliessen"),
     path("beleg/<int:beleg_id>/teillieferung/", views.beleg_teillieferung, name="beleg_teillieferung"),
     path("beleg/<int:beleg_id>/kopieren/", views.beleg_kopieren, name="beleg_kopieren"),
