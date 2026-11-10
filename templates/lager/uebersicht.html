@@ -34,6 +34,7 @@
       {% for k in kategorien %}<option value="{{ k.pk }}" {% if kategorie == k.pk|stringformat:"s" %}selected{% endif %}>{{ k.einrueckung }}{{ k.name }}</option>{% endfor %}</select></div>
     <div><label for="f-pro-seite">pro Seite</label><select id="f-pro-seite" name="pro_seite">{% for n in seitengroessen %}<option value="{{ n }}" {% if n == pro_seite %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="bestand" value="1" {% if nur_bestand %}checked{% endif %}> nur mit Bestand</label>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="nicht_aktiv" value="1" {% if nicht_aktiv %}checked{% endif %}> Nicht aktiv</label>
     <noscript><button type="submit">Filtern</button></noscript>
     <a class="knopf" data-modal="{% url 'stammdaten:artikel_neu' %}" href="/verwaltung/stammdaten/artikel/add/">+ Neuer Artikel</a>
   </form>
@@ -51,7 +52,7 @@
         <td class="zahl"><strong>{{ z.verfuegbar|floatformat:"-3" }}</strong></td>
         <td class="zahl">{% if z.reparatur %}{{ z.reparatur|floatformat:"-3" }}{% endif %}</td>
         <td class="zahl">{% if z.ek is not None %}<span title="{{ z.ek_quelle }}">{{ z.ek|floatformat:"2g" }}</span>{% else %}<span class="gefahr-text">EK fehlt</span>{% endif %}</td></tr>
-    {% empty %}<tr><td colspan="8">{% if q or kategorie or nur_bestand %}{% include "filter_leer.html" %}{% else %}Keine Artikel.{% endif %}</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="8">{% if q or kategorie or nur_bestand or nicht_aktiv %}{% include "filter_leer.html" %}{% else %}Keine Artikel.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>
   </div>

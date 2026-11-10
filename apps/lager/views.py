@@ -82,6 +82,7 @@ def nach_kategorie(artikel, kategorie):
 def uebersicht(request):
     q = request.GET.get("q", "").strip()
     nur_bestand = request.GET.get("bestand") == "1"
+    nicht_aktiv = request.GET.get("nicht_aktiv") == "1"  # Haken: nur die als nicht aktiv markierten Artikel
     kategorie = request.GET.get("kategorie", "")
     try:
         pro_seite = int(request.GET.get("pro_seite", 50))
@@ -92,8 +93,8 @@ def uebersicht(request):
               .values("artikel").annotate(s=Sum("menge"))}
     reparatur = {s["artikel"]: s["s"] for s in Reparaturbewegung.objects.filter(mandant=request.mandant)
                  .values("artikel").annotate(s=Sum("menge"))}
-    artikel = suche(q) if q else Artikel.objects.filter(nicht_aktiv=False)
-    artikel = nach_kategorie(artikel, kategorie)
+    basis = Artikel.objects.filter(nicht_aktiv=nicht_aktiv)
+    artikel = nach_kategorie(suche(q, basis) if q else basis, kategorie)
     if nur_bestand:
         artikel = artikel.filter(pk__in=[a for a, s in (*summen.items(), *reparatur.items()) if s])
     seite = Paginator(artikel.select_related("steuersatz").prefetch_related("bilder").order_by("nummer"), pro_seite).get_page(request.GET.get("seite"))
@@ -114,7 +115,7 @@ def uebersicht(request):
     parameter = request.GET.copy()
     parameter.pop("seite", None)
     return render(request, "lager/uebersicht.html", {
-        "zeilen": zeilen, "q": q, "nur_bestand": nur_bestand, "lagerwert": lagerwert.quantize(Decimal("0.01")),
+        "zeilen": zeilen, "q": q, "nur_bestand": nur_bestand, "nicht_aktiv": nicht_aktiv, "lagerwert": lagerwert.quantize(Decimal("0.01")),
         "seite": seite, "parameter": parameter.urlencode(), "kategorie": kategorie, "pro_seite": pro_seite,
         "seitengroessen": SEITENGROESSEN, "kategorien": kategorien_baum()})
 

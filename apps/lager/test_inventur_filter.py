@@ -109,6 +109,17 @@ class InventurFilterTest(TestCase):
         self.assertContains(r, "sessionStorage")
         self.assertContains(r, "form.dataset.gesendet")
 
+    def test_artikel_und_bestand_haken_nicht_aktiv(self):
+        url = reverse("lager:uebersicht")
+        nummern = lambda **f: [z["artikel"].nummer for z in self.client.get(url, f).context["zeilen"]]
+        self.assertNotIn("X300", nummern())  # Standard: nur aktive
+        self.assertEqual(nummern(nicht_aktiv="1"), ["X300"])
+        self.assertEqual(nummern(nicht_aktiv="1", q="tastatur"), ["X300"])
+        self.assertEqual(nummern(nicht_aktiv="1", q="maus"), [])
+        self.assertEqual(nummern(nicht_aktiv="1", bestand="1"), ["X300"])
+        self.assertContains(self.client.get(url), 'name="nicht_aktiv" value="1" >')
+        self.assertContains(self.client.get(url, {"nicht_aktiv": "1"}), 'name="nicht_aktiv" value="1" checked')
+
     def test_buchen_ignoriert_artikel_ohne_bestand_und_fremden_mandanten(self):
         self.client.post(reverse("lager:inventur_liste"),
                          {f"gezaehlt_{self.leer.pk}": "2", f"gezaehlt_{self.zone.pk}": "9"})
