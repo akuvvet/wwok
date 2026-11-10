@@ -4,22 +4,72 @@
 <a href="{% url 'lager:uebersicht' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
   <h1>Inventur · Mandant {{ request.mandant }}</h1>
-  <form method="get" class="zeile">
-    <div><label>Hauptkategorie</label><select name="kategorie"><option value="">alle</option>
-      {% for k in kategorien %}<option value="{{ k.pk }}" {% if kategorie == k.pk|stringformat:"s" %}selected{% endif %}>{{ k.name }}</option>{% endfor %}</select></div>
-    <button type="submit" class="leise">Filtern</button>
+  <form method="get" class="zeile" data-livefilter>
+    <div><label for="q">Artikel suchen (Nummer, Bezeichnung, EAN, Hersteller; mehrere Wörter)</label>
+      <input id="q" name="q" value="{{ q }}" size="34" autofocus></div>
+    <div><label for="f-kategorie">Kategorie</label><select id="f-kategorie" name="kategorie"><option value="">alle</option>
+      {% for k in kategorien %}<option value="{{ k.pk }}" {% if kategorie == k.pk|stringformat:"s" %}selected{% endif %}>{{ k.einrueckung }}{{ k.name }}</option>{% endfor %}</select></div>
+    <noscript><button type="submit" class="leise">Filtern</button></noscript>
     <button type="button" class="leise" onclick="window.print()">Zählliste drucken</button>
   </form>
-  <p style="opacity:.8">Gezählte Menge eintragen; leere Zeilen bleiben unverändert. Beim Speichern werden Differenzen automatisch als Inventurbuchung gebucht.</p>
-  <form method="post">{% csrf_token %}
+  <p style="opacity:.8">Gezählte Menge eintragen; leere Zeilen bleiben unverändert. Eingetragene Mengen bleiben beim Suchen und Filtern erhalten. Beim Speichern werden Differenzen automatisch als Inventurbuchung gebucht.</p>
+  <form method="post" id="zaehlliste">{% csrf_token %}
+  <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
+  <p data-zahl>{{ zeilen|length }} Artikel mit Bestand</p>
   <table>
     <tr><th>Lagerplatz</th><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Soll</th><th>gezählt</th></tr>
     {% for z in zeilen %}
     <tr><td>{{ z.platz }}</td><td>{{ z.artikel.nummer }}</td><td>{{ z.artikel.bezeichnung }}</td>
-        <td class="zahl">{{ z.soll|floatformat:"-3" }}</td><td><input name="gezaehlt_{{ z.artikel.pk }}" size="6"></td></tr>
-    {% empty %}<tr><td colspan="5">Keine Artikel mit Bestand.</td></tr>{% endfor %}
+        <td class="zahl">{{ z.soll|floatformat:"-3" }}</td><td><input name="gezaehlt_{{ z.artikel.pk }}" size="6" inputmode="decimal" aria-label="gezählt {{ z.artikel.nummer }}"></td></tr>
+    {% empty %}<tr><td colspan="5">{% if q or kategorie %}{% include "filter_leer.html" %}{% else %}Keine Artikel mit Bestand.{% endif %}</td></tr>{% endfor %}
   </table>
-  {% if zeilen %}<p><button type="submit">Differenzen buchen</button></p>{% endif %}
+  </div>
+  <p><button type="submit">Differenzen buchen</button> <span id="erfasst" style="opacity:.8"></span></p>
   </form>
 </div>
+<script>
+  // Zählungen über Suche/Filter hinweg merken: der Live-Filter ersetzt die Tabelle, die eingetragenen Werte kommen wieder hinein;
+  // beim Buchen werden auch Werte gerade nicht angezeigter Artikel mitgeschickt. Enter im Zählfeld springt zurück in die Suche.
+  // Die Werte liegen zusätzlich im sessionStorage (je Mandant), damit Neuladen, „Filter zurücksetzen“ oder abgelaufene Anmeldung sie nicht verliert.
+  (function () {
+    var form = document.getElementById('zaehlliste'), bereich = form.querySelector('[data-ergebnis]'),
+        hinweis = document.getElementById('erfasst'), suche = document.getElementById('q'),
+        schluessel = 'inventur_' + bereich.dataset.mandant, werte = {};
+    try { werte = JSON.parse(sessionStorage.getItem(schluessel) || '{}') || {}; } catch (e) { werte = {}; }
+    function sichern() { try { sessionStorage.setItem(schluessel, JSON.stringify(werte)); } catch (e) {} }
+    function felder() { return bereich.querySelectorAll('input[name^="gezaehlt_"]'); }
+    function anzeigen() {
+      var namen = Object.keys(werte), sichtbar = 0;
+      namen.forEach(function (n) { if (bereich.querySelector('input[name="' + n + '"]')) sichtbar++; });
+      hinweis.textContent = namen.length ? namen.length + ' Zählung(en) erfasst' +
+        (namen.length > sichtbar ? ', davon ' + (namen.length - sichtbar) + ' gerade nicht angezeigt' : '') : '';
+    }
+    function einsetzen() { felder().forEach(function (f) { if (werte[f.name] != null) f.value = werte[f.name]; }); anzeigen(); }
+    bereich.addEventListener('input', function (e) {
+      var f = e.target; if (!f.name || f.name.indexOf('gezaehlt_') !== 0) return;
+      if (f.value.trim() === '') delete werte[f.name]; else werte[f.name] = f.value;
+      sichern(); anzeigen();
+    });
+    bereich.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || !e.target.name || e.target.name.indexOf('gezaehlt_') !== 0) return;
+      e.preventDefault(); if (suche) { suche.focus(); suche.select(); }
+    });
+    new MutationObserver(einsetzen).observe(bereich, {childList: true});
+    form.addEventListener('submit', function (e) {
+      if (form.dataset.gesendet) { e.preventDefault(); return; }  // Doppelklick: nur einmal buchen
+      form.dataset.gesendet = '1';
+      form.querySelector('button[type=submit]').disabled = true;
+      form.querySelectorAll('input[type=hidden][name^="gezaehlt_"]').forEach(function (h) { h.remove(); });
+      try { sessionStorage.removeItem(schluessel); } catch (err) {}  // die Werte sind jetzt im Formular unterwegs
+      Object.keys(werte).forEach(function (n) {
+        if (bereich.querySelector('input[name="' + n + '"]')) return;
+        var h = document.createElement('input'); h.type = 'hidden'; h.name = n; h.value = werte[n]; form.appendChild(h);
+      });
+    });
+    window.addEventListener('pageshow', function (e) {  // Zurück aus dem Seitencache: Knopf wieder frei
+      if (e.persisted) { delete form.dataset.gesendet; form.querySelector('button[type=submit]').disabled = false; }
+    });
+    einsetzen();
+  })();
+</script>
 {% endblock %}

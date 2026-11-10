@@ -269,7 +269,7 @@ Hinweis aus der Besprechung: Ein Kassenbuch in Excel ist bei einer Betriebsprüf
 - **Bestandshistorie** pro Artikel (Datum, Menge, Grund, Beleg)
 - **Reservierung** für offene Bestellungen, automatisch (reserviert wird die Menge, die in der Bestellung noch steht, also der Rest nach einer Teilübernahme); Anzeige Gesamt / reserviert / verfügbar
 - Nur der **verfügbare** Bestand geht an Shop und Marktplätze (Schutz vor Doppelverkauf)
-- **Inventur:** Zählliste, gezählte Mengen eingeben, Differenzen automatisch buchen, pro Mandant
+- **Inventur:** Zählliste, gezählte Mengen eingeben, Differenzen automatisch buchen, pro Mandant. Artikelsuche (Nummer, Bezeichnung, EAN, Hersteller; mehrere Wörter) und Kategorie samt Unterkategorien als Live-Filter; eingetragene Mengen bleiben beim Suchen, Filtern und Neuladen erhalten und werden gemeinsam gebucht, auch wenn der Artikel gerade nicht angezeigt wird. Enter im Zählfeld springt zurück in die Suche; doppeltes Absenden bucht nur einmal
 - **Lagerbewertung** mit dem maßgebenden Import-EK (Wareneingang ändert den EK nicht)
 - **Lagerplätze** (Regal/Fach)
 - **Seriennummern** durchgängig vom Wareneingang bis zur Werkstatt

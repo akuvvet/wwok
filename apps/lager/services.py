@@ -140,7 +140,11 @@ def buche_manuell(mandant, artikel, art, menge, bemerkung="", benutzer=None):
 @transaction.atomic
 def inventur(mandant, artikel, gezaehlt: Decimal, benutzer=None):
     """Differenzbuchung auf den gezählten Bestand."""
+    from apps.stammdaten.models import Artikel
+
     from .models import bestand
+    # Artikel sperren, damit zwei gleichzeitige Buchungen (Doppelklick) die Differenz nicht zweimal auf denselben Bestand rechnen
+    list(Artikel.objects.select_for_update().filter(pk=artikel.pk).values_list("pk", flat=True))
     differenz = gezaehlt - bestand(mandant, artikel)
     if differenz == 0:
         return None

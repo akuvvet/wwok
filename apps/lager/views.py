@@ -34,8 +34,9 @@ def zahl(text, standard=None):
     return wert
 
 
-def suche(q):
-    artikel = Artikel.objects.filter(nicht_aktiv=False)
+def suche(q, artikel=None):
+    """Jedes Wort muss in Nummer, Bezeichnung, Herstellernummer, Hersteller oder EAN vorkommen (Reihenfolge egal)."""
+    artikel = Artikel.objects.filter(nicht_aktiv=False) if artikel is None else artikel
     for wort in q.split():
         artikel = artikel.filter(
             Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
@@ -67,6 +68,16 @@ def kategorien_baum():
     return ergebnis
 
 
+def nach_kategorie(artikel, kategorie):
+    """Gewählte Kategorie samt Unterkategorien (bis zu drei Ebenen); leer oder ungültig = kein Filter."""
+    if not kategorie.isdigit():
+        return artikel
+    ids = {int(kategorie)}
+    for _ in range(3):
+        ids |= set(Kategorie.objects.filter(eltern_id__in=ids).values_list("pk", flat=True))
+    return artikel.filter(kategorie_id__in=ids)
+
+
 @mit_mandant
 def uebersicht(request):
     q = request.GET.get("q", "").strip()
@@ -82,11 +93,7 @@ def uebersicht(request):
     reparatur = {s["artikel"]: s["s"] for s in Reparaturbewegung.objects.filter(mandant=request.mandant)
                  .values("artikel").annotate(s=Sum("menge"))}
     artikel = suche(q) if q else Artikel.objects.filter(nicht_aktiv=False)
-    if kategorie.isdigit():  # gewählte Kategorie samt Unterkategorien (bis zu drei Ebenen)
-        ids = {int(kategorie)}
-        for _ in range(3):
-            ids |= set(Kategorie.objects.filter(eltern_id__in=ids).values_list("pk", flat=True))
-        artikel = artikel.filter(kategorie_id__in=ids)
+    artikel = nach_kategorie(artikel, kategorie)
     if nur_bestand:
         artikel = artikel.filter(pk__in=[a for a, s in (*summen.items(), *reparatur.items()) if s])
     seite = Paginator(artikel.select_related("steuersatz").prefetch_related("bilder").order_by("nummer"), pro_seite).get_page(request.GET.get("seite"))
@@ -296,17 +303,18 @@ def gutschrift_retoure(request, beleg_id):
 
 @mit_mandant
 def inventur_liste(request):
-    """Zählliste mit Erfassung: gezählte Mengen eintragen, Differenzen werden gebucht."""
+    """Zählliste mit Erfassung: gezählte Mengen eintragen, Differenzen werden gebucht.
+    Suche und Kategorie grenzen nur die Anzeige ein; gebucht wird jede eingetragene Zählung eines Artikels mit Bestand,
+    auch wenn er nach einem Filterwechsel gerade nicht angezeigt wird (die Maske trägt die Werte mit)."""
     summen = {s["artikel"]: s["s"] for s in Lagerbewegung.objects.filter(mandant=request.mandant)
               .values("artikel").annotate(s=Sum("menge"))}
     plaetze = {d.artikel_id: d.lagerplatz for d in ArtikelMandant.objects.filter(mandant=request.mandant)}
+    q = request.GET.get("q", "").strip()
     kategorie = request.GET.get("kategorie", "")
-    artikel = Artikel.objects.filter(pk__in=[a for a, s in summen.items() if s], typ="A")
-    if kategorie.isdigit():
-        artikel = artikel.filter(kategorie_id=int(kategorie))
+    alle = Artikel.objects.filter(pk__in=[a for a, s in summen.items() if s], typ="A")
     if request.method == "POST":
         gebucht = 0
-        for a in artikel:
+        for a in alle.order_by("nummer"):
             wert = request.POST.get(f"gezaehlt_{a.pk}", "").strip()
             if wert:
                 try:
@@ -315,7 +323,8 @@ def inventur_liste(request):
                     messages.error(request, f"{a.nummer}: {fehler}")
         messages.success(request, f"{gebucht} Differenzbuchung(en) erstellt.")
         return redirect(request.get_full_path())
+    artikel = nach_kategorie(suche(q, alle) if q else alle, kategorie)
     zeilen_ = sorted(({"artikel": a, "soll": summen.get(a.pk, Decimal("0")), "platz": plaetze.get(a.pk, "")}
                       for a in artikel.select_related("kategorie")), key=lambda z: (z["platz"], z["artikel"].nummer))
     return render(request, "lager/inventur.html", {
-        "zeilen": zeilen_, "kategorie": kategorie, "kategorien": Kategorie.objects.filter(eltern__isnull=True)})
+        "zeilen": zeilen_, "q": q, "kategorie": kategorie, "kategorien": kategorien_baum()})
