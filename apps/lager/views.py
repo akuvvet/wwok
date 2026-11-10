@@ -276,6 +276,8 @@ def position_seriennummern(request, position_id):
         messages.success(request, "Seriennummern gespeichert.")
     except ValueError as fehler:
         messages.error(request, str(fehler))
+    from apps.verkauf.vorgang import aktiv_melden
+    aktiv_melden(position.beleg)  # nicht gespeicherter Beleg: Seriennummern erfassen zählt als Aktivität
     return redirect("verkauf:beleg", beleg_id=position.beleg_id)
 
 
@@ -284,6 +286,7 @@ def position_seriennummern(request, position_id):
 def gutschrift_retoure(request, beleg_id):
     beleg = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
     try:
+        beleg.vorlaeufig_sperre("Die Retoure geht")
         anzahl = retoure_aus_gutschrift(beleg, request.user)
         messages.success(request, f"{anzahl} Artikel ins Lager zurückgebucht.")
     except ValueError as fehler:

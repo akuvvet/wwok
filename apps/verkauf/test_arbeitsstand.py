@@ -79,7 +79,7 @@ class ArbeitsstandTest(TestCase):
         self.assertEqual(self.beleg.positionen.count(), 2)
 
     def test_speichern_und_verwerfen_gibt_es_nicht_mehr(self):
-        for name in ("beleg_speichern", "beleg_verwerfen"):
+        for name in ("beleg_speichern",):  # „beleg_verwerfen“ gibt es wieder: für nicht gespeicherte (vorläufige) Belege, siehe test_vorlaeufig
             with self.assertRaises(NoReverseMatch):
                 self.url(name)
 

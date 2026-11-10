@@ -28,7 +28,7 @@
     <thead><tr><th>Beleg</th><th>Datum</th><th>Kunde</th><th>Referenz</th><th>Status{% status_legende "zahlung" %}</th><th class="zahl">Netto</th><th class="zahl">Brutto</th></tr></thead>
     <tbody>
     {% for b in seite.object_list %}
-    <tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(Entwurf)" }}</a>{% include "verkauf/versand_marke.html" %}{% if b.vormals %}<small style="display:block;opacity:.7">vormals {{ b.vormals }}</small>{% endif %}</td>
+    <tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {% if b.vorlaeufig %}<span class="marke gesperrt" title="Nicht gespeichert: wird verworfen, wenn er nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>{% else %}{{ b.nummer|default:"(Entwurf)" }}{% endif %}</a>{% include "verkauf/versand_marke.html" %}{% if b.vormals %}<small style="display:block;opacity:.7">vormals {{ b.vormals }}</small>{% endif %}</td>
       <td>{{ b.belegdatum|date:"d.m.Y" }}</td>
       <td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td>
       <td>{{ b.referenz }}</td>

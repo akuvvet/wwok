@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block titel %}Erst abschließen? – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Erst abschließen &amp; Nummer vergeben?</h1>
+  <p>Der Beleg ist noch nicht gespeichert. Damit daraus etwas übernommen oder kopiert werden kann, wird er zuerst mit
+     „Speichern: abschließen &amp; Nummer vergeben“ gespeichert; erst danach entsteht der nächste Beleg.</p>
+  <form method="post" action="{{ aktion }}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    {% for k, w in felder %}<input type="hidden" name="{{ k }}" value="{{ w }}">{% endfor %}
+    <input type="hidden" name="erst_abschliessen" value="1">
+    <button type="submit">Abschließen &amp; Nummer vergeben, dann übernehmen</button>
+    <a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Zurück zum Beleg</a>
+  </form>
+</div>
+{% endblock %}

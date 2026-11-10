@@ -44,8 +44,11 @@ class UebernahmeBestandTest(TestCase):
         self.assertEqual(self.ab.folgebelege.get().positionen.get().menge, D("5"))
         self.assertEqual(reserviert(self.m, self.a), D("0"))
         self.ab.refresh_from_db()
-        self.assertTrue(self.ab.abgeschlossen)  # alles übernommen: die Bestellung ist erledigt (leer, mit Verlauf)
+        self.assertFalse(self.ab.abgeschlossen)  # der Lieferschein ist vorläufig: die Bestellung wird erst mit seinem Abschluss erledigt
         self.assertFalse(self.ab.positionen.exists())
+        self.ab.folgebelege.get().abschliessen()
+        self.ab.refresh_from_db()
+        self.assertTrue(self.ab.abgeschlossen)  # alles übernommen: die Bestellung ist erledigt (leer, mit Verlauf)
 
     def test_engpass_fragt_nach_und_aendert_nichts(self):
         r = self.uebernehmen()  # Abbruch = keine Entscheidung: nur die Rückfrage, nichts passiert
@@ -81,7 +84,7 @@ class UebernahmeBestandTest(TestCase):
         self.assertEqual((self.pos.menge, self.pos.offen_menge), (D("5"), D("5")))  # die Bestellung behält nur den Rest
         self.assertEqual(reserviert(self.m, self.a), D("5"))  # Rückstand bleibt reserviert
         seite = self.client.get(reverse("verkauf:beleg", args=[self.ab.pk]))
-        self.assertContains(seite, f"5 übernommen in Lieferschein {ls.nummer}, 5 offen")
+        self.assertContains(seite, "5 übernommen in Lieferschein (nicht gespeichert), 5 offen")
         self.assertContains(seite, "Verlauf der Übernahmen")
         ls.abschliessen()
         self.assertEqual(bestand(self.m, self.a), D("0"))

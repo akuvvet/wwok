@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
@@ -20,7 +20,8 @@ from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kund
 
 from apps.lager.models import BestandReichtNicht
 from .models import (runden, zahlungsbedingung_vorkasse, Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Mengenregel, Position, Ruecknahme, Versand, Versandart,
-                     Wiedervorlage, letzte_preise, regel_vorschlag)
+                     Vorgangsweg, Wiedervorlage, letzte_preise, regel_vorschlag)
+from . import vorgang
 from .mail import MailFehler, beleg_senden
 from .mail import vorschlag as mail_vorschlag
 from .pdf import beleg_pdf
@@ -94,16 +95,18 @@ def start(request):
     mandant = mandant_oder_none(request)
     if mandant:
         Beleg.leere_entwuerfe_entfernen(mandant)
+        Beleg.vorlaeufige_verwerfen(mandant)  # nach 2 Stunden ohne Aktivität: nicht gespeicherte Belege werden verworfen
     q = request.GET.get("q", "").strip()
     treffer = None
     if mandant and q:
         treffer = kunden_suchen(q)[:100]
         if len(treffer) == 1:
             return redirect("verkauf:kunde", kunde_id=treffer[0].pk)
-    offene = None
+    offene = vorlaeufige = None
     if mandant and treffer is None:  # ohne Suche: die offenen (nicht abgeschlossenen) Belege zum Weiterbearbeiten
-        offene = Beleg.versand_markieren(Beleg.objects.filter(mandant=mandant, abgeschlossen=False, positionen__isnull=False)
-                                         .distinct().select_related("kunde").order_by("-belegdatum", "-id")[:100])
+        offen_basis = Beleg.objects.filter(mandant=mandant, abgeschlossen=False, positionen__isnull=False).distinct().select_related("kunde")
+        offene = Beleg.versand_markieren(offen_basis.filter(vorlaeufig=False).order_by("-belegdatum", "-id")[:100])
+        vorlaeufige = Beleg.versand_markieren(offen_basis.filter(vorlaeufig=True).order_by("-belegdatum", "-id")[:100])  # „nicht gespeichert“, getrennt von den Altentwürfen
     wiedervorlagen = mahnungen_faellig = None
     if mandant:
         from apps.finanzen.services import mahnvorschlag
@@ -114,7 +117,7 @@ def start(request):
     return render(request, "verkauf/start.html", {
         "wiedervorlagen": wiedervorlagen, "mahnungen_faellig": mahnungen_faellig,
         "mandant": mandant, "mandanten": Mandant.objects.filter(aktiv=True), "q": q, "treffer": treffer,
-        "offene": offene})
+        "offene": offene, "vorlaeufige": vorlaeufige})
 
 
 def _berechnete_lieferscheine(ids) -> set:
@@ -136,6 +139,7 @@ def kunde_detail(request, kunde_id):
     from apps.finanzen import services as fin
     kunde = get_object_or_404(Kunde, pk=kunde_id)
     Beleg.leere_entwuerfe_entfernen(request.mandant, kunde)
+    Beleg.vorlaeufige_verwerfen(request.mandant)
     belege = Beleg.objects.filter(Q(positionen__isnull=False) | Q(uebernahmen_aus__isnull=False), kunde=kunde, mandant=request.mandant).distinct()         .select_related("kunde", "zahlungsbedingung", "vorgaenger").prefetch_related("umwandlungen")  # Belege ohne Position gelten nicht als gespeichert – außer einer Bestellung, deren Menge vollständig in Folgebelege wanderte (erledigt, Verlauf)
     art = request.GET.get("art", "")
     if art == "offen":
@@ -242,12 +246,14 @@ def beleg_neu(request, kunde_id):
     if art == Belegart.PROFORMA_STORNO:
         messages.error(request, "Ein Storno entsteht nur aus einer Proforma-Rechnung.")
         return redirect("verkauf:kunde", kunde_id=kunde.pk)
-    beleg = Beleg.objects.create(
-        mandant=request.mandant, art=art, kunde=kunde,
-        ansprechpartner=kunde.ansprechpartner.filter(hauptkontakt=True).first(),
-        zahlungsbedingung=kunde.zahlungsbedingung,
-        rechnungsanschrift=adresse_text(kunde, Anschriftart.RECHNUNG),
-        versandanschrift=adresse_text(kunde, Anschriftart.VERSAND), bearbeiter=request.user)
+    with transaction.atomic():  # vorläufig: keine Nummer, bis der Beleg mit „Speichern: abschließen & Nummer vergeben“ gespeichert wird
+        beleg = Beleg.objects.create(
+            mandant=request.mandant, art=art, kunde=kunde, vorlaeufig=True,
+            ansprechpartner=kunde.ansprechpartner.filter(hauptkontakt=True).first(),
+            zahlungsbedingung=kunde.zahlungsbedingung,
+            rechnungsanschrift=adresse_text(kunde, Anschriftart.RECHNUNG),
+            versandanschrift=adresse_text(kunde, Anschriftart.VERSAND), bearbeiter=request.user)
+        vorgang.vorgang_beginnen(beleg, Vorgangsweg.NEU)
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
@@ -257,6 +263,7 @@ def beleg_detail(request, beleg_id):
     from apps.lager.models import bestand, reserviert
     beleg = beleg_holen(request, beleg_id)
     beleg.arbeitsstand_beenden()  # Altdaten: ein früher offener Arbeitsstand wird still beendet, der aktuelle Stand gilt
+    vorgang.aktiv_melden(beleg)  # vorläufiger Beleg: Aufruf zählt als Aktivität
     positionen = list(beleg.positionen.select_related("artikel", "preisliste_artikel__lieferant"))
     letzte = {} if beleg.art == Belegart.GUTSCHRIFT else letzte_preise(
         beleg.mandant, beleg.kunde, [p.artikel_id for p in positionen], [p.preisliste_artikel_id for p in positionen], ohne_beleg=beleg.pk)
@@ -305,7 +312,8 @@ def beleg_detail(request, beleg_id):
         "kredit_warnung": kredit_warnung, "kredit_differenz": kredit_differenz,"kunde_offen": offen, "kreditlimit": limit,
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),
         "hat_lagerartikel": any(p.artikel_id and p.artikel.typ == "A" for p in positionen), "retoure_offen": retoure_offen(beleg),
-        "beleg": beleg, "positionen": positionen, "loeschbar": beleg.loeschhindernis() is None,
+        "beleg": beleg, "positionen": positionen, "loeschbar": beleg.loeschhindernis() is None or beleg.verwerfen_moeglich,
+        "verwerfen_moeglich": beleg.verwerfen_moeglich,
         "druckhindernis": druckhindernis(beleg),
         "versendungen": list(beleg.versendungen.select_related("briefprodukt")),
         "gruppen": [p for p in positionen if p.typ == "G" and not p.gruppe_id],
@@ -317,7 +325,12 @@ def beleg_detail(request, beleg_id):
         "ansprechpartner": beleg.kunde.ansprechpartner.all()})
 
 
+VERKLEMMT = "Der Beleg wird gerade von einer anderen Anfrage bearbeitet (zweiter Tab oder Benutzer). Es wurde nichts geändert – bitte erneut versuchen."
+
+
 def sperr_schutz(view):
+    """Meldung statt Fehlerseite bei gesperrten Belegen und Fachregel-Verstößen; jede Anfrage auf einen vorläufigen Beleg
+    (Positionen, Kopf, Abschluss …) zählt als Aktivität."""
     def umhuellt(request, *args, **kwargs):
         try:
             return view(request, *args, **kwargs)
@@ -325,6 +338,10 @@ def sperr_schutz(view):
             messages.error(request, str(fehler))
         except ValueError as fehler:
             messages.error(request, str(fehler))
+        except OperationalError:  # z. B. Deadlock, weil gleichzeitig verworfen/abgeschlossen wurde: die Transaktion ist zurückgerollt
+            messages.error(request, VERKLEMMT)
+        finally:
+            Beleg.objects.filter(pk=kwargs["beleg_id"], mandant=request.mandant, vorlaeufig=True).update(zuletzt_aktiv=timezone.now())
         return redirect("verkauf:beleg", beleg_id=kwargs["beleg_id"])
     umhuellt.__name__ = view.__name__
     return umhuellt
@@ -738,20 +755,40 @@ def beleg_folgebeleg(request, beleg_id):
         messages.error(request, f"{beleg} wurde inzwischen umgewandelt oder geändert – bitte den Beleg neu öffnen. Es wurde nichts übernommen.")
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
     art = request.POST.get("art") or beleg.folgeart  # Bestellung: zusätzlich art=RE (direkt als Rechnung übernehmen)
-    entscheidungen = _uebernahme_entscheidungen(request, beleg, art, extra={"art": art, "von_art": beleg.art})
-    if isinstance(entscheidungen, HttpResponse):
-        return entscheidungen  # Rückfrage bei zu wenig Bestand
-    vorher = (beleg.art, beleg.get_art_display(), beleg.nummer)
-    neu = beleg.folgebeleg_erzeugen(entscheidungen=entscheidungen, art=art)
+    with transaction.atomic():  # erst abschließen, dann übernehmen: scheitert die Übernahme, bleibt auch der Abschluss aus
+        frage = _erst_abschliessen(request, beleg, art=art, von_art=beleg.art)
+        if frage is not None:
+            return frage
+        entscheidungen = _uebernahme_entscheidungen(request, beleg, art, extra={"art": art, "von_art": beleg.art})
+        if isinstance(entscheidungen, HttpResponse):
+            return entscheidungen  # Rückfrage bei zu wenig Bestand
+        vorher = (beleg.art, beleg.get_art_display(), beleg.nummer or ("(nicht gespeichert)" if beleg.vorlaeufig else None))
+        neu = beleg.folgebeleg_erzeugen(entscheidungen=entscheidungen, art=art, vorlaeufig=True)
     if neu.pk == beleg.pk:  # der Beleg selbst wurde umgewandelt, es gibt keinen neuen
         messages.success(request, f"{vorher[1]} {vorher[2] or '(Entwurf)'} in {neu.get_art_display()} "
-                                  f"{neu.nummer or '(Entwurf)'} umgewandelt.")
+                                  f"{neu.nummer or '(nicht gespeichert)'} umgewandelt – ohne „Speichern: abschließen & Nummer vergeben“ wird das verworfen.")
         return redirect("verkauf:beleg", beleg_id=neu.pk)
     if vorher[0] == Belegart.AUFTRAG and art == Belegart.RECHNUNG and (beleg.zahlungen.exists() or beleg.anzahlung_verrechnungen.exists()):
         messages.info(request, f"Zur Bestellung {vorher[2] or ''} gibt es Zahlungen: Es wurde eine neue Rechnung angelegt, "
                                "die Bestellung bleibt mit ihren Zahlungen bestehen.")
     _uebernahme_meldung(request, beleg, neu)
     return redirect("verkauf:beleg", beleg_id=neu.pk)
+
+
+def _erst_abschliessen(request, beleg, **extra):
+    """Übernehmen oder Kopieren aus einem noch nicht gespeicherten Beleg: erst Rückfrage „Erst abschließen & Nummer vergeben?“,
+    nach der Bestätigung (erst_abschliessen=1) wird abgeschlossen und dann übernommen – es gibt nie Ketten vorläufiger Belege.
+    Rückgabe: None (weiter) oder die Rückfrage-Seite. Ein Fehler beim Abschließen bricht ab (Meldung am Beleg)."""
+    if not beleg.vorlaeufig:
+        return None
+    if beleg.vorlaeufiges_angebot:  # Regel des Nutzers: aus einem nicht gespeicherten Angebot ohne Rückfrage; es wird mit dem Ziel abgeschlossen
+        return None
+    if request.POST.get("erst_abschliessen") != "1":
+        felder = [(k, w) for k in request.POST for w in request.POST.getlist(k) if k not in ("csrfmiddlewaretoken", "erst_abschliessen")]
+        return render(request, "verkauf/erst_abschliessen_frage.html", {"beleg": beleg, "aktion": request.path, "felder": felder, **extra})
+    # Bestellung mit Preislistenartikeln (P): die Übernahme verschiebt sie sofort in ein neues Angebot, der Abschluss darf daran nicht scheitern
+    beleg.abschliessen(p_erlaubt=beleg.art == Belegart.AUFTRAG and extra.get("art") in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA))
+    return None
 
 
 def _uebernahme_entscheidungen(request, beleg, art, extra=None):
@@ -798,8 +835,9 @@ def _uebernahme_entscheidungen(request, beleg, art, extra=None):
 def _uebernahme_meldung(request, beleg, neu):
     info = getattr(neu, "p_info", None)
     if info and info.get("angebot"):
-        messages.warning(request, f"{info['anzahl']} Preislistenartikel (P) wurden in das neue Angebot {info['angebot'].nummer} übernommen, "
-                                  f"die Bestellung {beleg.nummer or ''} ist erledigt. P gibt es nur im Angebot – "
+        angebot_nr = info["angebot"].nummer or "(bekommt seine Nummer beim Abschluss)"
+        messages.warning(request, f"{info['anzahl']} Preislistenartikel (P) wurden in das neue Angebot {angebot_nr} übernommen, "
+                                  f"die Bestellung {beleg.nummer or ''} {'wird mit dem Abschluss erledigt' if neu.vorlaeufig else 'ist erledigt'}. P gibt es nur im Angebot – "
                                   "sie bleiben dort, bis sie als eigene Artikel (A) angelegt sind.")
     elif info:
         messages.warning(request, f"{info['anzahl']} Preislistenartikel (P) sind im {beleg.get_art_display()} {beleg.nummer or ''} geblieben und nicht mitkopiert – "
@@ -828,8 +866,17 @@ def _uebernahme_meldung(request, beleg, neu):
 @sperr_schutz
 def beleg_teillieferung(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
+    name, art_name, war_vorlaeufig = str(beleg), beleg.get_art_display(), beleg.vorlaeufig
     neu = beleg.teillieferung_abschliessen()
-    messages.success(request, f"Teillieferung {neu} abgeschlossen. Die übrigen Positionen bleiben im {beleg.get_art_display()}-Entwurf offen.")
+    rest = getattr(neu, "rest_beleg", None)
+    if rest is not None and rest.art == Belegart.AUFTRAG:
+        messages.success(request, f"Teillieferung {neu} abgeschlossen. Der Rest bleibt in der Bestellung {rest.nummer or ''} (für den nächsten Wareneingang reserviert).")
+        return redirect("verkauf:beleg", beleg_id=rest.pk)
+    if war_vorlaeufig and rest is not None:
+        messages.success(request, f"Teillieferung {neu} abgeschlossen. Der Rest bleibt im {art_name} ({name}) – nicht gespeichert, "
+                                  "bis er mit „Speichern: abschließen & Nummer vergeben“ abgeschlossen wird.")
+        return redirect("verkauf:beleg", beleg_id=rest.pk)
+    messages.success(request, f"Teillieferung {neu} abgeschlossen. Die übrigen Positionen bleiben im {art_name}-Entwurf offen.")
     return redirect("verkauf:kunde", kunde_id=beleg.kunde_id)
 
 
@@ -841,12 +888,17 @@ def beleg_kopieren(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
     art = request.POST.get("art", "")
     urbeleg = request.POST.get("urbeleg_abschliessen") == "1"
-    entscheidungen = _uebernahme_entscheidungen(request, beleg, art, extra={"art": art, "urbeleg_abschliessen": "1" if urbeleg else "0"})
-    if isinstance(entscheidungen, HttpResponse):
-        return entscheidungen
-    neu = beleg.kopieren_als(art, urbeleg_abschliessen=urbeleg, entscheidungen=entscheidungen)
+    with transaction.atomic():  # erst abschließen, dann kopieren (siehe beleg_folgebeleg)
+        frage = _erst_abschliessen(request, beleg, art=art, urbeleg_abschliessen="1" if urbeleg else "0")
+        if frage is not None:
+            return frage
+        entscheidungen = _uebernahme_entscheidungen(request, beleg, art, extra={"art": art, "urbeleg_abschliessen": "1" if urbeleg else "0"})
+        if isinstance(entscheidungen, HttpResponse):
+            return entscheidungen
+        neu = beleg.kopieren_als(art, urbeleg_abschliessen=urbeleg, entscheidungen=entscheidungen, vorlaeufig=True)
     _uebernahme_meldung(request, beleg, neu)
-    messages.success(request, f"{beleg.get_art_display()} als {neu.get_art_display()} kopiert.")
+    messages.success(request, f"{beleg.get_art_display()} als {neu.get_art_display()} kopiert – nicht gespeichert, "
+                              "bis „Speichern: abschließen & Nummer vergeben“ gewählt wird.")
     return redirect("verkauf:beleg", beleg_id=neu.pk)
 
 
@@ -880,6 +932,8 @@ def beleg_lieferschein_pdf(request, beleg_id):
     """Lieferschein zur Rechnung drucken (ohne Preise); es entsteht kein Beleg und keine Lagerbuchung."""
     from .pdf import beleg_pdf
     beleg = beleg_holen(request, beleg_id)
+    if (gesperrt := _vorlaeufig_gesperrt(request, beleg, "Drucken")) is not None:
+        return gesperrt
     if beleg.art != Belegart.RECHNUNG or not beleg.abgeschlossen:
         messages.error(request, "Einen Lieferschein zum Drucken gibt es nur zu einer abgeschlossenen Rechnung.")
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
@@ -888,10 +942,70 @@ def beleg_lieferschein_pdf(request, beleg_id):
     return antwort
 
 
+def _vorlaeufig_gesperrt(request, beleg, aktion):
+    """Vor dem Speichern gibt es nichts nach außen (PDF, Druck, Mail, Zahlung, Versand …): Meldung und Rückkehr zum Beleg."""
+    try:
+        beleg.vorlaeufig_sperre(aktion)
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    return None
+
+
+@mit_mandant
+@require_POST
+def beleg_verwerfen_view(request, beleg_id):
+    """Nicht gespeicherten Beleg verwerfen: alles, was sein Vorgang verändert hat (Mengen in der Bestellung, Umwandlung, Angebot),
+    wird zurückgenommen. Mit Kopfzeile X-Wwok-Stand (Rückfrage beim Verlassen, per fetch) antwortet die View mit JSON
+    {ok, weiter}, sonst mit Meldung und Weiterleitung."""
+    als_json = bool(request.headers.get("X-Wwok-Stand"))
+    beleg = Beleg.objects.filter(pk=beleg_id, mandant=request.mandant).first()
+    if beleg is None:  # schon verworfen (z. B. von der Bereinigung)
+        weiter = reverse("verkauf:start")
+        if als_json:
+            return JsonResponse({"ok": True, "weiter": weiter})
+        messages.info(request, "Der Beleg ist schon verworfen.")
+        return redirect(weiter)
+    name = str(beleg)
+    try:
+        ergebnis = vorgang.beleg_verwerfen(beleg, request.user, "von Hand")
+    except (ValueError, BelegGesperrt, OperationalError) as fehler:
+        text = VERKLEMMT if isinstance(fehler, OperationalError) else str(fehler)
+        if als_json:
+            return JsonResponse({"ok": False, "fehler": text}, status=409)
+        messages.error(request, text)
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    if ergebnis is None:  # inzwischen gespeichert (abgeschlossen) oder gar nicht vorläufig
+        weiter = reverse("verkauf:beleg", args=[beleg.pk])
+        if als_json:
+            return JsonResponse({"ok": False, "weiter": weiter, "fehler": "Der Beleg ist schon gespeichert – es gibt nichts zu verwerfen."})
+        messages.warning(request, "Der Beleg ist schon gespeichert (oder nie vorläufig) – es gibt nichts zu verwerfen.")
+        return redirect(weiter)
+    for text in ergebnis["meldungen"]:
+        messages.warning(request, text)
+    messages.success(request, f"{name} verworfen – alles zurückgenommen.")
+    if als_json:
+        return JsonResponse({"ok": True, "weiter": ergebnis["weiter"]})
+    return redirect(ergebnis["weiter"])
+
+
+@mit_mandant
+@require_POST
+def beleg_aktiv(request, beleg_id):
+    """Puls der geöffneten Belegmaske: hält den vorläufigen Beleg am Leben (zuletzt_aktiv). ok=False: der Beleg wurde inzwischen
+    verworfen (z. B. nach 2 Stunden ohne Aktivität) oder gespeichert; weiter zeigt, wohin die Maske wechseln soll."""
+    if Beleg.objects.filter(pk=beleg_id, mandant=request.mandant, vorlaeufig=True, abgeschlossen=False).update(zuletzt_aktiv=timezone.now()):
+        return JsonResponse({"ok": True})
+    beleg = Beleg.objects.filter(pk=beleg_id, mandant=request.mandant).first()
+    return JsonResponse({"ok": False, "weiter": reverse("verkauf:beleg", args=[beleg.pk]) if beleg else reverse("verkauf:start")})
+
+
 @mit_mandant
 @require_POST
 def beleg_loeschen(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
+    if beleg.verwerfen_moeglich:  # nicht gespeicherter Beleg: wird verworfen (alles zurück), nicht gelöscht
+        return beleg_verwerfen_view(request, beleg_id)
     grund = beleg.loeschhindernis()
     if grund:
         messages.error(request, grund)
@@ -916,11 +1030,12 @@ def lieferscheine_abrechnen(request, kunde_id):
         lieferscheine = list(Beleg.objects.filter(pk__in=ids, mandant=request.mandant, kunde=kunde, art=Belegart.LIEFERSCHEIN))
         if len(lieferscheine) != len(set(ids)):
             raise ValueError("Ungültige Auswahl.")
-        rechnung = rechnung_aus_lieferscheinen(lieferscheine)
+        rechnung = rechnung_aus_lieferscheinen(lieferscheine, vorlaeufig=True)
     except ValueError as fehler:
         messages.error(request, str(fehler))
         return redirect("verkauf:kunde", kunde_id=kunde.pk)
-    messages.success(request, f"Rechnung als Entwurf aus {len(lieferscheine)} Lieferschein(en) angelegt – prüfen und abschließen.")
+    messages.success(request, f"Rechnung aus {len(lieferscheine)} Lieferschein(en) angelegt – mit „Speichern: abschließen & Nummer vergeben“ "
+                              "übernehmen, sonst wird sie verworfen.")
     return redirect("verkauf:beleg", beleg_id=rechnung.pk)
 
 
@@ -934,8 +1049,8 @@ def beleg_gutschrift(request, beleg_id):
         if beleg.positionen.filter(artikel__typ="A").exists():
             raise ValueError("Bitte wählen, wohin die zurückgegebene Ware gebucht wird.")
         ruecknahme = Ruecknahme.KEINE
-    neu = beleg.gutschrift_erzeugen(ruecknahme)
-    messages.success(request, "Gutschrift als Entwurf angelegt – prüfen und abschließen.")
+    neu = beleg.gutschrift_erzeugen(ruecknahme, vorlaeufig=True)
+    messages.success(request, "Gutschrift angelegt – mit „Speichern: abschließen & Nummer vergeben“ übernehmen, sonst wird sie verworfen.")
     return redirect("verkauf:beleg", beleg_id=neu.pk)
 
 
@@ -944,6 +1059,8 @@ def beleg_xrechnung(request, beleg_id):
     """Reine XRechnung (XML, Standard für Behörden) zu einer abgeschlossenen Rechnung/Gutschrift."""
     from .zugferd import ERechnungAusgangFehler, xml_erzeugen
     beleg = beleg_holen(request, beleg_id)
+    if (gesperrt := _vorlaeufig_gesperrt(request, beleg, "Die XRechnung")) is not None:
+        return gesperrt
     try:
         xml = xml_erzeugen(beleg, xrechnung=True)
     except ERechnungAusgangFehler as fehler:
@@ -959,6 +1076,8 @@ def beleg_ansicht(request, beleg_id):
     """PDF in der Seite anzeigen; mit ?druck=1 öffnet sich gleich der Druckdialog des Browsers."""
     from apps.lager.services import druckhindernis
     beleg = beleg_holen(request, beleg_id)
+    if (gesperrt := _vorlaeufig_gesperrt(request, beleg, "Die PDF-Ansicht und der Druck gehen")) is not None:
+        return gesperrt
     hindernis = druckhindernis(beleg)
     if hindernis:
         messages.error(request, hindernis)
@@ -972,6 +1091,8 @@ def beleg_ansicht(request, beleg_id):
 def beleg_pdf_ansicht(request, beleg_id):
     from apps.lager.services import druckhindernis
     beleg = beleg_holen(request, beleg_id)
+    if (gesperrt := _vorlaeufig_gesperrt(request, beleg, "Das PDF geht")) is not None:
+        return gesperrt
     hindernis = druckhindernis(beleg)
     if hindernis:
         messages.error(request, hindernis)
@@ -988,6 +1109,8 @@ def beleg_pdf_ansicht(request, beleg_id):
 @mit_mandant
 def beleg_mail(request, beleg_id):
     beleg = beleg_holen(request, beleg_id)
+    if (gesperrt := _vorlaeufig_gesperrt(request, beleg, "Eine E-Mail geht")) is not None:
+        return gesperrt
     beleg.arbeitsstand_beenden()  # Altdaten: ein früher offener Arbeitsstand wird still beendet
     if beleg.nummer and not beleg.positionen.exists():
         messages.error(request, "Ein Beleg ohne Position kann nicht versendet werden.")
@@ -1111,6 +1234,7 @@ def abo_aus_rechnung(request, beleg_id):
     Halbmonatlich schlägt das Programm je Position die Mengenregel aus Zeitraum und Menge vor."""
     from datetime import date
     beleg = beleg_holen(request, beleg_id)
+    beleg.vorlaeufig_sperre("Wiederkehrend einrichten geht")
     if beleg.art != Belegart.RECHNUNG:
         raise ValueError("Wiederkehrend einrichten geht nur aus einer Rechnung.")
     beleg.stand_pruefen()
@@ -1152,8 +1276,8 @@ def abo_aktion(request, abo_id):
     abo = get_object_or_404(Abo, pk=abo_id, mandant=request.mandant)
     aktion = request.POST.get("aktion")
     if aktion == "jetzt":
-        offen = abo.letzte_rechnung
-        if offen and not offen.abgeschlossen:  # sonst würde schon der nächste Zeitraum abgerechnet
+        offen = abo.offener_beleg()
+        if offen:  # sonst würde schon der nächste Zeitraum abgerechnet
             return redirect("verkauf:beleg", beleg_id=offen.pk)
         try:
             beleg = abo.rechnung_erzeugen()
@@ -1161,9 +1285,9 @@ def abo_aktion(request, abo_id):
             messages.error(request, str(fehler))
             return redirect("verkauf:abos")
         if beleg is None:
-            messages.info(request, "Zu diesem Stichtag ist nichts abzurechnen" + (f", nächste Rechnung am {abo.naechster_termin:%d.%m.%Y}." if abo.aktiv else "; die wiederkehrende Rechnung ist damit beendet."))
+            messages.info(request, "Zu diesem Stichtag ist nichts abzurechnen" + (f", nächste Bestellung am {abo.naechster_termin:%d.%m.%Y}." if abo.aktiv else "; die wiederkehrende Rechnung ist damit beendet."))
             return redirect("verkauf:abos")
-        messages.success(request, f"Rechnungsentwurf für {abo.kunde.name1} angelegt.")
+        messages.success(request, f"Bestellung {beleg.nummer} für {abo.kunde.name1} angelegt – daraus die Rechnung erstellen.")
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
     if aktion == "pause":
         abo.aktiv = not abo.aktiv
@@ -1179,6 +1303,8 @@ def beleg_versand(request, beleg_id):
     """Versand zu einem Beleg: Sendungsnummer erfassen, Paketaufkleber drucken, Versand-Mail an den Kunden."""
     from . import versand as vs
     beleg = beleg_holen(request, beleg_id)
+    if (gesperrt := _vorlaeufig_gesperrt(request, beleg, "Der Versand geht")) is not None:
+        return gesperrt
     if request.method == "POST":
         aktion = request.POST.get("aktion")
         try:
@@ -1298,6 +1424,8 @@ def beleg_versand(request, beleg_id):
 def versand_aufkleber(request, beleg_id, versand_id):
     from . import versand as vs
     beleg = beleg_holen(request, beleg_id)
+    if (gesperrt := _vorlaeufig_gesperrt(request, beleg, "Der Versand geht")) is not None:
+        return gesperrt
     v = get_object_or_404(Versand, pk=versand_id, beleg=beleg)
     if not v.label and v.dienst == "dp":  # Briefmarke gekauft, Etikett noch nicht geladen
         from . import internetmarke as im

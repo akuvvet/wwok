@@ -341,7 +341,7 @@ class UmwandelnTest(TestCase):
         r = self.client.post(reverse("verkauf:beleg_folgebeleg", args=[ab.pk]), {"von_art": "AB", "art": "RE"}, follow=True)
         self.assertRedirects(r, reverse("verkauf:beleg", args=[ab.pk]))
         text = " ".join(self.meldungen(r))
-        self.assertIn(f"Bestellung {alt} in Rechnung (Entwurf) umgewandelt", text)
+        self.assertIn(f"Bestellung {alt} in Rechnung (nicht gespeichert) umgewandelt", text)
         self.assertNotIn("Rückstand", text)
         self.assertContains(r, f"vormals Bestellung {alt}")
 
@@ -350,7 +350,8 @@ class UmwandelnTest(TestCase):
         alt = an.nummer
         r = self.client.post(reverse("verkauf:beleg_folgebeleg", args=[an.pk]), {"von_art": "AN"}, follow=True)
         an.refresh_from_db()
-        self.assertIn(f"Angebot {alt} in Bestellung {an.nummer} umgewandelt", " ".join(self.meldungen(r)))
+        self.assertIsNone(an.nummer)  # vorläufig: die Bestellungsnummer kommt erst mit „Speichern: abschließen & Nummer vergeben“
+        self.assertIn(f"Angebot {alt} in Bestellung (nicht gespeichert) umgewandelt", " ".join(self.meldungen(r)))
         self.assertNotIn("Rückstand", " ".join(self.meldungen(r)))
 
     def test_meldung_bei_zahlung_neue_rechnung(self):

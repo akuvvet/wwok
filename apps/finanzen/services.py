@@ -257,6 +257,8 @@ def mahnung_erstellen(beleg, stufe_nr, benutzer=None, heute=None) -> Mahnung:
 def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, storno_zu=None, storno_grund="",
                   offen_bisher=None) -> Zahlung:
     """offen_bisher: offener Betrag, den die Maske gezeigt hat; weicht er ab, wurde schon gebucht (Doppelklick)."""
+    if beleg.vorlaeufig or Beleg.objects.filter(pk=beleg.pk, vorlaeufig=True).exists():
+        raise ValueError("Zahlungen gehen erst nach „Speichern: abschließen & Nummer vergeben“.")
     if offen_bisher is not None:
         Beleg.objects.select_for_update().get(pk=beleg.pk)  # Sperre gegen gleichzeitiges Doppelabsenden
         if offen_bisher != offen(beleg):

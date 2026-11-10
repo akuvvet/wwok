@@ -75,6 +75,8 @@ UMWANDELBAR = {(Belegart.ANGEBOT, Belegart.AUFTRAG), (Belegart.AUFTRAG, Belegart
 P_UNZULAESSIG = (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA)
 # Diese Belegarten werden erst beim Abschluss nummeriert und danach gesperrt.
 GESPERRT_NACH_ABSCHLUSS = {Belegart.RECHNUNG, Belegart.GUTSCHRIFT, Belegart.PROFORMA_STORNO}
+# Vorläufige Belege (in der Maske neu angelegt oder umgewandelt, noch nicht abgeschlossen) werden nach so vielen Stunden ohne Aktivität verworfen.
+VORLAEUFIG_STUNDEN = 2
 
 
 class Ruecknahme(models.TextChoices):
@@ -236,6 +238,14 @@ class Beleg(Zeitstempel):
     nl_lager_abbuchen = models.BooleanField(
         "Nachlieferschein: Ware vom Lager abbuchen", null=True, blank=True, editable=False,
         help_text="Leer = noch nicht beantwortet. Ja bei Ersatzlieferung (z. B. defektes Gerät), nein bei bloßer Nachlieferung.")
+    vorlaeufig = models.BooleanField(
+        "vorläufig (nicht gespeichert)", default=False, db_index=True, editable=False,
+        help_text="In der Belegmaske neu angelegt oder umgewandelt und noch nicht mit „Speichern: abschließen & Nummer vergeben“ "
+                  "gespeichert: ohne Nummer; wird verworfen (alles zurückgenommen), wenn er nicht abgeschlossen wird.")
+    zuletzt_aktiv = models.DateTimeField("zuletzt aktiv", null=True, blank=True, editable=False,
+                                         help_text="Vorläufiger Beleg: letzte Aktivität des Benutzers; nach 2 Stunden ohne Aktivität wird verworfen.")
+    abo = models.ForeignKey("Abo", on_delete=models.SET_NULL, null=True, blank=True, related_name="belege", editable=False,
+                            help_text="Wiederkehrende Rechnung, aus der die Bestellung entstand")
     summe_netto = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
     summe_steuer = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
     summe_brutto = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
@@ -248,7 +258,50 @@ class Beleg(Zeitstempel):
         constraints = [models.UniqueConstraint(fields=["mandant", "art", "nummer"], name="belegnummer_eindeutig")]
 
     def __str__(self):
-        return f"{self.get_art_display()} {self.nummer or '(Entwurf)'}"
+        return f"{self.get_art_display()} {self.nummer or ('(nicht gespeichert)' if self.vorlaeufig else '(Entwurf)')}"
+
+    def vorlaeufig_sperre(self, aktion):
+        """Vor dem Speichern (Abschluss mit Nummer) gibt es gar nichts nach außen: kein PDF, Druck, keine Mail, Zahlung, kein Versand."""
+        if self.vorlaeufig:
+            raise ValueError(f"{aktion} erst nach „Speichern: abschließen & Nummer vergeben“.")
+
+    @property
+    def vorgang_oder_none(self):
+        if not self.pk or not self.vorlaeufig:
+            return None
+        return BelegVorgang.objects.filter(beleg_id=self.pk).first()
+
+    @property
+    def gehoert_zu_vorgang(self):
+        """Das nicht gespeicherte P-Angebot eines anderen vorläufigen Belegs: der Beleg, zu dem es gehört (sonst None). Es hat
+        keinen eigenen Vorgang; Nummer, Speichern und Verwerfen folgen dem Beleg, in dessen Übernahme es entstanden ist."""
+        if not self.pk or not self.vorlaeufig:
+            return None
+        v = BelegVorgang.objects.filter(angebot_id=self.pk).select_related("beleg").first()
+        return v.beleg if v is not None else None
+
+    @property
+    def vorlaeufiges_angebot(self) -> bool:
+        """Nicht gespeichertes Angebot mit eigenem Vorgang (neu angelegt): Übernehmen und Kopieren daraus fragen nicht nach (Regel
+        des Nutzers); das Angebot wird erst mit dem Abschluss des neuen Belegs abgeschlossen und nummeriert, beim Verwerfen
+        des neuen Belegs ist alles wieder wie vorher (vorgang.angebot_vorab, beleg_verwerfen)."""
+        return bool(self.pk and self.art == Belegart.ANGEBOT and self.vorlaeufig
+                    and BelegVorgang.objects.filter(beleg_id=self.pk, weg=Vorgangsweg.NEU).exists())
+
+    @property
+    def offenes_ziel(self):
+        """Nicht gespeicherter Beleg, der aus diesem vorläufigen Angebot entstanden ist und es beim Speichern mit abschließt
+        (sonst None). Solange er besteht, lässt sich das Angebot nicht verwerfen."""
+        if not self.pk or not self.vorlaeufig or self.art != Belegart.ANGEBOT:
+            return None
+        v = BelegVorgang.objects.filter(quelle_id=self.pk, quelle_abgeschlossen_durch_vorgang=True).exclude(beleg_id=self.pk) \
+            .select_related("beleg").first()
+        return v.beleg if v is not None else None
+
+    @property
+    def verwerfen_moeglich(self) -> bool:
+        """Vorläufiger Beleg mit Vorgang: „Verwerfen“ nimmt alles zurück (für das Template)."""
+        return bool(self.pk and self.vorlaeufig and not self.abgeschlossen and BelegVorgang.objects.filter(beleg_id=self.pk).exists())
 
     @property
     def gesperrt(self) -> bool:
@@ -324,6 +377,10 @@ class Beleg(Zeitstempel):
         """Grund, warum der Beleg nicht gelöscht werden darf (None = löschbar).
         Löschbar sind Angebote, Bestellungen (auch nach dem Übernehmen in einen Folgebeleg) und noch nicht
         nummerierte Rechnungs-/Gutschriftentwürfe."""
+        zu_vorgang = self.gehoert_zu_vorgang
+        if zu_vorgang is not None:
+            return (f"Das Angebot gehört zum nicht gespeicherten Beleg {zu_vorgang} und wird mit ihm gespeichert oder verworfen – "
+                    "bitte dort „Verwerfen“ wählen.")
         if self.art not in (Belegart.ANGEBOT, Belegart.AUFTRAG, Belegart.PROFORMA) and not (
                 self.art in GESPERRT_NACH_ABSCHLUSS and not self.abgeschlossen and not self.nummer):
             return f"{self.get_art_display()} kann nicht gelöscht werden – Korrektur nur per Storno/Gutschrift."
@@ -388,9 +445,13 @@ class Beleg(Zeitstempel):
                              "bis sie als eigene Artikel (A) angelegt sind.")
         return ids, verschieben
 
-    def _p_ins_angebot_verschieben(self, ids) -> "Beleg":
-        """Bestellung: P-Positionen (Gruppen samt Unterpositionen) wandern in ein neues Angebot desselben Kunden."""
+    def _p_ins_angebot_verschieben(self, ids, ziel=None) -> "Beleg":
+        """Bestellung: P-Positionen (Gruppen samt Unterpositionen) wandern in ein neues Angebot desselben Kunden.
+        Ist das Ziel (Lieferschein, Rechnung, Proforma) vorläufig, hat das Angebot noch keine Nummer: es hängt am Vorgang des
+        Ziels, bekommt die Nummer beim Abschluss und verschwindet beim Verwerfen (die Positionen gehen zurück)."""
+        vorlaeufig = ziel is not None and ziel.vorlaeufig
         angebot = Beleg.objects.create(
+            vorlaeufig=vorlaeufig,
             mandant=self.mandant, art=Belegart.ANGEBOT, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
@@ -398,6 +459,8 @@ class Beleg(Zeitstempel):
             rabatt_prozent=self.rabatt_prozent, bezugnahme=self.bezugnahme, bearbeiter=self.bearbeiter,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=self.bemerkung, vorgaenger=self)
+        if vorlaeufig:
+            BelegVorgang.objects.filter(beleg=ziel).update(angebot=angebot)
         for p in Position.objects.filter(models.Q(pk__in=ids) | models.Q(gruppe_id__in=ids)):
             p.beleg = angebot
             p.save()  # nicht update(): das Änderungsprotokoll hält das Umhängen fest
@@ -414,7 +477,10 @@ class Beleg(Zeitstempel):
             self.berechne()
             # Proforma kann storniert werden: die Bestellung wird dann wieder geöffnet (Rückbuchen)
             if neu.art != Belegart.PROFORMA and not self.offene_mengen() and not self.abgeschlossen:
-                if self.positionen.exists():
+                from . import vorgang
+                if neu.vorlaeufig and vorgang.abschluss_vormerken(neu, "erledigt"):
+                    pass  # die Bestellung bleibt bis zum Abschluss des vorläufigen Ziels offen; beim Verwerfen ist nichts zurückzudrehen
+                elif self.positionen.exists():
                     self.abschliessen()
                     self.automatisch_erledigt = True
                     Beleg.objects.filter(pk=self.pk).update(automatisch_erledigt=True)
@@ -493,8 +559,10 @@ class Beleg(Zeitstempel):
                 if getattr(vorher, feld) != getattr(self, feld):
                     raise BelegGesperrt(f"{self}: Feld '{feld}' ist nach Abschluss gesperrt.")
         self.nummer = self.nummer or None
-        if not self.pk and not self.nummer and self.art not in GESPERRT_NACH_ABSCHLUSS:
+        if not self.pk and not self.nummer and self.art not in GESPERRT_NACH_ABSCHLUSS and not self.vorlaeufig:
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
+        if not self.pk and self.vorlaeufig and self.zuletzt_aktiv is None:
+            self.zuletzt_aktiv = timezone.now()
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -512,7 +580,7 @@ class Beleg(Zeitstempel):
         BelegArbeitsstand.objects.filter(beleg__mandant=mandant).delete()  # Altdaten: der aktuelle Stand gilt
         grenze = timezone.now() - timedelta(minutes=minuten)
         kandidaten = cls.objects.filter(mandant=mandant, abgeschlossen=False, angelegt_am__lt=grenze, positionen__isnull=True,
-                                        arbeitsstand__isnull=True)
+                                        arbeitsstand__isnull=True, vorlaeufig=False)  # vorläufige Belege laufen über vorlaeufige_verwerfen
         if kunde is not None:
             kandidaten = kandidaten.filter(kunde=kunde)
         anzahl = 0
@@ -526,6 +594,50 @@ class Beleg(Zeitstempel):
                 Nummernkreis.freigeben(mandant, art, nummer)
             anzahl += 1
         return anzahl
+
+    @classmethod
+    def vorlaeufige_verwerfen(cls, mandant=None, ausfuehren=True, jetzt=None) -> list:
+        """Vorläufige Belege (nicht gespeichert), an denen seit VORLAEUFIG_STUNDEN Stunden nichts mehr getan wurde, werden verworfen:
+        alles wird zurückgenommen (siehe vorgang.beleg_verwerfen). Je Beleg eine eigene Transaktion; der Zeitpunkt wird unter der
+        Sperre erneut geprüft, ein Puls dazwischen verhindert das Verwerfen. Shop-, Abo- und Werkstattbelege und Altentwürfe
+        (nicht vorläufig) werden nie angefasst. ausfuehren=False: nur auflisten.
+        Rückgabe: Liste von {"beleg", "weg", "verworfen", "fehler"}."""
+        from . import vorgang
+        jetzt = jetzt or timezone.now()
+        grenze = jetzt - timedelta(hours=VORLAEUFIG_STUNDEN)
+        zu_alt = models.Q(zuletzt_aktiv__lt=grenze) | models.Q(zuletzt_aktiv__isnull=True, angelegt_am__lt=grenze)
+        # Abo-Bezug schützt nur Belege, die selbst dazugehören; ein vorläufiger Folgebeleg oder eine Umwandlung aus einer
+        # Abo-Bestellung wird verworfen (die Bestellung steht danach wieder wie vorher da).
+        kandidaten = cls.objects.filter(zu_alt, vorlaeufig=True, abgeschlossen=False, vorgang__isnull=False).exclude(
+            abo__isnull=False, vorgang__weg__in=(Vorgangsweg.NEU, Vorgangsweg.GUTSCHRIFT))
+        # Ein nicht gespeichertes Angebot, aus dem ein ebenfalls nicht gespeicherter Beleg entstanden ist, bleibt bestehen; wird der
+        # Beleg verworfen, beginnt die Frist des Angebots neu.
+        kandidaten = kandidaten.exclude(pk__in=BelegVorgang.objects.filter(quelle__isnull=False, quelle_abgeschlossen_durch_vorgang=True)
+                                        .values("quelle_id"))
+        if mandant is not None:
+            kandidaten = kandidaten.filter(mandant=mandant)
+        ergebnis = []
+        for b in kandidaten.select_related("kunde", "vorgang").order_by("pk"):
+            eintrag = {"beleg": b, "weg": b.vorgang.get_weg_display(), "verworfen": False, "fehler": ""}
+            ergebnis.append(eintrag)
+            if not ausfuehren:
+                continue
+            try:
+                with transaction.atomic():
+                    quelle_id = BelegVorgang.objects.filter(beleg_id=b.pk).values_list("quelle_id", flat=True).first()
+                    if quelle_id:  # überall dieselbe Reihenfolge wie beim Verwerfen von Hand: erst die Quelle, dann das Ziel (kein Deadlock)
+                        cls.objects.select_for_update().filter(pk=quelle_id).first()
+                    aktuell = cls.objects.select_for_update().filter(pk=b.pk).filter(zu_alt, vorlaeufig=True, abgeschlossen=False).first()
+                    if aktuell is None:  # inzwischen aktiv, abgeschlossen oder schon weg
+                        continue
+                    eintrag["verworfen"] = vorgang.beleg_verwerfen(aktuell, None, "automatisch") is not None
+            except (ValueError, models.ProtectedError) as fehler:
+                eintrag["fehler"] = str(fehler)
+                logger.warning("Vorläufiger Beleg %s lässt sich nicht verwerfen: %s", b.pk, fehler)
+            except Exception:
+                eintrag["fehler"] = "unerwarteter Fehler (siehe Protokoll)"
+                logger.exception("Vorläufiger Beleg %s: Verwerfen fehlgeschlagen", b.pk)
+        return ergebnis
 
     def arbeitsstand_beenden(self) -> bool:
         """Altdaten: Ein früher angelegter Arbeitsstand („Nicht gespeicherte Änderungen“) wird still beendet, der aktuelle Stand gilt.
@@ -677,17 +789,31 @@ class Beleg(Zeitstempel):
             self.verpackung, self.versicherung = stamm.verpackung, stamm.versicherung
 
     @transaction.atomic
-    def abschliessen(self):
+    def abschliessen(self, p_erlaubt=False):
+        """p_erlaubt: nur für „erst abschließen, dann übernehmen“ (views._erst_abschliessen): eine Bestellung mit Preislistenartikeln
+        (P) darf abgeschlossen werden, weil die Übernahme die P-Positionen sofort in ein neues Angebot verschiebt."""
         if self.abgeschlossen:
             return
         self.arbeitsstand_beenden()
+        # Sperrreihenfolge wie beim Verwerfen (erst die Quelle, dann das Ziel): sonst Deadlock, wenn gleichzeitig verworfen wird.
+        # Nur nötig, wenn der Abschluss der Quelle vorgemerkt ist (nachholen sperrt sie).
+        vorab = BelegVorgang.objects.filter(beleg_id=self.pk, quelle_abgeschlossen_durch_vorgang=True).values_list("quelle_id", flat=True).first()
+        if vorab:
+            Beleg.objects.select_for_update().filter(pk=vorab).first()
         # Zeile sperren und Zustand neu lesen: Doppelklick/zweiter Tab darf keine zweite Nummer vergeben
-        if Beleg.objects.select_for_update().values_list("abgeschlossen", flat=True).get(pk=self.pk):
+        schon_abgeschlossen, war_vorlaeufig =Beleg.objects.select_for_update().values_list("abgeschlossen", "vorlaeufig").get(pk=self.pk)
+        if schon_abgeschlossen:
             self.refresh_from_db()
             return
+        self.vorlaeufig = war_vorlaeufig
+        zu_vorgang = self.gehoert_zu_vorgang
+        if zu_vorgang is not None:
+            raise ValueError(f"Das Angebot gehört zum nicht gespeicherten Beleg {zu_vorgang}: Es bekommt seine Nummer, sobald dieser "
+                             "mit „Speichern: abschließen & Nummer vergeben“ gespeichert wird (sonst wird beides verworfen).")
         if not self.positionen.exists():
             raise ValueError("Beleg ohne Positionen kann nicht abgeschlossen werden.")
-        if self.art in (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) and self.p_positionen().exists():
+        if self.art in (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) and not (p_erlaubt and self.art == Belegart.AUFTRAG) \
+                and self.p_positionen().exists():
             raise ValueError(f"{self.get_art_display()} enthält Preislistenartikel (P) – nur als Angebot möglich. "
                              "Erst Wareneingang buchen, dann sind es eigene Artikel (A).")
         if self.art == Belegart.RECHNUNG:  # Die Ware muss über den Lieferschein abgebucht sein, sonst bliebe der Bestand falsch
@@ -706,10 +832,16 @@ class Beleg(Zeitstempel):
         if self.art == Belegart.GUTSCHRIFT:
             from apps.lager.services import gutschrift_menge_pruefen
             gutschrift_menge_pruefen(self)
+        if war_vorlaeufig and self.art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT) and self.belegdatum < timezone.localdate():
+            self.belegdatum = timezone.localdate()  # Rechnung/Gutschrift tragen das Abschlussdatum, nicht den Tag des Anlegens
+        if war_vorlaeufig:  # Angebot, aus dem dieser Beleg übernommen wurde: bekommt zuerst seine Nummer (Regel des Nutzers)
+            from . import vorgang
+            vorgang.angebot_vorab(self)
         if not self.nummer:
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
-        self.abgeschlossen = True
-        Beleg.objects.filter(pk=self.pk).update(nummer=self.nummer, abgeschlossen=True)
+        self.abgeschlossen, self.vorlaeufig, self.zuletzt_aktiv = True, False, None
+        Beleg.objects.filter(pk=self.pk).update(nummer=self.nummer, abgeschlossen=True, vorlaeufig=False, zuletzt_aktiv=None,
+                                                belegdatum=self.belegdatum)
         from apps.lager.services import buche_beleg  # Lieferschein/Rechnung buchen den Bestand ab
         from apps.kern.middleware import aktueller_benutzer
         benutzer = aktueller_benutzer()
@@ -723,6 +855,14 @@ class Beleg(Zeitstempel):
         if self.art == Belegart.RECHNUNG:  # Anzahlungen aus Proforma/Bestellung in derselben Transaktion verrechnen
             from apps.finanzen.anzahlung import anzahlungen_verrechnen
             anzahlungen_verrechnen(self, benutzer)
+        if war_vorlaeufig:
+            self._vorgang_nachholen()
+
+    def _vorgang_nachholen(self):
+        """Der Abschluss macht den Vorgang endgültig: P-Angebot nummerieren, vorgemerkten Abschluss der Quelle ausführen
+        (Bestellung erledigt, Urbeleg abgeschlossen), Vorgang löschen. Die Sperre liegt hier auf Ziel vor Quelle."""
+        from . import vorgang
+        vorgang.nachholen(self)
 
     def folge_pruefen(self, art):
         """Verhindert doppelte Abrechnung und doppelte Lieferung aus demselben Ursprungsbeleg."""
@@ -811,6 +951,8 @@ class Beleg(Zeitstempel):
             return False
         if self.folgebelege.exists():  # auch stornierte Proforma und frühere Kopien: sonst zählten deren Positionen als übernommen
             return False
+        if BelegVorgang.objects.filter(quelle=self, quelle_abgeschlossen_durch_vorgang=True).exclude(beleg=self).exists():
+            return False  # Kopie als Angebot noch offen: sie schließt dieses Angebot beim Speichern ab, also nicht umwandeln
         if art == Belegart.RECHNUNG:
             if mengen is None or self.zahlungen.exists() or self.anzahlung_verrechnungen.exists():
                 return False
@@ -819,10 +961,13 @@ class Beleg(Zeitstempel):
                     return False
         return True
 
-    def _umwandeln(self, art) -> "Beleg":
+    def _umwandeln(self, art, vorlaeufig=False) -> "Beleg":
         """Derselbe Datensatz bekommt die neue Belegart und eine neue Nummer; die alte Nummer bleibt im Verlauf (BelegUmwandlung).
-        Eine Bestellung nummeriert sofort, die Rechnung erst beim Abschließen (lückenlos). Positionen bleiben unverändert."""
+        Eine Bestellung nummeriert sofort, die Rechnung erst beim Abschließen (lückenlos). Positionen bleiben unverändert.
+        vorlaeufig (Belegmaske): der umgewandelte Beleg hat noch keine Nummer; der Ausgangszustand ist im BelegVorgang gesichert,
+        „Verwerfen“ wandelt ihn mit alter Art, Nummer und Datum zurück."""
         from apps.kern.middleware import aktueller_benutzer
+        from . import vorgang
         with transaction.atomic():
             # Zeile sperren und Zustand neu lesen: Doppelklick/zweiter Tab darf nicht zweimal umwandeln
             aktuell = Beleg.objects.select_for_update().get(pk=self.pk)
@@ -831,15 +976,27 @@ class Beleg(Zeitstempel):
             # Bedingungen nach der Sperre erneut prüfen: zwischenzeitlich Folgebeleg/Zahlung -> nicht umwandeln
             if (aktuell.folgebelege.exists() or aktuell.zahlungen.exists() or aktuell.anzahlung_verrechnungen.exists()):
                 raise ValueError(f"{self}: Inzwischen gibt es Folgebelege oder Zahlungen – bitte den Beleg neu öffnen und erneut übernehmen.")
+            if BelegVorgang.objects.filter(quelle=aktuell, quelle_abgeschlossen_durch_vorgang=True).exclude(beleg=aktuell).exists():
+                raise ValueError(f"{self}: Eine nicht gespeicherte Kopie wird beim Speichern dieses Belegs abschließen – "
+                                 "bitte die Kopie zuerst speichern oder verwerfen.")
             benutzer = aktueller_benutzer()
             benutzer = benutzer if benutzer is not None and benutzer.is_authenticated else None
+            stand = vorgang.stand_sichern(self, umwandlung=True) if vorlaeufig else None
+            if vorlaeufig:  # nicht gespeichertes Angebot: sein eigener Vorgang (OneToOne) wird im Stand gesichert und beim Verwerfen zurückgeholt
+                stand["vorheriger_vorgang"] = vorgang.eigenen_vorgang_sichern(self)
             BelegUmwandlung.objects.create(beleg=self, von_art=self.art, von_nummer=self.nummer or "",
                                            von_belegdatum=self.belegdatum, nach_art=art, benutzer=benutzer)
             heute = timezone.localdate()
+            if self.abo_id:  # Abo-Bestellung: nie vor dem Stichtag
+                heute = max(heute, self.belegdatum)
             self.art, self.belegdatum, self.abgeschlossen = art, heute, False
             self.gueltig_bis = self.liefertermin = None
-            self.nummer = None if art in GESPERRT_NACH_ABSCHLUSS else Nummernkreis.naechste(self.mandant, art, heute.year)
+            self.vorlaeufig = vorlaeufig
+            self.zuletzt_aktiv = timezone.now() if vorlaeufig else None
+            self.nummer = None if vorlaeufig or art in GESPERRT_NACH_ABSCHLUSS else Nummernkreis.naechste(self.mandant, art, heute.year)
             self.save()  # nicht update(): das Änderungsprotokoll hält den Wechsel von Art und Nummer fest
+            if vorlaeufig:
+                vorgang.vorgang_beginnen(self, Vorgangsweg.UMWANDLUNG, stand=stand)
             self.__dict__.pop("verlauf", None)
             self.berechne()  # Summen wie beim neuen Folgebeleg frisch rechnen
         return self
@@ -864,9 +1021,12 @@ class Beleg(Zeitstempel):
             raise ValueError(f"{self} wurde inzwischen umgewandelt – bitte den Beleg neu öffnen.")
 
     @transaction.atomic
-    def folgebeleg_erzeugen(self, entscheidungen=None, art=None) -> "Beleg":
+    def folgebeleg_erzeugen(self, entscheidungen=None, art=None, vorlaeufig=False) -> "Beleg":
         """Nächste Stufe im Belegfluss. Bestellung -> Rechnung (art=RE) ist zusätzlich direkt möglich.
-        Rückgabe: bei vollständiger Übernahme von Angebot/Bestellung der umgewandelte Beleg selbst, sonst der neue Beleg."""
+        Rückgabe: bei vollständiger Übernahme von Angebot/Bestellung der umgewandelte Beleg selbst, sonst der neue Beleg.
+        vorlaeufig (nur die Belegmaske): der Folgebeleg hat keine Nummer und ist erst mit seinem Abschluss endgültig; die Bestellung
+        wird bis dahin nicht abgeschlossen, und „Verwerfen“ bucht alles zurück."""
+        from . import vorgang
         if self.pk:  # Zeile sperren, bevor der Zustand gelesen wird: Doppelklick/zweiter Tab darf nicht doppelt übernehmen
             self._nach_sperre_aktualisieren()  # aktueller Stand nach dem Warten auf die Sperre (z. B. Versandkosten schon mitgegeben)
         self.arbeitsstand_beenden()
@@ -882,8 +1042,13 @@ class Beleg(Zeitstempel):
         p_ids, verschieben = self._p_vorbereiten(art)
         anzahl = self.p_positionen().count() if p_ids else 0
         mengen = self._uebernahme(art, entscheidungen)  # prüft vor dem Anlegen: nichts anlegen, wenn nichts zu übernehmen ist
+        aus_vorlaeufigem_angebot = vorlaeufig and self.vorlaeufiges_angebot  # das Angebot wird erst mit dem Ziel abgeschlossen
         if self.umwandlung_moeglich(art, mengen, p_ids):
-            return self._umwandeln(art)
+            umgewandelt = self._umwandeln(art, vorlaeufig=vorlaeufig)
+            if aus_vorlaeufigem_angebot:
+                vorgang.abschluss_vormerken(umgewandelt, "angebot")
+            return umgewandelt
+        stand = vorgang.stand_sichern(self) if vorlaeufig else None  # vor der ersten Änderung an dieser Bestellung
         neu = Beleg.objects.create(
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
@@ -891,26 +1056,45 @@ class Beleg(Zeitstempel):
             versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
             rabatt_prozent=self.rabatt_prozent,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
-            bemerkung=self.bemerkung, vorgaenger=self)
-        angebot = self._p_ins_angebot_verschieben(p_ids) if verschieben else None
+            bemerkung=self.bemerkung, vorgaenger=self, vorlaeufig=vorlaeufig, abo=self.abo,
+            **({"belegdatum": max(timezone.localdate(), self.belegdatum)} if self.abo_id else {}))
+        if vorlaeufig:
+            vorgang.vorgang_beginnen(neu, Vorgangsweg.FOLGE, quelle=self, stand=stand)
+        angebot = self._p_ins_angebot_verschieben(p_ids, ziel=neu) if verschieben else None
         self._positionen_uebernehmen(neu, mengen, p_ids)
         if self.art == Belegart.LIEFERSCHEIN:
             neu.lieferscheine.add(self)
         neu.berechne()
         self._p_abschluss(neu, anzahl, p_ids, verschieben, angebot)
+        if aus_vorlaeufigem_angebot:
+            vorgang.abschluss_vormerken(neu, "angebot")
         return neu
 
 
     @transaction.atomic
     def teillieferung_abschliessen(self) -> "Beleg":
-        """Positionen mit ausreichendem Bestand wandern in einen neuen Beleg derselben Art, der abgeschlossen wird;
-        der Rest bleibt unverändert als Entwurf in diesem Beleg. Versandkosten laufen mit der Teillieferung."""
+        """Positionen mit ausreichendem Bestand wandern in einen neuen Beleg derselben Art, der abgeschlossen wird (nie vorläufig);
+        der Rest bleibt unverändert als Entwurf in diesem Beleg. Versandkosten laufen mit der Teillieferung.
+        Vorläufiger Beleg: Stammt er aus einer Bestellung, geht der Rest sofort zurück in die Bestellung (kein Rest-Entwurf);
+        eine vorläufige Umwandlung Bestellung → Rechnung wird zurückgedreht und der lieferbare Teil als neue Rechnung aus der
+        Bestellung übernommen; ein neuer Beleg ohne Bestellung bleibt mit dem Rest vorläufig bestehen.
+        Am Ergebnis steht rest_beleg: der Beleg, der den Rest hält (None = kein Rest mehr als eigener Beleg)."""
         from apps.lager.services import teilung
+        from . import vorgang
         if self.abgeschlossen:
             raise ValueError("Der Beleg ist schon abgeschlossen – eine Teillieferung gibt es nur für Entwürfe.")
         lieferbar, knapp = teilung(self)
         if not lieferbar or not knapp:
             raise ValueError("Eine Teillieferung ist nur möglich, wenn ein Teil der Positionen lieferbar ist und ein Teil nicht.")
+        # Sperrreihenfolge wie beim Verwerfen: erst die Quelle (Angebot/Urbeleg), dann der Beleg
+        quelle_vorab = BelegVorgang.objects.filter(beleg=self).values_list("quelle_id", flat=True).first()
+        if quelle_vorab:
+            Beleg.objects.select_for_update().filter(pk=quelle_vorab).first()
+        Beleg.objects.select_for_update().get(pk=self.pk)
+        self.refresh_from_db(fields=["vorlaeufig"])
+        v = BelegVorgang.objects.filter(beleg=self).first() if self.vorlaeufig else None
+        if v is not None and v.weg == Vorgangsweg.UMWANDLUNG:
+            return self._teillieferung_aus_umwandlung()
         self.arbeitsstand_beenden()
         neu = Beleg.objects.create(
             mandant=self.mandant, art=self.art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
@@ -929,13 +1113,70 @@ class Beleg(Zeitstempel):
         self.berechne()
         neu.berechne()
         neu.abschliessen()
+        neu.rest_beleg = self
+        if v is not None:
+            if v.angebot_id and v.angebot.vorlaeufig:  # das P-Angebot gehört zur erfolgten Übernahme: es wird gespeichert
+                nummer = Nummernkreis.naechste(v.angebot.mandant, v.angebot.art, v.angebot.belegdatum.year)
+                Beleg.objects.filter(pk=v.angebot_id).update(nummer=nummer, vorlaeufig=False, zuletzt_aktiv=None)
+                v.angebot = None
+            quelle = v.quelle
+            rest_zurueck = v.weg in (Vorgangsweg.FOLGE, Vorgangsweg.KOPIE) and quelle is not None and quelle.art == Belegart.AUFTRAG
+            if rest_zurueck:  # der Rest geht an die Bestellung zurück: robuster Weg, die Bestellung wird dabei nicht abgeschlossen
+                stand = {k: w for k, w in v.stand.items() if k not in ("quelle_kopf", "quelle_positionen", "quelle_fingerprint")}  # die Nebenkosten bleiben bei der Teillieferung
+                v.quelle_abgeschlossen_durch_vorgang, v.stand = False, stand
+                v.save()
+                if vorgang.beleg_verwerfen(self, None, "Teillieferung") is not None:
+                    neu.rest_beleg = quelle  # der Rest steht wieder in der Bestellung
+            elif v.quelle_abgeschlossen_durch_vorgang and v.stand.get("abschluss_modus") in ("urbeleg", "angebot") and quelle is not None:
+                # „Ursprungsbeleg abschließen“ war gewählt (Kopie aus Angebot, Rechnung …): mit dem abgeschlossenen Teil gilt die
+                # Kopie als erfolgt, der Urbeleg wird jetzt abgeschlossen – nicht erst mit dem Rest, der verworfen werden könnte.
+                quelle = Beleg.objects.select_for_update().get(pk=quelle.pk)
+                if not quelle.abgeschlossen:
+                    quelle.abschliessen()
+                v.quelle_abgeschlossen_durch_vorgang = False
+                v.save()
+        return neu
+
+    def _teillieferung_aus_umwandlung(self) -> "Beleg":
+        """Vorläufige Umwandlung Bestellung → Rechnung mit zu wenig Bestand: zurück zur Bestellung, der lieferbare Teil geht als
+        neue, abgeschlossene Rechnung aus der Bestellung hervor (mit der Bestellung als Vorgänger und im Verlauf)."""
+        from apps.lager.services import teilung
+        from . import uebernahme, vorgang
+        v = BelegVorgang.objects.filter(beleg=self).first()
+        if v is not None and not vorgang.positionen_unveraendert(self, v.stand.get("beleg_positionen", "[]")):
+            # Das Zurückwandeln stellt die Positionen der Bestellung wieder her; Eigenes aus der vorläufigen Rechnung ginge verloren
+            raise ValueError("Die Positionen der Rechnung wurden seit der Übernahme aus der Bestellung geändert (Positionen, Mengen oder "
+                             "Preise). Eine Teillieferung würde diese Änderungen verwerfen – bitte zuerst die Änderungen zurücknehmen "
+                             "oder die Rechnung ohne Teillieferung speichern.")
+        vorgang.beleg_verwerfen(self, None, "Teillieferung")
+        ab = Beleg.objects.get(pk=self.pk)
+        lieferbar, knapp = teilung(ab)
+        if not lieferbar or not knapp:
+            raise ValueError("Eine Teillieferung ist nur möglich, wenn ein Teil der Positionen lieferbar ist und ein Teil nicht.")
+        mengen = {p.pk: p.offen_menge for p in lieferbar if p.offen_menge > 0}
+        neu = Beleg.objects.create(
+            mandant=ab.mandant, art=Belegart.RECHNUNG, kunde=ab.kunde, ansprechpartner=ab.ansprechpartner,
+            zahlungsbedingung=ab.zahlungsbedingung, rechnungsanschrift=ab.rechnungsanschrift,
+            versandanschrift=ab.versandanschrift, versandart=ab.versandart,
+            versandkosten=ab.versandkosten, verpackung=ab.verpackung, versicherung=ab.versicherung,
+            rabatt_prozent=ab.rabatt_prozent, bezugnahme=ab.bezugnahme, bearbeiter=ab.bearbeiter,
+            referenz=ab.referenz, vortext=ab.vortext, schlusstext=ab.schlusstext, bemerkung=ab.bemerkung, vorgaenger=ab, abo=ab.abo,
+            **({"belegdatum": max(timezone.localdate(), ab.belegdatum)} if ab.abo_id else {}))
+        neu.uebernahmen_neu = uebernahme.menge_verschieben(ab, neu, mengen)
+        uebernahme.nebenkosten_mitgeben(ab, neu)
+        neu.berechne()
+        neu.abschliessen()
+        neu.rest_beleg = ab
         return neu
 
     @transaction.atomic
-    def kopieren_als(self, art, urbeleg_abschliessen=False, entscheidungen=None) -> "Beleg":
+    def kopieren_als(self, art, urbeleg_abschliessen=False, entscheidungen=None, vorlaeufig=False) -> "Beleg":
         """Beliebigen Beleg als neuen Entwurf der gewünschten Belegart kopieren (Gutschrift nur über Storno).
         Optional wird der Ursprungsbeleg danach abgeschlossen (erledigt). Ausnahme: Aus einer Bestellung in Lieferschein,
-        Rechnung oder Proforma wandert die übernommene Menge aus der Bestellung (keine Kopie)."""
+        Rechnung oder Proforma wandert die übernommene Menge aus der Bestellung (keine Kopie).
+        vorlaeufig (nur die Belegmaske): die Kopie hat keine Nummer; der Urbeleg wird erst mit ihrem Abschluss abgeschlossen,
+        „Verwerfen“ nimmt alles zurück."""
+        from . import vorgang
         if self.pk:
             self._nach_sperre_aktualisieren()  # aktueller Stand nach der Sperre (Versandkosten, Abschluss)
         self.arbeitsstand_beenden()
@@ -954,7 +1195,10 @@ class Beleg(Zeitstempel):
         anzahl = self.p_positionen().count() if p_ids else 0
         mengen = self._uebernahme(art, entscheidungen)
         nachlieferung = art == Belegart.NACHLIEFERSCHEIN
+        stand = vorgang.stand_sichern(self) if vorlaeufig else None
+        aus_vorlaeufigem_angebot = vorlaeufig and self.vorlaeufiges_angebot  # das Angebot wird erst mit der Kopie abgeschlossen
         neu = Beleg.objects.create(
+            vorlaeufig=vorlaeufig,
             mandant=self.mandant, art=art, kunde=self.kunde, ansprechpartner=self.ansprechpartner,
             zahlungsbedingung=zahlungsbedingung_bezahlt() if nachlieferung else
                               zahlungsbedingung_vorkasse() if art == Belegart.PROFORMA else self.zahlungsbedingung,
@@ -965,20 +1209,26 @@ class Beleg(Zeitstempel):
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
             bemerkung=f"Nachlieferung zu Rechnung {self.nummer}" if nachlieferung else self.bemerkung,
             vorgaenger=self if art != self.art else None)
-        angebot = self._p_ins_angebot_verschieben(p_ids) if verschieben else None
+        if vorlaeufig:
+            vorgang.vorgang_beginnen(neu, Vorgangsweg.KOPIE, quelle=self, stand=stand)
+        angebot = self._p_ins_angebot_verschieben(p_ids, ziel=neu) if verschieben else None
         self._positionen_uebernehmen(neu, mengen, p_ids)
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG:
             neu.lieferscheine.add(self)
         neu.berechne()
         self._p_abschluss(neu, anzahl, p_ids, verschieben, angebot)
-        if urbeleg_abschliessen and not self.abgeschlossen:
-            self.abschliessen()
+        if aus_vorlaeufigem_angebot:  # keine Rückfrage „Angebot abschließen?“: das Angebot schließt mit der Kopie ab
+            vorgang.abschluss_vormerken(neu, "angebot")
+        elif urbeleg_abschliessen and not self.abgeschlossen:
+            if not (vorlaeufig and vorgang.abschluss_vormerken(neu, "urbeleg")):
+                self.abschliessen()
         return neu
 
     @transaction.atomic
-    def gutschrift_erzeugen(self, ruecknahme="") -> "Beleg":
+    def gutschrift_erzeugen(self, ruecknahme="", vorlaeufig=False) -> "Beleg":
         """Storno/Gutschrift zu einer abgeschlossenen Rechnung (Positionen unverändert, Belegart Gutschrift).
-        ruecknahme gilt für alle Positionen und lässt sich je Position in Spalte B ändern."""
+        ruecknahme gilt für alle Positionen und lässt sich je Position in Spalte B ändern.
+        vorlaeufig (nur die Belegmaske): ohne Nummer, bis die Gutschrift abgeschlossen wird; sonst wird sie verworfen."""
         if self.art != Belegart.RECHNUNG or not self.abgeschlossen:
             raise ValueError("Eine Gutschrift gibt es nur zu einer abgeschlossenen Rechnung.")
         schon = sum((g.summe_brutto for g in self.folgebelege.filter(art=Belegart.GUTSCHRIFT)), Decimal("0"))
@@ -989,8 +1239,11 @@ class Beleg(Zeitstempel):
             zahlungsbedingung=self.zahlungsbedingung, rechnungsanschrift=self.rechnungsanschrift,
             versandanschrift=self.versandanschrift, versandart=self.versandart,
             versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
-            rabatt_prozent=self.rabatt_prozent,
+            rabatt_prozent=self.rabatt_prozent, vorlaeufig=vorlaeufig,
             referenz=self.referenz, bemerkung=f"Gutschrift zu Rechnung {self.nummer}", vorgaenger=self)
+        if vorlaeufig:
+            from . import vorgang
+            vorgang.vorgang_beginnen(neu, Vorgangsweg.GUTSCHRIFT, quelle=self)
         kopiere_positionen(self, neu)
         neu.positionen.update(ruecknahme=ruecknahme)
         neu.berechne()
@@ -1042,6 +1295,40 @@ class BelegUmwandlung(models.Model):
         return f"{self.von_art_name} {self.von_nummer or '(Entwurf)'} -> {self.nach_art_name}"
 
 
+class Vorgangsweg(models.TextChoices):
+    NEU = "N", "neu angelegt"
+    FOLGE = "F", "Folgebeleg übernommen"
+    UMWANDLUNG = "U", "Beleg umgewandelt"
+    KOPIE = "K", "Beleg kopiert"
+    GUTSCHRIFT = "G", "Gutschrift"
+    SAMMEL = "S", "Sammelrechnung"
+
+
+class BelegVorgang(models.Model):
+    """Ausgangszustand eines vorläufigen Belegs: Wie sahen Quelle (und bei einer Umwandlung der Beleg selbst) vor dem Vorgang aus?
+    Mit „Speichern: abschließen & Nummer vergeben“ wird der Eintrag gelöscht, dann gilt alles endgültig; „Verwerfen“ stellt den
+    Ausgangszustand wieder her (vorgang.beleg_verwerfen). Der Stand (JSON) enthält: quelle_kopf, quelle_positionen (serialisiert),
+    quelle_fingerprint, beleg_kopf und beleg_positionen (nur Umwandlung), seriennummern, esd, beruehrt, abschluss_modus."""
+
+    beleg = models.OneToOneField(Beleg, on_delete=models.CASCADE, related_name="vorgang")
+    weg = models.CharField("Weg", max_length=1, choices=Vorgangsweg.choices)
+    quelle = models.ForeignKey(Beleg, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    angebot = models.ForeignKey(Beleg, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+                                help_text="Das mit entstandene Angebot für Preislistenartikel (P); es bekommt seine Nummer erst beim Abschluss.")
+    quelle_abgeschlossen_durch_vorgang = models.BooleanField(
+        default=False, help_text="Der Abschluss der Quelle (Bestellung erledigt, Urbeleg abschließen) ist vorgemerkt und läuft erst beim Abschluss des Ziels.")
+    stand = models.JSONField("Ausgangszustand", default=dict, blank=True)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    angelegt_am = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Vorgang eines vorläufigen Belegs"
+        verbose_name_plural = "Vorgänge vorläufiger Belege"
+
+    def __str__(self):
+        return f"{self.get_weg_display()}: {self.beleg}"
+
+
 class BelegUebernahme(models.Model):
     """Unveränderlicher Verlauf einer Teilübernahme: Welche Menge wurde wann aus einer Bestellung in welchen Folgebeleg
     (Lieferschein, Rechnung, Proforma) verschoben, zurückgebucht oder bei der Umstellung von Altdaten übernommen?
@@ -1087,7 +1374,7 @@ class BelegUebernahme(models.Model):
     def ziel_text(self) -> str:
         beleg = self.ziel_beleg
         if beleg is not None:
-            return f"{beleg.get_art_display()} {beleg.nummer or '(Entwurf)'}"
+            return f"{beleg.get_art_display()} {beleg.nummer or ('(nicht gespeichert)' if beleg.vorlaeufig else '(Entwurf)')}"
         return f"{Belegart(self.ziel_art).label} (gelöscht)"
 
     @property
@@ -1231,8 +1518,9 @@ def mit_offener_menge(positionen):
 
 
 @transaction.atomic
-def rechnung_aus_lieferscheinen(lieferscheine) -> Beleg:
-    """Mehrere Lieferscheine eines Kunden zu einer Rechnung zusammenfassen."""
+def rechnung_aus_lieferscheinen(lieferscheine, vorlaeufig=False) -> Beleg:
+    """Mehrere Lieferscheine eines Kunden zu einer Rechnung zusammenfassen. vorlaeufig (nur die Belegmaske): ohne Nummer,
+    bis die Rechnung abgeschlossen wird; Verwerfen gibt die Lieferscheine wieder zum Abrechnen frei."""
     lieferscheine = sorted(lieferscheine, key=lambda b: (b.belegdatum, b.pk))
     if not lieferscheine:
         raise ValueError("Keine Lieferscheine ausgewählt.")
@@ -1248,8 +1536,12 @@ def rechnung_aus_lieferscheinen(lieferscheine) -> Beleg:
         mandant=erster.mandant, art=Belegart.RECHNUNG, kunde=erster.kunde, ansprechpartner=erster.ansprechpartner,
         zahlungsbedingung=erster.zahlungsbedingung or erster.kunde.zahlungsbedingung,
         rechnungsanschrift=erster.rechnungsanschrift, versandanschrift=erster.versandanschrift,
-        versandart=erster.versandart, rabatt_prozent=erster.rabatt_prozent, vorgaenger=erster,
+        versandart=erster.versandart, rabatt_prozent=erster.rabatt_prozent, vorgaenger=erster, vorlaeufig=vorlaeufig,
+        abo_id=erster.abo_id if len({ls.abo_id for ls in lieferscheine}) == 1 else None,  # gehören alle zum selben Abo, zählt die Rechnung zu dessen Zeitraum
         bemerkung="Lieferscheine: " + ", ".join(ls.nummer for ls in lieferscheine))
+    if vorlaeufig:
+        from . import vorgang
+        vorgang.vorgang_beginnen(rechnung, Vorgangsweg.SAMMEL)
     for ls in lieferscheine:
         kopiere_positionen(ls, rechnung)
     rechnung.lieferscheine.set(lieferscheine)
@@ -1381,7 +1673,8 @@ def monate_addieren(tag: date, monate: int) -> date:
 
 
 class Abo(Zeitstempel):
-    """Wiederkehrende Rechnung (Wartungsvertrag, Hosting, Miete …): erzeugt zum Termin einen Rechnungsentwurf."""
+    """Wiederkehrende Rechnung (Wartungsvertrag, Hosting, Miete …): erzeugt zum Termin eine Bestellung (mit Nummer, nie
+    automatisch verworfen), aus der von Hand die Rechnung wird."""
 
     INTERVALLE = [(1, "monatlich"), (3, "vierteljährlich"), (6, "halbjährlich"), (12, "jährlich")]
     HALBMONATLICH = 15  # keine Monatszahl: Rechnung am 15. und am Monatsletzten, Mengen nach Mengenregel
@@ -1404,7 +1697,8 @@ class Abo(Zeitstempel):
     vortext = models.TextField("Text vor den Positionen", blank=True)
     schlusstext = models.TextField("Text nach den Positionen", blank=True)
     letzter_lauf = models.DateField(null=True, blank=True, editable=False)
-    letzte_rechnung = models.ForeignKey("Beleg", on_delete=models.SET_NULL, null=True, blank=True, editable=False, related_name="+")
+    letzte_rechnung = models.ForeignKey("Beleg", on_delete=models.SET_NULL, null=True, blank=True, editable=False, related_name="+",
+                                        verbose_name="letzter Beleg")
 
     class Meta:
         verbose_name = "Wiederkehrende Rechnung"
@@ -1448,10 +1742,35 @@ class Abo(Zeitstempel):
     def netto(self):
         return sum((menge * p.einzelpreis * (1 - p.rabatt_prozent / 100) for p, menge, _ in self.zeilen()), Decimal("0"))
 
+    def offener_beleg(self):
+        """Der Beleg des laufenden Abo-Zeitraums, solange er nicht erledigt ist: Bestellung mit offenen Mengen, nicht abgeschlossene
+        Rechnung (auch aus Altdaten oder durch Umwandlung) oder ein nicht abgeschlossener Folgebeleg mit dieser Wiederkehr.
+        None = nichts offen. Der Cron prüft das bewusst nicht (je Zeitraum ein Beleg)."""
+        kandidaten = [self.letzte_rechnung] if self.letzte_rechnung_id else []
+        kandidaten += list(Beleg.objects.filter(abo=self, abgeschlossen=False).exclude(pk=self.letzte_rechnung_id).order_by("-pk"))
+        for b in kandidaten:
+            if b.abgeschlossen:
+                continue
+            if b.art == Belegart.AUFTRAG and not b.offene_mengen():
+                continue
+            return b
+        # Vollständig geliefert, aber noch nicht abgerechnet: der abgeschlossene Lieferschein zählt als offener Zeitraum, solange er
+        # in keiner Rechnung steht oder nur in einer, die noch nicht abgeschlossen ist (Sammelrechnung, Entwurf)
+        if self.letzte_rechnung_id:
+            for ls in Beleg.objects.filter(abo=self, art=Belegart.LIEFERSCHEIN, abgeschlossen=True,
+                                           vorgaenger_id=self.letzte_rechnung_id).order_by("-pk"):
+                if ls.abrechenbar:
+                    return ls
+                offene_re = ls.rechnungen.filter(abgeschlossen=False).first() or ls.folgebelege.filter(art=Belegart.RECHNUNG, abgeschlossen=False).first()
+                if offene_re is not None:
+                    return offene_re
+        return None
+
     @transaction.atomic
     def rechnung_erzeugen(self, heute=None):
-        """Legt den Rechnungsentwurf an (nummeriert und abgeschlossen wird von Hand), rückt den Termin weiter. Halbmonatlich
-        kann ein Stichtag leer bleiben (nur Positionen zum Monatsende): Dann rückt nur der Termin, Rückgabe None."""
+        """Legt die Bestellung an (mit Bestellnummer, nicht vorläufig; Rechnung und Lieferschein entstehen daraus von Hand), rückt
+        den Termin weiter. Halbmonatlich kann ein Stichtag leer bleiben (nur Positionen zum Monatsende): Dann rückt nur der Termin,
+        Rückgabe None."""
         from apps.verkauf.views import adresse_text
         from apps.stammdaten.models import Anschriftart
         heute = heute or timezone.localdate()
@@ -1464,14 +1783,15 @@ class Abo(Zeitstempel):
         if not zeilen:
             raise ValueError(f"{self}: keine Positionen hinterlegt.")
         beleg = Beleg.objects.create(
-            mandant=self.mandant, art=Belegart.RECHNUNG, kunde=self.kunde, belegdatum=max(heute, termin) if self.halbmonatlich else heute,
+            mandant=self.mandant, art=Belegart.AUFTRAG, abo=self, kunde=self.kunde,
+            belegdatum=max(heute, termin) if self.halbmonatlich else heute,
             ansprechpartner=self.kunde.ansprechpartner.filter(hauptkontakt=True).first(),
             zahlungsbedingung=self.zahlungsbedingung or self.kunde.zahlungsbedingung,
             rechnungsanschrift=adresse_text(self.kunde, Anschriftart.RECHNUNG),
             versandanschrift=adresse_text(self.kunde, Anschriftart.VERSAND),
             rabatt_prozent=self.rabatt_prozent, versandkosten=self.versandkosten, verpackung=self.verpackung,
             versicherung=self.versicherung,
-            vortext=self.vortext, schlusstext=self.schlusstext, bemerkung=f"Wiederkehrende Rechnung: {self.bezeichnung}")
+            vortext=self.vortext, schlusstext=self.schlusstext, bemerkung=f"Wiederkehrende Bestellung: {self.bezeichnung}")
         for p, menge, zusatztext in zeilen:
             Position.objects.create(
                 beleg=beleg, typ=("L" if not p.artikel_id or p.artikel.typ == "L" else "A"), artikel=p.artikel, bezeichnung=p.bezeichnung,

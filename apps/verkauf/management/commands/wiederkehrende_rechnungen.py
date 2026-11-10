@@ -5,8 +5,8 @@ from apps.verkauf.models import faellige_abos
 
 
 class Command(BaseCommand):
-    help = ("Legt zu allen fälligen wiederkehrenden Rechnungen einen Rechnungsentwurf an (täglicher Cron-Aufruf). "
-            "Die Entwürfe werden von Hand geprüft und abgeschlossen.")
+    help = ("Legt zu allen fälligen wiederkehrenden Rechnungen eine Bestellung an (täglicher Cron-Aufruf). "
+            "Die Bestellung hat sofort eine Nummer und wird nie automatisch verworfen; daraus entsteht von Hand die Rechnung.")
 
     def handle(self, **opts):
         anzahl = 0
@@ -19,6 +19,6 @@ class Command(BaseCommand):
             if beleg is None:  # Stichtag ohne fällige Position, nur der Termin ist weitergerückt
                 continue
             anzahl += 1
-            self.stdout.write(f"{abo}: Entwurf für {abo.kunde.name1} angelegt (Beleg {beleg.pk})")
+            self.stdout.write(f"{abo}: Bestellung {beleg.nummer} für {abo.kunde.name1} angelegt (Beleg {beleg.pk})")
         if not anzahl:
             self.stdout.write("Keine wiederkehrende Rechnung fällig.")

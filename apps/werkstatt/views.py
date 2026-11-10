@@ -193,6 +193,9 @@ def reklamation(request, beleg_id):
     from apps.verkauf.models import Beleg, Belegart
     beleg = get_object_or_404(Beleg.objects.select_related("kunde"), pk=beleg_id, mandant=request.mandant,
                               art__in=[Belegart.RECHNUNG, Belegart.LIEFERSCHEIN])
+    if beleg.vorlaeufig:
+        messages.error(request, "Ein Werkstattauftrag aus dem Beleg geht erst nach „Speichern: abschließen & Nummer vergeben“.")
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
     heute = date.today()
     zeilen = []
     for p in beleg.positionen.filter(artikel__isnull=False).exclude(artikel__typ__in=["L", "G"]).select_related("artikel"):

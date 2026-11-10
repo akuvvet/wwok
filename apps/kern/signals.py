@@ -10,7 +10,7 @@ import logging
 from .middleware import aktueller_benutzer
 
 PROTOKOLLIERTE_APPS = {"kern", "stammdaten", "verkauf", "lager", "finanzen", "werkstatt", "einkauf", "esd", "shop"}
-AUSGENOMMEN = {"AenderungsProtokoll", "BelegArbeitsstand"}  # der Arbeitsstand ist nur eine Kopie der Positionen
+AUSGENOMMEN = {"AenderungsProtokoll", "BelegArbeitsstand", "BelegVorgang"}  # Arbeitsstand und Vorgang sind nur Kopien der Positionen (der Vorgang ist groß und kurzlebig)
 
 
 def _relevant(sender) -> bool:

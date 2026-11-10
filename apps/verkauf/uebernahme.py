@@ -39,6 +39,9 @@ def _eintrag(ab, ziel, richtung, menge, quellposition, zielposition, vorlage) ->
     zusatz = {}
     if richtung == BelegUebernahme.UMGESTELLT and zielposition is not None and zielposition.angelegt_am:
         zusatz["am"] = zielposition.angelegt_am  # Zeitpunkt der alten Kopie, nicht der Umstellung (Einkauf ordnet danach ein)
+    if ziel.vorlaeufig:  # der vorläufige Vorgang merkt sich, welche Bestellposition er berührt hat (auch wenn sie später verschwindet)
+        from . import vorgang
+        vorgang.beruehrt(ziel, quellposition, menge * (-1 if richtung == BelegUebernahme.ZURUECK else 1))
     return BelegUebernahme.objects.create(
         **zusatz, mandant=ab.mandant, quelle=ab, quelle_art=ab.art, quelle_nummer=ab.nummer or "", ziel=ziel, ziel_art=ziel.art,
         quellposition=quellposition, zielposition=zielposition, artikel=vorlage.artikel,
@@ -107,6 +110,16 @@ def erledigt_wenn_leer(ab) -> bool:
     return False
 
 
+def erledigt_oder_vormerken(ab, ziel) -> bool:
+    """Eine leer gewordene Bestellung ist erledigt. Ist das Ziel vorläufig, wird das nur vorgemerkt und erst mit dem Abschluss des
+    Ziels ausgeführt (beim Verwerfen bleibt die Bestellung offen)."""
+    if ab.art == Belegart.AUFTRAG and not ab.abgeschlossen and not ab.positionen.exists() and ziel is not None and ziel.vorlaeufig:
+        from . import vorgang
+        if vorgang.abschluss_vormerken(ziel, "erledigt"):
+            return False
+    return erledigt_wenn_leer(ab)
+
+
 def nebenkosten_mitgeben(ab, ziel):
     """Versandkosten, Verpackung und Versicherung laufen mit dem ersten Folgebeleg (stehen dort schon); die Bestellung
     behält sie nicht noch einmal, sonst würden sie bei jeder Teillieferung erneut berechnet."""
@@ -173,7 +186,7 @@ def menge_verschieben(ab, ziel, mengen) -> list:
         p.save()
         eintraege.append(_eintrag(ab, ziel, BelegUebernahme.UEBERNOMMEN, menge, p, kopf, p))
     ab.berechne()  # Summen und lückenlose Positionsnummern des Rests
-    erledigt_wenn_leer(ab)
+    erledigt_oder_vormerken(ab, ziel)
     return eintraege
 
 
@@ -298,7 +311,7 @@ def nachziehen(p, menge) -> Decimal:
         kopf.menge -= nimm
         kopf.save()
     ab.berechne()
-    erledigt_wenn_leer(ab)
+    erledigt_oder_vormerken(ab, ziel)
     return nimm
 
 
@@ -396,7 +409,7 @@ def rueckstand_text(ab, positionen) -> dict:
         zeilen = uebernommen_je_ziel(je_position.get(p.pk, []))
         if not zeilen:
             continue
-        teile = [f"{_menge_text(menge)} übernommen in {(beleg.get_art_display() + ' ' + (beleg.nummer or '(Entwurf)')) if beleg else Belegart(art).label + ' (gelöscht)'}"
+        teile = [f"{_menge_text(menge)} übernommen in {(beleg.get_art_display() + ' ' + (beleg.nummer or ('(nicht gespeichert)' if beleg.vorlaeufig else '(Entwurf)'))) if beleg else Belegart(art).label + ' (gelöscht)'}"
                  for beleg, art, menge in zeilen]
         erg[p.pk] = ", ".join(teile) + (f", {_menge_text(p.offen_menge)} offen" if p.offen_menge > 0 else ", nichts mehr offen")
     return erg

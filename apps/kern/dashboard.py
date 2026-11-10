@@ -128,7 +128,7 @@ def kundenbestellungen_offen(mandant):
     geliefert = Beleg.objects.filter(vorgaenger=OuterRef("pk"), art__in=(Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA))         .exclude(art=Belegart.PROFORMA, folgebelege__art=Belegart.PROFORMA_STORNO)  # Proforma (Vorkasse) übernimmt die Bestellung
     from apps.verkauf.models import mit_offener_menge
     rueckstand = mit_offener_menge(Position.objects.filter(beleg=OuterRef("pk"))).filter(offen__gt=0)
-    return (Beleg.objects.filter(mandant=mandant, art=Belegart.AUFTRAG).filter(Exists(hat_position))
+    return (Beleg.objects.filter(mandant=mandant, art=Belegart.AUFTRAG, vorlaeufig=False).filter(Exists(hat_position))  # nicht gespeicherte zählen nicht
             .exclude(Exists(geliefert) & ~Exists(rueckstand)))  # teilweise gelieferte Bestellungen mit Rückstand bleiben offen
 
 
@@ -141,7 +141,7 @@ def angebote_offen(mandant, heute):
     """Offene Angebote (AN) als Abfrage: gemeinsame Regel für Kachel und Belegliste (status=dashboard)."""
     hat_position = Position.objects.filter(beleg=OuterRef("pk"))
     folge = Beleg.objects.filter(vorgaenger=OuterRef("pk"))
-    return (Beleg.objects.filter(mandant=mandant, art=Belegart.ANGEBOT).filter(Q(gueltig_bis__isnull=True) | Q(gueltig_bis__gte=heute))
+    return (Beleg.objects.filter(mandant=mandant, art=Belegart.ANGEBOT, vorlaeufig=False).filter(Q(gueltig_bis__isnull=True) | Q(gueltig_bis__gte=heute))
             .filter(Exists(hat_position)).exclude(Exists(folge)))
 
 

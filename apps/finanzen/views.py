@@ -101,9 +101,22 @@ def offene_posten(request):
         "kunde": kunde, "nur": request.GET.get("nur", ""), "q": q, "sort": sort, "kopf": kopf})
 
 
+def vorlaeufig_gesperrt(request, *belege):
+    """Zahlungen und Verrechnungen gibt es erst nach „Speichern: abschließen & Nummer vergeben“: Meldung und Rückkehr zum Beleg."""
+    for b in belege:
+        try:
+            b.vorlaeufig_sperre("Zahlungen und Verrechnungen gehen")
+        except ValueError as fehler:
+            messages.error(request, str(fehler))
+            return redirect("verkauf:beleg", beleg_id=b.pk)
+    return None
+
+
 @mit_mandant
 def beleg_op(request, beleg_id):
     beleg = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
+    if (gesperrt := vorlaeufig_gesperrt(request, beleg)) is not None:
+        return gesperrt
     offen = services.offen(beleg)
     gutschriften = []
     if beleg.art == Belegart.RECHNUNG and beleg.abgeschlossen:
@@ -139,6 +152,8 @@ def beleg_op(request, beleg_id):
 @require_POST
 def zahlung_buchen(request, beleg_id):
     beleg = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
+    if (gesperrt := vorlaeufig_gesperrt(request, beleg)) is not None:
+        return gesperrt
     try:
         # offen_bisher: offener Betrag, den die Maske gezeigt hat; weicht er ab, wurde schon gebucht (Doppelklick)
         bisher = request.POST.get("offen_bisher")
@@ -172,6 +187,8 @@ def gutschrift_verrechnen(request, beleg_id):
     rechnung = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
     nummer = request.POST.get("gutschrift", "")
     gutschrift = get_object_or_404(Beleg, pk=nummer if nummer.isdigit() else None, mandant=request.mandant)
+    if (gesperrt := vorlaeufig_gesperrt(request, rechnung, gutschrift)) is not None:
+        return gesperrt
     try:
         services.gutschrift_verrechnen(gutschrift, rechnung, betrag(request.POST.get("betrag")), request.user,
                                        betrag(request.POST.get("offen_bisher")))
@@ -200,6 +217,8 @@ def anzahlung_verrechnen(request, beleg_id):
     quelle = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
     nummer = request.POST.get("rechnung", "")
     rechnung = get_object_or_404(Beleg, pk=nummer if nummer.isdigit() else None, mandant=request.mandant)
+    if (gesperrt := vorlaeufig_gesperrt(request, quelle, rechnung)) is not None:
+        return gesperrt
     try:
         bisher = request.POST.get("guthaben_bisher")
         anzahlungmodul.anzahlung_verrechnen(quelle, rechnung, betrag(request.POST.get("betrag")), request.user,

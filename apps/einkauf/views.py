@@ -391,6 +391,11 @@ def bestellung_mail(request, bestellung_id):
 @require_POST
 def bestellung_aus_beleg(request, beleg_id):
     beleg = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant)
+    try:
+        beleg.vorlaeufig_sperre("Eine Lieferantenbestellung anlegen geht")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
     modus = request.POST.get("modus") or None
     if modus is None and services.rueckfrage_noetig(beleg):  # Kundenbestellung schon (teilweise) bestellt: erst fragen
         return render(request, "einkauf/aus_beleg_rueckfrage.html", {"beleg": beleg, **services.bestellstand(beleg)})

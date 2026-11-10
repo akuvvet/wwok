@@ -287,6 +287,9 @@ class BelegKopierenTest(TestCase):
         self.assertEqual(neu.positionen.count(), 1)
         self.assertEqual(neu.vorgaenger, self.b)
         self.b.refresh_from_db()
+        self.assertFalse(self.b.abgeschlossen)  # die Kopie ist vorläufig: der Urbeleg wird erst mit ihrem Abschluss abgeschlossen
+        neu.abschliessen()
+        self.b.refresh_from_db()
         self.assertTrue(self.b.abgeschlossen)
 
     def test_urbeleg_bleibt_offen_und_gleiche_art_moeglich(self):

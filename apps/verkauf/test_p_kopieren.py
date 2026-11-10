@@ -262,8 +262,9 @@ class PKopierenTest(TestCase):
         r = self.client.post(reverse("verkauf:beleg_kopieren", args=[ab.pk]), {"art": Belegart.RECHNUNG}, follow=True)
         text = " ".join(self.meldungen(r))
         angebot = Beleg.objects.get(art=Belegart.ANGEBOT)
-        self.assertIn(f"1 Preislistenartikel (P) wurden in das neue Angebot {angebot.nummer} übernommen", text)
-        self.assertIn("ist erledigt", text)
+        self.assertIsNone(angebot.nummer)  # die Rechnung ist vorläufig: das Angebot bekommt seine Nummer erst mit ihrem Abschluss
+        self.assertIn("1 Preislistenartikel (P) wurden in das neue Angebot (bekommt seine Nummer beim Abschluss) übernommen", text)
+        self.assertIn("wird mit dem Abschluss erledigt", text)
 
     def test_meldung_beim_folgebeleg_angebot(self):
         an = self.beleg(Belegart.ANGEBOT)

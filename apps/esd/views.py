@@ -122,9 +122,21 @@ def beleg_holen(request, beleg_id):
     return get_object_or_404(Beleg.objects.select_related("kunde", "mandant"), pk=beleg_id, mandant=request.mandant)
 
 
+def vorlaeufig_gesperrt(request, beleg):
+    """Lizenzschlüssel gibt es erst nach „Speichern: abschließen & Nummer vergeben“ (beim Abschluss ordnet das Programm sie zu)."""
+    try:
+        beleg.vorlaeufig_sperre("Lizenzschlüssel zuordnen geht")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+        return redirect("verkauf:beleg", beleg_id=beleg.pk)
+    return None
+
+
 @mit_mandant
 def beleg(request, beleg_id):
     b = beleg_holen(request, beleg_id)
+    if (gesperrt := vorlaeufig_gesperrt(request, b)) is not None:
+        return gesperrt
     positionen = [p for p in b.positionen.select_related("artikel") if p.artikel_id and p.artikel.esd_key]
     return render(request, "esd/beleg.html", {
         "b": b, "vergaben": b.esd_vergaben.select_related("key", "position").order_by("position_id", "id"),
@@ -136,6 +148,8 @@ def beleg(request, beleg_id):
 @require_POST
 def zuordnen(request, beleg_id):
     b = beleg_holen(request, beleg_id)
+    if (gesperrt := vorlaeufig_gesperrt(request, b)) is not None:
+        return gesperrt
     position = get_object_or_404(Position, pk=request.POST.get("position"), beleg=b)
     try:
         b.stand_pruefen()
@@ -162,6 +176,8 @@ def rueckgabe(request, vergabe_id):
 @mit_mandant
 def mail(request, beleg_id):
     b = beleg_holen(request, beleg_id)
+    if (gesperrt := vorlaeufig_gesperrt(request, b)) is not None:
+        return gesperrt
     gruppen = services.keys_text(b)
     if not gruppen:
         messages.error(request, "Zu diesem Beleg wurden noch keine Keys vergeben.")

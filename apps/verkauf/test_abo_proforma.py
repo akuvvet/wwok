@@ -41,12 +41,13 @@ class AboProformaTest(TestCase):
         ausgabe = StringIO()
         call_command("wiederkehrende_rechnungen", stdout=ausgabe)
         abo.refresh_from_db()
-        re = Beleg.objects.get(art=Belegart.RECHNUNG)
-        self.assertFalse(re.abgeschlossen)  # nur Entwurf
-        self.assertEqual((re.summe_netto, re.positionen.count()), (Decimal("100.00"), 1))
+        ab = Beleg.objects.get(art=Belegart.AUFTRAG)
+        self.assertEqual((ab.abgeschlossen, ab.vorlaeufig, ab.abo_id), (False, False, abo.pk))  # Bestellung mit Nummer, nicht vorläufig
+        self.assertTrue(ab.nummer.startswith("AB"))
+        self.assertEqual((ab.summe_netto, ab.positionen.count()), (Decimal("100.00"), 1))
         self.assertEqual(abo.naechster_termin, date(2027, 1, 1))
         call_command("wiederkehrende_rechnungen", stdout=StringIO())
-        self.assertEqual(Beleg.objects.filter(art=Belegart.RECHNUNG).count(), 1)  # noch nicht fällig
+        self.assertEqual(Beleg.objects.filter(art=Belegart.AUFTRAG).count(), 1)  # noch nicht fällig
         abo.naechster_termin = date(2027, 4, 1)
         abo.save()
         abo.rechnung_erzeugen(date(2027, 4, 1))
