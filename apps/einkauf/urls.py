@@ -19,6 +19,7 @@ urlpatterns = [
     path("bestellung/<int:bestellung_id>/mail/", views.bestellung_mail, name="bestellung_mail"),
     path("aus-beleg/<int:beleg_id>/", views.bestellung_aus_beleg, name="aus_beleg"),
     path("lieferanten/", views.lieferanten, name="lieferanten"),
+    path("lieferanten/<int:lieferant_id>/", views.lieferant_detail, name="lieferant"),
     path("vorschlag/", views.vorschlag, name="vorschlag"),
     path("preisvergleich/", views.preisvergleich, name="preisvergleich"),
     path("preisvergleich/bestellen/", views.preisvergleich_bestellen, name="preisvergleich_bestellen"),

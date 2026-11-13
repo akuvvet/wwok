@@ -37,6 +37,10 @@ STATUS = {
         "erstattet": ("zurueck", "neutral", "erstattet"),
         "storniert": ("storno", "neutral", "storniert"),
     },
+    "wareneingang": {
+        "offen": ("stift", "hinweis", "noch nicht gebucht"),
+        "gebucht": ("haken", "ok", "ins Lager gebucht"),
+    },
     "rma": {
         "angelegt": ("stift", "neutral", "angelegt"),
         "eingesendet": ("lkw", "info", "an Lieferanten eingesendet"),
