@@ -1,10 +1,11 @@
 """Formulare für die Bearbeitung von Kunden und Lieferanten im Dialog (Registerkarten statt Admin-Fieldsets)."""
 from django import forms
+from django.db import models
 from django.forms import inlineformset_factory
 from django.utils import formats, timezone
 
-from .models import (Ansprechpartner, Artikel, ArtikelMandant, Artikeltyp, EkHerkunft, Kunde, KundeMandant, Kundenanschrift, Lieferant,
-                     LieferantMandant, _ek_quelle)
+from .models import (Anrede, Ansprechpartner, Artikel, ArtikelMandant, Artikeltyp, EkHerkunft, Kunde, KundeMandant, Kundenanschrift, Lieferant,
+                     LieferantMandant, _ek_quelle, nummer_und_name)
 
 from .preise import stufenpreis
 
@@ -24,9 +25,26 @@ PARTNER_ADRESSE = ["name1", "name2", "name3", "strasse", "plz", "ort", "land", "
 PARTNER_BANK = ["ust_id", "ust_id_geprueft_am", "kontoinhaber", "bank", "iban", "bic"]
 
 
+def nummern_auswahl(form, *namen):
+    """Stammtabellen mit Nummer (Anrede, Zahlungsbedingung, Versandart): Auswahl als „8 – Vorkasse“, sortiert nach Nummer,
+    als Suchfeld (Nummer oder Text tippen). Inaktive Versandarten nur, wenn sie schon gewählt sind."""
+    for name in namen:
+        feld = form.fields.get(name)
+        if feld is None:
+            continue
+        qs = feld.queryset.order_by("nummer")
+        if hasattr(qs.model, "aktiv"):
+            aktuell = getattr(form.instance, f"{name}_id", None)
+            qs = qs.filter(models.Q(aktiv=True) | models.Q(pk=aktuell))
+        feld.queryset = qs
+        feld.label_from_instance = nummer_und_name
+        feld.widget = SuchAuswahl(attrs=feld.widget.attrs, schluessel=name)
+        feld.widget.choices, feld.widget.is_required = feld.choices, feld.required
+
+
 KUNDE_TABS = [
     ("grund", "Grunddaten", ["nummer", "anrede"] + PARTNER_ADRESSE),
-    ("einstufung", "Einstufung & Hinweis", ["kundenart", "preisstufe", "zahlungsbedingung", "gesperrt", "hinweis"]),
+    ("einstufung", "Einstufung & Hinweis", ["kundenart", "preisstufe", "zahlungsbedingung", "standard_versandart", "gesperrt", "hinweis"]),
     ("bank", "Steuer & Bank", PARTNER_BANK + ["sepa_mandatsreferenz", "sepa_mandat_datum", "leitweg_id"]),
 ]
 
@@ -41,27 +59,29 @@ class KundeForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         datum_felder(self)
+        nummern_auswahl(self, "anrede", "zahlungsbedingung", "standard_versandart")
         self.fields["land"].help_text = "Ländercode, z. B. DE"
         self.fields["email_weitere"].widget.attrs["rows"] = 2
 
 
 class LieferantForm(forms.ModelForm):
     TABS = [
-        ("grund", "Grunddaten", ["nummer", "kurzname"] + PARTNER_ADRESSE),
-        ("konditionen", "Konditionen & Hinweis", ["zahlungsbedingung", "mindestbestellwert", "versandkosten", "versandkostenfrei_ab",
+        ("grund", "Grunddaten", ["nummer", "kurzname", "anrede"] + PARTNER_ADRESSE),
+        ("konditionen", "Konditionen & Hinweis", ["zahlungsbedingung", "standard_versandart", "mindestbestellwert", "versandkosten", "versandkostenfrei_ab",
                                                   "lieferzeit_tage", "gesperrt", "hinweis"]),
         ("bank", "Steuer & Bank", PARTNER_BANK),
     ]
 
     class Meta:
         model = Lieferant
-        fields = (["nummer", "kurzname"] + PARTNER_ADRESSE
-                  + ["zahlungsbedingung", "mindestbestellwert", "versandkosten", "versandkostenfrei_ab", "lieferzeit_tage", "gesperrt", "hinweis"]
+        fields = (["nummer", "kurzname", "anrede"] + PARTNER_ADRESSE
+                  + ["zahlungsbedingung", "standard_versandart", "mindestbestellwert", "versandkosten", "versandkostenfrei_ab", "lieferzeit_tage", "gesperrt", "hinweis"]
                   + PARTNER_BANK)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         datum_felder(self)
+        nummern_auswahl(self, "anrede", "zahlungsbedingung", "standard_versandart")
         self.fields["land"].help_text = "Ländercode, z. B. DE"
         self.fields["email_weitere"].widget.attrs["rows"] = 2
 
@@ -80,16 +100,26 @@ class LieferantMandantForm(forms.ModelForm):
 
 AP_FELDER = ["anrede", "vorname", "nachname", "abteilung", "email", "telefon", "durchwahl", "mobil", "hauptkontakt"]
 
+class AnsprechpartnerForm(forms.ModelForm):
+    """Ansprechpartner: Anrede aus der Tabelle als „2 – Herr“ (schmale Zeile, daher normale Auswahlliste)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "anrede" in self.fields:
+            self.fields["anrede"].queryset = Anrede.objects.order_by("nummer")
+            self.fields["anrede"].label_from_instance = nummer_und_name
+
+
 AnsprechpartnerKundeSet = inlineformset_factory(
-    Kunde, Ansprechpartner, fk_name="kunde", fields=AP_FELDER + ["shop_zugang"], extra=3, can_delete=True)
+    Kunde, Ansprechpartner, form=AnsprechpartnerForm, fk_name="kunde", fields=AP_FELDER + ["shop_zugang"], extra=3, can_delete=True)
 AnsprechpartnerLieferantSet = inlineformset_factory(
-    Lieferant, Ansprechpartner, fk_name="lieferant", fields=AP_FELDER, extra=3, can_delete=True)
+    Lieferant, Ansprechpartner, form=AnsprechpartnerForm, fk_name="lieferant", fields=AP_FELDER, extra=3, can_delete=True)
 AnschriftSet = inlineformset_factory(
     Kunde, Kundenanschrift, fields=["art", "standard", "name1", "name2", "strasse", "plz", "ort", "land"], extra=3, can_delete=True)
 
 ARTIKEL_TABS = [
     ("grund", "Stammdaten", ["nummer", "typ", "bezeichnung", "bezeichnung_erweitert", "kategorie", "leistungskategorie", "hersteller", "herstellernummer",
-                             "ean", "mengeneinheit", "steuersatz", "nicht_aktiv"]),
+                             "ean", "mengeneinheit", "steuersatz", "kostenstelle", "nicht_aktiv"]),
     # Reihenfolge = Raster mit drei Spalten: EK und Häkchen, dann VK1–VK3, dann Aufschlag VK1–VK3
     ("preise", "Preise", ["kosten", "ek_manuell", "vk1_fuer_alle", "aufschlag_vk1_fuer_alle", "vk1", "vk2", "vk3",
                           "aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3"]),

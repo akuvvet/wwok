@@ -253,6 +253,12 @@ def beleg_neu(request, kunde_id):
             zahlungsbedingung=kunde.zahlungsbedingung,
             rechnungsanschrift=adresse_text(kunde, Anschriftart.RECHNUNG),
             versandanschrift=adresse_text(kunde, Anschriftart.VERSAND), bearbeiter=request.user)
+        if kunde.standard_versandart_id and kunde.standard_versandart.aktiv:  # Standard-Versandart des Kunden samt Kosten
+            try:
+                beleg.versandart_setzen(kunde.standard_versandart.name)
+                beleg.save(update_fields=["versandart", "versandkosten", "verpackung", "versicherung"])
+            except ValueError as fehler:  # z. B. „nur Inland“ bei Auslandskunden: Beleg entsteht ohne Versandart
+                messages.warning(request, f"{fehler} Bitte am Beleg eine andere Versandart wählen.")
         vorgang.vorgang_beginnen(beleg, Vorgangsweg.NEU)
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 

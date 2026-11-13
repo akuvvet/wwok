@@ -15,7 +15,7 @@ KOPIE_ZUSATZ = " (Kopie)"
 # Import-EK/Herkunft, Bestände, Seriennummern, ESD-Keys, Lieferantenzuordnung, Shop-Zuordnungen, Beleg- und Verkaufshistorie.
 ARTIKEL_FELDER = [
     "typ", "kategorie", "leistungskategorie", "hersteller", "bezeichnung", "bezeichnung_erweitert", "mengeneinheit", "steuersatz",
-    "garantie_monate", "laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg", "sperrgut", "zolltarifnummer", "esd_key", "kosten",
+    "garantie_monate", "laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg", "sperrgut", "zolltarifnummer", "esd_key", "kosten", "kostenstelle",
     "ek_manuell", "vk1", "vk2", "vk3", "aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3",
     "online", "kurzbeschreibung", "keywords", "meta_titel", "meta_description", "meta_keywords", "nicht_aktiv",
 ]

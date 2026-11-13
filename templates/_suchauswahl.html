@@ -5,6 +5,7 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
 <style>
   .suchauswahl { position:relative; display:inline-block; min-width:260px; max-width:100%; }
   .suchauswahl > input { width:100%; box-sizing:border-box; padding-right:26px; }
+  .mfeld .suchauswahl { display:block; min-width:0; width:100%; }  /* in den Masken: Spaltenbreite statt fester Mindestbreite */
   .suchauswahl > .sa-leeren { position:absolute; right:4px; top:50%; transform:translateY(-50%); border:0; background:none; cursor:pointer;
     padding:2px 6px; color:inherit; opacity:.6; font-size:14px; line-height:1; }
   .suchauswahl > .sa-leeren:hover { opacity:1; }
@@ -104,6 +105,10 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
           });
         } else {
           treffer = eintraege.filter(function (e) { return woerter.every(function (w) { return e.suche.indexOf(w) >= 0; }); });
+          var erstes = woerter[0];  // „8“ → „8 – Vorkasse“ vor „3 – Zahlbar innerhalb 8 Tagen“: Anfang des Textes zuerst
+          function rang(e) { var t = norm(e.text); return t.indexOf(erstes + ' ') === 0 ? 0 : t.indexOf(erstes) === 0 ? 1 : 2; }
+          treffer = treffer.map(function (e, i) { return [rang(e), i, e]; })
+            .sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; }).map(function (x) { return x[2]; });
           treffer.slice(0, MAX).forEach(function (e, i) { html += zeile(e, woerter, i); });
           if (!treffer.length) html = '<li class="sa-leer" role="presentation">Keine Treffer</li>';
         }

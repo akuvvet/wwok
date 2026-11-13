@@ -109,9 +109,9 @@ class ShopTest(TestCase):
     def setUp(self):
         self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
         self.st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
-        self.zb_pp = Zahlungsbedingung.objects.create(nummer=10, bezeichnung="PayPal", druck_text="Betrag per PAYPAL erhalten")
+        self.zb_pp = Zahlungsbedingung.objects.create(nummer=910, bezeichnung="PayPal", druck_text="Betrag per PAYPAL erhalten")
         self.shop = Shop.objects.create(mandant=self.m, name="Webshop", url="https://shop.example.test", client_id="abc",
-                                        bestand_puffer=1, zahlungszuordnung={"PayPal": 10})
+                                        bestand_puffer=1, zahlungszuordnung={"PayPal": 910})
         self.win = Artikel.objects.create(nummer="WIN11", bezeichnung="Windows 11 Pro", steuersatz=self.st, vk1=Decimal("100"), online=True)
 
     def test_import_neukunde_auftrag_versand_und_zahlung(self):

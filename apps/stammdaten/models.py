@@ -46,10 +46,32 @@ class Zahlungsbedingung(Zeitstempel):
     class Meta:
         verbose_name = "Zahlungsbedingung"
         verbose_name_plural = "Zahlungsbedingungen"
-        ordering = ["bezeichnung"]
+        ordering = ["nummer", "bezeichnung"]
 
     def __str__(self):
         return self.bezeichnung
+
+
+class Anrede(Zeitstempel):
+    """Stammtabelle Anrede für Kunden, Lieferanten und Ansprechpartner (1 Firma, 2 Herr, 3 Frau), in der Verwaltung erweiterbar.
+    Für die Briefanrede („Sehr geehrter Herr …“) zählt die Bezeichnung „Herr“ bzw. „Frau“."""
+
+    nummer = models.PositiveSmallIntegerField("Nummer", unique=True)
+    bezeichnung = models.CharField("Bezeichnung", max_length=30, unique=True)
+
+    class Meta:
+        verbose_name = "Anrede"
+        verbose_name_plural = "Anreden"
+        ordering = ["nummer"]
+
+    def __str__(self):
+        return self.bezeichnung
+
+
+def nummer_und_name(obj) -> str:
+    """Anzeige in Auswahllisten der Masken: „8 – Vorkasse“."""
+    nummer = getattr(obj, "nummer", None)
+    return f"{nummer} – {obj}" if nummer is not None else str(obj)
 
 
 class Steuersatz(Zeitstempel):
@@ -192,6 +214,10 @@ class Partner(Zeitstempel):
     ust_id_geprueft_am = models.DateField("USt-ID geprüft am", null=True, blank=True)
     zahlungsbedingung = models.ForeignKey(Zahlungsbedingung, verbose_name="Zahlungsbedingung",
                                           on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    anrede = models.ForeignKey(Anrede, verbose_name="Anrede", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    standard_versandart = models.ForeignKey(
+        "verkauf.Versandart", verbose_name="Standard-Versandart", on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        help_text="Wird in neue Belege bzw. Bestellungen übernommen (samt Kosten), dort änderbar.")
     email_weitere = models.TextField(
         "weitere E-Mail-Adressen", blank=True,
         help_text="Komma oder Zeilenumbruch; werden bei Rechnungen, Gutschriften und Mahnungen mit angeschrieben.")
@@ -227,15 +253,8 @@ class Preisstufe(models.IntegerChoices):
     VK3 = 3, "VK3 – Händler"
 
 
-class Kundenanrede(models.TextChoices):
-    FIRMA = "Firma", "Firma"
-    HERR = "Herr", "Herr"
-    FRAU = "Frau", "Frau"
-
-
 class Kunde(Partner):
     nummer = models.CharField("Kundennummer", max_length=20, unique=True)
-    anrede = models.CharField("Anrede", max_length=10, choices=Kundenanrede.choices, blank=True)
     kundenart = models.CharField("Kundenart", max_length=20, choices=Kundenart.choices,
                                  default=Kundenart.ENDKUNDE)
     preisstufe = models.PositiveSmallIntegerField("Preisstufe", choices=Preisstufe.choices,
@@ -312,7 +331,7 @@ class Ansprechpartner(Zeitstempel):
                                   related_name="ansprechpartner")
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, null=True, blank=True,
                                 help_text="Nur bei Lieferanten: für welchen Mandanten.")
-    anrede = models.CharField("Anrede", max_length=20, blank=True)
+    anrede = models.ForeignKey("Anrede", verbose_name="Anrede", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
     vorname = models.CharField("Vorname", max_length=100, blank=True)
     nachname = models.CharField("Nachname", max_length=100)
     abteilung = models.CharField("Abteilung / Position", max_length=100, blank=True)
@@ -445,6 +464,8 @@ class Artikel(Zeitstempel):
     esd_key = models.BooleanField("ESD-Key-Artikel (Lizenzschlüssel)", default=False,
                                   help_text="Beim Verkauf wird automatisch ein Key aus dem Key-Bestand zugeordnet.")
     steuersatz = models.ForeignKey(Steuersatz, on_delete=models.PROTECT)
+    kostenstelle = models.CharField("Kostenstelle", max_length=20, blank=True,
+                                    help_text="Für die Buchhaltung (DATEV: KOST1), z. B. 100 Hardware, 200 Werkstatt.")
     # Preise (netto). Leer = aus Aufschlag berechnet.
     # übernommener EK: Preisimport (Zeitplan „Günstigster EK“, Preis-Assistent) bzw. Altbestand aus Mention; der Wareneingang ändert ihn nicht
     durchschnitts_ek = models.DecimalField("EK netto (Import)", null=True, blank=True, editable=False, **EK_GELD)

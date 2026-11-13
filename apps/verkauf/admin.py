@@ -221,7 +221,12 @@ class AboAdmin(admin.ModelAdmin):
 
 @admin.register(Versandart)
 class VersandartAdmin(admin.ModelAdmin):
-    list_display = ["name", "dienstleister", "versandkosten", "verpackung", "versicherung", "frachtfrei_ab", "nur_inland", "aktiv"]
+    """Versandarten („vers“): Nummer und Standardkosten; Kunden und Lieferanten wählen sie als Standard-Versandart."""
+
+    list_display = ["nummer", "name", "dienstleister", "versandkosten", "verpackung", "versicherung", "frachtfrei_ab", "nur_inland", "aktiv"]
+    list_display_links = ["nummer", "name"]
+    list_editable = ["versandkosten", "verpackung", "versicherung"]
+    search_fields = ["name", "nummer"]
 
 @admin.register(Wiedervorlage)
 class WiedervorlageAdmin(admin.ModelAdmin):

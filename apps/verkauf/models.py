@@ -185,6 +185,7 @@ class Nummernkreis(models.Model):
 class Versandart(Zeitstempel):
     """Stammtabelle: Standardkosten je Versandart; sie werden beim Wählen am Beleg vorbelegt."""
 
+    nummer = models.PositiveSmallIntegerField("Nummer", unique=True, null=True, blank=True)
     name = models.CharField("Versandart", max_length=100, unique=True)
     dienstleister = models.CharField("Dienstleister", max_length=60, blank=True)
     versandkosten = models.DecimalField("Versandkosten netto", max_digits=12, decimal_places=2, default=Decimal("0"))
@@ -198,7 +199,7 @@ class Versandart(Zeitstempel):
     class Meta:
         verbose_name = "Versandart"
         verbose_name_plural = "Versandarten"
-        ordering = ["name"]
+        ordering = ["nummer", "name"]
 
     def __str__(self):
         return self.name

@@ -8,10 +8,10 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.kern.models import Mandant
-from apps.stammdaten.models import (Ansprechpartner, Kunde, KundeMandant, Kundenart, Zahlungsbedingung)
+from apps.stammdaten.models import (Anrede, Ansprechpartner, Kunde, KundeMandant, Kundenart, Zahlungsbedingung)
 
 KUNDENART = {"EK": Kundenart.ENDKUNDE, "GK": Kundenart.GEWERBLICH, "GH": Kundenart.WIEDERVERKAEUFER}
-ANREDE = {1: "Herr", 2: "Frau"}
+ANREDE = {1: "Herr", 2: "Frau"}  # Mention-Spalte „Titel“ → Bezeichnung in der Tabelle Anrede
 LAENDER = {"": "DE", "deutschland": "DE", "germany": "DE"}
 
 
@@ -112,7 +112,7 @@ class Command(BaseCommand):
                     continue
                 Ansprechpartner.objects.update_or_create(
                     kunde=kunde, nachname=name or "Ansprechpartner", defaults={
-                        "anrede": ANREDE.get(int(z[c["anrede"]] or 0), ""),
+                        "anrede": Anrede.objects.filter(bezeichnung=ANREDE.get(int(z[c["anrede"]] or 0), "")).first(),
                         "email": erste_adresse(z[c["E-Mail"]]), "telefon": text(z[c["Telefon 1"]]),
                         "hauptkontakt": z is k, "shop_zugang": z[c["Online"]] == 1.0})
                 ansprechpartner += 1

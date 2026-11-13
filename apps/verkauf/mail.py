@@ -60,11 +60,16 @@ class MailFehler(Exception):
     pass
 
 
+def anrede_von(ap) -> str:
+    """Bezeichnung der Anrede des Ansprechpartners in Kleinbuchstaben („herr“, „frau“), sonst leer."""
+    return ap.anrede.bezeichnung.strip().casefold() if ap and ap.anrede_id else ""
+
+
 def anrede(beleg) -> str:
     ap = beleg.ansprechpartner
-    if ap and ap.nachname and ap.anrede == "Herr":
+    if ap and ap.nachname and anrede_von(ap) == "herr":
         return f"Sehr geehrter Herr {ap.nachname}"
-    if ap and ap.nachname and ap.anrede == "Frau":
+    if ap and ap.nachname and anrede_von(ap) == "frau":
         return f"Sehr geehrte Frau {ap.nachname}"
     return "Sehr geehrte Damen und Herren"
 
@@ -72,9 +77,9 @@ def anrede(beleg) -> str:
 def anrede_text(kunde) -> str:
     """Anrede für Mails ohne Beleg: über den Hauptkontakt des Kunden."""
     ap = kunde.ansprechpartner.filter(hauptkontakt=True).first()
-    if ap and ap.nachname and ap.anrede == "Herr":
+    if ap and ap.nachname and anrede_von(ap) == "herr":
         return f"Sehr geehrter Herr {ap.nachname}"
-    if ap and ap.nachname and ap.anrede == "Frau":
+    if ap and ap.nachname and anrede_von(ap) == "frau":
         return f"Sehr geehrte Frau {ap.nachname}"
     return "Sehr geehrte Damen und Herren"
 

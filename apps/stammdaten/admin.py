@@ -43,7 +43,7 @@ class KundeAdmin(admin.ModelAdmin):
     fieldsets = [
         ("Grunddaten", {"fields": [("nummer", "anrede"), ("name1", "name2", "name3"), "strasse", ("plz", "ort", "land"),
                                    ("telefon", "email", "webseite"), ("gesellschaftsform", "inhaber_gf")]}),
-        ("Einstufung", {"fields": [("kundenart", "preisstufe"), "zahlungsbedingung", "gesperrt"]}),
+        ("Einstufung", {"fields": [("kundenart", "preisstufe"), ("zahlungsbedingung", "standard_versandart"), "gesperrt"]}),
         ("Hinweis", {"fields": ["hinweis"]}),
         ("Steuer und Bank", {"fields": [("ust_id", "ust_id_geprueft_am"), ("kontoinhaber", "bank"),
                                         ("iban", "bic"), ("sepa_mandatsreferenz", "sepa_mandat_datum"), "leitweg_id"]}),
@@ -285,7 +285,7 @@ class LeistungsartikelAdmin(admin.ModelAdmin):
     change_list_template = "admin/stammdaten/leistungsartikel/change_list.html"
     fieldsets = [
         ("Grunddaten", {"fields": ["nummer", "bezeichnung", "bezeichnung_erweitert", "leistungskategorie",
-                                   ("mengeneinheit", "steuersatz"), "nicht_aktiv"]}),
+                                   ("mengeneinheit", "steuersatz"), "kostenstelle", "nicht_aktiv"]}),
         ("Preise", {"fields": ["kosten", ("vk1", "vk2", "vk3")]}),
     ]
 
@@ -347,7 +347,27 @@ class LeistungsartikelAdmin(admin.ModelAdmin):
             **self.admin_site.each_context(request), "title": "Leistungsartikel importieren", "fehler": fehler})
 
 
-admin.site.register([m.Zahlungsbedingung, m.Steuersatz])
+admin.site.register([m.Steuersatz])
+
+
+@admin.register(m.Anrede)
+class AnredeAdmin(admin.ModelAdmin):
+    """Anreden für Kunden, Lieferanten und Ansprechpartner; neue Einträge mit eigener Nummer anlegen."""
+
+    list_display = ["nummer", "bezeichnung"]
+    list_display_links = ["nummer"]
+    list_editable = ["bezeichnung"]
+    search_fields = ["bezeichnung"]
+
+
+@admin.register(m.Zahlungsbedingung)
+class ZahlungsbedingungAdmin(admin.ModelAdmin):
+    """Zahlungsbedingungen („zabe“): real = fällig, intern = Mahnung, stop = Lieferstopp (Tage nach Belegdatum)."""
+
+    list_display = ["nummer", "bezeichnung", "tage_netto", "tage_mahnung", "tage_lieferstop", "vorkasse", "lastschrift"]
+    list_display_links = ["nummer", "bezeichnung"]
+    list_editable = ["tage_netto", "tage_mahnung", "tage_lieferstop"]
+    search_fields = ["bezeichnung", "nummer"]
 
 
 class OnlineStatusFilter(admin.SimpleListFilter):
