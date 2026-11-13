@@ -13,13 +13,15 @@ from decimal import ROUND_HALF_UP, ROUND_UP, Decimal
 from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.functional import cached_property
 
-from apps.kern.kalender import ganzer_monat, halbmonat, naechster_stichtag, stichtag, tage_zaehlen
+from apps.kern.kalender import (STANDARD_STICHTAGE, folgender_stichtag, ganzer_monat, halbmonat, monatsenden, stichtag_ab, stichtage_parsen,
+                                 stichtage_text, tage_zaehlen, zeitraum)
 from apps.kern.models import Mandant, Zeitstempel
 from apps.stammdaten.models import Ansprechpartner, Artikel, Artikeltyp, Kunde, Zahlungsbedingung
 
@@ -1682,8 +1684,8 @@ class Abo(Zeitstempel):
     automatisch verworfen), aus der von Hand die Rechnung wird."""
 
     INTERVALLE = [(1, "monatlich"), (3, "vierteljährlich"), (6, "halbjährlich"), (12, "jährlich")]
-    HALBMONATLICH = 15  # keine Monatszahl: Rechnung am 15. und am Monatsletzten, Mengen nach Mengenregel
-    RHYTHMEN = [(HALBMONATLICH, "halbmonatlich (15. und Monatsende)"), *INTERVALLE]
+    HALBMONATLICH = 15  # keine Monatszahl: Rechnung an frei wählbaren Stichtagen (Vorgabe 15. und Monatsletzter), Mengen nach Mengenregel
+    RHYTHMEN = [(HALBMONATLICH, "an Stichtagen (frei wählbar)"), *INTERVALLE]
 
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="abos")
     kunde = models.ForeignKey(Kunde, on_delete=models.PROTECT, related_name="abos")
@@ -1692,8 +1694,14 @@ class Abo(Zeitstempel):
     naechster_termin = models.DateField("nächste Rechnung am")
     ende = models.DateField("Ende (optional)", null=True, blank=True)
     aktiv = models.BooleanField(default=True)
-    starttag = models.PositiveSmallIntegerField("Tag im Monat", null=True, blank=True, editable=False,
-                                                help_text="Gewünschter Tag; bei kurzen Monaten wird auf den Monatsletzten gekürzt, ohne dass der Tag wandert.")
+    starttag = models.PositiveSmallIntegerField(
+        "Tag im Monat", null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(31)],
+        help_text="Monatlich, vierteljährlich usw.: gewünschter Tag (1–31); bei kurzen Monaten wird auf den Monatsletzten gekürzt, "
+                  "ohne dass der Tag wandert. Eine Änderung verschiebt den nächsten Termin in seinem Monat.")
+    stichtage = models.CharField(
+        "Stichtage im Monat", max_length=60, blank=True, default="15, letzter",
+        help_text="Nur beim Rhythmus „an Stichtagen“: Tage frei wählbar, z. B. „10, 25“ oder „1, 15, letzter“. Abgerechnet wird jeweils "
+                  "der Zeitraum seit dem vorigen Stichtag.")
     rabatt_prozent = models.DecimalField("Belegrabatt %", max_digits=5, decimal_places=2, default=Decimal("0"))
     versandkosten = models.DecimalField("Versandkosten netto", max_digits=12, decimal_places=2, default=Decimal("0"))
     verpackung = models.DecimalField("Verpackung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
@@ -1714,33 +1722,56 @@ class Abo(Zeitstempel):
         return f"{self.bezeichnung} – {self.kunde.name1} ({self.get_monate_display()})"
 
     def clean(self):
-        """Abgerechnet wird nachträglich je Halbmonat; ein Ende dazwischen ließe die letzten Tage unberechnet."""
-        if self.halbmonatlich and self.ende and self.ende != stichtag(self.ende):
-            raise ValidationError({"ende": "Halbmonatlich muss das Ende ein Stichtag sein (15. oder Monatsletzter)."})
+        """Abgerechnet wird nachträglich je Zeitraum bis zum Stichtag; ein Ende dazwischen ließe die letzten Tage unberechnet."""
+        if not self.halbmonatlich:
+            return
+        try:
+            tage = stichtage_parsen(self.stichtage or "15, letzter")
+        except ValueError as fehler:
+            raise ValidationError({"stichtage": str(fehler)})
+        if self.ende and self.ende != stichtag_ab(self.ende, tage):
+            raise ValidationError({"ende": f"Das Ende muss ein Stichtag sein ({stichtage_text(tage)})."})
 
     def save(self, *args, **kwargs):
         if self.halbmonatlich:
-            self.naechster_termin = stichtag(self.naechster_termin)
+            self.stichtage = stichtage_text(self.tage)
+            self.naechster_termin = stichtag_ab(self.naechster_termin, self.tage)
+        elif self.starttag:  # „Tag im Monat“ gilt ab dem nächsten Termin
+            laenge = calendar.monthrange(self.naechster_termin.year, self.naechster_termin.month)[1]
+            self.naechster_termin = self.naechster_termin.replace(day=min(self.starttag, laenge))
         super().save(*args, **kwargs)
 
     @property
     def halbmonatlich(self) -> bool:
+        """Rhythmus „an Stichtagen“ (früher fest 15./Monatsende, daher der Name)."""
         return self.monate == self.HALBMONATLICH
 
+    @property
+    def tage(self) -> tuple:
+        try:
+            return stichtage_parsen(self.stichtage or "15, letzter")
+        except ValueError:
+            return STANDARD_STICHTAGE
+
+    @property
+    def rhythmus_text(self) -> str:
+        return f"Stichtage {stichtage_text(self.tage)}" if self.halbmonatlich else self.get_monate_display()
+
     def zeilen(self, termin=None) -> list:
-        """(Position, Menge, Zusatztext) der Rechnung zum Termin. Halbmonatlich zählen die Tage des Halbmonats, bei
-        „nur am Monatsende“ die des ganzen Monats; was auf 0 kommt, entfällt."""
+        """(Position, Menge, Zusatztext) der Rechnung zum Termin. An Stichtagen zählen die Tage seit dem vorigen Stichtag; „nur am
+        Monatsende“ rechnet den ganzen Kalendermonat ab, und zwar zum Stichtag, in dessen Zeitraum der Monatsletzte fällt.
+        Was auf 0 kommt, entfällt."""
         if not self.halbmonatlich:
             return [(p, p.menge, "") for p in self.positionen.all()]
         termin = termin or self.naechster_termin
+        von, bis = zeitraum(termin, self.tage)
         zeilen = []
         for p in self.positionen.all():
-            if p.nur_monatsende and termin.day <= 15:
-                continue
-            von, bis = ganzer_monat(termin) if p.nur_monatsende else halbmonat(termin)
-            menge = p.menge_im_zeitraum(von, bis)
-            if menge:
-                zeilen.append((p, menge, f"Abrechnungszeitraum {von:%d.%m.%Y} - {bis:%d.%m.%Y}"))
+            zeitraeume = [ganzer_monat(ende) for ende in monatsenden(von, bis)] if p.nur_monatsende else [(von, bis)]
+            for z_von, z_bis in zeitraeume:
+                menge = p.menge_im_zeitraum(z_von, z_bis)
+                if menge:
+                    zeilen.append((p, menge, f"Abrechnungszeitraum {z_von:%d.%m.%Y} - {z_bis:%d.%m.%Y}"))
         return zeilen
 
     @property
@@ -1809,7 +1840,7 @@ class Abo(Zeitstempel):
 
     def _termin_weiter(self, termin):
         if self.halbmonatlich:
-            self.naechster_termin = naechster_stichtag(termin)
+            self.naechster_termin = folgender_stichtag(termin, self.tage)
         else:
             wunschtag = self.starttag or termin.day
             weiter = monate_addieren(termin.replace(day=1), self.monate)
@@ -1833,9 +1864,9 @@ class AboPosition(models.Model):
     menge = models.DecimalField("Menge", max_digits=10, decimal_places=3, default=Decimal("1"),
                                 help_text="Gilt bei der Mengenregel „feste Menge“.")
     regel = models.CharField("Mengenregel", max_length=1, choices=Mengenregel.choices, default=Mengenregel.FEST,
-                             help_text="Nur bei halbmonatlichem Rhythmus: Die Menge zählt das Programm aus dem Kalender (Feiertage NRW).")
+                             help_text="Nur beim Rhythmus „an Stichtagen“: Die Menge zählt das Programm aus dem Kalender (Feiertage NRW), Zeitraum seit dem vorigen Stichtag.")
     nur_monatsende = models.BooleanField("nur am Monatsende", default=False,
-                                         help_text="Nur bei halbmonatlichem Rhythmus: Die Position steht in der Rechnung zum Monatsende, Zeitraum ist der ganze Monat.")
+                                         help_text="Nur beim Rhythmus „an Stichtagen“: Zeitraum ist der ganze Kalendermonat; die Position steht in der Rechnung, in deren Zeitraum der Monatsletzte fällt.")
     einzelpreis = models.DecimalField("Einzelpreis netto", max_digits=12, decimal_places=2)
     rabatt_prozent = models.DecimalField("Rabatt %", max_digits=5, decimal_places=2, default=Decimal("0"))
     steuer_prozent = models.DecimalField("Steuer %", max_digits=5, decimal_places=2, default=Decimal("19"))

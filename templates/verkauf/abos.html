@@ -11,7 +11,7 @@
   <div class="scroll"><table>
     <thead><tr><th>Bezeichnung</th><th>Kunde</th><th>Rhythmus</th><th class="zahl">netto</th><th>nächste Bestellung</th><th>Ende</th><th>Status</th><th></th></tr></thead>
     <tbody>{% for a in abos %}<tr>
-      <td>{{ a.bezeichnung }}</td><td>{{ a.kunde.name1 }}</td><td>{{ a.get_monate_display }}</td><td class="zahl">{{ a.netto|floatformat:"2g" }}</td>
+      <td>{{ a.bezeichnung }}</td><td>{{ a.kunde.name1 }}</td><td>{{ a.rhythmus_text }}</td><td class="zahl">{{ a.netto|floatformat:"2g" }}</td>
       <td>{{ a.naechster_termin|date:"d.m.Y" }}</td><td>{{ a.ende|date:"d.m.Y"|default:"–" }}</td>
       <td>{% if a.aktiv %}aktiv{% else %}pausiert/beendet{% endif %}</td>
       <td class="aktionszelle"><form method="post" action="{% url 'verkauf:abo_aktion' a.pk %}" style="display:inline-flex;gap:5px">{% csrf_token %}

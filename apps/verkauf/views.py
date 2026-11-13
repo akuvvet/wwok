@@ -1276,14 +1276,18 @@ def abo_aus_rechnung(request, beleg_id):
     except ValueError:
         monate = 0
     if monate not in dict(Abo.RHYTHMEN):
-        raise ValueError("Bitte einen gültigen Rhythmus wählen (halbmonatlich, monatlich, vierteljährlich, halbjährlich oder jährlich).")
+        raise ValueError("Bitte einen gültigen Rhythmus wählen (an Stichtagen, monatlich, vierteljährlich, halbjährlich oder jährlich).")
     try:
         start = date.fromisoformat(request.POST.get("start", ""))
     except ValueError:
         raise ValueError("Bitte ein gültiges Startdatum angeben.")
+    stichtage = request.POST.get("stichtage", "").strip() or "15, letzter"
+    if monate == Abo.HALBMONATLICH:
+        from apps.kern.kalender import stichtage_parsen
+        stichtage_parsen(stichtage)  # ValueError mit Hinweis, z. B. „32“ ist kein Tag im Monat
     abo = Abo.objects.create(
         mandant=beleg.mandant, kunde=beleg.kunde, bezeichnung=(request.POST.get("bezeichnung") or f"nach {beleg.nummer or 'Rechnung'}")[:100],
-        monate=monate, naechster_termin=start, starttag=start.day, zahlungsbedingung=beleg.zahlungsbedingung,
+        monate=monate, naechster_termin=start, starttag=start.day, stichtage=stichtage, zahlungsbedingung=beleg.zahlungsbedingung,
         rabatt_prozent=beleg.rabatt_prozent, versandkosten=beleg.versandkosten, verpackung=beleg.verpackung,
         versicherung=beleg.versicherung, vortext=beleg.vortext, schlusstext=beleg.schlusstext)
     kalender = 0

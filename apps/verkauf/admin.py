@@ -5,6 +5,7 @@ from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.utils import timezone
 
+from apps.kern.kalender import monatsenden, zeitraum
 from apps.kern.models import Mandant
 from apps.stammdaten.models import Stammnummer
 
@@ -191,16 +192,17 @@ class NummernkreisAdmin(admin.ModelAdmin):
 
 class AboPositionFormset(BaseInlineFormSet):
     def clean(self):
-        """Mengenregeln rechnen nur halbmonatlich; sonst stünde die Regel da und es gälte still die feste Menge."""
+        """Mengenregeln rechnen nur an Stichtagen; sonst stünde die Regel da und es gälte still die feste Menge."""
         super().clean()
         for form in self.forms:
             daten = getattr(form, "cleaned_data", None) or {}
             if daten.get("DELETE"):
                 continue
             if not self.instance.halbmonatlich and (daten.get("regel", Mengenregel.FEST) != Mengenregel.FEST or daten.get("nur_monatsende")):
-                raise ValidationError("Mengenregel und „nur am Monatsende“ gibt es nur beim Rhythmus halbmonatlich.")
-            if self.instance.halbmonatlich and daten.get("nur_monatsende") and self.instance.ende and self.instance.ende.day <= 15:
-                raise ValidationError("Mit Positionen „nur am Monatsende“ muss das Ende ein Monatsletzter sein, sonst bliebe dieser Monat unberechnet.")
+                raise ValidationError("Mengenregel und „nur am Monatsende“ gibt es nur beim Rhythmus „an Stichtagen“.")
+            if self.instance.halbmonatlich and daten.get("nur_monatsende") and self.instance.ende                     and not monatsenden(*zeitraum(self.instance.ende, self.instance.tage)):
+                raise ValidationError("Mit Positionen „nur am Monatsende“ muss der Zeitraum bis zum Ende einen Monatsletzten enthalten, "
+                                      "sonst bliebe dieser Monat unberechnet.")
 
 
 class AboPositionInline(admin.TabularInline):
@@ -213,8 +215,12 @@ class AboPositionInline(admin.TabularInline):
 
 @admin.register(Abo)
 class AboAdmin(admin.ModelAdmin):
-    list_display = ["bezeichnung", "kunde", "mandant", "monate", "naechster_termin", "ende", "aktiv", "letzter_lauf"]
+    list_display = ["bezeichnung", "kunde", "mandant", "rhythmus", "naechster_termin", "ende", "aktiv", "letzter_lauf"]
     list_filter = ["mandant", "aktiv", "monate"]
+
+    @admin.display(description="Rhythmus", ordering="monate")
+    def rhythmus(self, obj):
+        return obj.rhythmus_text
     search_fields = ["bezeichnung", "kunde__name1"]
     autocomplete_fields = ["kunde"]
     inlines = [AboPositionInline]

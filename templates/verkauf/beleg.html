@@ -97,9 +97,12 @@
       {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'GS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'verkauf:beleg_xrechnung' beleg.pk %}">XRechnung (XML) herunterladen</a>{% endif %}
       {% if beleg.art == 'RE' and positionen and not beleg.vorlaeufig %}<form method="post" action="{% url 'verkauf:abo_aus_rechnung' beleg.pk %}" class="kopieren">{% csrf_token %}
         <input name="bezeichnung" maxlength="100" placeholder="Bezeichnung" aria-label="Bezeichnung">
-        <select name="monate" aria-label="Rhythmus"><option value="15">halbmonatlich (15. und Monatsende)</option><option value="1" selected>monatlich</option><option value="3">vierteljährlich</option><option value="6">halbjährlich</option><option value="12">jährlich</option></select>
-        <input type="date" name="start" required aria-label="nächste Rechnung am" title="Datum der nächsten Rechnung">
-        <button class="leise" type="submit">Wiederkehrend einrichten</button></form>{% endif %}
+        <select name="monate" aria-label="Rhythmus"><option value="15">an Stichtagen (frei wählbar)</option><option value="1" selected>monatlich</option><option value="3">vierteljährlich</option><option value="6">halbjährlich</option><option value="12">jährlich</option></select>
+        <input name="stichtage" maxlength="60" value="15, letzter" aria-label="Stichtage im Monat" title="Stichtage im Monat, z. B. „10, 25“ oder „1, 15, letzter“ (nur beim Rhythmus „an Stichtagen“)" placeholder="Stichtage, z. B. 10, 25" hidden>
+        <input type="date" name="start" required aria-label="nächste Rechnung am" title="Datum der nächsten Rechnung; bei Stichtagen der erste Stichtag ab diesem Datum, sonst gilt sein Tag im Monat">
+        <button class="leise" type="submit">Wiederkehrend einrichten</button>
+        <script>(function () { var f = document.currentScript.closest('form'), r = f.querySelector('[name=monate]'), s = f.querySelector('[name=stichtage]');
+          function zeigen() { s.hidden = r.value !== '15'; } r.addEventListener('change', zeigen); zeigen(); })();</script></form>{% endif %}
       {% if retoure_offen and not beleg.vorlaeufig %}<form method="post" action="{% url 'lager:retoure' beleg.pk %}" data-frage="Ware dieser Gutschrift ins Lager zurückbuchen?">{% csrf_token %}<button class="leise" type="submit">Ware ins Lager zurückbuchen</button></form>{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen %}<form method="post" action="{% url 'verkauf:beleg_gutschrift' beleg.pk %}"{% if hat_lagerartikel %} id="gutschriftform"{% else %} data-frage="Gutschrift (Storno) zu dieser Rechnung anlegen?"{% endif %}>{% csrf_token %}<input type="hidden" name="ruecknahme" value=""><button class="gefahr" type="submit">Storno / Gutschrift</button></form>{% endif %}
       {% if pf_status and not pf_rechnung and not pf_storno and not beleg.vorlaeufig %}<form method="post" action="{% url 'verkauf:beleg_proforma_storno' beleg.pk %}" class="kopieren" data-frage="Proforma stornieren? Es entsteht ein Storno-Beleg; danach sind keine Zahlungen und keine Umwandlung mehr möglich.">{% csrf_token %}

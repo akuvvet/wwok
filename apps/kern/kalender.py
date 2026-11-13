@@ -68,3 +68,76 @@ def halbmonat(tag: date) -> tuple:
 
 def ganzer_monat(tag: date) -> tuple:
     return tag.replace(day=1), monatsletzter(tag)
+
+
+# ---- Frei wählbare Stichtage (wiederkehrende Rechnungen) -----------------------------------------------------------
+# Stichtage als Tage im Monat (1–31); 31 bzw. „letzter“ = Monatsletzter, ein Tag über der Monatslänge wird auf den
+# Monatsletzten gekürzt. Abgerechnet wird jeweils der Zeitraum seit dem vorigen Stichtag (vorigen Stichtag + 1 bis Stichtag).
+
+LETZTER = 31
+STANDARD_STICHTAGE = (15, LETZTER)
+_LETZTER_WOERTER = {"letzter", "letzte", "ende", "monatsende", "ultimo", "l"}
+
+
+def stichtage_parsen(text) -> tuple:
+    """„10, 25“ oder „1; 15 letzter“ → sortierte Tage (31 = Monatsletzter). ValueError bei ungültiger Angabe."""
+    tage = set()
+    for teil in str(text or "").replace(";", ",").replace(",", " ").replace(".", " ").split():
+        wort = teil.strip().casefold()
+        if wort in _LETZTER_WOERTER:
+            tage.add(LETZTER)
+        elif wort.isdigit() and 1 <= int(wort) <= 31:
+            tage.add(int(wort))
+        else:
+            raise ValueError(f"„{teil}“ ist kein Tag im Monat (1–31 oder „letzter“).")
+    if not tage:
+        raise ValueError("Bitte mindestens einen Stichtag angeben, z. B. „15, letzter“.")
+    return tuple(sorted(tage))
+
+
+def stichtage_text(tage) -> str:
+    return ", ".join("letzter" if t == LETZTER else str(t) for t in tage)
+
+
+def stichtage_im_monat(jahr: int, monat: int, tage) -> list:
+    laenge = calendar.monthrange(jahr, monat)[1]
+    return sorted({date(jahr, monat, min(t, laenge)) for t in tage})
+
+
+def _monat_plus(jahr: int, monat: int, plus: int) -> tuple:
+    gesamt = jahr * 12 + monat - 1 + plus
+    return gesamt // 12, gesamt % 12 + 1
+
+
+def stichtag_ab(tag: date, tage=STANDARD_STICHTAGE) -> date:
+    """Der erste Stichtag am oder nach dem Tag."""
+    for d in stichtage_im_monat(tag.year, tag.month, tage):
+        if d >= tag:
+            return d
+    return stichtage_im_monat(*_monat_plus(tag.year, tag.month, 1), tage)[0]
+
+
+def folgender_stichtag(tag: date, tage=STANDARD_STICHTAGE) -> date:
+    return stichtag_ab(tag + timedelta(days=1), tage)
+
+
+def voriger_stichtag(tag: date, tage=STANDARD_STICHTAGE) -> date:
+    """Der letzte Stichtag vor dem Tag."""
+    for d in reversed(stichtage_im_monat(tag.year, tag.month, tage)):
+        if d < tag:
+            return d
+    return stichtage_im_monat(*_monat_plus(tag.year, tag.month, -1), tage)[-1]
+
+
+def zeitraum(termin: date, tage=STANDARD_STICHTAGE) -> tuple:
+    """(von, bis) der Abrechnung zum Stichtag: Tag nach dem vorigen Stichtag bis zum Stichtag."""
+    return voriger_stichtag(termin, tage) + timedelta(days=1), termin
+
+
+def monatsenden(von: date, bis: date) -> list:
+    """Alle Monatsletzten im Zeitraum (beide Tage eingeschlossen)."""
+    ergebnis, tag = [], monatsletzter(von)
+    while tag <= bis:
+        ergebnis.append(tag)
+        tag = monatsletzter(tag + timedelta(days=1))
+    return ergebnis
