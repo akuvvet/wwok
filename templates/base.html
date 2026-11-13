@@ -194,6 +194,13 @@
   .seiten { display:flex; gap:10px; align-items:center; justify-content:center; margin-top:12px; flex-wrap:wrap; }
   header .rechts { margin-left:auto; display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
   .kopfsuche { margin:0; } .kopfsuche input { width:220px; max-width:100%; }
+  .seitenpfad { min-width:0; flex:0 1 auto; font-size:13px; }
+  .seitenpfad ol { display:flex; align-items:center; gap:6px; margin:0; padding:0; list-style:none; white-space:nowrap; overflow:hidden; }
+  .seitenpfad li { min-width:0; overflow:hidden; text-overflow:ellipsis; opacity:.75; }
+  .seitenpfad li + li::before { content:"›"; margin-right:6px; opacity:.7; }
+  .seitenpfad li:last-child { opacity:1; font-weight:600; }
+  .seitenpfad a { color:inherit; }
+  @media (max-width:640px) { .seitenpfad { order:3; flex:1 1 100%; } }
   @media (max-width:640px) { header .rechts { margin-left:0; width:100%; justify-content:flex-start; } .kopfsuche { flex:1 1 100%; } .kopfsuche input { width:100%; } }
   main { max-width:1100px; margin:20px auto; padding:0 16px; }
   .karte { background:var(--karte); border:1px solid var(--rand); border-radius:8px; padding:16px; margin-bottom:16px; }
@@ -246,6 +253,20 @@
       {% for m in alle_mandanten %}{% if m.pk != aktiver_mandant.pk %}<form method="post" action="{% url 'verkauf:start' %}">{% csrf_token %}<input type="hidden" name="mandant" value="{{ m.pk }}"><input type="hidden" name="weiter" value="{{ request.get_full_path }}"><button type="submit" class="leise">{{ m.kurzname }} – {{ m.firmenname }}</button></form>{% endif %}{% endfor %}
     </div></details>
   {% elif aktiver_mandant %}<strong title="{{ aktiver_mandant.firmenname }}">{{ aktiver_mandant.kurzname }}</strong>{% else %}<strong>wwok</strong>{% endif %}
+  {% if seitenpfad %}<nav class="seitenpfad" aria-label="Pfad"><ol id="seitenpfad">{% for text, url in seitenpfad %}<li>{% if url %}<a href="{{ url }}">{{ text }}</a>{% elif forloop.last %}<span aria-current="page">{{ text }}</span>{% else %}<span>{{ text }}</span>{% endif %}</li>{% endfor %}</ol></nav>
+  <script>
+    // Aktuelle Seite aus dem Seitentitel anhängen („B-2026-0012 – wwok“), sofern sie nicht schon der letzte Pfadteil ist
+    (function () {
+      var liste = document.getElementById('seitenpfad'), letzter = liste.lastElementChild.textContent.trim();
+      var titel = document.title.replace(/\s+–\s+wwok$/, '').trim();
+      if (titel.slice(-(letzter.length + 3)) === ' – ' + letzter) titel = titel.slice(0, -(letzter.length + 3)).trim();
+      if (!titel || titel === letzter || titel === 'wwok') return;
+      var alt = liste.lastElementChild.querySelector('[aria-current]'); if (alt) alt.removeAttribute('aria-current');
+      var li = document.createElement('li'), span = document.createElement('span');
+      span.textContent = titel; span.setAttribute('aria-current', 'page'); span.title = titel;
+      li.appendChild(span); liste.appendChild(li);
+    })();
+  </script>{% endif %}
   <span class="rechts">
     {% if user.is_authenticated %}
       {% if not aktiver_mandant %}<a class="marke gesperrt" href="{% url 'verkauf:start' %}">Kein Mandant gewählt</a>{% endif %}

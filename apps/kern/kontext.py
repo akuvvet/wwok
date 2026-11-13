@@ -31,6 +31,65 @@ def hauptbereich(request):
     return {"hauptbereich": BEREICH.get(namensraum, namensraum)}
 
 
+# Pfad im Kopfbereich: Bereich › Menüpunkt (wie in der Seitenleiste). Je Namensraum der Bereich und die Menüpunkte mit den
+# URL-Namen, die zu ihnen gehören („name*“ = Präfix, „*“ = alle übrigen). Reihenfolge zählt: der erste Treffer gewinnt.
+PFAD = {
+    "verkauf": ("Verkauf", [("Alle Belege", "verkauf:belege", ["belege"]),
+                            ("Wiederkehrende Rechnungen", "verkauf:abos", ["abo*"]),
+                            ("Kunde", "verkauf:start", ["*"])]),
+    "shop": ("Verkauf", [("Shops & Online-Bestellungen", "shop:uebersicht", ["*"])]),
+    "einkauf": ("Einkauf", [("Lieferant", "einkauf:lieferanten", ["lieferant*"]),
+                            ("Bestellvorschlag", "einkauf:vorschlag", ["vorschlag"]),
+                            ("Bestellungen", "einkauf:bestellungen", ["bestell*", "aus_beleg"]),
+                            ("Wareneingänge", "einkauf:wareneingaenge", ["wareneingang*"]),
+                            ("Lieferantenrechnungen", "einkauf:rechnungen", ["rechnung*", "sepa"]),
+                            ("Preislistenartikel", "einkauf:preislistenartikel", ["preislistenartikel"]),
+                            ("Lieferantenvergleich", "einkauf:preisvergleich", ["preisvergleich*"]),
+                            ("Günstigster EK", "einkauf:bestpreise", ["bestpreise"]),
+                            ("RMA", "einkauf:rma_liste", ["rma*"]),
+                            ("Preislisten & EK-Import", "einkauf:preislisten", ["preisliste*", "artikelpreise", "preispruefliste"])]),
+    "lager": ("Artikel", [("Inventur / Zählliste", "lager:inventur_liste", ["inventur_liste"]),
+                          ("Seriennummern", "lager:seriennummern", ["seriennummer*", "position_sn"]),
+                          ("Artikel & Bestand", "lager:uebersicht", ["*"])]),
+    "esd": ("Artikel", [("ESD-Keys", "esd:uebersicht", ["*"])]),
+    "werkstatt": ("Werkstatt", [("Annahme", "werkstatt:annahme", ["annahme"]),
+                                ("Reparaturen", "werkstatt:liste", ["*"])]),
+    "finanzen": ("Finanzen", [("Mahnwesen", "finanzen:mahnwesen", ["mahn*"]),
+                              ("Bankabgleich", "finanzen:bank", ["bank*"]),
+                              ("Kassenbuch", "finanzen:kassenbuch", ["kassenbuch"]),
+                              ("Lastschrift-Einzug", "finanzen:lastschrift", ["lastschrift*"]),
+                              ("DATEV-Export", "finanzen:datev", ["datev"]),
+                              ("Offene Posten", "finanzen:offene_posten", ["*"])]),
+}
+
+
+def _passt(name: str, muster: list) -> bool:
+    return any(m == "*" or m == name or (m.endswith("*") and name.startswith(m[:-1])) for m in muster)
+
+
+def seitenpfad(request):
+    """Pfad für den Kopfbereich: [(Text, URL oder None), …]. Die aktuelle Seite hängt die Vorlage aus dem Seitentitel an."""
+    from django.urls import NoReverseMatch, reverse
+    treffer = getattr(request, "resolver_match", None)
+    benutzer = getattr(request, "user", None)
+    if treffer is None or benutzer is None or not benutzer.is_authenticated:
+        return {}
+    if not treffer.namespace and treffer.url_name == "dashboard":
+        return {"seitenpfad": [("Dashboard", None)]}
+    eintrag = PFAD.get(treffer.namespace)
+    if eintrag is None:
+        return {}
+    bereich, punkte = eintrag
+    for text, ziel, muster in punkte:
+        if _passt(treffer.url_name or "", muster):
+            try:
+                url = reverse(ziel)
+            except NoReverseMatch:
+                url = None
+            return {"seitenpfad": [(bereich, None), (text, None if url == request.path else url)]}
+    return {"seitenpfad": [(bereich, None)]}
+
+
 def aktiver_mandant(request):
     """Für die Kopfzeile: unter welcher Firma gerade gearbeitet wird."""
     benutzer = getattr(request, "user", None)

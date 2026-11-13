@@ -846,6 +846,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Shop: Artikeldaten (Texte, Maße, Hersteller, Kategorie, Bilder, neue Artikel) per Knopf oder im Takt, offline gesetzte Artikel werden im Shop deaktiviert
 - [x] Position nachträglich in eine Gruppe verschieben (Position → „bearbeiten“ → Gruppe), auch in eine andere oder heraus; abgelehnt, wenn sich dadurch Belegwert oder Steuer ändern würden (Steuersatz, Rabatt der Gruppe, nicht centgenauer Rabatt, anderer Lieferschein, negativer Gruppenpreis)
 - [x] Layout: eine Seitenleiste links mit allen Bereichen als aufklappbare Gruppen (Untermenüs, aktive Gruppe offen), einklappbar auf Symbole, unter 900 px als Schublade; Mandantenwahl bleibt in der Kopfzeile
+- [x] Pfad im Kopfbereich neben dem Mandanten: Bereich › Menüpunkt (verlinkt) › aktuelle Seite aus dem Seitentitel, z. B. „Einkauf › Bestellungen › BE2026-00003“; Zuordnung der Seiten in `apps/kern/kontext.py` (`PFAD`), bei neuen Menüpunkten dort mitpflegen
 - [x] Dashboard als Startseite (`/`): offene Kundenbestellungen, offene Posten, Umsatz netto (Rechnungen minus Gutschriften) mit Vorzeitraum, Lieferanten, Zeitraumvergleich, Umsatzverlauf, Top Kunden/Artikel/Lieferanten, Kanäle, Arbeitsliste; Zeitraum 7/30/90/365 Tage
 - [x] Einkauf: Bestellungen, Wareneingang, Lieferantenrechnungen, RMA, Bestellvorschlag, SEPA-Export, Preislisten-Import (Typ P als eigene Tabelle)
 - [x] Lager: Bestand je Mandant, Bewegungen, Inventur, Seriennummern, Bestandsregel (nie unter 0)

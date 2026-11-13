@@ -82,7 +82,8 @@ class SeitenTest(TestCase):
         # nur die Gruppe des aktuellen Bereichs ist geöffnet, der aktive Eintrag trägt aria-current
         self.assertIn('<details class="gruppe aktiv" open>\n<summary title="Verkauf">', html)
         self.assertIn('<details class="gruppe" >\n<summary title="Einkauf">', html)
-        self.assertEqual(html.count('aria-current="page"'), 1)
+        leiste = html[html.index('id="seitenleiste"'):]  # der Pfad im Kopfbereich trägt sein eigenes aria-current
+        self.assertEqual(leiste.count('aria-current="page"'), 1)
         self.assertIn('class="sl-link aktiv" aria-current="page" href="' + reverse("verkauf:belege"), html)
 
     def test_seitenleiste_oeffnet_gruppe_je_bereich(self):
