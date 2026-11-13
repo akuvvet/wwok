@@ -3,7 +3,7 @@
 {% block inhalt %}
 <a href="{% url 'einkauf:wareneingaenge' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>Wareneingang {{ we.nummer }} – {{ we.lieferant.name1 }}</h1>
+  <h1>Wareneingang {{ we.nummer }} – <a href="{% url 'einkauf:lieferant' we.lieferant_id %}">{{ we.lieferant.name1 }}</a></h1>
   <p>{{ we.datum|date:"d.m.Y" }}{% if we.bestellung %} · Bestellung <a href="{% url 'einkauf:bestellung' we.bestellung.pk %}">{{ we.bestellung.nummer }}</a>{% endif %}
      {% if we.gebucht %}· <strong>ins Lager gebucht</strong>{% endif %}</p>
   {% if not we.gebucht %}

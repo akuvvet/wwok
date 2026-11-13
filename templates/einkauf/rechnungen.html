@@ -46,7 +46,7 @@
     <tr><th></th><th>Lieferant</th><th>Rechnung</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">zu zahlen</th><th>Abgleich</th><th>Status{% status_legende "lieferantenrechnung" "ueberfaellig" "skonto" %}</th></tr>
     {% for r, abgleich, zahlbetrag in zeilen %}
     <tr><td>{% if r.status != 'bezahlt' %}<input type="checkbox" name="auswahl" value="{{ r.pk }}">{% endif %}</td>
-        <td><span title="{{ r.lieferant.nummer }} – {{ r.lieferant.name1 }}">{{ r.lieferant.kurz }}</span></td><td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a></td>
+        <td><a href="{% url 'einkauf:lieferant' r.lieferant_id %}" title="{{ r.lieferant.nummer }} – {{ r.lieferant.name1 }}">{{ r.lieferant.kurz }}</a></td><td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a></td>
         <td>{{ r.datum|date:"d.m.Y" }}</td><td>{{ r.faellig|date:"d.m.Y" }}</td><td class="zahl">{{ r.brutto }}</td>
         <td class="zahl">{{ zahlbetrag }}{% if zahlbetrag != r.brutto %} <small>(Skonto)</small>{% endif %}</td>
         <td>{% if not abgleich.verknuepft %}<span style="opacity:.6">kein Wareneingang</span>{% elif abgleich.ok %}passt{% else %}{% if abgleich.bestaetigt %}Abweichung {{ abgleich.differenz }} € bestätigt{% else %}<span style="color:var(--warn)">Abweichung {{ abgleich.differenz }} € – klären</span>{% endif %}{% endif %}{% if r.bemerkung %}<br><small>{{ r.bemerkung }}</small>{% endif %}</td>

@@ -125,6 +125,17 @@ class LieferantenkontoTest(TestCase):
         self.assertEqual(we.positionen.count(), 1)
         self.assertContains(self.client.get(url), we.nummer)
 
+    def test_lieferantenname_in_belegen_verlinkt(self):
+        b = self.bestellung(self.kos)
+        we = services.wareneingang_anlegen(self.m, self.kos, b)
+        r = self.rechnung(self.kos, "R-LINK")
+        rma = services.rma_anlegen(self.m, self.kos, "Defekte Maus", "geht nicht")
+        link = 'href="' + reverse("einkauf:lieferant", args=[self.kos.pk]) + '"'
+        for name, args in (("bestellungen", []), ("bestellung", [b.pk]), ("wareneingaenge", []), ("wareneingang", [we.pk]),
+                           ("rechnungen", []), ("rechnung", [r.pk]), ("rma_liste", []), ("rma", [rma.pk])):
+            with self.subTest(seite=name):
+                self.assertContains(self.client.get(reverse("einkauf:" + name, args=args)), link)
+
     def test_gesperrt_ohne_neue_belege(self):
         self.kos.gesperrt = True
         self.kos.save()
