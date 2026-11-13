@@ -1,0 +1,12 @@
+<div class="scroll"><table>
+  <thead><tr><th>Beleg</th><th>Datum</th>{% if mit_lieferant %}<th>Lieferant</th>{% endif %}<th>Bezug</th><th>Status</th><th class="zahl">Betrag</th></tr></thead>
+  <tbody>
+  {% for z in zeilen %}<tr>
+    <td><a href="{{ z.url }}">{{ z.art_text }} {{ z.nummer }}</a></td>
+    <td>{{ z.datum|date:"d.m.Y" }}</td>
+    {% if mit_lieferant %}<td><a href="{% url 'einkauf:lieferant' z.lieferant.pk %}" title="{{ z.lieferant.nummer }} – {{ z.lieferant.name1 }}">{{ z.lieferant.kurz }}</a></td>{% endif %}
+    <td>{% if z.bezug %}{{ z.bezug }}{% elif z.faellig %}fällig {{ z.faellig|date:"d.m.Y" }}{% endif %}</td>
+    <td>{% if z.art == "LR" %}{% status_symbol z.bereich z.status z.status_text faellig=z.faellig skonto_bis=z.skonto_bis %}{% else %}{% status_symbol z.bereich z.status z.status_text %}{% endif %}</td>
+    <td class="zahl">{% if z.betrag is not None %}{{ z.betrag|floatformat:"2g" }} <small class="fein">{{ z.betrag_art }}</small>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="{% if mit_lieferant %}6{% else %}5{% endif %}">{{ leer_text|default:"Keine Belege." }}</td></tr>{% endfor %}
+  </tbody></table></div>

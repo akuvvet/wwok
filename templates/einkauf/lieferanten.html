@@ -1,24 +1,40 @@
 {% extends "base.html" %}
-{% block titel %}Lieferanten – wwok{% endblock %}
+{% block titel %}Lieferant – wwok{% endblock %}
 {% block inhalt %}
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>Lieferanten</h1>
+  <h1>Lieferant</h1>
   <form method="get" class="zeile" data-livefilter>
-    <div><label for="f-q">Suche</label><input id="f-q" name="q" value="{{ q }}" placeholder="Name, Kurzname, Ort, Nummer" autofocus></div>
-    <noscript><button type="submit" class="leise">Suchen</button></noscript>
-    <a class="knopf" data-modal="{% url 'stammdaten:lieferant_neu' %}" href="{% url 'einkauf:lieferanten' %}">+ Neuer Lieferant</a>
+    <div><label for="q">Name, Kurzname, Nummer oder Ort (<code>*</code> = alle, <code>Kos*</code> = beginnt mit)</label>
+      <input id="q" name="q" value="{{ q }}" autofocus size="40" autocomplete="off"></div>
+    <noscript><button type="submit" class="symbol voll" style="margin-left:0" data-tip="Lieferant suchen" aria-label="Lieferant suchen">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></button></noscript>
+    <a class="symbol" style="width:40px;height:34px" data-tip="Neuen Lieferanten anlegen" aria-label="Neuen Lieferanten anlegen" data-modal="{% url 'stammdaten:lieferant_neu' %}" href="{% url 'einkauf:lieferanten' %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></a>
   </form>
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
-  <div class="scroll" style="margin-top:10px"><table>
-    <thead><tr><th>Nr.</th><th>Kurz</th><th>Name</th><th>Ort</th><th>Telefon</th><th>E-Mail</th><th></th></tr></thead>
-    <tbody>
-    {% for l in lieferanten %}<tr><td>{{ l.nummer }}</td><td>{{ l.kurz }}</td><td>{{ l.name1 }} {{ l.name2 }}</td><td>{{ l.plz }} {{ l.ort }}</td><td>{{ l.telefon }}</td><td>{{ l.email }}</td>
-      <td class="aktionszelle"><a class="symbol" data-tip="Bearbeiten" aria-label="Bearbeiten" data-modal="{% url 'stammdaten:lieferant_bearbeiten' l.pk %}" href="/verwaltung/stammdaten/lieferant/{{ l.pk }}/change/">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a></td></tr>
-    {% empty %}<tr><td colspan="7">{% if q %}{% include "filter_leer.html" %}{% else %}Keine Lieferanten.{% endif %}</td></tr>{% endfor %}
-    </tbody></table></div>
-  {% include "seiten.html" %}
+  {% if lieferanten is not None %}
+    {% if lieferanten.object_list %}
+    <div class="scroll" style="margin-top:12px"><table>
+      <thead><tr><th>Nr.</th><th>Kurz</th><th>Name</th><th>PLZ Ort</th><th>Telefon</th><th></th></tr></thead>
+      <tbody>
+      {% for l in lieferanten %}<tr><td><a href="{% url 'einkauf:lieferant' l.pk %}">{{ l.nummer }}</a></td><td>{{ l.kurz }}</td>
+        <td><a href="{% url 'einkauf:lieferant' l.pk %}">{{ l.name1 }} {{ l.name2 }}</a>{% if l.gesperrt %} <span class="marke gesperrt">gesperrt</span>{% endif %}</td>
+        <td>{{ l.plz }} {{ l.ort }}</td><td>{{ l.telefon }}</td>
+        <td class="aktionszelle"><a class="symbol" data-tip="Bearbeiten" aria-label="Bearbeiten" data-modal="{% url 'stammdaten:lieferant_bearbeiten' l.pk %}" href="/verwaltung/stammdaten/lieferant/{{ l.pk }}/change/">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a></td></tr>
+      {% endfor %}
+      </tbody></table></div>
+    {% include "seiten.html" %}
+    {% else %}<p>{% include "filter_leer.html" %}</p>{% endif %}
+  {% endif %}
   </div>
 </div>
+{% if offene is not None %}
+<div class="karte">
+  <h2>Offene Belege zum Bearbeiten</h2>
+  <p class="fein" style="margin-top:0">Bestellungen (Entwurf, bestellt, teilweise geliefert), nicht gebuchte Wareneingänge, nicht bezahlte Lieferantenrechnungen und laufende RMA aller Lieferanten.</p>
+  {% include "einkauf/_belegzeilen.html" with zeilen=offene mit_lieferant=True leer_text="Keine offenen Belege." %}
+</div>
+{% endif %}
 {% endblock %}

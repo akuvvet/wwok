@@ -106,7 +106,9 @@ class StammdatenMaskenTest(TestCase):
         self.assertEqual(LieferantMandant.objects.get(lieferant=self.lieferant, mandant=self.m).unsere_kundennummer, "K-77")
 
     def test_lieferantenliste_und_suche(self):
-        r = self.client.get(reverse("einkauf:lieferanten") + "?q=api")
+        r = self.client.get(reverse("einkauf:lieferanten") + "?q=api")  # genau ein Treffer: öffnet den Lieferanten
+        self.assertRedirects(r, reverse("einkauf:lieferant", args=[self.lieferant.pk]))
+        r = self.client.get(reverse("einkauf:lieferanten") + "?q=*")
         self.assertContains(r, "API GmbH")
         self.assertContains(r, "data-modal")
         r = self.client.get(reverse("einkauf:lieferanten") + "?q=nichtda")

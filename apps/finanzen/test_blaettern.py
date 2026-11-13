@@ -27,11 +27,11 @@ class BlaetternTest(TestCase):
     def test_lieferanten_blaettern(self):
         for i in range(55):
             Lieferant.objects.create(nummer=f"L{i:03d}", name1=f"Lieferant {i:03d}")
-        r1 = self.client.get(reverse("einkauf:lieferanten"))
+        r1 = self.client.get(reverse("einkauf:lieferanten"), {"q": "*"})  # „*“ = alle (wie die Kundensuche)
         self.assertContains(r1, 'aria-label="Seiten"')
         self.assertContains(r1, "Lieferant 000")
         self.assertNotContains(r1, "Lieferant 054")
-        r2 = self.client.get(reverse("einkauf:lieferanten"), {"seite": 2})
+        r2 = self.client.get(reverse("einkauf:lieferanten"), {"q": "*", "seite": 2})
         self.assertContains(r2, "Lieferant 054")
 
     def test_kassenbuch_blaettern(self):

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block titel %}{{ lieferant.name1 }} – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:lieferanten' %}" data-escape style="display:none">zurück</a>
+{% if lieferant.gesperrt %}<div class="warnung">Lieferant ist gesperrt.</div>{% endif %}
+{% if lieferant.hinweis %}<div class="warnung">{{ lieferant.hinweis|linebreaksbr }}</div>{% endif %}
+<div class="karte kundenkopf">
+  <div class="kk-titel">
+    <h1>{{ lieferant.nummer }} – {{ lieferant.name1 }} {{ lieferant.name2 }}{% if lieferant.kurzname %} <small class="fein">({{ lieferant.kurzname }})</small>{% endif %}</h1>
+    <div class="kk-symbole">
+    <a class="symbol links" data-tip="Lieferantendaten bearbeiten" aria-label="Lieferantendaten bearbeiten" data-modal="{% url 'stammdaten:lieferant_bearbeiten' lieferant.pk %}" href="/verwaltung/stammdaten/lieferant/{{ lieferant.pk }}/change/">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a>
+    </div>
+  </div>
+  <div class="kk-raster">
+    <div>
+    <div class="kk-zeile">
+      <span>{{ lieferant.strasse }}<br>{{ lieferant.plz }} {{ lieferant.ort }}</span>
+      {% if lieferant.ort %}<a class="symbol" data-tip="Karte" aria-label="Karte" href="https://www.google.com/maps/search/?api=1&query={{ lieferant.strasse|urlencode }}+{{ lieferant.plz }}+{{ lieferant.ort|urlencode }}" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></a>{% endif %}
+    </div>
+    <div style="margin-top:4px">Tel. {{ lieferant.telefon|default:"–" }}<br>{{ lieferant.email|default:"–" }}</div>
+    </div>
+    <dl class="infoblock">
+      <dt>Unsere Kd.-Nr.:</dt><dd>{{ unsere_kundennummer|default:"–" }}</dd>
+      <dt>Zahlung:</dt><dd>{{ lieferant.zahlungsbedingung|default:"–" }}</dd>
+      {% if lieferant.lieferzeit_tage %}<dt>Lieferzeit:</dt><dd>{{ lieferant.lieferzeit_tage }} Tage</dd>{% endif %}
+      <dt>Offene Rechnungen:</dt><dd><a href="?art=LR">{{ offen_rechnungen|floatformat:"2g" }} €</a></dd>
+    </dl>
+    {% if ansprechpartner %}<div>{% for a in ansprechpartner %}{{ a }}{% if a.hauptkontakt %} ★{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
+  </div>
+  {% if not lieferant.gesperrt %}
+  <div class="zeile" style="margin-top:10px">
+    <form method="post" action="{% url 'einkauf:bestellung_neu' %}">{% csrf_token %}<input type="hidden" name="lieferant" value="{{ lieferant.pk }}">
+      <button type="submit">+ Bestellung</button></form>
+    <form method="post" action="{% url 'einkauf:wareneingang_neu' %}" class="zeile">{% csrf_token %}
+      {% if offene_bestellungen %}<select name="bestellung" aria-label="Wareneingang zu Bestellung"><option value="">ohne Bestellung</option>
+        {% for b in offene_bestellungen %}<option value="{{ b.pk }}">zu {{ b.nummer }}</option>{% endfor %}</select>{% endif %}
+      <input type="hidden" name="lieferant" value="{{ lieferant.pk }}">
+      <button type="submit" class="leise">+ Wareneingang</button></form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="karte">
+  <h2>Belege</h2>
+  <form method="get" class="zeile" data-livefilter>
+    <div><label for="f-art">Belegart</label><select id="f-art" name="art">
+      <option value="offen" {% if filter == 'offen' %}selected{% endif %}>nur offene</option>
+      <option value="alle" {% if filter == 'alle' %}selected{% endif %}>alle</option>
+      {% for wert, name in arten %}<option value="{{ wert }}" {% if filter == wert %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
+    <div><label for="f-ab">ab Datum</label><input id="f-ab" type="date" name="ab" value="{{ ab }}"></div>
+    <noscript><button type="submit" class="leise">Filtern</button></noscript>
+  </form>
+  <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
+  {% include "einkauf/_belegzeilen.html" with zeilen=seite.object_list leer_text="Keine Belege für diese Auswahl – „alle“ zeigt auch Erledigtes." %}
+  {% include "seiten.html" %}
+  </div>
+</div>
+{% endblock %}

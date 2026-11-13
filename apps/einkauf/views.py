@@ -65,14 +65,50 @@ def schutz(ziel, *arg_namen):
 
 @mit_mandant
 def lieferanten(request):
+    """Wie „Kunde“ im Verkauf: Suchfeld (ein Treffer öffnet den Lieferanten), ohne Suche alle offenen Einkaufsbelege."""
+    from . import lieferantenkonto
     q = request.GET.get("q", "").strip()
-    liste = lieferanten_auswahl(gesperrte=True)
-    for wort in q.split():
-        liste = liste.filter(Q(name1__icontains=wort) | Q(name2__icontains=wort) | Q(kurzname__icontains=wort)
-                             | Q(ort__icontains=wort) | Q(nummer__icontains=wort))
-    seite, parameter = blaettern(request, liste)
+    seite = parameter = None
+    offene = None
+    if q:
+        treffer = lieferantenkonto.lieferanten_suchen(q)
+        if q != "*" and treffer.count() == 1:
+            return redirect("einkauf:lieferant", lieferant_id=treffer.first().pk)
+        seite, parameter = blaettern(request, treffer)
+    else:
+        offene = lieferantenkonto.belege(request.mandant)
     return render(request, "einkauf/lieferanten.html", {
-        "lieferanten": seite, "seite": seite, "parameter": parameter, "q": q, "bereich": "einkauf"})
+        "lieferanten": seite, "seite": seite, "parameter": parameter, "q": q, "offene": offene, "bereich": "einkauf"})
+
+
+@mit_mandant
+def lieferant_detail(request, lieferant_id):
+    """Lieferantenkonto wie die Kundenansicht: Kopf mit Stammdaten, darunter die Einkaufsbelege (Standard: nur offene)."""
+    from datetime import date
+
+    from apps.stammdaten.models import LieferantMandant
+
+    from . import lieferantenkonto
+    lieferant = get_object_or_404(Lieferant, pk=lieferant_id)
+    art = request.GET.get("art") or "offen"  # beim Öffnen: nur offene Belege; „alle“ schickt art=alle (der Live-Filter lässt leere Werte weg)
+    nur_offen = art == "offen"
+    belegart = art if art in dict(lieferantenkonto.ARTEN) else ""
+    ab = request.GET.get("ab", "")
+    try:
+        ab_datum = date.fromisoformat(ab) if ab else None
+    except ValueError:
+        ab, ab_datum = "", None
+    zeilen = lieferantenkonto.belege(request.mandant, lieferant, nur_offen=nur_offen, art=belegart, ab=ab_datum)
+    seite, parameter = blaettern(request, zeilen, 25)
+    offen_rechnungen = sum((z["betrag"] for z in lieferantenkonto.belege(request.mandant, lieferant, art="LR")), Decimal("0"))
+    md = LieferantMandant.objects.filter(lieferant=lieferant, mandant=request.mandant).first()
+    return render(request, "einkauf/lieferant.html", {
+        "lieferant": lieferant, "seite": seite, "parameter": parameter, "filter": art, "ab": ab,
+        "arten": lieferantenkonto.ARTEN, "offen_rechnungen": offen_rechnungen,
+        "unsere_kundennummer": md.unsere_kundennummer if md else "",
+        "ansprechpartner": lieferant.ansprechpartner.all(),
+        "offene_bestellungen": Bestellung.objects.filter(mandant=request.mandant, lieferant=lieferant,
+                                                         status__in=[BestellStatus.BESTELLT, BestellStatus.TEIL])})
 
 
 @mit_mandant
