@@ -50,3 +50,45 @@ class KategorieSuchauswahlTest(TestCase):
         self.assertNotIn("kategorie", f.errors)
         daten["kategorie"] = 999999
         self.assertIn("kategorie", ArtikelForm(daten, instance=self.a).errors)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class NachfolgerSuchauswahlTest(TestCase):
+    """Nachfolger als Suchfeld; ähnliche Bezeichnungen schlägt das Skript aus dem Feld „bezeichnung“ vor."""
+
+    def setUp(self):
+        Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.a = Artikel.objects.create(nummer="A1", bezeichnung="VGA 8GB RTX 5060", steuersatz=st)
+        self.b = Artikel.objects.create(nummer="A2", bezeichnung="VGA 8GB RTX 5060 Ti", steuersatz=st, herstellernummer="GV-N506", ean="4719331")
+        self.alt = Artikel.objects.create(nummer="A3", bezeichnung="VGA alt", steuersatz=st, nicht_aktiv=True)
+        self.user = get_user_model().objects.create_user("t", password="x" * 14, is_staff=True, is_superuser=True)
+
+    def test_maske_rendert_suchfeld_mit_vergleichsfeld_und_ohne_sich_selbst(self):
+        html = str(ArtikelForm(instance=self.a)["nachfolger"])
+        self.assertIn('data-suchauswahl="nachfolger"', html)
+        self.assertIn('data-aehnlich-feld="bezeichnung"', html)
+        self.assertIn('data-marke="nicht aktiv"', html)
+        self.assertIn(f'value="{self.b.pk}" data-suche="GV-N506 4719331">A2 – VGA 8GB RTX 5060 Ti', html)
+        self.assertIn(f'value="{self.alt.pk}" data-offline="1">', html)
+        self.assertNotIn(f'value="{self.a.pk}"', html)
+
+    def test_neuer_artikel_sieht_alle(self):
+        html = str(ArtikelForm()["nachfolger"])
+        self.assertIn(f'value="{self.a.pk}"', html)
+
+    def test_speichern_mit_nachfolger_und_nicht_sich_selbst(self):
+        form = ArtikelForm(instance=self.a)
+        daten = {name: feld.value() for name, feld in ((n, form[n]) for n in form.fields) if feld.value() is not None}
+        daten["nachfolger"] = self.b.pk
+        f = ArtikelForm(daten, instance=self.a)
+        f.is_valid()
+        self.assertNotIn("nachfolger", f.errors)
+        daten["nachfolger"] = self.a.pk
+        self.assertIn("nachfolger", ArtikelForm(daten, instance=self.a).errors)
+
+    def test_artikelmaske_nutzt_das_suchfeld(self):
+        self.client.force_login(self.user)
+        r = self.client.get(reverse("stammdaten:artikel_bearbeiten", args=[self.a.pk]))
+        self.assertContains(r, 'data-suchauswahl="nachfolger"')
+        self.assertContains(r, 'data-aehnlich-feld="bezeichnung"')

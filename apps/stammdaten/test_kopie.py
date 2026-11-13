@@ -111,8 +111,11 @@ class KopierenMaskeTest(KopieBasis):
         self.assertContains(r, "Maus M185 (Kopie)")
         self.assertContains(r, "Kabellos")
         self.assertEqual(r.context["form"].instance.nummer, "5001")  # nächste freie Nummer, nicht die der Vorlage
-        self.assertNotContains(r, "910-002")  # Herstellernummer
-        self.assertNotContains(r, "4006381333931")  # EAN
+        # Herstellernummer und EAN nicht in den Feldern (in der Suchliste „Nachfolger“ steht die Vorlage samt Nummern zu Recht)
+        self.assertNotContains(r, 'value="910-002"')
+        self.assertNotContains(r, 'value="4006381333931"')
+        self.assertFalse(r.context["form"]["herstellernummer"].value())
+        self.assertFalse(r.context["form"]["ean"].value())
         self.assertEqual(r.context["tabs"][-1]["extra"].initial.get("lagerplatz", ""), "")  # Lagerplatz gehört nicht zur Vorlage
         self.assertContains(r, f'name="kopie_von" value="{self.vorlage.pk}"')
         self.assertEqual(Artikel.objects.count(), 1)  # Abbrechen = nichts gespeichert

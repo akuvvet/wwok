@@ -66,18 +66,40 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
       function merken(wert) {
         try { localStorage.setItem(schluessel, JSON.stringify([wert].concat(zuletzt().filter(function (w) { return w !== wert; })).slice(0, ZULETZT))); } catch (e) {}
       }
+      var marke = esc(sel.dataset.marke || 'offline');
       function zeile(e, woerter, i) {
         return '<li role="option" id="' + id + '_' + i + '" data-i="' + i + '" aria-selected="' + (i === aktiv) + '">' +
-          hervorheben(e.text, woerter) + (e.offline ? '<span class="sa-marke">offline</span>' : '') + '</li>';
+          hervorheben(e.text, woerter) + (e.offline ? '<span class="sa-marke">' + marke + '</span>' : '') + '</li>';
+      }
+      function aehnliche() {  // Einträge, deren Text möglichst viele Wörter aus dem Vergleichsfeld (z. B. Bezeichnung) enthält
+        var quelle = sel.dataset.aehnlichFeld && sel.form && sel.form.querySelector('[name="' + sel.dataset.aehnlichFeld + '"]');
+        if (!quelle) return [];
+        var woerter = norm(quelle.value).split(/[^0-9a-zß]+/).filter(function (w, i, alle) { return w.length >= 2 && alle.indexOf(w) === i; });
+        if (!woerter.length) return [];
+        var mindest = Math.min(2, woerter.length);  // mindestens zwei gemeinsame Wörter, sonst reicht z. B. der Hersteller allein
+        return eintraege.map(function (e) {
+          var punkte = 0, gleich = 0;
+          e.worte = e.worte || e.suche.split(/[^0-9a-zß]+/);  // nur am Wortanfang: „oc“ soll nicht in „Sockel“ treffen
+          woerter.forEach(function (w) {
+            if (e.worte.some(function (x) { return x.indexOf(w) === 0; })) { gleich++; punkte += w.length >= 4 ? 2 : 1; }
+          });
+          return {e: e, punkte: punkte, gleich: gleich};
+        }).filter(function (p) { return p.gleich >= mindest && p.e.wert !== sel.value; })
+          .sort(function (a, b) { return b.punkte - a.punkte || a.e.text.localeCompare(b.e.text, 'de'); })
+          .slice(0, 8).map(function (p) { return p.e; });
       }
       function zeichnen() {
         var woerter = norm(feld.value).split(/\s+/).filter(Boolean), html = '';
-        if (!woerter.length) {  // ohne Suchbegriff: zuletzt verwendet, dann alle
-          var z = zuletzt().map(function (w) { return eintraege.find(function (e) { return e.wert === w; }); }).filter(Boolean);
-          treffer = z.concat(eintraege.filter(function (e) { return z.indexOf(e) < 0; }));
-          if (z.length) html += '<li class="sa-titel" role="presentation">Zuletzt verwendet</li>';
+        if (!woerter.length) {  // ohne Suchbegriff: ähnliche Benennung, zuletzt verwendet, dann alle
+          var aehnlich = aehnliche();
+          var z = zuletzt().map(function (w) { return eintraege.find(function (e) { return e.wert === w; }); })
+            .filter(function (e) { return e && aehnlich.indexOf(e) < 0; });
+          var oben = aehnlich.concat(z);
+          treffer = oben.concat(eintraege.filter(function (e) { return oben.indexOf(e) < 0; }));
           treffer.slice(0, MAX).forEach(function (e, i) {
-            if (z.length && i === z.length) html += '<li class="sa-titel" role="presentation">Alle</li>';
+            if (i === 0 && aehnlich.length) html += '<li class="sa-titel" role="presentation">Ähnliche Bezeichnung</li>';
+            if (i === aehnlich.length && z.length) html += '<li class="sa-titel" role="presentation">Zuletzt verwendet</li>';
+            if (i === oben.length && oben.length) html += '<li class="sa-titel" role="presentation">Alle</li>';
             html += zeile(e, [], i);
           });
         } else {

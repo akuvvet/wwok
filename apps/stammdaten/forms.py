@@ -103,8 +103,13 @@ class SuchAuswahl(forms.Select):
     """Auswahlliste, die im Browser zum Suchfeld mit Sofortfilter wird (templates/_suchauswahl.html, Issue 58).
     suche: {Wert: zusätzlicher Suchtext, z. B. Nummer}; offline: Werte mit Marke „offline“."""
 
-    def __init__(self, attrs=None, choices=(), schluessel="", suche=None, offline=()):
-        super().__init__({**(attrs or {}), "data-suchauswahl": schluessel}, choices)
+    def __init__(self, attrs=None, choices=(), schluessel="", suche=None, offline=(), marke="", aehnlich_feld=""):
+        extra = {"data-suchauswahl": schluessel}
+        if marke:  # Text der Marke für data-offline (Standard „offline“)
+            extra["data-marke"] = marke
+        if aehnlich_feld:  # ohne Suchbegriff oben Einträge mit ähnlicher Benennung wie dieses Feld des Formulars
+            extra["data-aehnlich-feld"] = aehnlich_feld
+        super().__init__({**(attrs or {}), **extra}, choices)
         self.suche, self.offline = suche or {}, set(offline)
 
     def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
@@ -135,6 +140,28 @@ def kategorie_suchauswahl(form):
         feld.widget = neu
 
 
+def nachfolger_suchauswahl(form):
+    """Nachfolger als Suchfeld: Nummer, Bezeichnung, Herstellernummer und EAN durchsuchbar; ohne Suchbegriff stehen oben
+    Artikel mit ähnlicher Bezeichnung. Der Artikel selbst kommt nicht in die Liste."""
+    from .models import Artikel
+    feld = form.fields.get("nachfolger")
+    if feld is None:
+        return
+    if form.instance.pk:
+        feld.queryset = feld.queryset.exclude(pk=form.instance.pk)
+    feld.queryset = feld.queryset.order_by("nummer")
+    huelle = feld.widget if hasattr(feld.widget, "widget") else None
+    alt = huelle.widget if huelle else feld.widget
+    suche = {pk: f"{hnr} {ean}".strip() for pk, hnr, ean in Artikel.objects.values_list("pk", "herstellernummer", "ean") if hnr or ean}
+    neu = SuchAuswahl(attrs=alt.attrs, schluessel="nachfolger", suche=suche, marke="nicht aktiv", aehnlich_feld="bezeichnung",
+                      offline=Artikel.objects.filter(nicht_aktiv=True).values_list("pk", flat=True))
+    neu.choices, neu.is_required = feld.choices, alt.is_required
+    if huelle:
+        huelle.widget = neu
+    else:
+        feld.widget = neu
+
+
 class VkVorschlagForm(forms.ModelForm):
     """Leere VK zeigen den Vorschlag aus EK und Aufschlag. Bleibt er unverändert, wird nichts Festes gespeichert und der
     VK folgt weiter dem EK; erst ein selbst eingetippter Preis ist fest."""
@@ -151,6 +178,7 @@ class VkVorschlagForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         kategorie_suchauswahl(self)
+        nachfolger_suchauswahl(self)
         if "ek_manuell" in self.fields:
             self.ek_feld_einrichten()
         # EK als Basis für die Live-Umrechnung VK ↔ Aufschlag in der Maske (wie stufenpreis: ohne Leistungskosten)
@@ -291,8 +319,6 @@ class ArtikelForm(VkVorschlagForm):
         self.fields["typ"].choices = [(w, n) for w, n in Artikeltyp.choices if w != Artikeltyp.P]
         if self.instance.pk:  # Typwechsel würde Bestand und Belege verfälschen
             self.fields["typ"].disabled = True
-            self.fields["nachfolger"].queryset = Artikel.objects.exclude(pk=self.instance.pk)
-        self.fields["nachfolger"].queryset = self.fields["nachfolger"].queryset.order_by("nummer")
 
     def clean(self):
         daten = super().clean()
