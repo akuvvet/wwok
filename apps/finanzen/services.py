@@ -255,7 +255,7 @@ def mahnung_erstellen(beleg, stufe_nr, benutzer=None, heute=None) -> Mahnung:
 
 @transaction.atomic
 def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, storno_zu=None, storno_grund="",
-                  offen_bisher=None) -> Zahlung:
+                  offen_bisher=None, aus_bankumsatz=None) -> Zahlung:
     """offen_bisher: offener Betrag, den die Maske gezeigt hat; weicht er ab, wurde schon gebucht (Doppelklick)."""
     if beleg.vorlaeufig or Beleg.objects.filter(pk=beleg.pk, vorlaeufig=True).exists():
         raise ValueError("Zahlungen gehen erst nach „Speichern: abschließen & Nummer vergeben“.")
@@ -286,7 +286,8 @@ def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, s
             raise ValueError(f"{verrechnet:.2f} € dieser Zahlungen sind mit einer Rechnung verrechnet.".replace(".", ",", 1)
                              + " Bitte zuerst die Verrechnung aufheben (Zahlungen der Rechnung), dann zurückzahlen oder stornieren.")
     zahlung = Zahlung.objects.create(mandant=beleg.mandant, beleg=beleg, betrag=betrag, datum=datum, zahlart=zahlart,
-                                     bemerkung=bemerkung, benutzer=benutzer, storno_zu=storno_zu, storno_grund=storno_grund)
+                                     bemerkung=bemerkung, benutzer=benutzer, storno_zu=storno_zu, storno_grund=storno_grund,
+                                     aus_bankumsatz=aus_bankumsatz)
     if zahlart == Zahlart.BAR:  # Barzahlung läuft ins Kassenbuch
         kasse_buchen(beleg.mandant, Kassenbuch.EINNAHME if betrag > 0 else Kassenbuch.AUSGABE, abs(betrag),
                      (f"Storno Barzahlung {beleg.nummer}: {storno_grund}" if storno_zu and betrag < 0 else
@@ -310,7 +311,17 @@ def zahlung_stornieren(zahlung, grund, benutzer=None, datum=None) -> Zahlung:
     gegen = zahlung_buchen(zahlung.beleg, -zahlung.betrag, datum or timezone.localdate(), zahlung.zahlart,
                            f"Storno: {grund}"[:200], benutzer, storno_zu=zahlung, storno_grund=grund[:300])
     from .models import Bankumsatz
-    for u in Bankumsatz.objects.filter(zahlung=zahlung):
+    umsaetze = {u.pk: u for u in Bankumsatz.objects.filter(zahlung=zahlung)}
+    if zahlung.aus_bankumsatz_id:
+        umsaetze.setdefault(zahlung.aus_bankumsatz_id, Bankumsatz.objects.get(pk=zahlung.aus_bankumsatz_id))
+    for u in umsaetze.values():
+        # Aufgeteilter Umsatz: frei erst, wenn keine seiner Zahlungen mehr gilt (sonst würde er doppelt gebucht)
+        uebrig = Zahlung.objects.filter(aus_bankumsatz=u, storno_zu__isnull=True, storniert_durch__isnull=True).exclude(pk=zahlung.pk)
+        if uebrig.exists():
+            if u.zahlung_id == zahlung.pk:
+                u.zahlung = uebrig.order_by("pk").first()
+                u.save(update_fields=["zahlung"])
+            continue
         u.zahlung, u.status = None, Bankumsatz.OFFEN  # Umsatz kann neu zugeordnet werden
         u.save(update_fields=["zahlung", "status"])
     return gegen

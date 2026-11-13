@@ -34,6 +34,8 @@ class Zahlung(models.Model):
     storno_zu = models.OneToOneField("self", on_delete=models.PROTECT, null=True, blank=True, related_name="storniert_durch",
                                      help_text="Gesetzt bei einer Stornobuchung: die ursprüngliche Zahlung")
     storno_grund = models.CharField("Stornogrund", max_length=300, blank=True)
+    aus_bankumsatz = models.ForeignKey("Bankumsatz", on_delete=models.PROTECT, null=True, blank=True, related_name="zahlungen",
+                                       help_text="Bankumsatz, aus dem die Zahlung stammt (eine Überweisung kann auf mehrere Rechnungen aufgeteilt sein)")
 
     class Meta:
         verbose_name = "Zahlung"

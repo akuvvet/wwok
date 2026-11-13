@@ -334,7 +334,7 @@ def bank(request):
     umsaetze = Bankumsatz.objects.filter(mandant=request.mandant)
     if status in ("offen", "zugeordnet", "ignoriert"):
         umsaetze = umsaetze.filter(status=status)
-    seite, parameter = blaettern(request, umsaetze.select_related("vorschlag", "vorschlag__kunde", "zahlung"))
+    seite, parameter = blaettern(request, umsaetze.select_related("vorschlag", "vorschlag__kunde", "zahlung").prefetch_related("zahlungen__beleg"))
     return render(request, "finanzen/bank.html", {
         "umsaetze": seite, "seite": seite, "parameter": parameter, "status": status})
 
@@ -353,17 +353,35 @@ def bank_zuordnen(request, umsatz_id):
             umsatz.status = Bankumsatz.OFFEN
             umsatz.save(update_fields=["status"])
         return redirect("finanzen:bank")
-    nummer = request.POST.get("rechnung", "").strip().upper()
-    beleg = Beleg.objects.filter(mandant=request.mandant, art__in=(Belegart.RECHNUNG, Belegart.PROFORMA), nummer=nummer,
-                                 abgeschlossen=True).first() if nummer else umsatz.vorschlag
-    if beleg is None:
-        messages.error(request, f"Rechnung oder Proforma '{nummer}' nicht gefunden.")
+    eingabe = request.POST.get("rechnung", "").strip().upper()
+    nummern = [n for n in eingabe.replace(";", ",").replace(" ", ",").split(",") if n]  # mehrere Nummern: Betrag wird verteilt
+    belege, fehlend = [], []
+    for nummer in nummern:
+        beleg = Beleg.objects.filter(mandant=request.mandant, art__in=(Belegart.RECHNUNG, Belegart.PROFORMA), nummer=nummer,
+                                     abgeschlossen=True).first()
+        (belege if beleg else fehlend).append(beleg or nummer)
+    if not nummern and umsatz.vorschlag:
+        belege = [umsatz.vorschlag]
+    if fehlend or not belege:
+        messages.error(request, f"Rechnung oder Proforma '{', '.join(fehlend) or eingabe}' nicht gefunden.")
     else:
         try:
-            bankmodul.zuordnen(umsatz, beleg, request.user)
-            messages.success(request, f"{umsatz.betrag} € auf {beleg.nummer} gebucht.")
+            teile = bankmodul.zuordnen(umsatz, belege, request.user)
+            messages.success(request, "Gebucht: " + ", ".join(f"{t:.2f} € auf {b.nummer}".replace(".", ",") for b, t in teile) + ".")
         except ValueError as fehler:
             messages.error(request, str(fehler))
+    return redirect("finanzen:bank")
+
+
+@mit_mandant
+@require_POST
+def bank_nachbuchen(request):
+    """Offene Eingänge mit Rechnungsnummer erneut buchen (Teilzahlungen und Aufteilung, auch aus älteren Importen)."""
+    try:
+        anzahl = bankmodul.vorschlaege_nachbuchen(request.mandant, request.user)
+        messages.success(request, f"{anzahl} Eingang/Eingänge nachgebucht." if anzahl else "Nichts nachzubuchen: offene Eingänge ohne passende Rechnungsnummer oder mit Überzahlung bleiben zur Prüfung.")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
     return redirect("finanzen:bank")
 
 

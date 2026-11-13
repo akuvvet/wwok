@@ -16,6 +16,7 @@ urlpatterns = [
     path("kunde/<int:kunde_id>/konto/", views.kontoauszug, name="kontoauszug"),
     path("bank/", views.bank, name="bank"),
     path("bank/<int:umsatz_id>/", views.bank_zuordnen, name="bank_zuordnen"),
+    path("bank/nachbuchen/", views.bank_nachbuchen, name="bank_nachbuchen"),
     path("kassenbuch/", views.kassenbuch, name="kassenbuch"),
     path("lastschrift/", views.lastschrift, name="lastschrift"),
     path("lastschrift/export/", views.lastschrift_export, name="lastschrift_export"),

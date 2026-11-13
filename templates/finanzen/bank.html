@@ -8,7 +8,10 @@
     <div><label for="datei">Kontoauszug (CSV oder CAMT.053-XML)</label><input id="datei" type="file" name="datei" accept=".csv,.xml,.txt"></div>
     <button type="submit">Importieren</button>
   </form>
-  <p style="opacity:.8">Eingänge mit Rechnungsnummer (z. B. RE2026-00012) im Verwendungszweck und passendem offenem Betrag werden sofort gebucht. Bereits importierte Umsätze werden übersprungen.</p>
+  <p style="opacity:.8">Eingänge mit Rechnungsnummer (z. B. RE2026-00012) im Verwendungszweck werden sofort gebucht, auch als Teilzahlung; stehen mehrere Nummern drin,
+     wird der Betrag der Reihe nach auf deren offene Beträge verteilt. Nur eine Überzahlung bleibt als Vorschlag zur Prüfung. Bereits importierte Umsätze werden übersprungen.</p>
+  <form method="post" action="{% url 'finanzen:bank_nachbuchen' %}" data-frage="Offene Eingänge mit Rechnungsnummer jetzt buchen (auch Teilzahlungen und Aufteilung auf mehrere Rechnungen)?">{% csrf_token %}
+    <button type="submit" class="leise">Vorschläge nachbuchen</button></form>
 </div>
 <div class="karte">
   <p class="zeile">
@@ -22,17 +25,17 @@
     {% for u in umsaetze %}
     <tr><td>{{ u.buchungsdatum|date:"d.m.Y" }}</td><td class="zahl">{{ u.betrag }}</td><td>{{ u.name }}</td><td>{{ u.zweck }}</td>
       <td>
-        {% if u.status == 'zugeordnet' %}{{ u.vorschlag.nummer }}
+        {% if u.status == 'zugeordnet' %}{% for z in u.zahlungen.all %}{% if not forloop.first %}, {% endif %}{{ z.beleg.nummer }} ({{ z.betrag|floatformat:"2g" }} €){% empty %}{{ u.vorschlag.nummer }}{% endfor %}
         {% elif u.status == 'ignoriert' %}ignoriert
         <form method="post" action="{% url 'finanzen:bank_zuordnen' u.pk %}" style="display:inline">{% csrf_token %}
           <button type="submit" name="aktion" value="oeffnen" class="leise">wieder öffnen</button></form>
         {% else %}
         <form method="post" action="{% url 'finanzen:bank_zuordnen' u.pk %}" class="zeile">{% csrf_token %}
-          <input name="rechnung" placeholder="RE2026-00001" value="{{ u.vorschlag.nummer|default:'' }}" size="14">
+          <input name="rechnung" placeholder="RE2026-00001" value="{{ u.vorschlag.nummer|default:'' }}" size="22" title="Mehrere Nummern mit Komma: der Betrag wird der Reihe nach auf die offenen Beträge verteilt, ein Rest bleibt als Überzahlung auf der letzten">
           <button type="submit">Buchen</button>
           <button type="submit" name="aktion" value="ignorieren" class="leise" data-frage="Diesen Umsatz ignorieren?">Ignorieren</button>
         </form>
-        {% if u.vorschlag %}<small style="color:var(--warn)">Vorschlag: Betrag weicht vom offenen Betrag ab</small>{% endif %}
+        {% if u.vorschlag %}<small style="color:var(--warn)">Vorschlag: Betrag übersteigt den offenen Betrag – prüfen und buchen</small>{% endif %}
         {% endif %}
       </td></tr>
     {% empty %}<tr><td colspan="5">Keine Umsätze.</td></tr>{% endfor %}

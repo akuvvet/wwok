@@ -187,15 +187,13 @@ class BuchhaltungTest(TestCase):
             "24.10.2026;24.10.2026;Miete;DE00;Miete Oktober;-1.500,00\n"
             "24.10.2026;24.10.2026;Unbekannt;DE11;ohne Bezug;50,00\n")
         erg = bank.importiere(self.m, "auszug.csv", csv_text.encode("cp1252"))
-        self.assertEqual(erg, {"gelesen": 4, "neu": 4, "doppelt": 0, "automatisch": 1})
+        self.assertEqual(erg, {"gelesen": 4, "neu": 4, "doppelt": 0, "automatisch": 2})
         self.assertEqual(services.offen(a), Decimal("0.00"))
-        self.assertEqual(services.offen(b), Decimal("238.00"))  # Betrag weicht ab -> nur Vorschlag
+        self.assertEqual(services.offen(b), Decimal("138.00"))  # Teilzahlung wird gebucht (früher nur Vorschlag)
         teil = Bankumsatz.objects.get(betrag=Decimal("100.00"))
-        self.assertEqual((teil.status, teil.vorschlag), ("offen", b))
+        self.assertEqual((teil.status, teil.vorschlag), ("zugeordnet", b))
         self.assertEqual(Bankumsatz.objects.get(betrag=Decimal("-1500.00")).status, "ignoriert")
         self.assertEqual(bank.importiere(self.m, "auszug.csv", csv_text.encode("cp1252"))["doppelt"], 4)
-        bank.zuordnen(teil, b)  # manuell bestätigen
-        self.assertEqual(services.offen(b), Decimal("138.00"))
         with self.assertRaises(ValueError):
             bank.zuordnen(teil, b)
 

@@ -127,14 +127,36 @@ def pruefsumme(mandant, u) -> str:
     return hashlib.sha256(roh.encode()).hexdigest()
 
 
-def finde_rechnung(mandant, zweck: str):
+def finde_rechnungen(mandant, zweck: str) -> list:
+    """Alle Rechnungen/Proformas, deren Nummer im Text steht, in der Reihenfolge des Textes (jede einmal)."""
+    gefunden = []
     for art, jahr, nr in RECHNUNGSNR.findall(zweck or ""):
         art = art.upper()
         beleg = Beleg.objects.filter(mandant=mandant, art=art, abgeschlossen=True, nummer=f"{art}{jahr}-{nr}") \
             .exclude(folgebelege__art=Belegart.PROFORMA_STORNO).first()
-        if beleg:
-            return beleg
-    return None
+        if beleg and beleg not in gefunden:
+            gefunden.append(beleg)
+    return gefunden
+
+
+def finde_rechnung(mandant, zweck: str):
+    treffer = finde_rechnungen(mandant, zweck)
+    return treffer[0] if treffer else None
+
+
+def aufteilen(betrag, belege) -> tuple:
+    """Verteilt einen Eingang der Reihe nach auf die offenen Beträge: ([(Beleg, Teilbetrag)], Rest). Rest > 0 = Überzahlung."""
+    teile, rest = [], betrag
+    for b in belege:
+        if rest <= 0:
+            break
+        offen = services.offen(b)
+        if offen <= 0:
+            continue
+        teil = min(rest, offen)
+        teile.append((b, teil))
+        rest -= teil
+    return teile, rest
 
 
 @transaction.atomic
@@ -161,28 +183,53 @@ def importiere(mandant, dateiname: str, inhalt: bytes, benutzer=None) -> dict:
 
 
 def zuordnen_automatisch(umsatz, benutzer=None) -> bool:
-    """Eingang mit Rechnungsnummer im Verwendungszweck und passendem offenem Betrag wird sofort gebucht;
-    sonst nur ein Vorschlag (Rechnung vermerkt)."""
+    """Eingang mit Rechnungsnummer(n) im Verwendungszweck wird sofort gebucht, wenn er die offenen Beträge nicht übersteigt:
+    genau passend, als Teilzahlung oder der Reihe nach auf mehrere Rechnungen verteilt. Eine Überzahlung bleibt Vorschlag."""
     if umsatz.betrag <= 0:
         umsatz.status = Bankumsatz.IGNORIERT if umsatz.betrag < 0 else umsatz.status
         umsatz.save(update_fields=["status"])
         return False
-    beleg = finde_rechnung(umsatz.mandant, umsatz.zweck)
-    if beleg is None:
+    belege = finde_rechnungen(umsatz.mandant, umsatz.zweck)
+    if not belege:
         return False
-    umsatz.vorschlag = beleg
-    if services.offen(beleg) == umsatz.betrag:
-        zuordnen(umsatz, beleg, benutzer)
+    umsatz.vorschlag = belege[0]
+    teile, rest = aufteilen(umsatz.betrag, belege)
+    if teile and rest <= 0:
+        zuordnen(umsatz, belege, benutzer)
         return True
     umsatz.save(update_fields=["vorschlag"])
     return False
 
 
 @transaction.atomic
-def zuordnen(umsatz, beleg, benutzer=None):
+def zuordnen(umsatz, belege, benutzer=None) -> list:
+    """Bucht den Umsatz auf eine oder mehrere Rechnungen (der Reihe nach bis zum offenen Betrag; was über alle offenen
+    Beträge hinausgeht, bleibt als Überzahlung auf der letzten). Rückgabe: [(Beleg, Betrag)]."""
+    belege = list(belege) if isinstance(belege, (list, tuple)) else [belege]
+    umsatz = Bankumsatz.objects.select_for_update().get(pk=umsatz.pk)
     if umsatz.status == Bankumsatz.ZUGEORDNET:
         raise ValueError("Umsatz ist bereits zugeordnet.")
-    zahlung = services.zahlung_buchen(beleg, umsatz.betrag, umsatz.buchungsdatum, Zahlart.UEBERWEISUNG,
-                                      f"Bank: {umsatz.name}".strip()[:200], benutzer)
-    umsatz.zahlung, umsatz.vorschlag, umsatz.status = zahlung, beleg, Bankumsatz.ZUGEORDNET
+    if not belege:
+        raise ValueError("Bitte eine Rechnung angeben.")
+    teile, rest = aufteilen(umsatz.betrag, belege)
+    if rest > 0:  # Überzahlung (oder alles schon bezahlt): bleibt als Guthaben auf der letzten Rechnung
+        if teile and teile[-1][0] == belege[-1]:
+            teile[-1] = (belege[-1], teile[-1][1] + rest)
+        else:
+            teile.append((belege[-1], rest))
+    zahlungen = []
+    for beleg, teil in teile:
+        zahlungen.append(services.zahlung_buchen(beleg, teil, umsatz.buchungsdatum, Zahlart.UEBERWEISUNG,
+                                                 f"Bank: {umsatz.name}".strip()[:200], benutzer, aus_bankumsatz=umsatz))
+    umsatz.zahlung, umsatz.vorschlag, umsatz.status = zahlungen[0], teile[0][0], Bankumsatz.ZUGEORDNET
     umsatz.save(update_fields=["zahlung", "vorschlag", "status"])
+    return teile
+
+
+def vorschlaege_nachbuchen(mandant, benutzer=None) -> int:
+    """Offene Eingänge mit Rechnungsnummer erneut prüfen und buchen (z. B. Teilzahlungen aus älteren Importen)."""
+    anzahl = 0
+    for umsatz in Bankumsatz.objects.filter(mandant=mandant, status=Bankumsatz.OFFEN, betrag__gt=0).order_by("buchungsdatum", "id"):
+        if zuordnen_automatisch(umsatz, benutzer):
+            anzahl += 1
+    return anzahl
