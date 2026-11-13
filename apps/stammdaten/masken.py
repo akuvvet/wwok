@@ -93,6 +93,41 @@ def komponenten_suche(request):
     return JsonResponse({"treffer": [komponenten_zeile(a, Decimal("1")) for a in treffer.order_by("nummer")[:20]]})
 
 
+ARTIKELTABELLE_MAX = 300
+
+
+@mit_mandant
+def artikel_tabelle(request):
+    """Artikelliste für die Tabellensuche der Suchfelder (z. B. Nachfolger, „*“ + Enter): Nummer, Bezeichnung,
+    Lagerbestand des Mandanten und VK3 netto. „*“ allein = alle; sonst muss jedes Wort vorkommen (Sterne werden ignoriert)."""
+    from django.db.models import Sum
+
+    from apps.lager.models import Lagerbewegung
+
+    from .preise import stufenpreis
+    q = request.GET.get("q", "").strip()
+    treffer = Artikel.objects.filter(nicht_aktiv=False, typ__in=[Artikeltyp.A, Artikeltyp.G])
+    ohne = request.GET.get("ohne", "")
+    if ohne.isdigit():
+        treffer = treffer.exclude(pk=ohne)
+    for wort in q.replace("*", " ").split():
+        treffer = treffer.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
+                                 | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+    artikel = list(treffer.order_by("nummer")[:ARTIKELTABELLE_MAX + 1])
+    mehr = len(artikel) > ARTIKELTABELLE_MAX
+    artikel = artikel[:ARTIKELTABELLE_MAX]
+    bestaende = dict(Lagerbewegung.objects.filter(mandant=request.mandant, artikel_id__in=[a.pk for a in artikel])
+                     .order_by().values_list("artikel_id").annotate(s=Sum("menge")))
+
+    def zahl(wert, stellen):
+        return "" if wert is None else f"{wert:,.{stellen}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    return JsonResponse({"mehr": mehr, "treffer": [
+        {"pk": a.pk, "nummer": a.nummer, "bezeichnung": a.bezeichnung,
+         "bestand": "" if a.typ != Artikeltyp.A else zahl(b := bestaende.get(a.pk) or Decimal("0"), 0 if b == b.to_integral() else 3), "vk3": zahl(stufenpreis(a, 3), 2)}
+        for a in artikel]})
+
+
 def baue_tabs(art, form, formsets, mandantform):
     tabs = [{"id": kennung, "titel": titel, "felder": felder, "form": form, "formset": None, "extra": None}
             for kennung, titel, felder in form.TABS]

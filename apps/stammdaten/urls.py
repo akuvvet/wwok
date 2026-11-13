@@ -14,5 +14,6 @@ urlpatterns = [
     path("radar/", radar_ansicht.radar_liste, name="radar"),
     path("artikel/neu/", masken.artikel_bearbeiten, name="artikel_neu"),
     path("artikel/komponenten-suche/", masken.komponenten_suche, name="komponenten_suche"),
+    path("artikel/tabelle/", masken.artikel_tabelle, name="artikel_tabelle"),
     path("artikel/<int:pk>/bearbeiten/", masken.artikel_bearbeiten, name="artikel_bearbeiten"),
 ]

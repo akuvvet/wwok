@@ -20,6 +20,21 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
   .suchauswahl li.sa-leer { cursor:default; opacity:.7; font-style:italic; }
   .suchauswahl li .sa-marke { margin-left:6px; font-size:11px; padding:0 5px; border-radius:8px; border:1px solid currentColor; opacity:.65; }
   .suchauswahl li mark { background:none; color:inherit; font-weight:700; }
+  /* Tabellensuche („*“ + Enter): Artikelnr. | Bezeichnung | Bestand | VK3 */
+  dialog.sa-tabelle { width:min(860px, 96vw); max-height:86vh; padding:0; border:1px solid var(--rand, #ccc); border-radius:8px;
+    background:var(--karte, #fff); color:var(--text, #222); display:flex; flex-direction:column; }
+  dialog.sa-tabelle:not([open]) { display:none; }
+  dialog.sa-tabelle::backdrop { background:rgba(0,0,0,.45); }
+  .sa-tabelle .sa-kopf { display:flex; gap:8px; align-items:center; padding:12px 14px; border-bottom:1px solid var(--rand, #ccc); }
+  .sa-tabelle .sa-kopf input { flex:1; }
+  .sa-tabelle .sa-liste { overflow:auto; flex:1; min-height:120px; }
+  .sa-tabelle table { width:100%; border-collapse:collapse; }
+  .sa-tabelle th { position:sticky; top:0; background:var(--karte, #fff); text-align:left; }
+  .sa-tabelle th, .sa-tabelle td { padding:6px 10px; border-bottom:1px solid var(--rand, #ddd); }
+  .sa-tabelle td.zahl, .sa-tabelle th.zahl { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .sa-tabelle tbody tr { cursor:pointer; }
+  .sa-tabelle tbody tr[aria-selected=true], .sa-tabelle tbody tr:hover { background:var(--akzent, #dbeafe); color:#fff; }
+  .sa-tabelle .sa-fuss { padding:8px 14px; font-size:12px; opacity:.75; border-top:1px solid var(--rand, #ccc); }
 </style>
 <script>
   window.wwokSuchauswahl = function (wurzel) {
@@ -46,7 +61,7 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
       var box = document.createElement('div'), feld = document.createElement('input'), liste = document.createElement('ul'),
           leeren = document.createElement('button'), id = (sel.id || sel.name) + '_sa';
       box.className = 'suchauswahl'; liste.id = id + '_liste'; liste.hidden = true; liste.setAttribute('role', 'listbox');
-      feld.type = 'text'; feld.autocomplete = 'off'; feld.placeholder = 'Tippen zum Suchen …';
+      feld.type = 'text'; feld.autocomplete = 'off'; feld.placeholder = sel.dataset.tabelle ? 'Tippen zum Suchen … (* + Enter = Tabelle)' : 'Tippen zum Suchen …';
       feld.setAttribute('role', 'combobox'); feld.setAttribute('aria-autocomplete', 'list'); feld.setAttribute('aria-expanded', 'false');
       feld.setAttribute('aria-controls', liste.id);
       if (sel.id) {  // das Label zeigt künftig auf das Suchfeld
@@ -138,6 +153,8 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
           if (liste.hidden) { oeffnen(); }
           aktiv = anzahl ? (aktiv + (ev.key === 'ArrowDown' ? 1 : -1) + anzahl) % anzahl : -1;
           zeichnen();
+        } else if (ev.key === 'Enter' && sel.dataset.tabelle && feld.value.indexOf('*') >= 0) {
+          ev.preventDefault(); schliessen(false); tabelleOeffnen(feld.value.trim());
         } else if (ev.key === 'Enter') {
           if (!liste.hidden) { ev.preventDefault(); if (aktiv >= 0 && treffer[aktiv]) waehlen(treffer[aktiv]); else schliessen(true); }
         } else if (ev.key === 'Escape') {
@@ -152,6 +169,57 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
       });
       feld.addEventListener('blur', function () { if (!liste.hidden) schliessen(true); });
       leeren.addEventListener('click', function () { waehlen(null); feld.focus(); });
+
+      function tabelleOeffnen(q) {  // eigenes Fenster über der Maske; Auswahl per Klick oder Pfeiltasten + Enter
+        var dlg = document.createElement('dialog'), suche = document.createElement('input'), zeilen = [], pos = -1, laeuft = null;
+        dlg.className = 'sa-tabelle'; dlg.setAttribute('aria-label', 'Artikel auswählen');
+        dlg.innerHTML = '<div class="sa-kopf"><strong>Artikel auswählen</strong></div><div class="sa-liste"><table><thead><tr>' +
+          '<th>Artikelnr.</th><th>Bezeichnung</th><th class="zahl">Bestand</th><th class="zahl">VK3 netto</th></tr></thead><tbody></tbody></table></div>' +
+          '<div class="sa-fuss">* = alle · Wörter in beliebiger Reihenfolge · ↑↓ und Enter wählen · Esc schließt</div>';
+        suche.type = 'search'; suche.value = q; suche.setAttribute('aria-label', 'Artikel suchen'); suche.autocomplete = 'off';
+        dlg.querySelector('.sa-kopf').appendChild(suche);
+        var tbody = dlg.querySelector('tbody'), fuss = dlg.querySelector('.sa-fuss'), hinweis = fuss.textContent;
+        function markieren(i) {
+          pos = i;
+          tbody.querySelectorAll('tr').forEach(function (tr, k) { tr.setAttribute('aria-selected', String(k === pos)); });
+          var tr = tbody.children[pos]; if (tr) tr.scrollIntoView({block: 'nearest'});
+        }
+        function laden() {
+          var adresse = sel.dataset.tabelle + (sel.dataset.tabelle.indexOf('?') < 0 ? '?' : '&') + 'q=' + encodeURIComponent(suche.value.trim() || '*');
+          var diese = laeuft = fetch(adresse, {credentials: 'same-origin'}).then(function (a) { return a.json(); }).then(function (daten) {
+            if (diese !== laeuft) return;  // nur die letzte Anfrage zählt
+            zeilen = daten.treffer;
+            tbody.innerHTML = zeilen.map(function (z) {
+              return '<tr><td>' + esc(z.nummer) + '</td><td>' + esc(z.bezeichnung) + '</td><td class="zahl">' + esc(z.bestand) +
+                '</td><td class="zahl">' + esc(z.vk3) + '</td></tr>';
+            }).join('') || '<tr><td colspan="4" style="opacity:.7;font-style:italic;cursor:default">Keine Treffer</td></tr>';
+            fuss.textContent = zeilen.length + ' Artikel' + (daten.mehr ? ' (weitere: Suche eingrenzen)' : '') + ' · ' + hinweis;
+            markieren(zeilen.length ? 0 : -1);
+          });
+        }
+        function nehmen(i) {
+          var z = zeilen[i], e = z && eintraege.find(function (x) { return x.wert === String(z.pk); });
+          dlg.close();
+          if (e) waehlen(e);
+          feld.focus();
+        }
+        var warten = null;
+        suche.addEventListener('input', function () { clearTimeout(warten); warten = setTimeout(laden, 250); });
+        dlg.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dlg.close(); feld.focus(); }
+          else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+            ev.preventDefault();
+            if (zeilen.length) markieren((pos + (ev.key === 'ArrowDown' ? 1 : -1) + zeilen.length) % zeilen.length);
+          } else if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); if (pos >= 0) nehmen(pos); }
+        });
+        tbody.addEventListener('click', function (ev) {
+          var tr = ev.target.closest('tr'); var i = Array.prototype.indexOf.call(tbody.children, tr);
+          if (tr && i >= 0 && zeilen[i]) nehmen(i);
+        });
+        dlg.addEventListener('close', function () { dlg.remove(); });
+        (feld.closest('dialog') || document.body).appendChild(dlg);
+        dlg.showModal(); suche.focus(); laden();
+      }
       anzeigen();
     });
   };

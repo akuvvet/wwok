@@ -133,12 +133,14 @@ class SuchAuswahl(forms.Select):
     """Auswahlliste, die im Browser zum Suchfeld mit Sofortfilter wird (templates/_suchauswahl.html, Issue 58).
     suche: {Wert: zusätzlicher Suchtext, z. B. Nummer}; offline: Werte mit Marke „offline“."""
 
-    def __init__(self, attrs=None, choices=(), schluessel="", suche=None, offline=(), marke="", aehnlich_feld=""):
+    def __init__(self, attrs=None, choices=(), schluessel="", suche=None, offline=(), marke="", aehnlich_feld="", tabelle=""):
         extra = {"data-suchauswahl": schluessel}
         if marke:  # Text der Marke für data-offline (Standard „offline“)
             extra["data-marke"] = marke
         if aehnlich_feld:  # ohne Suchbegriff oben Einträge mit ähnlicher Benennung wie dieses Feld des Formulars
             extra["data-aehnlich-feld"] = aehnlich_feld
+        if tabelle:  # „*“ + Enter öffnet eine Tabelle mit Bestand und Preis (JSON von dieser Adresse)
+            extra["data-tabelle"] = tabelle
         super().__init__({**(attrs or {}), **extra}, choices)
         self.suche, self.offline = suche or {}, set(offline)
 
@@ -183,7 +185,9 @@ def nachfolger_suchauswahl(form):
     huelle = feld.widget if hasattr(feld.widget, "widget") else None
     alt = huelle.widget if huelle else feld.widget
     suche = {pk: f"{hnr} {ean}".strip() for pk, hnr, ean in Artikel.objects.values_list("pk", "herstellernummer", "ean") if hnr or ean}
-    neu = SuchAuswahl(attrs=alt.attrs, schluessel="nachfolger", suche=suche, marke="nicht aktiv", aehnlich_feld="bezeichnung",
+    from django.urls import reverse
+    tabelle = reverse("stammdaten:artikel_tabelle") + (f"?ohne={form.instance.pk}" if form.instance.pk else "")
+    neu = SuchAuswahl(attrs=alt.attrs, schluessel="nachfolger", suche=suche, marke="nicht aktiv", aehnlich_feld="bezeichnung", tabelle=tabelle,
                       offline=Artikel.objects.filter(nicht_aktiv=True).values_list("pk", flat=True))
     neu.choices, neu.is_required = feld.choices, alt.is_required
     if huelle:

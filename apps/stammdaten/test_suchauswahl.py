@@ -92,3 +92,38 @@ class NachfolgerSuchauswahlTest(TestCase):
         r = self.client.get(reverse("stammdaten:artikel_bearbeiten", args=[self.a.pk]))
         self.assertContains(r, 'data-suchauswahl="nachfolger"')
         self.assertContains(r, 'data-aehnlich-feld="bezeichnung"')
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class ArtikelTabelleTest(TestCase):
+    """„*“ + Enter im Nachfolger: Tabelle mit Artikelnr., Bezeichnung, Bestand (Mandant) und VK3."""
+
+    def setUp(self):
+        from apps.lager.models import Bewegungsart
+        from apps.lager.services import buche_manuell
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        st = Steuersatz.objects.create(bezeichnung="19", prozent=Decimal("19"))
+        self.a = Artikel.objects.create(nummer="N1", bezeichnung="Netzteil 750W", steuersatz=st, vk3=Decimal("1234.5"))
+        self.b = Artikel.objects.create(nummer="N2", bezeichnung="Netzteil 850W Gold", steuersatz=st)
+        Artikel.objects.create(nummer="N3", bezeichnung="Netzteil alt", steuersatz=st, nicht_aktiv=True)
+        buche_manuell(self.m, self.a, Bewegungsart.WARENEINGANG, Decimal("7"))
+        self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14, is_staff=True, is_superuser=True))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+        self.url = reverse("stammdaten:artikel_tabelle")
+
+    def test_stern_liefert_alle_aktiven_mit_bestand_und_vk3(self):
+        daten = self.client.get(self.url, {"q": "*"}).json()
+        self.assertEqual([z["nummer"] for z in daten["treffer"]], ["N1", "N2"])
+        self.assertEqual((daten["treffer"][0]["bestand"], daten["treffer"][0]["vk3"]), ("7", "1.234,50"))
+        self.assertFalse(daten["mehr"])
+
+    def test_woerter_und_ohne_den_artikel_selbst(self):
+        daten = self.client.get(self.url, {"q": "gold* netz", "ohne": self.a.pk}).json()
+        self.assertEqual([z["nummer"] for z in daten["treffer"]], ["N2"])
+        self.assertEqual(self.client.get(self.url, {"q": "*", "ohne": self.a.pk}).json()["treffer"][0]["nummer"], "N2")
+
+    def test_nachfolgerfeld_kennt_die_tabelle(self):
+        html = str(ArtikelForm(instance=self.a)["nachfolger"])
+        self.assertIn(f'data-tabelle="{self.url}?ohne={self.a.pk}"', html)
