@@ -1191,9 +1191,12 @@ def api_artikel(request):
     q = request.GET.get("q", "").strip()
     kunde = Kunde.objects.filter(pk=request.GET.get("kunde")).first()
     typ = request.GET.get("typ", "A")
-    alle = q == "*"  # Stern = alle Artikel des gewählten Typs
+    from apps.stammdaten.suche import artikel_filtern, preisliste_filtern
+    # Suchsyntax (apps/stammdaten/suche.py): * = alle, >5 = Lagerbestand über 5, % wie LIKE; tabelle=1 liefert mehr Zeilen
+    alle = any(z in q for z in "*>%") or request.GET.get("tabelle") == "1"
     if len(q) < 2 and not alle:
         return JsonResponse({"treffer": []})
+    grenze = 300 if request.GET.get("tabelle") == "1" else (60 if alle else 20)
     artikel = Artikel.objects.filter(nicht_aktiv=False)
     if typ in ("L", "G"):
         artikel = artikel.filter(typ=typ)
@@ -1204,14 +1207,11 @@ def api_artikel(request):
     pl = Preislistenartikel.objects.filter(artikel__isnull=True).select_related("lieferant")  # verknüpfte stehen schon als eigener Artikel da
     if typ in ("L", "G"):
         pl = pl.none()
-    for wort in ([] if alle else q.split()):  # jedes Wort muss irgendwo vorkommen, Reihenfolge egal
-        artikel = artikel.filter(
-            Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
-            | Q(bezeichnung_erweitert__icontains=wort) | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
-        pl = pl.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
-                       | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))
-    artikel = artikel.select_related("steuersatz").order_by("nummer")[:(60 if alle else 20)]
-    preisliste = list(pl.order_by("bezeichnung")[:(60 if alle else 15)])
+    artikel = artikel_filtern(artikel, q, request.mandant, wort_felder=(
+        "nummer", "bezeichnung", "herstellernummer", "bezeichnung_erweitert", "hersteller__name", "ean"))
+    pl = preisliste_filtern(pl, q)
+    artikel = artikel.select_related("steuersatz").order_by("nummer")[:grenze]
+    preisliste = list(pl.order_by("bezeichnung")[:(grenze if alle else 15)])
     treffer = []
     artikel = list(artikel)
     letzte = letzte_preise(request.mandant, kunde, [a.pk for a in artikel], [e.pk for e in preisliste]) if kunde else {}
@@ -1232,7 +1232,10 @@ def api_artikel(request):
             g = gruppen_verfuegbar(request.mandant, a)
             frei = str(g) if g is not None else None
         ek = a.ek_errechnet
+        from apps.lager.models import bestand as lagerbestand
+        lager = lagerbestand(request.mandant, a) if a.typ == "A" else None
         treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "typ": a.typ, "verfuegbar": frei,
+                        "bestand": f"{lager.normalize():f}" if lager is not None else None,
                         "ek": str(ek) if ek is not None else "",
                         "preis": f"{preis:.2f}" if preis is not None else "", "sonderpreis": quelle == "sonderpreis",
                         "letzter": letzter(("a", a.pk))})

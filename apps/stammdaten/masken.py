@@ -110,9 +110,8 @@ def artikel_tabelle(request):
     ohne = request.GET.get("ohne", "")
     if ohne.isdigit():
         treffer = treffer.exclude(pk=ohne)
-    for wort in q.replace("*", " ").split():
-        treffer = treffer.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
-                                 | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+    from .suche import artikel_filtern  # * = alle, >5 = Lagerbestand über 5, % wie LIKE
+    treffer = artikel_filtern(treffer, q, request.mandant)
     artikel = list(treffer.order_by("nummer")[:ARTIKELTABELLE_MAX + 1])
     mehr = len(artikel) > ARTIKELTABELLE_MAX
     artikel = artikel[:ARTIKELTABELLE_MAX]

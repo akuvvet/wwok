@@ -507,7 +507,22 @@
     }
     if (gsel && gauto) gsel.addEventListener('change', function () { gauto.value = '0'; });  // für diese Position abgewählt oder umgestellt
     feld.addEventListener('input', function () { document.getElementById('pl').value = ''; clearTimeout(timer); timer = setTimeout(suche, 200); });
+    function tabelle() {  // „*“ (oder >5, %…) + Enter: Artikel als Tabelle mit Bestand, verfügbar und Preis des Kunden
+      clearTimeout(timer); anfrage++; liste = []; zeige();
+      wwokTabelle({q: feld.value.trim(), zurueck: feld, spalten: [
+        {titel: 'Artikelnr.', feld: function (t) { return (t.lieferant ? '[' + t.lieferant + '] ' : '') + t.nummer; }},
+        {titel: 'Bezeichnung', feld: 'bezeichnung'},
+        {titel: 'Bestand', zahl: true, feld: function (t) { return t.lieferant ? (t.lieferant_bestand === null || t.lieferant_bestand === undefined ? '' : t.lieferant_bestand + ' (Lief.)') : (t.bestand === null ? '' : t.bestand); }},
+        {titel: 'verfügbar', zahl: true, feld: function (t) { return t.verfuegbar === null ? '' : parseFloat(t.verfuegbar); }},
+        {titel: 'Preis netto', zahl: true, feld: function (t) { return t.preis ? t.preis.replace('.', ',') + (t.sonderpreis ? ' (Sonderpreis)' : '') : ''; }}],
+        laden: function (text) {
+          return fetch("{% url 'verkauf:api_artikel' %}?tabelle=1&kunde={{ beleg.kunde.pk }}&typ=" + encodeURIComponent(typ.value) + "&q=" + encodeURIComponent(text), {credentials: 'same-origin'})
+            .then(function (r) { return r.json(); }).then(function (d) { return {zeilen: d.treffer, mehr: d.treffer.length >= 300}; });
+        },
+        waehlen: function (t) { liste = [t]; waehle(0); }});
+    }
     feld.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && /[*>%]/.test(feld.value)) { e.preventDefault(); tabelle(); return; }
       if (!liste.length) return;
       if (e.key === 'ArrowDown') { aktiv = Math.min(aktiv + 1, liste.length - 1); zeige(); e.preventDefault(); }
       else if (e.key === 'ArrowUp') { aktiv = Math.max(aktiv - 1, 0); zeige(); e.preventDefault(); }

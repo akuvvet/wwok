@@ -37,6 +37,54 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
   .sa-tabelle .sa-fuss { padding:8px 14px; font-size:12px; opacity:.75; border-top:1px solid var(--rand, #ccc); }
 </style>
 <script>
+  // Tabellensuche als eigenes Fenster über allem (auch über einer offenen Maske): Suchfeld, Tabelle, Auswahl per Klick oder ↑↓ + Enter,
+  // Esc schließt nur die Tabelle. optionen: q, spalten [{titel, feld, zahl}], laden(text) → Promise {zeilen, mehr}, waehlen(zeile), zurueck (Fokus danach)
+  window.wwokTabelle = function (o) {
+    function esc(t) { return String(t === null || t === undefined ? '' : t).replace(/[&<>"]/g, function (z) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[z]; }); }
+    var dlg = document.createElement('dialog'), suche = document.createElement('input'), zeilen = [], pos = -1, laeuft = null, warten = null;
+    dlg.className = 'sa-tabelle'; dlg.setAttribute('aria-label', o.titel || 'Artikel auswählen');
+    dlg.innerHTML = '<div class="sa-kopf"><strong>' + esc(o.titel || 'Artikel auswählen') + '</strong></div><div class="sa-liste"><table><thead><tr>' +
+      o.spalten.map(function (s) { return '<th' + (s.zahl ? ' class="zahl"' : '') + '>' + esc(s.titel) + '</th>'; }).join('') +
+      '</tr></thead><tbody></tbody></table></div><div class="sa-fuss"></div>';
+    var hinweis = '* = alle · >5 = Bestand über 5 · Netz% = beginnt mit, %750W% = enthält · ↑↓ und Enter wählen · Esc schließt';
+    suche.type = 'search'; suche.value = o.q || '*'; suche.setAttribute('aria-label', 'Artikel suchen'); suche.autocomplete = 'off';
+    dlg.querySelector('.sa-kopf').appendChild(suche);
+    var tbody = dlg.querySelector('tbody'), fuss = dlg.querySelector('.sa-fuss');
+    fuss.textContent = 'Lädt … · ' + hinweis;
+    function markieren(i) {
+      pos = i;
+      tbody.querySelectorAll('tr').forEach(function (tr, k) { tr.setAttribute('aria-selected', String(k === pos)); });
+      var tr = tbody.children[pos]; if (tr) tr.scrollIntoView({block: 'nearest'});
+    }
+    function laden() {
+      var diese = laeuft = o.laden(suche.value.trim() || '*').then(function (d) {
+        if (diese !== laeuft) return;  // nur die letzte Anfrage zählt
+        zeilen = d.zeilen || [];
+        tbody.innerHTML = zeilen.map(function (z) {
+          return '<tr>' + o.spalten.map(function (s) { return '<td' + (s.zahl ? ' class="zahl"' : '') + '>' + esc(typeof s.feld === 'function' ? s.feld(z) : z[s.feld]) + '</td>'; }).join('') + '</tr>';
+        }).join('') || '<tr><td colspan="' + o.spalten.length + '" style="opacity:.7;font-style:italic;cursor:default">Keine Treffer</td></tr>';
+        fuss.textContent = zeilen.length + ' Artikel' + (d.mehr ? ' (weitere: Suche eingrenzen)' : '') + ' · ' + hinweis;
+        markieren(zeilen.length ? 0 : -1);
+      });
+    }
+    function nehmen(i) { var z = zeilen[i]; dlg.close(); if (z) o.waehlen(z); }
+    suche.addEventListener('input', function () { clearTimeout(warten); warten = setTimeout(laden, 250); });
+    dlg.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dlg.close(); }
+      else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        if (zeilen.length) markieren((pos + (ev.key === 'ArrowDown' ? 1 : -1) + zeilen.length) % zeilen.length);
+      } else if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); if (pos >= 0) nehmen(pos); }
+    });
+    tbody.addEventListener('click', function (ev) {
+      var tr = ev.target.closest('tr'), i = Array.prototype.indexOf.call(tbody.children, tr);
+      if (tr && i >= 0 && zeilen[i]) nehmen(i);
+    });
+    dlg.addEventListener('close', function () { dlg.remove(); if (o.zurueck && document.contains(o.zurueck) && document.activeElement === document.body) o.zurueck.focus(); });
+    ((o.zurueck && o.zurueck.closest('dialog')) || document.body).appendChild(dlg);
+    dlg.showModal(); suche.focus(); laden();
+  };
+
   window.wwokSuchauswahl = function (wurzel) {
     var MAX = 200, ZULETZT = 5;
     function norm(t) { return (t || '').toLocaleLowerCase('de').normalize('NFD').replace(/[̀-ͯ]/g, ''); }
@@ -153,7 +201,7 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
           if (liste.hidden) { oeffnen(); }
           aktiv = anzahl ? (aktiv + (ev.key === 'ArrowDown' ? 1 : -1) + anzahl) % anzahl : -1;
           zeichnen();
-        } else if (ev.key === 'Enter' && sel.dataset.tabelle && feld.value.indexOf('*') >= 0) {
+        } else if (ev.key === 'Enter' && sel.dataset.tabelle && /[*>%]/.test(feld.value)) {  // Stern, Bestand (>5) oder LIKE (%) → Tabelle
           ev.preventDefault(); schliessen(false); tabelleOeffnen(feld.value.trim());
         } else if (ev.key === 'Enter') {
           if (!liste.hidden) { ev.preventDefault(); if (aktiv >= 0 && treffer[aktiv]) waehlen(treffer[aktiv]); else schliessen(true); }
@@ -170,55 +218,16 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
       feld.addEventListener('blur', function () { if (!liste.hidden) schliessen(true); });
       leeren.addEventListener('click', function () { waehlen(null); feld.focus(); });
 
-      function tabelleOeffnen(q) {  // eigenes Fenster über der Maske; Auswahl per Klick oder Pfeiltasten + Enter
-        var dlg = document.createElement('dialog'), suche = document.createElement('input'), zeilen = [], pos = -1, laeuft = null;
-        dlg.className = 'sa-tabelle'; dlg.setAttribute('aria-label', 'Artikel auswählen');
-        dlg.innerHTML = '<div class="sa-kopf"><strong>Artikel auswählen</strong></div><div class="sa-liste"><table><thead><tr>' +
-          '<th>Artikelnr.</th><th>Bezeichnung</th><th class="zahl">Bestand</th><th class="zahl">VK3 netto</th></tr></thead><tbody></tbody></table></div>' +
-          '<div class="sa-fuss">* = alle · Wörter in beliebiger Reihenfolge · ↑↓ und Enter wählen · Esc schließt</div>';
-        suche.type = 'search'; suche.value = q; suche.setAttribute('aria-label', 'Artikel suchen'); suche.autocomplete = 'off';
-        dlg.querySelector('.sa-kopf').appendChild(suche);
-        var tbody = dlg.querySelector('tbody'), fuss = dlg.querySelector('.sa-fuss'), hinweis = fuss.textContent;
-        function markieren(i) {
-          pos = i;
-          tbody.querySelectorAll('tr').forEach(function (tr, k) { tr.setAttribute('aria-selected', String(k === pos)); });
-          var tr = tbody.children[pos]; if (tr) tr.scrollIntoView({block: 'nearest'});
-        }
-        function laden() {
-          var adresse = sel.dataset.tabelle + (sel.dataset.tabelle.indexOf('?') < 0 ? '?' : '&') + 'q=' + encodeURIComponent(suche.value.trim() || '*');
-          var diese = laeuft = fetch(adresse, {credentials: 'same-origin'}).then(function (a) { return a.json(); }).then(function (daten) {
-            if (diese !== laeuft) return;  // nur die letzte Anfrage zählt
-            zeilen = daten.treffer;
-            tbody.innerHTML = zeilen.map(function (z) {
-              return '<tr><td>' + esc(z.nummer) + '</td><td>' + esc(z.bezeichnung) + '</td><td class="zahl">' + esc(z.bestand) +
-                '</td><td class="zahl">' + esc(z.vk3) + '</td></tr>';
-            }).join('') || '<tr><td colspan="4" style="opacity:.7;font-style:italic;cursor:default">Keine Treffer</td></tr>';
-            fuss.textContent = zeilen.length + ' Artikel' + (daten.mehr ? ' (weitere: Suche eingrenzen)' : '') + ' · ' + hinweis;
-            markieren(zeilen.length ? 0 : -1);
-          });
-        }
-        function nehmen(i) {
-          var z = zeilen[i], e = z && eintraege.find(function (x) { return x.wert === String(z.pk); });
-          dlg.close();
-          if (e) waehlen(e);
-          feld.focus();
-        }
-        var warten = null;
-        suche.addEventListener('input', function () { clearTimeout(warten); warten = setTimeout(laden, 250); });
-        dlg.addEventListener('keydown', function (ev) {
-          if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dlg.close(); feld.focus(); }
-          else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
-            ev.preventDefault();
-            if (zeilen.length) markieren((pos + (ev.key === 'ArrowDown' ? 1 : -1) + zeilen.length) % zeilen.length);
-          } else if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); if (pos >= 0) nehmen(pos); }
-        });
-        tbody.addEventListener('click', function (ev) {
-          var tr = ev.target.closest('tr'); var i = Array.prototype.indexOf.call(tbody.children, tr);
-          if (tr && i >= 0 && zeilen[i]) nehmen(i);
-        });
-        dlg.addEventListener('close', function () { dlg.remove(); });
-        (feld.closest('dialog') || document.body).appendChild(dlg);
-        dlg.showModal(); suche.focus(); laden();
+      function tabelleOeffnen(q) {  // Tabelle mit Bestand und VK3 (wwokTabelle), Auswahl übernimmt den Eintrag
+        wwokTabelle({q: q, zurueck: feld, spalten: [
+          {titel: 'Artikelnr.', feld: 'nummer'}, {titel: 'Bezeichnung', feld: 'bezeichnung'},
+          {titel: 'Bestand', feld: 'bestand', zahl: true}, {titel: 'VK3 netto', feld: 'vk3', zahl: true}],
+          laden: function (text) {
+            var adresse = sel.dataset.tabelle + (sel.dataset.tabelle.indexOf('?') < 0 ? '?' : '&') + 'q=' + encodeURIComponent(text || '*');
+            return fetch(adresse, {credentials: 'same-origin'}).then(function (a) { return a.json(); })
+              .then(function (d) { return {zeilen: d.treffer, mehr: d.mehr}; });
+          },
+          waehlen: function (z) { var e = eintraege.find(function (x) { return x.wert === String(z.pk); }); if (e) waehlen(e); }});
       }
       anzeigen();
     });
