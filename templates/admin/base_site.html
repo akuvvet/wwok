@@ -1,6 +1,7 @@
 {% extends "admin/base_site.html" %}
 {% comment %}Verwaltung: Kopf und Brotkrümel bleiben beim Scrollen stehen, rechts in den Brotkrümeln „Speichern“ für das Formular der Seite.{% endcomment %}
 {% block extrastyle %}{{ block.super }}
+{% include "_mandantfarbe.html" %}
 <style>
   /* Kopf, Brotkrümel und Titelleiste scrollen nicht mit; nur #content-main scrollt */
   html, body { height:100%; overflow:hidden; }

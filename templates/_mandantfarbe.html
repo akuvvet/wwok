@@ -1,0 +1,11 @@
+{% comment %}Layoutfarbe des aktiven Mandanten (Verwaltung → Mandanten → Layoutfarbe): ersetzt die Akzentfarbe, im dunklen Modus
+aufgehellt; dazu ein farbiger Streifen über der Kopfzeile, damit sofort sichtbar ist, unter welcher Firma man arbeitet.
+Für die eigenen Seiten (base.html) und die Verwaltung (admin/base_site.html).{% endcomment %}
+{% if aktiver_mandant.farbe %}<style>
+  :root { --akzent:{{ aktiver_mandant.farbe }}; --mandantfarbe:{{ aktiver_mandant.farbe }};
+          --primary:{{ aktiver_mandant.farbe }}; --header-bg:{{ aktiver_mandant.farbe }}; --breadcrumbs-bg:color-mix(in srgb, {{ aktiver_mandant.farbe }} 80%, #000); }
+  @media (prefers-color-scheme: dark) {
+    :root { --akzent:color-mix(in srgb, {{ aktiver_mandant.farbe }} 60%, #fff); --primary:color-mix(in srgb, {{ aktiver_mandant.farbe }} 60%, #fff); }
+  }
+  .kopfbereich, #header { border-top:4px solid var(--mandantfarbe); }
+</style>{% endif %}

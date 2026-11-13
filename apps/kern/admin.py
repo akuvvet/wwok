@@ -12,6 +12,7 @@ class MandantForm(forms.ModelForm):
     class Meta:
         model = Mandant
         fields = "__all__"
+        widgets = {"farbe": forms.TextInput(attrs={"type": "color", "style": "width:80px;height:34px;padding:2px"})}
 
     def clean_logo(self):
         logo = self.cleaned_data.get("logo")
@@ -26,7 +27,7 @@ class MandantAdmin(admin.ModelAdmin):
     list_display = ["kurzname", "firmenname", "ort", "aktiv"]
     readonly_fields = ["logo_vorschau", "angelegt_am", "geaendert_am", "geaendert_von"]
     fieldsets = [
-        ("Firma", {"fields": ["kurzname", "firmenname", "logo", "logo_vorschau", "strasse", "plz", "ort", "land", "telefon", "email", "aktiv"]}),
+        ("Firma", {"fields": ["kurzname", "firmenname", "farbe", "logo", "logo_vorschau", "strasse", "plz", "ort", "land", "telefon", "email", "aktiv"]}),
         ("Steuer und Bank", {"fields": ["ust_id", "steuernummer", "iban", "bic", "glaeubiger_id"]}),
         ("E-Mail-Versand", {"fields": ["smtp_host", "smtp_port", "smtp_sicherheit", "smtp_benutzer", "absender_email", "absender_name", "kopie_an"]}),
         ("DATEV und Konten", {"fields": ["datev_berater", "datev_mandant", "konto_erloes_19", "konto_erloes_7", "konto_erloes_0",

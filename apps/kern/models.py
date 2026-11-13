@@ -2,6 +2,7 @@
 Kern: Mandanten, gemeinsame Basisklassen und Änderungsprotokoll (GoBD).
 """
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 
 
@@ -49,6 +50,10 @@ class Mandant(Zeitstempel):
     bic = models.CharField("BIC", max_length=11, blank=True)
     glaeubiger_id = models.CharField("Gläubiger-ID (SEPA)", max_length=35, blank=True)
     aktiv = models.BooleanField("aktiv", default=True)
+    farbe = models.CharField(
+        "Layoutfarbe", max_length=7, blank=True, validators=[RegexValidator(r"^#[0-9a-fA-F]{6}$", "Farbe als #RRGGBB, z. B. #15803d.")],
+        help_text="Akzentfarbe der Oberfläche für diesen Mandanten (Menü, Knöpfe, Links, Kopfleiste), z. B. Grün für ZONE, Blau für OKAY. "
+                  "Leer = Standardblau. Im dunklen Modus wird sie automatisch aufgehellt.")
     logo = models.ImageField("Logo", upload_to="logos/", blank=True,
                              help_text="PNG oder JPG, am besten quer und mit transparentem oder weißem Hintergrund (max. 2 MB). Erscheint oben rechts auf Belegen.")
     # E-Mail-Versand (das Passwort steht nicht hier, sondern in der .env als SMTP_PASSWORD_<KURZNAME>)
