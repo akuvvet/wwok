@@ -37,7 +37,7 @@ PFAD = {
     "verkauf": ("Verkauf", [("Alle Belege", "verkauf:belege", ["belege"]),
                             ("Wiederkehrende Rechnungen", "verkauf:abos", ["abo*"]),
                             ("Kunde", "verkauf:start", ["*"])]),
-    "shop": ("Verkauf", [("Shops & Online-Bestellungen", "shop:uebersicht", ["*"])]),
+    "shop": ("Verkauf", [("Shop & Online", "shop:uebersicht", ["*"])]),
     "einkauf": ("Einkauf", [("Lieferant", "einkauf:lieferanten", ["lieferant*"]),
                             ("Bestellvorschlag", "einkauf:vorschlag", ["vorschlag"]),
                             ("Bestellungen", "einkauf:bestellungen", ["bestell*", "aus_beleg"]),

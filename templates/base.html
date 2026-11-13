@@ -59,6 +59,7 @@
   table.vergleich td { vertical-align:top; }
   table.vergleich tr.beste td:first-child { box-shadow:inset 3px 0 0 var(--ok); }
   .untermenue { display:flex; flex-direction:column; gap:4px; margin:0 0 4px 12px; padding-left:10px; border-left:2px solid var(--rand); font-size:13px; }
+  .untermenue:empty { display:none; }  /* ohne gewählten Kunden kein leerer Kasten */
   .untermenue form { display:flex; flex-direction:column; gap:4px; }
   .untermenue button { width:100%; text-align:left; padding:3px 8px; }
   @media (max-width:900px) {  /* zu schmal für eine feste Leiste: Schublade über ☰ in der Kopfzeile */
@@ -118,6 +119,8 @@
   .symbol.voll:hover, .symbol.voll:focus-visible { filter:brightness(1.12); }
   .zeile .symbol.voll { width:40px; height:34px; margin-left:auto; }  /* auf Höhe der Eingabefelder in Erfassungszeilen */
   .symbol:hover, .symbol:focus-visible { background:var(--akzent); color:#fff; }
+  .symbol.gefahr { border-color:var(--warn); color:var(--warn); }
+  .symbol.gefahr:hover, .symbol.gefahr:focus-visible { background:var(--warn); color:#fff; }
   .symbol::after { content:attr(data-tip); position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%); white-space:nowrap;
     background:var(--text); color:var(--karte); font-size:12px; padding:3px 8px; border-radius:5px; opacity:0; pointer-events:none; transition:opacity .12s; z-index:20; }
   /* Aktionszellen in Listen: Symbole nebeneinander, vertikal mittig, kein Umbruch, Spalte so breit wie die Symbole */
@@ -293,10 +296,10 @@
 <summary title="Verkauf"><svg class="ic"><use href="#i-verkauf"/></svg><span>Verkauf</span><span class="gpfeil" aria-hidden="true">▾</span></summary>
 <div class="gruppeninhalt">
 <a class="sl-link{% if namensraum == 'verkauf' and un != 'belege' and un != 'abos' %} aktiv{% endif %}" {% if namensraum == 'verkauf' and un != 'belege' and un != 'abos' %}aria-current="page" {% endif %}href="{% url 'verkauf:start' %}" title="Kunde"><svg class="ic"><use href="#i-suche"/></svg><span>Kunde</span></a>
-<div class="untermenue">{% block kundenmenue %}<small style="opacity:.7">Neuer Beleg: erst Kunde wählen</small>{% endblock %}</div>
+<div class="untermenue">{% block kundenmenue %}{% endblock %}</div>
 <a class="sl-link{% if namensraum == 'verkauf' and un == 'belege' %} aktiv{% endif %}" {% if namensraum == 'verkauf' and un == 'belege' %}aria-current="page" {% endif %}href="{% url 'verkauf:belege' %}" title="Alle Belege"><svg class="ic"><use href="#i-beleg"/></svg><span>Alle Belege</span></a>
 <a class="sl-link{% if namensraum == 'verkauf' and un == 'abos' %} aktiv{% endif %}" {% if namensraum == 'verkauf' and un == 'abos' %}aria-current="page" {% endif %}href="{% url 'verkauf:abos' %}" title="Wiederkehrende Rechnungen"><svg class="ic"><use href="#i-abo"/></svg><span>Wiederkehrende Rechnungen</span></a>
-<a class="sl-link{% if namensraum == 'shop' %} aktiv{% endif %}" {% if namensraum == 'shop' %}aria-current="page" {% endif %}href="{% url 'shop:uebersicht' %}" title="Shops &amp; Online-Bestellungen"><svg class="ic"><use href="#i-shop"/></svg><span>Shops &amp; Online-Bestellungen</span></a>
+<a class="sl-link{% if namensraum == 'shop' %} aktiv{% endif %}" {% if namensraum == 'shop' %}aria-current="page" {% endif %}href="{% url 'shop:uebersicht' %}" title="Shop &amp; Online"><svg class="ic"><use href="#i-shop"/></svg><span>Shop &amp; Online</span></a>
 </div></details>
 
 <details class="gruppe{% if bereich == 'einkauf' %} aktiv{% endif %}" {% if bereich == 'einkauf' %}open{% endif %}>

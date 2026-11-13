@@ -729,8 +729,13 @@ def beleg_abschliessen(request, beleg_id):
             Beleg.objects.filter(pk=beleg.pk).update(nl_lager_abbuchen=beleg.nl_lager_abbuchen)
         elif beleg.nl_lager_abbuchen is None:  # nachfragen: Ersatz für defekte Ware (abbuchen) oder bloße Nachlieferung?
             return render(request, "verkauf/nachlieferung_frage.html", {"beleg": beleg})
+    from apps.esd.services import KeysFehlen, fehlende_keys
+    ohne_key = request.POST.get("esd_ohne_key") == "1"
     try:
-        beleg.abschliessen()
+        beleg.abschliessen(esd_ohne_key=ohne_key)
+    except KeysFehlen as fehler:  # Rückfrage: ohne Key abschließen und drucken, Key später unter ESD-Keys zuordnen
+        return render(request, "verkauf/esd_ohne_key.html", {"beleg": beleg_holen(request, beleg_id), "meldung": str(fehler),
+                                                              "danach": request.POST.get("danach", "")})
     except BestandReichtNicht as fehler:
         from apps.lager.services import teilung
         beleg = beleg_holen(request, beleg_id)  # Zustand vor dem abgebrochenen Abschluss
@@ -740,6 +745,10 @@ def beleg_abschliessen(request, beleg_id):
                 "beleg": beleg, "lieferbar": lieferbar, "knapp": knapp, "meldung": str(fehler)})
         raise
     messages.success(request, f"{beleg} abgeschlossen.")
+    if ohne_key:
+        offen = ", ".join(f"{p.artikel.nummer} ({anzahl}×)" for p, anzahl in fehlende_keys(beleg))
+        if offen:
+            messages.warning(request, f"Ohne ESD-Key abgeschlossen: {offen}. Key bitte unter ESD-Keys nachträglich zuordnen.")
     danach = set(request.POST.get("danach", "").split(","))
     if danach & {"pdf", "druck"}:  # zuerst das PDF; eine gewählte E-Mail folgt von der Ansicht aus
         parameter = "&".join(n + "=1" for n in ("druck", "mail") if n in danach)

@@ -14,10 +14,11 @@
       <td>{{ a.bezeichnung }}</td><td>{{ a.kunde.name1 }}</td><td>{{ a.get_monate_display }}</td><td class="zahl">{{ a.netto|floatformat:"2g" }}</td>
       <td>{{ a.naechster_termin|date:"d.m.Y" }}</td><td>{{ a.ende|date:"d.m.Y"|default:"–" }}</td>
       <td>{% if a.aktiv %}aktiv{% else %}pausiert/beendet{% endif %}</td>
-      <td><form method="post" action="{% url 'verkauf:abo_aktion' a.pk %}" class="zeile" style="gap:4px">{% csrf_token %}
-        <button name="aktion" value="jetzt" class="leise" type="submit" title="Öffnet die offene Bestellung (bzw. Rechnung) des Zeitraums; gibt es keine, wird die Bestellung zum nächsten Termin angelegt">Bestellung bearbeiten</button>
-        <button name="aktion" value="pause" class="leise" type="submit">{% if a.aktiv %}Pausieren{% else %}Aktivieren{% endif %}</button>
-        <button name="aktion" value="loeschen" class="gefahr" type="submit" data-frage="Wiederkehrende Rechnung löschen?">Löschen</button></form></td>
+      <td class="aktionszelle"><form method="post" action="{% url 'verkauf:abo_aktion' a.pk %}" style="display:inline-flex;gap:5px">{% csrf_token %}
+        <button name="aktion" value="jetzt" class="symbol unten" type="submit" data-tip="Bestellung bearbeiten" aria-label="Bestellung bearbeiten"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
+        {% if a.aktiv %}<button name="aktion" value="pause" class="symbol unten" type="submit" data-tip="Pausieren" aria-label="Pausieren"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></button>
+        {% else %}<button name="aktion" value="pause" class="symbol unten" type="submit" data-tip="Aktivieren" aria-label="Aktivieren"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>{% endif %}
+        <button name="aktion" value="loeschen" class="symbol unten gefahr" type="submit" data-frage="Wiederkehrende Rechnung löschen?" data-tip="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button></form></td>
     </tr>{% endfor %}</tbody></table></div>
   {% else %}<p>Noch keine wiederkehrende Rechnung eingerichtet.</p>{% endif %}
 </div>

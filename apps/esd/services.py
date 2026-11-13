@@ -35,6 +35,10 @@ def importieren(mandant, artikel, text, max_vergaben=1):
     return neu, doppelt
 
 
+class KeysFehlen(ValueError):
+    """Nicht genug freie ESD-Keys; der Verkäufer kann nach Rückfrage ohne Key abschließen (Key später unter ESD-Keys zuordnen)."""
+
+
 class CsvFehler(ValueError):
     def __init__(self, fehler):
         self.fehler = fehler
@@ -149,7 +153,7 @@ def zuordnen(position, anzahl, erlaube_doppelt=False, bemerkung="", benutzer=Non
         if key is None:
             hinweis = (" Ein Key wäre nur durch erneute Vergabe an denselben Kunden möglich – das muss der Verkäufer ausdrücklich bestätigen."
                        if ausgeschlossen else "")
-            raise ValueError(f"Nicht genug ESD-Keys für {artikel.nummer} ({len(vergaben)} von {anzahl} verfügbar).{hinweis}")
+            raise KeysFehlen(f"Nicht genug ESD-Keys für {artikel.nummer} ({len(vergaben)} von {anzahl} verfügbar).{hinweis}")
         key.vergeben += 1
         key.save(update_fields=["vergeben"])
         vergaben.append(ESDVergabe.objects.create(key=key, kunde=beleg.kunde, beleg=beleg, position=position,
@@ -166,17 +170,34 @@ def vergeben_menge(position) -> int:
 
 
 @transaction.atomic
-def beleg_zuordnen(beleg, benutzer=None) -> int:
-    """Automatische Zuordnung beim Verkauf (Lieferschein oder Rechnung); bereits versorgte Positionen werden übersprungen."""
+def beleg_zuordnen(beleg, benutzer=None, ohne_key=False) -> int:
+    """Automatische Zuordnung beim Verkauf (Lieferschein oder Rechnung); bereits versorgte Positionen werden übersprungen.
+    ohne_key (nach Rückfrage): vorhandene Keys werden vergeben, fehlende übersprungen statt den Abschluss abzubrechen."""
     if beleg.art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG):
         return 0
     anzahl = 0
     for p in beleg.positionen.select_related("artikel", "quellposition"):
         if p.artikel_id and p.artikel.esd_key:
             fehlt = int(p.menge) - vergeben_menge(p)
-            if fehlt > 0:
+            if fehlt <= 0:
+                continue
+            if not ohne_key:
                 anzahl += len(zuordnen(p, fehlt, benutzer=benutzer))
+                continue
+            for _ in range(fehlt):  # einzeln: so viele wie vorhanden, der Rest bleibt offen
+                try:
+                    anzahl += len(zuordnen(p, 1, benutzer=benutzer))
+                except KeysFehlen:
+                    break
     return anzahl
+
+
+def fehlende_keys(beleg) -> list:
+    """Positionen mit ESD-Artikel, denen noch Keys fehlen: [(Position, Anzahl)]."""
+    if beleg.art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG):
+        return []
+    return [(p, int(p.menge) - vergeben_menge(p)) for p in beleg.positionen.select_related("artikel", "quellposition")
+            if p.artikel_id and p.artikel.esd_key and int(p.menge) - vergeben_menge(p) > 0]
 
 
 @transaction.atomic

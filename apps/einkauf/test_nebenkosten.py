@@ -178,7 +178,8 @@ class KopfUndKundenmenueTest(TestCase):
         self.wahl()
         r = self.client.get(reverse("verkauf:start"))
         self.assertContains(r, "<span>Kunde</span>")
-        self.assertContains(r, "erst Kunde wählen")
+        self.assertNotContains(r, "erst Kunde wählen")  # Hinweistext entfällt (Wunsch des Nutzers)
+        self.assertContains(r, '<div class="untermenue"></div>')  # leer, per CSS ausgeblendet
         r = self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk]))
         self.assertNotContains(r, "Neuen Beleg anlegen")  # Karte entfällt
         self.assertContains(r, "Neuer Beleg für Muster GmbH")

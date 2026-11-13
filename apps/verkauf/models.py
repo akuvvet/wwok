@@ -794,7 +794,7 @@ class Beleg(Zeitstempel):
             self.verpackung, self.versicherung = stamm.verpackung, stamm.versicherung
 
     @transaction.atomic
-    def abschliessen(self, p_erlaubt=False):
+    def abschliessen(self, p_erlaubt=False, esd_ohne_key=False):
         """p_erlaubt: nur für „erst abschließen, dann übernehmen“ (views._erst_abschliessen): eine Bestellung mit Preislistenartikeln
         (P) darf abgeschlossen werden, weil die Übernahme die P-Positionen sofort in ein neues Angebot verschiebt."""
         if self.abgeschlossen:
@@ -856,7 +856,7 @@ class Beleg(Zeitstempel):
             from apps.lager.services import gutschrift_buchen
             gutschrift_buchen(self, benutzer)
         from apps.esd.services import beleg_zuordnen  # ESD-Keys beim Verkauf automatisch zuordnen
-        beleg_zuordnen(self, benutzer)
+        beleg_zuordnen(self, benutzer, ohne_key=esd_ohne_key)  # ohne Key nur nach Rückfrage (views.beleg_abschliessen)
         if self.art == Belegart.RECHNUNG:  # Anzahlungen aus Proforma/Bestellung in derselben Transaktion verrechnen
             from apps.finanzen.anzahlung import anzahlungen_verrechnen
             anzahlungen_verrechnen(self, benutzer)

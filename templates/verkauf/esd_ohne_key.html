@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block titel %}ESD-Key fehlt – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>ESD-Key fehlt für {{ beleg.get_art_display }}</h1>
+  <p class="warnung">{{ meldung }}</p>
+  <p>Soll der {{ beleg.get_art_display }} trotzdem <strong>ohne Key</strong> abgeschlossen und gedruckt werden? Vorhandene Keys werden vergeben,
+     fehlende bleiben offen und werden später unter <a href="{% url 'esd:uebersicht' %}">ESD-Keys</a> zugeordnet.</p>
+  <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <input type="hidden" name="esd_ohne_key" value="1">
+    <input type="hidden" name="danach" value="{{ danach }}">
+    <button type="submit">Ja, ohne Key abschließen</button>
+    <a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Nein, zurück zum Beleg</a>
+  </form>
+</div>
+{% endblock %}
