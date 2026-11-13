@@ -75,7 +75,7 @@
     <h1>Bestellung {{ b.nummer }}
       <a class="symbol" data-tip="Lieferantendaten bearbeiten" aria-label="Lieferantendaten bearbeiten" data-modal="{% url 'stammdaten:lieferant_bearbeiten' b.lieferant.pk %}" href="{% url 'einkauf:lieferanten' %}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></a></h1>
-    <p class="zeile" style="margin:0"><strong>{{ b.lieferant.name1 }}</strong> <span>{{ b.datum|date:"d.m.Y" }}</span>
+    <p class="zeile" style="margin:0"><strong><a href="{% url 'einkauf:lieferant' b.lieferant_id %}">{{ b.lieferant.name1 }}</a></strong> <span>{{ b.datum|date:"d.m.Y" }}</span>
       {% status_symbol "bestellung" b.status b.get_status_display mit_text=True %}
       {% if aus_beleg %}<span>aus <a href="{% url 'verkauf:beleg' aus_beleg.pk %}">{{ aus_beleg }}</a></span>{% endif %}</p>
     {% if konditionen %}<dl class="infoblock fein" style="margin-top:6px">{% for name, wert in konditionen %}<dt>{{ name }}:</dt><dd>{{ wert }}</dd>{% endfor %}</dl>{% endif %}

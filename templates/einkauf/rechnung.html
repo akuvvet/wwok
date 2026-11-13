@@ -3,7 +3,7 @@
 {% block inhalt %}
 <a href="{% url 'einkauf:rechnungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>{{ r.lieferant.name1 }} – Rechnung {{ r.rechnungsnummer }}</h1>
+  <h1><a href="{% url 'einkauf:lieferant' r.lieferant_id %}">{{ r.lieferant.name1 }}</a> – Rechnung {{ r.rechnungsnummer }}</h1>
   <div class="raster">
     <div>Datum<br>{{ r.datum|date:"d.m.Y" }}</div><div>fällig<br>{{ r.faellig|date:"d.m.Y" }}</div>
     <div>Netto / Steuer<br>{{ r.netto|floatformat:"2g" }} / {{ r.steuer|floatformat:"2g" }} €</div><div>Brutto<br><strong>{{ r.brutto|floatformat:"2g" }} €</strong></div>
