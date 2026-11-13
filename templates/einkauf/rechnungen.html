@@ -22,6 +22,7 @@
   <h1>Lieferantenrechnungen · Mandant {{ request.mandant }}</h1>
   {% if abweichungen %}<p class="warnung">{{ abweichungen }} Rechnung{{ abweichungen|pluralize:"en" }} weich{{ abweichungen|pluralize:"t,en" }} vom Wareneingang ab – bitte korrigieren oder bestätigen (Zahlung und SEPA-Export sind gesperrt).</p>{% endif %}
   <p class="zeile"><a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">Nicht bezahlt</a>
+    <a class="knopf {% if status != 'exportiert' %}leise{% endif %}" href="?status=exportiert" title="SEPA-Datei erzeugt, Zahlung noch nicht als bezahlt gebucht">SEPA erstellt, nicht gebucht</a>
     <a class="knopf {% if status != 'bezahlt' %}leise{% endif %}" href="?status=bezahlt">Bezahlt</a>
     <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a></p>
   <form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile">{% csrf_token %}

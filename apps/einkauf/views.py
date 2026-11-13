@@ -640,10 +640,10 @@ def rechnungen(request):
     status = request.GET.get("status", "offen")
     liste = Lieferantenrechnung.objects.filter(mandant=request.mandant).select_related("lieferant") \
         .prefetch_related("wareneingaenge__positionen")
-    if status in RechnungStatus.values:
-        liste = liste.filter(status=status)
-    elif status == "offen":
+    if status == "offen":  # nicht bezahlt: noch offen oder schon per SEPA exportiert
         liste = liste.exclude(status=RechnungStatus.BEZAHLT)
+    elif status in RechnungStatus.values:  # u. a. „exportiert“: SEPA-Datei erzeugt, Zahlung noch nicht gebucht
+        liste = liste.filter(status=status)
     seite, parameter = blaettern(request, liste)  # Modellsortierung: fällig, id
     zeilen =[(r, r.abgleich(), r.zahlbetrag()) for r in seite]
     return render(request, "einkauf/rechnungen.html", {
