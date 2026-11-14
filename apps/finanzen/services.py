@@ -360,6 +360,28 @@ def zahlung_stornieren(zahlung, grund, benutzer=None, datum=None) -> Zahlung:
 
 
 @transaction.atomic
+def lastschrift_aufheben(lastschrift, grund, benutzer=None, datum=None) -> Lastschrift:
+    """Lastschrift aufheben (Rücklastschrift, Datei nicht eingereicht). Ist der Einzug schon als Zahlung gebucht, wird sie
+    storniert: Die Rechnung ist wieder offen und kann erneut eingezogen oder gemahnt werden."""
+    from .models import Bankumsatz
+    grund = (grund or "").strip()
+    if not grund:
+        raise ValueError("Bitte einen Grund angeben (z. B. Rücklastschrift, Datei nicht eingereicht).")
+    ls = Lastschrift.objects.select_for_update().get(pk=lastschrift.pk)
+    if ls.aufgehoben:
+        raise ValueError("Die Lastschrift ist bereits aufgehoben.")
+    z = ls.zahlung
+    if z is not None and not Zahlung.objects.filter(storno_zu=z).exists():
+        zahlung_stornieren(z, grund, benutzer, datum)
+        if z.aus_bankumsatz_id:  # die Gutschrift der Bank bleibt erledigt, sonst könnte sie ein zweites Mal gebucht werden
+            Bankumsatz.objects.filter(pk=z.aus_bankumsatz_id, status=Bankumsatz.OFFEN).update(status=Bankumsatz.ZUGEORDNET)
+    ls.aufgehoben, ls.aufgehoben_grund = True, grund[:300]
+    ls.aufgehoben_von, ls.aufgehoben_am = benutzer, timezone.now()
+    ls.save()
+    return ls
+
+
+@transaction.atomic
 def kasse_buchen(mandant, art, betrag, text, datum=None, beleg=None, benutzer=None) -> Kassenbuch:
     """Fortlaufend nummerierter, unveränderlicher Kassenbucheintrag."""
     if art not in (Kassenbuch.EINNAHME, Kassenbuch.AUSGABE):

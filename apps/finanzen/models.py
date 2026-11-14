@@ -183,6 +183,8 @@ class Bankumsatz(models.Model):
     name = models.CharField("Auftraggeber/Empfänger", max_length=150, blank=True)
     iban = models.CharField("IBAN", max_length=34, blank=True)
     zweck = models.CharField("Verwendungszweck", max_length=500, blank=True)
+    referenz = models.CharField("Referenzen der Bank", max_length=200, blank=True,
+                                help_text="Sammler- und Ende-zu-Ende-Referenz aus CAMT (für Lastschrift-Gutschrift und Rücklastschrift)")
     status = models.CharField(max_length=10, default=OFFEN, choices=[
         (OFFEN, "offen"), (ZUGEORDNET, "zugeordnet"), (IGNORIERT, "ignoriert")], db_index=True)
     vorschlag = models.ForeignKey("verkauf.Beleg", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
@@ -253,6 +255,8 @@ class Lastschrift(models.Model):
     datei = models.CharField("Nachrichten-ID der Datei", max_length=35)
     erstellt_am = models.DateTimeField(default=timezone.now)
     benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    zahlung = models.ForeignKey(Zahlung, on_delete=models.PROTECT, null=True, blank=True, related_name="lastschriften", editable=False,
+                                help_text="Zahlungseingang, sobald die Gutschrift der Bank im Kontoauszug eingelesen ist")
     aufgehoben = models.BooleanField("aufgehoben (z. B. Rücklastschrift)", default=False)
     aufgehoben_grund = models.CharField("Grund", max_length=300, blank=True)
     aufgehoben_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
