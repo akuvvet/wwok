@@ -14,6 +14,7 @@ urlpatterns = [
     path("bestellung/<int:bestellung_id>/position/<int:position_id>/loeschen/", views.bestellung_position_loeschen, name="bestellung_position_loeschen"),
     path("bestellung/<int:bestellung_id>/bestellen/", views.bestellung_bestellen, name="bestellung_bestellen"),
     path("bestellung/<int:bestellung_id>/stornieren/", views.bestellung_stornieren, name="bestellung_stornieren"),
+    path("bestellung/<int:bestellung_id>/rest-schliessen/", views.bestellung_rest_schliessen, name="bestellung_rest_schliessen"),
     path("bestellung/<int:bestellung_id>/loeschen/", views.bestellung_loeschen, name="bestellung_loeschen"),
     path("bestellung/<int:bestellung_id>/pdf/", views.bestellung_pdf_ansicht, name="bestellung_pdf"),
     path("bestellung/<int:bestellung_id>/mail/", views.bestellung_mail, name="bestellung_mail"),

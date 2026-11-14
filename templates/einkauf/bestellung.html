@@ -87,6 +87,7 @@
   {% if b.status != 'storniert' %}<a class="knopf" href="{% url 'einkauf:bestellung_mail' b.pk %}">Per E-Mail bestellen</a>{% endif %}
   {% if b.status == 'entwurf' %}<form method="post" action="{% url 'einkauf:bestellung_bestellen' b.pk %}">{% csrf_token %}<button class="leise" type="submit">Als bestellt markieren</button></form>{% endif %}
   {% if b.status == 'bestellt' or b.status == 'teil' %}<form method="post" action="{% url 'einkauf:wareneingang_neu' %}">{% csrf_token %}<input type="hidden" name="bestellung" value="{{ b.pk }}"><button type="submit">Wareneingang erfassen</button></form>{% endif %}
+  {% if b.status == 'teil' %}<form method="post" action="{% url 'einkauf:bestellung_rest_schliessen' b.pk %}" data-frage="Rest nicht mehr lieferbar? Die offenen Mengen werden gestrichen, die Bestellung gilt danach als vollständig geliefert.">{% csrf_token %}<button class="leise" type="submit">Rest nicht mehr lieferbar</button></form>{% endif %}
   <a class="knopf leise" href="{% url 'einkauf:bestellung_pdf' b.pk %}" target="_blank">PDF</a>
   {% if not wareneingaenge %}<details class="menue-mehr"><summary class="symbol" data-tip="Mehr" aria-label="Mehr"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg></summary>
     <div class="mehr">

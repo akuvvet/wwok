@@ -1532,6 +1532,8 @@ def rechnung_aus_lieferscheinen(lieferscheine, vorlaeufig=False) -> Beleg:
     if not lieferscheine:
         raise ValueError("Keine Lieferscheine ausgewählt.")
     erster = lieferscheine[0]
+    # Sperre: zwei gleichzeitige Klicks dürfen dieselben Lieferscheine nicht zweimal abrechnen (die Prüfung unten liest danach frisch)
+    list(Beleg.objects.select_for_update().filter(pk__in=[ls.pk for ls in lieferscheine]).values_list("pk", flat=True))
     for ls in lieferscheine:
         if ls.mandant_id != erster.mandant_id or ls.kunde_id != erster.kunde_id:
             raise ValueError("Alle Lieferscheine müssen zum selben Kunden und Mandanten gehören.")
@@ -1810,6 +1812,10 @@ class Abo(Zeitstempel):
         from apps.verkauf.views import adresse_text
         from apps.stammdaten.models import Anschriftart
         heute = heute or timezone.localdate()
+        # Sperre: Doppelklick bzw. Cron und Klick zugleich legen sonst zwei Bestellungen für denselben Termin an
+        stand = type(self).objects.select_for_update().values_list("naechster_termin", flat=True).get(pk=self.pk)
+        if stand != self.naechster_termin:
+            raise ValueError(f"{self}: Der Termin wurde gerade schon abgerechnet – bitte die Seite neu laden.")
         termin = self.naechster_termin
         zeilen = self.zeilen(termin)
         if not zeilen and self.halbmonatlich and self.positionen.exists():

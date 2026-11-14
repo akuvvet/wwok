@@ -233,6 +233,29 @@ def bestellungen_aus_beleg(beleg, modus=None, grund="", benutzer=None) -> list:
     return ergebnis
 
 
+@transaction.atomic
+def rest_schliessen(bestellung) -> list:
+    """Teilgelieferte Bestellung abschließen, weil der Rest nicht mehr kommt: Die bestellten Mengen werden auf das Gelieferte
+    gekürzt, die Bestellung gilt als vollständig geliefert. Was wegfällt, steht danach in der Bemerkung."""
+    b = Bestellung.objects.select_for_update().get(pk=bestellung.pk)
+    if b.status != BestellStatus.TEIL:
+        raise ValueError("Nur eine teilweise gelieferte Bestellung lässt sich so abschließen.")
+    if b.wareneingaenge.filter(gebucht=False).exists():
+        raise ValueError("Zur Bestellung gibt es einen offenen Wareneingang – bitte erst buchen oder löschen.")
+    weg = []
+    for p in b.positionen.select_for_update():
+        if p.offen > 0:
+            weg.append(f"{p.offen.normalize():f} × {p.nummer or p.bezeichnung}")
+            p.menge = p.geliefert
+            p.save(update_fields=["menge"])
+    zeile = f"Rest nicht mehr lieferbar ({timezone.localdate():%d.%m.%Y}): " + ", ".join(weg)
+    b.bemerkung = f"{b.bemerkung}\n{zeile}" if b.bemerkung else zeile
+    b.save(update_fields=["bemerkung"])
+    b.status_aktualisieren()
+    bestellung.status, bestellung.bemerkung = b.status, b.bemerkung
+    return weg
+
+
 def offen_bestellt(mandant, artikel) -> Decimal:
     return BestellPosition.objects.filter(
         bestellung__mandant=mandant, artikel=artikel,

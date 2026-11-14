@@ -7,7 +7,7 @@ from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Artikel, Kategorie
 from apps.verkauf.mail import MailFehler, senden_an
-from apps.verkauf.models import Beleg, Position
+from apps.verkauf.models import Beleg, Belegart, Position
 from apps.verkauf.views import mit_mandant
 
 from . import services
@@ -154,6 +154,13 @@ def zuordnen(request, beleg_id):
     try:
         b.stand_pruefen()
         anzahl = int(request.POST.get("anzahl") or 1)
+        if b.art not in (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG):  # wie die automatische Zuordnung: Keys gehören zum Verkauf
+            raise ValueError("Keys werden nur in Lieferschein oder Rechnung zugeordnet.")
+        fehlt = int(position.menge) - services.vergeben_menge(position)
+        if anzahl < 1:
+            raise ValueError("Die Anzahl muss mindestens 1 sein.")
+        if anzahl > fehlt:
+            raise ValueError(f"Die Position braucht nur noch {max(fehlt, 0)} Key(s) – mehr werden nicht vergeben.")
         vergaben = services.zuordnen(position, anzahl, bool(request.POST.get("doppelt")), request.POST.get("bemerkung", ""), request.user)
         messages.success(request, f"{len(vergaben)} Key(s) zugeordnet.")
     except ValueError as fehler:

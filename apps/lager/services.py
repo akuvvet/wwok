@@ -179,14 +179,19 @@ def buche_manuell(mandant, artikel, art, menge, bemerkung="", benutzer=None):
 
 
 @transaction.atomic
-def inventur(mandant, artikel, gezaehlt: Decimal, benutzer=None):
-    """Differenzbuchung auf den gezählten Bestand."""
+def inventur(mandant, artikel, gezaehlt: Decimal, benutzer=None, soll=None):
+    """Differenzbuchung auf den gezählten Bestand. soll = der in der Zählliste angezeigte Bestand: Weicht er vom jetzigen ab,
+    wurde während des Zählens gebucht – dann ist unklar, ob die Zählung davor oder danach lag, und es wird nichts gebucht."""
     from apps.stammdaten.models import Artikel
 
     from .models import bestand
     # Artikel sperren, damit zwei gleichzeitige Buchungen (Doppelklick) die Differenz nicht zweimal auf denselben Bestand rechnen
     list(Artikel.objects.select_for_update().filter(pk=artikel.pk).values_list("pk", flat=True))
-    differenz = gezaehlt - bestand(mandant, artikel)
+    ist = bestand(mandant, artikel)
+    if soll is not None and soll != ist:
+        raise ValueError(f"Der Bestand hat sich seit dem Öffnen der Zählliste geändert (war {soll.normalize():f}, ist jetzt {ist.normalize():f}) "
+                         "– nicht gebucht, bitte neu zählen.")
+    differenz = gezaehlt - ist
     if differenz == 0:
         return None
     return Lagerbewegung.objects.create(
