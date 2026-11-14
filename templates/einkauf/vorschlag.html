@@ -15,7 +15,7 @@
         <td>{% if z.lieferant %}<span title="{{ z.lieferant.nummer }} – {{ z.lieferant.name1 }}">{{ z.lieferant.kurz }}</span>{% else %}kein Lieferant{% endif %}<br><small><a href="{% url 'einkauf:preisvergleich' %}?artikel={{ z.artikel.nummer|urlencode }}&amp;menge={{ z.menge|floatformat:'-3' }}">Lieferanten vergleichen</a></small></td><td class="zahl">{{ z.ek|floatformat:"2g" }}</td><td>{{ z.grund }}</td></tr>
     {% empty %}<tr><td colspan="9">Kein Artikel unter Mindestbestand.</td></tr>{% endfor %}
   </table>
-  {% if zeilen %}<p><button type="submit">Bestellungen als Entwurf anlegen</button></p>{% endif %}
+  {% if zeilen %}<p><button type="submit">Bestellungen anlegen (nicht abgeschlossen)</button></p>{% endif %}
   </form>
 </div>
 {% endblock %}

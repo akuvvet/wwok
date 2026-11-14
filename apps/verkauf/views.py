@@ -780,7 +780,7 @@ def beleg_folgebeleg(request, beleg_id):
         vorher = (beleg.art, beleg.get_art_display(), beleg.nummer or ("(nicht gespeichert)" if beleg.vorlaeufig else None))
         neu = beleg.folgebeleg_erzeugen(entscheidungen=entscheidungen, art=art, vorlaeufig=True)
     if neu.pk == beleg.pk:  # der Beleg selbst wurde umgewandelt, es gibt keinen neuen
-        messages.success(request, f"{vorher[1]} {vorher[2] or '(Entwurf)'} in {neu.get_art_display()} "
+        messages.success(request, f"{vorher[1]} {vorher[2] or '(nicht abgeschlossen)'} in {neu.get_art_display()} "
                                   f"{neu.nummer or '(nicht gespeichert)'} umgewandelt – ohne „Speichern: abschließen & Nummer vergeben“ wird das verworfen.")
         return redirect("verkauf:beleg", beleg_id=neu.pk)
     if vorher[0] == Belegart.AUFTRAG and art == Belegart.RECHNUNG and (beleg.zahlungen.exists() or beleg.anzahlung_verrechnungen.exists()):
@@ -891,7 +891,7 @@ def beleg_teillieferung(request, beleg_id):
         messages.success(request, f"Teillieferung {neu} abgeschlossen. Der Rest bleibt im {art_name} ({name}) – nicht gespeichert, "
                                   "bis er mit „Speichern: abschließen & Nummer vergeben“ abgeschlossen wird.")
         return redirect("verkauf:beleg", beleg_id=rest.pk)
-    messages.success(request, f"Teillieferung {neu} abgeschlossen. Die übrigen Positionen bleiben im {art_name}-Entwurf offen.")
+    messages.success(request, f"Teillieferung {neu} abgeschlossen. Die übrigen Positionen bleiben in der nicht abgeschlossenen {art_name} offen.")
     return redirect("verkauf:kunde", kunde_id=beleg.kunde_id)
 
 

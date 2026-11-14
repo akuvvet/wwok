@@ -65,7 +65,7 @@ def position_hinzufuegen(reparatur, art, bezeichnung, menge, preis, artikel=None
 
 @transaction.atomic
 def rechnung_erzeugen(reparatur, benutzer=None) -> Beleg:
-    """Rechnung (Entwurf) aus Teilen und Arbeitszeit; Teile werden erst beim Abschluss der Rechnung abgebucht."""
+    """Rechnung (nicht abgeschlossen) aus Teilen und Arbeitszeit; Teile werden erst beim Abschluss der Rechnung abgebucht."""
     if reparatur.garantie:
         raise ValueError("Garantiefälle werden nicht berechnet.")
     if reparatur.rechnung_id:

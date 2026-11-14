@@ -2,6 +2,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Q
 
 from apps.verkauf.models import Belegart, Ruecknahme
 
@@ -39,16 +40,59 @@ def offene_lieferscheine(beleg):
     return liste
 
 
-def fehlbestand(beleg) -> list:
-    """Texte zu Lagerartikeln, deren Bestand für Lieferschein/Rechnung nicht reicht (leer = alles lieferbar)."""
-    if not bucht_bestand(beleg):
-        return []
-    mengen = defaultdict(Decimal)
-    artikel = {}
+def _lagermengen(beleg) -> tuple:
+    mengen, artikel = defaultdict(Decimal), {}
     for p in beleg.positionen.select_related("artikel"):
         if p.artikel_id and p.artikel.typ == LAGERFUEHREND:
             mengen[p.artikel_id] += p.menge
             artikel[p.artikel_id] = p.artikel
+    return mengen, artikel
+
+
+def lieferscheine_der_rechnung(beleg) -> list:
+    """Alle Lieferscheine, über die die Ware einer Rechnung schon abgebucht wurde (Sammelrechnung und Belegkette)."""
+    liste = list(beleg.lieferscheine.all()) if beleg.pk else []
+    vorher = beleg.vorgaenger
+    while vorher is not None:
+        if vorher.art == Belegart.LIEFERSCHEIN and vorher not in liste:
+            liste.append(vorher)
+        vorher = vorher.vorgaenger
+    return liste
+
+
+def buchmengen(beleg) -> tuple:
+    """({Artikel-ID: Menge}, {Artikel-ID: Artikel}), die dieser Beleg beim Abschluss vom Lager abbucht.
+    Lieferschein (und Rechnung ohne Lieferschein): alle Lagerartikel. Rechnung aus Lieferschein: nur, was über die gelieferte
+    Menge hinausgeht (in der Rechnung ergänzter Artikel, erhöhte Menge) – der Rest ist über den Lieferschein schon abgebucht.
+    Andere abgeschlossene Rechnungen zu denselben Lieferscheinen zählen mit, damit nichts doppelt gebucht wird."""
+    if bucht_bestand(beleg):
+        return _lagermengen(beleg)
+    if beleg.art != Belegart.RECHNUNG:
+        return {}, {}
+    scheine = lieferscheine_der_rechnung(beleg)
+    if not scheine:
+        return {}, {}
+    mengen, artikel = _lagermengen(beleg)
+    if not mengen:
+        return {}, {}
+    geliefert = defaultdict(Decimal)
+    for ls in scheine:
+        for artikel_id, menge in _lagermengen(ls)[0].items():
+            geliefert[artikel_id] += menge
+    ids = [ls.pk for ls in scheine]
+    andere = type(beleg).objects.filter(art=Belegart.RECHNUNG, abgeschlossen=True, mandant=beleg.mandant).filter(
+        Q(vorgaenger_id__in=ids) | Q(lieferscheine__in=ids)).exclude(pk=beleg.pk).distinct()
+    for r in andere:
+        for artikel_id, menge in _lagermengen(r)[0].items():
+            geliefert[artikel_id] -= menge
+    mehr = {a: m - max(geliefert[a], Decimal("0")) for a, m in mengen.items()}
+    mehr = {a: m for a, m in mehr.items() if m > 0}
+    return mehr, {a: artikel[a] for a in mehr}
+
+
+def fehlbestand(beleg) -> list:
+    """Texte zu Lagerartikeln, deren Bestand für Lieferschein/Rechnung nicht reicht (leer = alles lieferbar)."""
+    mengen, artikel = buchmengen(beleg)
     knapp = []
     for artikel_id, menge in mengen.items():
         vorhanden = bestand(beleg.mandant, artikel[artikel_id])
@@ -70,7 +114,7 @@ def druckhindernis(beleg) -> str:
     if beleg.art == Belegart.RECHNUNG:
         offen = offene_lieferscheine(beleg)
         if offen:
-            return "Erst den Lieferschein " + ", ".join(l.nummer or "(Entwurf)" for l in offen) + " abschließen (bucht das Lager ab)."
+            return "Erst den Lieferschein " + ", ".join(l.nummer or "(nicht abgeschlossen)" for l in offen) + " abschließen (bucht das Lager ab)."
     knapp = fehlbestand(beleg)
     if knapp:
         return "Lagerbestand reicht nicht für " + beleg.get_art_display() + ": " + "; ".join(knapp) + ". Druck nicht möglich."
@@ -80,14 +124,11 @@ def druckhindernis(beleg) -> str:
 @transaction.atomic
 def buche_beleg(beleg, benutzer=None) -> int:
     """Bucht die Lagerartikel des Belegs ab (einmal je Beleg). Rückgabe: Zahl der Bewegungen."""
-    if not bucht_bestand(beleg) or Lagerbewegung.objects.filter(beleg=beleg, art=Bewegungsart.VERKAUF).exists():
+    if Lagerbewegung.objects.filter(beleg=beleg, art=Bewegungsart.VERKAUF).exists():
         return 0
-    mengen = defaultdict(Decimal)
-    artikel = {}
-    for p in beleg.positionen.select_related("artikel"):
-        if p.artikel_id and p.artikel.typ == LAGERFUEHREND:
-            mengen[p.artikel_id] += p.menge
-            artikel[p.artikel_id] = p.artikel
+    mengen, artikel = buchmengen(beleg)
+    if not mengen:
+        return 0
     knapp = fehlbestand(beleg)  # Lieferschein/Rechnung nur mit ausreichendem Lagerbestand: sonst würde er unter 0 fallen
     if knapp:
         raise BestandReichtNicht("Lagerbestand reicht nicht für " + beleg.get_art_display() + ": " + "; ".join(knapp) +

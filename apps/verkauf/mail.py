@@ -210,7 +210,7 @@ def senden(beleg, an: str, betreff: str, text: str, pdf: bytes, dateiname: str, 
 def beleg_senden(beleg, an: str, betreff: str, text: str, benutzer=None) -> MailVersand:
     """Verschickt den Beleg als PDF."""
     if not beleg.nummer:
-        raise MailFehler("Entwürfe ohne Belegnummer können nicht versendet werden.")
+        raise MailFehler("Nicht abgeschlossene Belege ohne Belegnummer können nicht versendet werden.")
     if not beleg.positionen.exists():
         raise MailFehler("Ein Beleg ohne Position kann nicht versendet werden.")
     from apps.lager.services import druckhindernis

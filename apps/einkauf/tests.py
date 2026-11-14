@@ -157,6 +157,17 @@ class EinkaufTest(TestCase):
         self.assertEqual((u["nummer"], u["lieferant"], u["faellig"], u["brutto"]), ("U-5", "Billig AG", date(2026, 10, 31), Decimal("119.00")))
         with self.assertRaises(erechnung.ERechnungFehler):
             erechnung.lese("x.xml", b"<foo/>")
+        # Gutschrift des Lieferanten (positive Beträge!) darf nie als zahlbare Rechnung angelegt werden
+        gutschriften = (
+            cii.replace(b"<ram:ID>RE-2026-77</ram:ID>", b"<ram:ID>GS-1</ram:ID><ram:TypeCode>381</ram:TypeCode>"),
+            ubl.replace(b"<Invoice ", b"<CreditNote ").replace(b"</Invoice>", b"</CreditNote>").replace(b"Invoice-2", b"CreditNote-2"),
+            ubl.replace(b"<cbc:ID>U-5</cbc:ID>", b"<cbc:ID>U-5</cbc:ID><cbc:InvoiceTypeCode>381</cbc:InvoiceTypeCode>"),
+        )
+        for xml in gutschriften:
+            with self.assertRaisesMessage(erechnung.ERechnungFehler, "Gutschrift"):
+                erechnung.lese("g.xml", xml)
+        self.assertEqual(erechnung.lese("r.xml", cii.replace(b"<ram:ID>RE-2026-77</ram:ID>",
+                                                              b"<ram:ID>RE-2026-77</ram:ID><ram:TypeCode>380</ram:TypeCode>"))["nummer"], "RE-2026-77")
 
     def test_masken(self):
         from django.core.files.uploadedfile import SimpleUploadedFile

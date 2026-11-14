@@ -81,7 +81,7 @@ class Block3Test(TestCase):
         self.assertEqual(antwort.context["von"], (date.today() - timedelta(days=30)).isoformat())
         self.assertEqual(antwort.context["status"], "offen")
         self.assertContains(antwort, '<option value="offen" selected>')
-        self.assertContains(antwort, "Entwürfe der letzten 30 Tage")
+        self.assertContains(antwort, "nicht abgeschlossene der letzten 30 Tage")
         self.assertContains(antwort, 'href="?status=&amp;von="')
         # Felder geleert, Suche (globale Kopfsuche) oder Dashboard-Link: kein Standardfilter
         self.assertEqual(self.client.get(url, {"status": "", "von": ""}).context["anzahl"], 3)

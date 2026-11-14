@@ -442,7 +442,7 @@ def bestellung_aus_beleg(request, beleg_id):
         messages.error(request, str(fehler))
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
     ohne = [p.bezeichnung for p in getattr(beleg, "_ohne_lieferant", [])]
-    messages.success(request, f"{len(liste)} Bestellung(en) als Entwurf angelegt." +
+    messages.success(request, f"{len(liste)} Bestellung(en) angelegt (nicht abgeschlossen)." +
                      (f" Ohne Lieferant geblieben: {', '.join(ohne)}." if ohne else ""))
     return redirect("einkauf:bestellung", bestellung_id=liste[0].pk) if len(liste) == 1 else redirect("einkauf:bestellungen")
 
@@ -455,7 +455,7 @@ def vorschlag(request):
             auswahl.append((int(artikel_id), zahl(request.POST.get(f"menge_{artikel_id}"), Decimal("1"))))
         try:
             liste = services.bestellungen_aus_vorschlag(request.mandant, auswahl)
-            messages.success(request, f"{len(liste)} Bestellung(en) als Entwurf angelegt.")
+            messages.success(request, f"{len(liste)} Bestellung(en) angelegt (nicht abgeschlossen).")
             return redirect("einkauf:bestellungen")
         except ValueError as fehler:
             messages.error(request, str(fehler))

@@ -10,7 +10,7 @@
 <div class="belegkopf">
 <div class="karte kopfkarte">
   <div>
-    <h1>{{ beleg.get_art_display }} {% if beleg.vorlaeufig %}(nicht gespeichert){% else %}{{ beleg.nummer|default:"(Entwurf)" }}{% endif %}</h1>
+    <h1>{{ beleg.get_art_display }} {% if beleg.vorlaeufig %}(nicht gespeichert){% else %}{{ beleg.nummer|default:"(nicht abgeschlossen)" }}{% endif %}</h1>
     <p class="zeile" style="margin:0">
       <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}"><strong>{{ beleg.kunde.nummer }} · {{ beleg.kunde.name1 }}</strong></a>
       <span>{{ beleg.belegdatum|date:"d.m.Y" }}</span>
@@ -19,11 +19,11 @@
       {% elif beleg.gesperrt %}<span class="marke gesperrt">abgeschlossen &amp; gesperrt</span>
       {% elif beleg.abgeschlossen %}<span class="marke ok">abgeschlossen</span>
       {% elif beleg.vorlaeufig %}<span class="marke gesperrt" title="Wird verworfen, wenn er nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>
-      {% else %}<span class="marke">Entwurf</span>{% endif %}
+      {% else %}<span class="marke">nicht abgeschlossen</span>{% endif %}
       {% if beleg.vorgaenger %}<span>aus <a href="{% url 'verkauf:beleg' beleg.vorgaenger.pk %}">{{ beleg.vorgaenger }}</a></span>{% endif %}
       {% if beleg.vormals %}<span class="marke" title="Der Beleg wurde umgewandelt; die alten Nummern bleiben vergeben und suchbar">vormals {{ beleg.vormals }}</span>{% endif %}
-      {% for l in beleg.lieferscheine_aus_bestellung %}<a class="marke ok" href="{% url 'verkauf:beleg' l.pk %}" title="Lieferschein aus dieser Bestellung">L · {{ l.nummer|default:"(Entwurf)" }}</a>{% endfor %}
-      {% for r in beleg.rechnungen_aus_bestellung %}<a class="marke ok" href="{% url 'verkauf:beleg' r.pk %}" title="Rechnung aus dieser Bestellung">R · {{ r.nummer|default:"(Entwurf)" }}</a>{% endfor %}
+      {% for l in beleg.lieferscheine_aus_bestellung %}<a class="marke ok" href="{% url 'verkauf:beleg' l.pk %}" title="Lieferschein aus dieser Bestellung">L · {{ l.nummer|default:"(nicht abgeschlossen)" }}</a>{% endfor %}
+      {% for r in beleg.rechnungen_aus_bestellung %}<a class="marke ok" href="{% url 'verkauf:beleg' r.pk %}" title="Rechnung aus dieser Bestellung">R · {{ r.nummer|default:"(nicht abgeschlossen)" }}</a>{% endfor %}
       {% if pf_rechnung %}<span>→ <a href="{% url 'verkauf:beleg' pf_rechnung.pk %}">{{ pf_rechnung }}</a></span>{% endif %}
       {% if pf_storno %}<span>→ <a href="{% url 'verkauf:beleg' pf_storno.pk %}">{{ pf_storno }}</a></span>{% endif %}
       {% if beleg.referenz %}<span>Ref.: {{ beleg.referenz }}</span>{% endif %}
@@ -34,12 +34,12 @@
     {% if anzahlungen %}<p class="zeile" style="margin:6px 0 0">{% for a in anzahlungen %}<span class="marke ok" title="Zahlung bleibt am Ursprungsbeleg; hier nur verrechnet">{% if a.betrag > 0 %}erhalten{% else %}aufgehoben{% endif %} aus <a href="{% url 'verkauf:beleg' a.quelle.pk %}">{{ a.quelle }}</a>: {{ a.betrag|floatformat:"2g" }} €</span>{% endfor %}</p>{% endif %}
     {% if beleg.verlauf %}<details class="verlauf" style="margin:6px 0 0"><summary><small>Verlauf ({{ beleg.verlauf|length }} Umwandlung{{ beleg.verlauf|length|pluralize:"en" }})</small></summary>
       <table style="font-size:13px"><thead><tr><th>Früher</th><th>Alte Nummer</th><th>Belegdatum</th><th>Umgewandelt in</th><th>Am</th><th>Benutzer</th></tr></thead><tbody>
-      {% for u in beleg.verlauf %}<tr><td>{{ u.von_art_name }}</td><td>{{ u.von_nummer|default:"(Entwurf)" }}</td><td>{{ u.von_belegdatum|date:"d.m.Y" }}</td><td>{{ u.nach_art_name }}</td><td>{{ u.am|date:"d.m.Y H:i" }}</td><td>{{ u.benutzer|default:"–" }}</td></tr>{% endfor %}
+      {% for u in beleg.verlauf %}<tr><td>{{ u.von_art_name }}</td><td>{{ u.von_nummer|default:"(nicht abgeschlossen)" }}</td><td>{{ u.von_belegdatum|date:"d.m.Y" }}</td><td>{{ u.nach_art_name }}</td><td>{{ u.am|date:"d.m.Y H:i" }}</td><td>{{ u.benutzer|default:"–" }}</td></tr>{% endfor %}
       </tbody></table></details>{% endif %}
     {% if verlauf_ab %}<details class="verlauf uebernahmen" style="margin:6px 0 0" open><summary><small>Verlauf der Übernahmen ({{ verlauf_ab|length }})</small></summary>
       <table style="font-size:13px"><thead><tr><th>Am</th><th>Menge</th><th>Artikel</th><th>Vorgang</th><th>Folgebeleg</th><th>Benutzer</th></tr></thead><tbody>
       {% for u in verlauf_ab %}<tr><td>{{ u.am|date:"d.m.Y H:i" }}</td><td class="zahl">{{ u.menge|floatformat:"-3" }}</td><td>{{ u.artikelnummer }} {{ u.bezeichnung }}</td><td>{{ u.get_richtung_display }}</td>
-        <td>{% with b=u.ziel_beleg %}{% if b %}<a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(Entwurf)" }}</a>{% else %}{{ u.ziel_text }}{% endif %}{% endwith %}</td><td>{{ u.benutzer|default:"–" }}</td></tr>{% endfor %}
+        <td>{% with b=u.ziel_beleg %}{% if b %}<a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(nicht abgeschlossen)" }}</a>{% else %}{{ u.ziel_text }}{% endif %}{% endwith %}</td><td>{{ u.benutzer|default:"–" }}</td></tr>{% endfor %}
       </tbody></table></details>{% endif %}
     {% if verlauf_ziel %}<details class="verlauf uebernahmen" style="margin:6px 0 0" open><summary><small>Aus der Bestellung übernommen ({{ verlauf_ziel|length }})</small></summary>
       <table style="font-size:13px"><thead><tr><th>Am</th><th>Menge</th><th>Artikel</th><th>Vorgang</th><th>Bestellung</th></tr></thead><tbody>
@@ -137,7 +137,7 @@
         {% if p.uebernahme_text %}<br><small style="color:var(--warn)" title="Die übernommene Menge ist aus der Bestellung herausgenommen; hier steht nur der Rest. Reserviert wird der Rest.">{{ p.uebernahme_text }}</small>{% endif %}
         {% if p.rueckstand %}<br><small style="color:var(--warn)" title="Rückstand: wird mit dem Wareneingang reserviert">Rückstand: {{ p.geliefert|floatformat:"-3" }} von {{ p.menge|floatformat:"-3" }} geliefert, {{ p.rueckstand|floatformat:"-3" }} offen</small>{% endif %}
         {% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
-        {% if p.bestellt %}<br><small style="opacity:.75" title="Beim Lieferanten bestellt (ohne Entwürfe und Stornos)">bestellt: {{ p.bestellt|floatformat:"-3" }} von {{ p.menge|floatformat:"-3" }}</small>{% endif %}
+        {% if p.bestellt %}<br><small style="opacity:.75" title="Beim Lieferanten bestellt (ohne nicht abgeschlossene und Stornos)">bestellt: {{ p.bestellt|floatformat:"-3" }} von {{ p.menge|floatformat:"-3" }}</small>{% endif %}
         {% if p.artikel and p.artikel.typ == 'A' and beleg.art == 'LS' or p.artikel and p.artikel.typ == 'A' and beleg.art == 'RE' %}
         <details><summary style="cursor:pointer;opacity:.8">Seriennummern{% if p.seriennummern.all %} ({{ p.seriennummern.count }}){% endif %}</summary>
           <form method="post" action="{% url 'lager:position_sn' p.pk %}">{% csrf_token %}

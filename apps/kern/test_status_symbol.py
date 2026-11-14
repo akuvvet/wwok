@@ -102,5 +102,5 @@ class StatusSeitenTest(TestCase):
         from apps.einkauf import services
         b = services.bestellung_anlegen(self.m, self.lf)
         seite = self.client.get(reverse("einkauf:bestellungen"))
-        self.assertContains(seite, 'aria-label="Entwurf"')
+        self.assertContains(seite, 'aria-label="nicht abgeschlossen"')
         self.assertContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), "#i-s-stift")

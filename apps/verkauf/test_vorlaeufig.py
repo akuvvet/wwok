@@ -888,7 +888,7 @@ class OberflaecheTest(VorlaeufigBasis):
         self.assertIn("(nicht gespeichert)", html)
         for text in ("Abschließen & Nummer vergeben", "Zurück zum Beleg", "erst_abschliessen"):
             self.assertIn(text, html)
-        self.assertNotIn("(Entwurf)", html)
+        self.assertNotIn("(nicht abgeschlossen)", html)
 
     def test_vorlaeufiger_beleg_blendet_alle_wege_nach_aussen_aus(self):
         b = self.vorlaeufig(Belegart.RECHNUNG)
@@ -923,7 +923,7 @@ class OberflaecheTest(VorlaeufigBasis):
         html = self.seite(alt)
         for text in ("vorlaeufigbalken", "vorlaeufigskript", "verwerfenform"):
             self.assertNotIn(text, html)
-        self.assertIn(">Entwurf<", html)
+        self.assertIn(">nicht abgeschlossen<", html)
         self.assertIn(reverse("verkauf:beleg_loeschen", args=[alt.pk]), html)
 
     def test_listen_markieren_nur_vorlaeufige(self):
