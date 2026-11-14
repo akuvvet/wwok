@@ -1835,6 +1835,17 @@ class Abo(Zeitstempel):
             versicherung=self.versicherung,
             vortext=self.vortext, schlusstext=self.schlusstext, bemerkung=f"Wiederkehrende Bestellung: {self.bezeichnung}")
         for p, menge, zusatztext in zeilen:
+            if p.artikel_id and p.artikel.typ == "G":  # Gruppenartikel: Kopf mit festem Preis, Komponenten als Unterpositionen (wie in der Belegmaske)
+                from apps.verkauf.views import vorschlag_preis
+                kopf = Position.objects.create(
+                    beleg=beleg, typ="G", artikel=p.artikel, bezeichnung=p.bezeichnung, zusatztext=zusatztext, menge=menge,
+                    einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent, preis_fest=True)
+                for k in p.artikel.komponenten.select_related("komponente__steuersatz"):
+                    Position.objects.create(
+                        beleg=beleg, gruppe=kopf, typ=k.komponente.typ, artikel=k.komponente, bezeichnung=k.komponente.bezeichnung,
+                        menge=menge * k.menge, einzelpreis=vorschlag_preis(k.komponente, self.kunde) or Decimal("0"),
+                        steuer_prozent=k.komponente.steuersatz.prozent)
+                continue
             Position.objects.create(
                 beleg=beleg, typ=("L" if not p.artikel_id or p.artikel.typ == "L" else "A"), artikel=p.artikel, bezeichnung=p.bezeichnung,
                 zusatztext=zusatztext, menge=menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent)

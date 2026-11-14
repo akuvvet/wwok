@@ -77,6 +77,7 @@
   <form method="post" action="{% url 'lager:umbuchung' artikel.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
     <div><label>Umbuchung nach</label><select name="nach">{% for m in andere_mandanten %}<option value="{{ m.pk }}">{{ m.kurzname }}</option>{% endfor %}</select></div>
     <div><label>Menge</label><input name="menge" size="6"></div>
+    <div><label>Seriennummern (eine pro Zeile, wandern mit)</label><textarea name="seriennummern" rows="2" cols="28"></textarea></div>
     <button type="submit" class="leise">Umbuchen</button>
   </form>
   {% endif %}

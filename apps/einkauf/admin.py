@@ -22,6 +22,16 @@ class WareneingangPositionInline(admin.TabularInline):
     model = WareneingangPosition
     extra = 0
 
+    # Gebuchte Wareneingänge haben das Lager verändert und sind gesperrt (obj ist der Wareneingang)
+    def has_change_permission(self, request, obj=None):
+        return not (obj and obj.gebucht) and super().has_change_permission(request, obj)
+
+    def has_add_permission(self, request, obj=None):
+        return not (obj and obj.gebucht) and super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return not (obj and obj.gebucht) and super().has_delete_permission(request, obj)
+
 
 @admin.register(Wareneingang)
 class WareneingangAdmin(admin.ModelAdmin):
@@ -30,6 +40,12 @@ class WareneingangAdmin(admin.ModelAdmin):
     search_fields = ["nummer", "lieferant__name1"]
     list_select_related = ["mandant", "lieferant"]
     inlines = [WareneingangPositionInline]
+
+    def has_change_permission(self, request, obj=None):
+        return not (obj and obj.gebucht) and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return not (obj and obj.gebucht) and super().has_delete_permission(request, obj)
 
 
 @admin.register(Lieferantenrechnung)

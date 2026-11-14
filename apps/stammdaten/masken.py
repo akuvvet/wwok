@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 from django import forms as djforms
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -252,27 +252,38 @@ def bearbeiten(request, art: str, pk=None):
                 warnung = (f"Es gibt schon einen Kunden „{gleich.name1}“ in {gleich.plz} {gleich.ort} (Nr. {gleich.nummer}). "
                            "Wirklich einen weiteren anlegen?")
         if alle_gueltig(form, ap_set, an_set, mandantform) and not warnung:
-            with transaction.atomic():
-                if not pk:
-                    Stammnummer.belegen(zaehler, form.cleaned_data["nummer"])
-                objekt = form.save()
-                for fs in (ap_set, an_set):
-                    if fs is None:
-                        continue
-                    fs.instance = objekt
-                    neue = fs.save(commit=False)
-                    for o in fs.deleted_objects:
-                        o.delete()
-                    for o in neue:
-                        if not kunde:
-                            o.mandant = mandant  # Ansprechpartner von Lieferanten gelten je Mandant
-                        o.save()
-                md = mandantform.save(commit=False)
-                setattr(md, "kunde" if kunde else "lieferant", objekt)
-                md.mandant = mandant
-                md.save()
-            ziel = reverse("verkauf:kunde", args=[objekt.pk]) if kunde else None
-            return JsonResponse({"ok": True, "ziel": ziel})
+            nummer_neu = form.cleaned_data["nummer"]
+            try:
+                with transaction.atomic():
+                    if not pk:
+                        Stammnummer.belegen(zaehler, nummer_neu)
+                    objekt = form.save()
+                    for fs in (ap_set, an_set):
+                        if fs is None:
+                            continue
+                        fs.instance = objekt
+                        neue = fs.save(commit=False)
+                        for o in fs.deleted_objects:
+                            o.delete()
+                        for o in neue:
+                            if not kunde:
+                                o.mandant = mandant  # Ansprechpartner von Lieferanten gelten je Mandant
+                            o.save()
+                    md = mandantform.save(commit=False)
+                    setattr(md, "kunde" if kunde else "lieferant", objekt)
+                    md.mandant = mandant
+                    md.save()
+            except IntegrityError:
+                # Zweiter Benutzer war schneller und hat dieselbe Nummer gespeichert: neue Nummer vorschlagen statt Fehler 500
+                if pk or not modell.objects.filter(nummer=nummer_neu).exists():
+                    raise
+                form.instance.pk = None
+                form.data = form.data.copy()
+                form.data["nummer"] = Stammnummer.vorschlag(zaehler)
+                form.add_error("nummer", f"Die Nummer {nummer_neu} wurde inzwischen vergeben. Es steht eine neue Nummer im Feld – bitte erneut speichern.")
+            else:
+                ziel = reverse("verkauf:kunde", args=[objekt.pk]) if kunde else None
+                return JsonResponse({"ok": True, "ziel": ziel})
         status = 422
     else:
         warnung, status = "", 200
@@ -411,6 +422,15 @@ def artikel_bearbeiten(request, pk=None):
                 if not pk:
                     form.instance.pk = None
                 form.add_error(None, str(grund))
+            except IntegrityError:
+                # Zweiter Benutzer war schneller und hat dieselbe Nummer gespeichert: neue Nummer vorschlagen statt Fehler 500
+                nummer_alt, art_nummer = form.cleaned_data["nummer"], form.cleaned_data["typ"]
+                if pk or not Artikel.objects.filter(nummer=nummer_alt).exists():
+                    raise
+                form.instance.pk = None
+                form.data = form.data.copy()
+                form.data["nummer"] = Stammnummer.vorschlag(art_nummer)
+                form.add_error("nummer", f"Die Nummer {nummer_alt} wurde inzwischen vergeben. Es steht eine neue Nummer im Feld – bitte erneut speichern.")
             else:
                 if we_bezug:
                     return JsonResponse({"ok": True, "ziel": reverse("einkauf:wareneingang", args=[we_bezug["we"].pk])})

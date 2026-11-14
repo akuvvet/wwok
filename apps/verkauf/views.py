@@ -62,7 +62,11 @@ def mit_mandant(view):
     return umhuellt
 
 
-def beleg_holen(request, beleg_id):
+def beleg_holen(request, beleg_id, sperren=False):
+    """sperren=True (nur innerhalb einer Transaktion): Belegzeile sperren, bevor sie gelesen wird. Abschließen sperrt dieselbe Zeile;
+    so sieht eine Positionsänderung den Abschluss, statt mit veraltetem Stand eine Position an einen abgeschlossenen Beleg zu hängen."""
+    if sperren:
+        Beleg.objects.select_for_update().filter(pk=beleg_id, mandant=request.mandant).values_list("pk", flat=True).first()
     return get_object_or_404(Beleg.objects.select_related("kunde", "mandant"), pk=beleg_id, mandant=request.mandant)
 
 
@@ -452,7 +456,12 @@ def gruppe_wechseln(p, ziel, alter_betrag):
 @require_POST
 @sperr_schutz
 def position_neu(request, beleg_id):
-    beleg = beleg_holen(request, beleg_id)
+    with transaction.atomic():
+        return _position_neu(request, beleg_id)
+
+
+def _position_neu(request, beleg_id):
+    beleg = beleg_holen(request, beleg_id, sperren=True)
     typ = request.POST.get("typ", "A")
     nummer = "" if request.POST.get("pl") else request.POST.get("artikel", "").strip()  # Preislistenartikel kommen über 'pl'
     artikel = Artikel.objects.filter(nummer__iexact=nummer, nicht_aktiv=False).select_related("steuersatz").first() if nummer else None
@@ -620,7 +629,7 @@ def position_aendern(request, beleg_id, position_id):
 
 
 def _position_aendern(request, beleg_id, position_id):
-    beleg = beleg_holen(request, beleg_id)
+    beleg = beleg_holen(request, beleg_id, sperren=True)
     p = get_object_or_404(Position, pk=position_id, beleg=beleg)
     menge = dezimal(request.POST.get("menge"), p.menge)
     if menge <= 0:
@@ -680,9 +689,9 @@ def _mitziehen(p, menge) -> list:
 @require_POST
 @sperr_schutz
 def position_loeschen(request, beleg_id, position_id):
-    beleg = beleg_holen(request, beleg_id)
-    p = get_object_or_404(Position, pk=position_id, beleg=beleg)
     with transaction.atomic():
+        beleg = beleg_holen(request, beleg_id, sperren=True)
+        p = get_object_or_404(Position, pk=position_id, beleg=beleg)
         if p.gruppe_id:  # Unterposition einer Gruppe mit festem Preis: der Preis sinkt um ihren Betrag
             gruppenpreis_erhoehen(p.gruppe, -(p.menge * p.einzelpreis))
         elif p.verschoben and not beleg.positionen_gesperrt:  # übernommene Menge geht zurück in die Bestellung
@@ -691,6 +700,10 @@ def position_loeschen(request, beleg_id, position_id):
             if rueck:
                 messages.info(request, f"{uebernahme._menge_text(rueck)} × {p.bezeichnung} gehen zurück in die Bestellung "
                                        f"{beleg.vorgaenger.nummer or ''}.")
+        # Seriennummern, die nicht in die Bestellung zurückgegangen sind (auch die der Unterpositionen), sind wieder im Lager;
+        # sonst blieben sie „verkauft“ ohne Position hängen und wären nicht mehr zuordenbar
+        from apps.lager.models import Seriennummer
+        Seriennummer.objects.filter(Q(position=p) | Q(position__gruppe=p)).update(position=None, status=Seriennummer.IM_LAGER)
         p.delete()
         beleg.berechne()
     messages.success(request, "Gespeichert.")
@@ -705,15 +718,18 @@ RUECKNAHME_FOLGE = {Ruecknahme.REPARATUR: Ruecknahme.LAGER, Ruecknahme.LAGER: Ru
 @sperr_schutz
 def position_ruecknahme(request, beleg_id, position_id):
     """Spalte B der Gutschrift: Ein Klick wechselt R → B → keine Ware zurück."""
-    beleg = beleg_holen(request, beleg_id)
-    if beleg.art != Belegart.GUTSCHRIFT:
-        raise ValueError("Der Bestand lässt sich nur bei einer Gutschrift wählen.")
-    p = get_object_or_404(Position, pk=position_id, beleg=beleg, artikel__typ="A")
-    if p.ruecknahme:
-        p.ruecknahme = RUECKNAHME_FOLGE[p.ruecknahme]
-        p.save()
-    else:  # älterer Entwurf: nie gemischt, sonst bliebe ein Teil der Ware ungebucht
-        beleg.positionen.update(ruecknahme=Ruecknahme.REPARATUR)
+    with transaction.atomic():
+        beleg = beleg_holen(request, beleg_id, sperren=True)
+        if beleg.art != Belegart.GUTSCHRIFT:
+            raise ValueError("Der Bestand lässt sich nur bei einer Gutschrift wählen.")
+        if beleg.positionen_gesperrt:  # update() unten umgeht die Sperre in Position.save()
+            raise BelegGesperrt(f"{beleg} ist abgeschlossen – Positionen lassen sich nicht mehr ändern.")
+        p = get_object_or_404(Position, pk=position_id, beleg=beleg, artikel__typ="A")
+        if p.ruecknahme:
+            p.ruecknahme = RUECKNAHME_FOLGE[p.ruecknahme]
+            p.save()
+        else:  # älterer Entwurf: nie gemischt, sonst bliebe ein Teil der Ware ungebucht
+            beleg.positionen.update(ruecknahme=Ruecknahme.REPARATUR)
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 

@@ -40,6 +40,11 @@ def zahl(text, standard=None):
     return wert
 
 
+def ust_normal(text):
+    """USt-ID zum Vergleichen: ohne Leerzeichen und Punkte, groß."""
+    return "".join(c for c in (text or "") if c.isalnum()).upper()
+
+
 def tag(text, standard=None):
     try:
         return date.fromisoformat(text) if text else (standard or date.today())
@@ -128,6 +133,7 @@ def bestellungen(request):
 
 @mit_mandant
 @require_POST
+@schutz("einkauf:bestellungen")
 def bestellung_neu(request):
     lieferant = get_object_or_404(Lieferant, pk=request.POST.get("lieferant"))
     b = services.bestellung_anlegen(request.mandant, lieferant)
@@ -353,10 +359,8 @@ def bestellung_position_aendern(request, bestellung_id, position_id):
 @schutz("einkauf:bestellung", "bestellung_id")
 def bestellung_position_loeschen(request, bestellung_id, position_id):
     b = bestellung_holen(request, bestellung_id)
-    pos = get_object_or_404(BestellPosition, pk=position_id, bestellung=b)
-    if pos.geliefert:
-        raise ValueError("Zur Position gibt es schon Wareneingänge.")
-    pos.delete()
+    get_object_or_404(BestellPosition, pk=position_id, bestellung=b)
+    services.position_loeschen(b, position_id)
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
 
 
@@ -385,7 +389,10 @@ def bestellung_rest_schliessen(request, bestellung_id):
 def bestellung_stornieren(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
     if b.wareneingaenge.exists():
-        messages.error(request, "Es gibt schon Wareneingänge – nicht stornierbar.")
+        if b.wareneingaenge.filter(gebucht=True).exists():
+            messages.error(request, "Es gibt schon Wareneingänge – nicht stornierbar.")
+        else:
+            messages.error(request, "Es gibt noch einen offenen Wareneingang – bitte ihn zuerst im Wareneingang löschen.")
     else:
         b.status = BestellStatus.STORNIERT
         b.save(update_fields=["status"])
@@ -397,7 +404,10 @@ def bestellung_stornieren(request, bestellung_id):
 def bestellung_loeschen(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
     if b.wareneingaenge.exists():
-        messages.error(request, "Zur Bestellung gibt es Wareneingänge – sie kann nicht gelöscht werden.")
+        if b.wareneingaenge.filter(gebucht=True).exists():
+            messages.error(request, "Zur Bestellung gibt es Wareneingänge – sie kann nicht gelöscht werden.")
+        else:
+            messages.error(request, "Es gibt noch einen offenen Wareneingang – bitte ihn zuerst im Wareneingang löschen.")
         return redirect("einkauf:bestellung", bestellung_id=b.pk)
     nummer = b.nummer
     b.delete()
@@ -424,6 +434,7 @@ def bestellung_mail(request, bestellung_id):
     if request.method == "POST":
         an, betreff, text = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
         try:
+            services.bestellen_pruefen(b)  # erst prüfen, dann senden: keine Mail für eine leere oder stornierte Bestellung
             senden_an(request.mandant, an, betreff, text, bestellung_pdf(b), f"{b.nummer}.pdf", bezug=b.nummer, benutzer=request.user)
             services.bestellen(b)
             messages.success(request, f"Bestellung an {an} gesendet.")
@@ -460,10 +471,14 @@ def bestellung_aus_beleg(request, beleg_id):
 @mit_mandant
 def vorschlag(request):
     if request.method == "POST":
-        auswahl = []
-        for artikel_id in request.POST.getlist("auswahl"):
-            auswahl.append((int(artikel_id), zahl(request.POST.get(f"menge_{artikel_id}"), Decimal("1"))))
         try:
+            auswahl = []
+            for artikel_id in request.POST.getlist("auswahl"):
+                if not artikel_id.isdigit():
+                    raise ValueError("Ungültige Artikelauswahl.")
+                auswahl.append((int(artikel_id), zahl(request.POST.get(f"menge_{artikel_id}"), Decimal("1"))))
+            if not auswahl:
+                raise ValueError("Bitte mindestens einen Artikel auswählen.")
             liste = services.bestellungen_aus_vorschlag(request.mandant, auswahl)
             messages.success(request, f"{len(liste)} Bestellung(en) angelegt (nicht abgeschlossen).")
             return redirect("einkauf:bestellungen")
@@ -487,6 +502,7 @@ def wareneingaenge(request):
 
 @mit_mandant
 @require_POST
+@schutz("einkauf:wareneingaenge")
 def wareneingang_neu(request):
     if request.POST.get("bestellung"):
         b = get_object_or_404(Bestellung, pk=request.POST["bestellung"], mandant=request.mandant)
@@ -527,6 +543,18 @@ def wareneingang_detail(request, we_id):
 def artikel_formular_url(eintrag, we, **bezug):
     """Neuer Artikel aus einem Preislistenartikel, vorausgefüllt, mit Rückweg in den Wareneingang."""
     return f"{reverse('stammdaten:artikel_neu')}?{urlencode({'kopie_von_pl': eintrag.pk, 'we': we.pk, **bezug})}"
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:wareneingang", "we_id")
+def wareneingang_loeschen(request, we_id):
+    """Ungebuchten Wareneingang löschen; die Mengen bleiben in der Bestellung offen."""
+    we = we_holen(request, we_id)
+    bestellung_id = we.bestellung_id
+    nummer = services.wareneingang_loeschen(we)
+    messages.success(request, f"Wareneingang {nummer} gelöscht.")
+    return redirect("einkauf:bestellung", bestellung_id=bestellung_id) if bestellung_id else redirect("einkauf:wareneingaenge")
 
 
 @mit_mandant
@@ -690,11 +718,22 @@ def rechnung_erechnung(request):
     if not datei:
         raise ValueError("Bitte eine XRechnung-/ZUGFeRD-Datei (XML oder PDF) wählen.")
     daten = erechnung.lese(datei.name, datei.read())
+    ust_mandant, ust_empfaenger = ust_normal(request.mandant.ust_id), ust_normal(daten["empfaenger_ust_id"])
+    if ust_mandant and ust_empfaenger and ust_mandant != ust_empfaenger:
+        raise ValueError(f"Die Rechnung ist an eine andere USt-ID gerichtet ({daten['empfaenger_ust_id']}"
+                         f"{', ' + daten['empfaenger'] if daten['empfaenger'] else ''}) als die des Mandanten – nicht übernommen.")
     lieferant = Lieferant.objects.filter(ust_id__iexact=daten["ust_id"]).first() if daten["ust_id"] else None
-    lieferant = lieferant or Lieferant.objects.filter(name1__iexact=daten["lieferant"]).first() \
-        or Lieferant.objects.filter(name1__icontains=daten["lieferant"][:20]).first() if daten["lieferant"] else lieferant
+    if lieferant is None and daten["lieferant"]:
+        lieferant = Lieferant.objects.filter(name1__iexact=daten["lieferant"]).first()
+    if lieferant is None and daten["lieferant"]:  # Namensanfang nur bei genau einem Treffer, sonst wird nicht geraten
+        treffer = list(Lieferant.objects.filter(name1__icontains=daten["lieferant"][:20])[:2])
+        lieferant = treffer[0] if len(treffer) == 1 else None
     if lieferant is None:
         raise ValueError(f"Lieferant '{daten['lieferant']}' nicht gefunden – bitte zuerst als Lieferant anlegen.")
+    ust_lieferant = ust_normal(lieferant.ust_id)
+    if daten["ust_id"] and ust_lieferant and ust_normal(daten["ust_id"]) != ust_lieferant:
+        raise ValueError(f"Die USt-ID in der Rechnung ({daten['ust_id']}) passt nicht zu Lieferant {lieferant.name1} "
+                         f"({lieferant.ust_id}) – nicht übernommen.")
     r = services.rechnung_erfassen(request.mandant, lieferant, daten["nummer"], daten["datum"], daten["netto"],
                                    daten["brutto"], daten["steuer"], quelle="e-rechnung")
     if daten["faellig"]:
@@ -851,7 +890,11 @@ def rma_aus_reparatur(request, reparatur_id):
     rep = get_object_or_404(Reparatur, pk=reparatur_id, mandant=request.mandant)
     if request.method == "POST":
         lieferant = get_object_or_404(Lieferant, pk=request.POST.get("lieferant"))
-        rma = services.rma_anlegen(request.mandant, lieferant, rep.geraet, rep.fehler, rep.artikel, rep.seriennummer, rep)
+        try:
+            rma = services.rma_anlegen(request.mandant, lieferant, rep.geraet, rep.fehler, rep.artikel, rep.seriennummer, rep)
+        except ValueError as fehler:  # z. B. Doppelklick: es gibt schon eine offene RMA zum Werkstattauftrag
+            messages.error(request, str(fehler))
+            return redirect("einkauf:rma_liste")
         messages.success(request, f"{rma.nummer} angelegt; Werkstattauftrag steht auf „in Lieferanten-RMA“.")
         return redirect("einkauf:rma", rma_id=rma.pk)
     return render(request, "einkauf/rma_aus_reparatur.html", {"rep": rep, "lieferanten": lieferanten_auswahl()})
@@ -862,9 +905,15 @@ def rma_detail(request, rma_id):
     rma = get_object_or_404(Rma.objects.select_related("lieferant", "reparatur"), pk=rma_id, mandant=request.mandant)
     if request.method == "POST":
         try:
-            rma.status = request.POST.get("status", rma.status)
-            rma.lieferanten_rma_nr = request.POST.get("lieferanten_rma_nr", "").strip()
-            rma.gutschrift_betrag = zahl(request.POST.get("gutschrift_betrag"))
+            status = request.POST.get("status", rma.status)
+            if status not in RmaStatus.values:
+                raise ValueError("Ungültiger Status.")
+            gutschrift = zahl(request.POST.get("gutschrift_betrag"))
+            if gutschrift is not None and not Decimal("0") <= gutschrift < Decimal("10000000000"):
+                raise ValueError("Der Gutschriftbetrag darf nicht negativ sein.")
+            rma.status = status
+            rma.lieferanten_rma_nr = request.POST.get("lieferanten_rma_nr", "").strip()[:60]
+            rma.gutschrift_betrag = services.ek_runden(gutschrift) if gutschrift is not None else None
             rma.notiz = request.POST.get("notiz", "")
             if rma.status == RmaStatus.EINGESENDET and not rma.eingesendet_am:
                 rma.eingesendet_am = date.today()

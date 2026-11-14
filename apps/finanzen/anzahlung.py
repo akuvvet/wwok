@@ -294,6 +294,8 @@ def proforma_stornieren(pf, grund, benutzer=None) -> Beleg:
     pf = Beleg.objects.select_for_update().get(pk=pf.pk)
     if pf.art != Belegart.PROFORMA:
         raise ValueError("Storniert wird hier nur eine Proforma-Rechnung.")
+    if pf.vorlaeufig:  # nicht gespeicherte Proforma: verwerfen statt stornieren (war nur in der Maske gesperrt)
+        raise ValueError("Das Storno geht erst nach „Speichern: abschließen & Nummer vergeben“ – eine nicht gespeicherte Proforma bitte verwerfen.")
     if pf.proforma_storno:
         raise ValueError(f"{pf} ist bereits storniert ({pf.proforma_storno}).")
     if pf.proforma_rechnung:

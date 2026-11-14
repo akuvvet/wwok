@@ -77,6 +77,8 @@ def lese_xml(inhalt: bytes) -> dict:
             "faellig": datum(text(wurzel, "SpecifiedTradePaymentTerms", "DueDateDateTime", "DateTimeString")),
             "lieferant": text(verkaeufer, "Name"),
             "ust_id": text(verkaeufer, "SpecifiedTaxRegistration", "ID"),
+            "empfaenger": text(finde(wurzel, "BuyerTradeParty"), "Name"),
+            "empfaenger_ust_id": text(finde(wurzel, "BuyerTradeParty"), "SpecifiedTaxRegistration", "ID"),
             "iban": text(wurzel, "PayeePartyCreditorFinancialAccount", "IBANID"),
             "netto": betrag(text(summen, "TaxBasisTotalAmount")),
             "steuer": betrag(text(summen, "TaxTotalAmount")),
@@ -91,6 +93,9 @@ def lese_xml(inhalt: bytes) -> dict:
             "faellig": datum(kind(wurzel, "DueDate")),
             "lieferant": text(verkaeufer, "PartyName", "Name") or text(verkaeufer, "PartyLegalEntity", "RegistrationName"),
             "ust_id": text(verkaeufer, "PartyTaxScheme", "CompanyID"),
+            "empfaenger": text(finde(wurzel, "AccountingCustomerParty"), "PartyName", "Name")
+            or text(finde(wurzel, "AccountingCustomerParty"), "PartyLegalEntity", "RegistrationName"),
+            "empfaenger_ust_id": text(finde(wurzel, "AccountingCustomerParty"), "PartyTaxScheme", "CompanyID"),
             "iban": text(wurzel, "PayeeFinancialAccount", "ID"),
             "netto": betrag(text(summen, "TaxExclusiveAmount")),
             "steuer": betrag(text(wurzel, "TaxTotal", "TaxAmount")),

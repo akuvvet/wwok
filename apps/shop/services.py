@@ -151,10 +151,16 @@ def bestellung_importieren(shop, b: dict):
         artikel = Artikel.objects.filter(nummer=produktnummer).first() if produktnummer else None
         if artikel is None:
             hinweise.append(f"Artikel {produktnummer or z.get('label')} nicht im ERP")
-        Position.objects.create(
+        gruppe = artikel is not None and artikel.typ == "G"  # Gruppenartikel: Preis steht am Kopf, die Komponenten buchen das Lager ab
+        kopf = Position.objects.create(
             beleg=beleg, typ=artikel.typ if artikel else "L", artikel=artikel, bezeichnung=str(z.get("label") or produktnummer)[:255],
             menge=dez(z.get("quantity") or 1), einzelpreis=shop_netto(z.get("unitPrice"), steuer, steuerstatus), steuer_prozent=steuer,
-            zusatztext="" if artikel else f"Artikelnummer im Shop: {produktnummer}")
+            zusatztext="" if artikel else f"Artikelnummer im Shop: {produktnummer}", preis_fest=gruppe)
+        if gruppe:
+            for k in artikel.komponenten.select_related("komponente"):
+                Position.objects.create(
+                    beleg=beleg, gruppe=kopf, typ=k.komponente.typ, artikel=k.komponente, bezeichnung=k.komponente.bezeichnung,
+                    menge=kopf.menge * k.menge, einzelpreis=Decimal("0"), steuer_prozent=steuer)
     versandkosten = g(lieferung, "shippingCosts", "totalPrice", standard=g(b, "shippingCosts", "totalPrice", standard=0))
     if dez(versandkosten):
         beleg.versandkosten = shop_netto(versandkosten, g(lieferung, "shippingCosts", "calculatedTaxes", 0, "taxRate", standard=19), steuerstatus)

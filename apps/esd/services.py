@@ -203,8 +203,11 @@ def fehlende_keys(beleg) -> list:
 @transaction.atomic
 def rueckgabe(vergabe, entscheidung, benutzer=None):
     """Retoure: der Key wird freigegeben (wieder vergebbar) oder gesperrt (nie wieder vergeben)."""
-    if vergabe.status != VergabeStatus.AKTIV:
+    # Vergabe sperren und neu lesen: Ein zweiter Tab hat sie sonst evtl. schon zurückgenommen (Zähler würde doppelt sinken)
+    aktuell = type(vergabe).objects.select_for_update().get(pk=vergabe.pk)
+    if aktuell.status != VergabeStatus.AKTIV:
         raise ValueError("Diese Vergabe ist bereits zurückgenommen.")
+    vergabe.status = aktuell.status
     key = ESDKey.objects.select_for_update().get(pk=vergabe.key_id)
     if entscheidung == "freigeben":
         key.vergeben = max(key.vergeben - 1, 0)
