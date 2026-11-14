@@ -31,6 +31,7 @@
   .gruppe[open] > summary .gpfeil { transform:rotate(180deg); }
   .gruppeninhalt { display:flex; flex-direction:column; gap:2px; margin:2px 0 6px 14px; padding-left:8px; border-left:2px solid var(--rand); }
   .gruppeninhalt .sl-link { font-size:14px; padding:5px 10px; }
+  .sl-titel { font-size:11px; text-transform:uppercase; letter-spacing:.05em; opacity:.65; padding:6px 10px 1px; }
   .sl-link span:not(.ic), .gruppe > summary span:not(.gpfeil) { min-width:0; overflow-wrap:anywhere; }
   .leistenknopf { align-self:flex-end; width:30px; height:26px; padding:0; line-height:1; background:transparent; color:var(--akzent); margin-bottom:4px; }
   .leistenschleier { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:39; }
@@ -44,6 +45,7 @@
     html.leiste-schmal .seitenleiste .untermenue button { padding:3px 0; font-size:10px; text-align:center; overflow:hidden; }
     html.leiste-schmal .seitenleiste .ic { margin-right:0; width:20px; height:20px; }
     html.leiste-schmal .gruppeninhalt { margin:2px 0 6px; padding-left:0; border-left:0; }
+    html.leiste-schmal .seitenleiste .sl-titel { display:none; }
     html.leiste-schmal .leistenknopf { align-self:center; }
     html.leiste-schmal .leistenknopf .pfeil { display:inline-block; transform:rotate(180deg); }
   }
@@ -336,11 +338,15 @@
 <details class="gruppe{% if bereich == 'finanzen' %} aktiv{% endif %}" {% if bereich == 'finanzen' %}open{% endif %}>
 <summary title="Finanzen"><svg class="ic"><use href="#i-finanzen"/></svg><span>Finanzen</span><span class="gpfeil" aria-hidden="true">▾</span></summary>
 <div class="gruppeninhalt">
-<a class="sl-link{% if namensraum == 'finanzen' and un == 'offene_posten' or namensraum == 'finanzen' and un == 'beleg' or namensraum == 'finanzen' and un == 'kontoauszug' %} aktiv{% endif %}" {% if namensraum == 'finanzen' and un == 'offene_posten' or namensraum == 'finanzen' and un == 'beleg' or namensraum == 'finanzen' and un == 'kontoauszug' %}aria-current="page" {% endif %}href="{% url 'finanzen:offene_posten' %}" title="Offene Posten"><svg class="ic"><use href="#i-finanzen"/></svg><span>Offene Posten</span></a>
+<div class="sl-titel">Offene Posten</div>
+<a class="sl-link{% if namensraum == 'finanzen' and un == 'offene_posten' or namensraum == 'finanzen' and un == 'beleg' or namensraum == 'finanzen' and un == 'kontoauszug' %} aktiv{% endif %}" {% if namensraum == 'finanzen' and un == 'offene_posten' or namensraum == 'finanzen' and un == 'beleg' or namensraum == 'finanzen' and un == 'kontoauszug' %}aria-current="page" {% endif %}href="{% url 'finanzen:offene_posten' %}" title="Offene Posten Kunden"><svg class="ic"><use href="#i-finanzen"/></svg><span>Kunden</span></a>
+<a class="sl-link{% if namensraum == 'finanzen' and un == 'op_lieferanten' %} aktiv{% endif %}" {% if namensraum == 'finanzen' and un == 'op_lieferanten' %}aria-current="page" {% endif %}href="{% url 'finanzen:op_lieferanten' %}" title="Offene Posten Lieferanten"><svg class="ic"><use href="#i-rechnung"/></svg><span>Lieferanten</span></a>
+<div class="sl-titel">Zahlungen</div>
+<a class="sl-link{% if namensraum == 'finanzen' and un == 'bank' or namensraum == 'finanzen' and un == 'lastschrift' %} aktiv{% endif %}" {% if namensraum == 'finanzen' and un == 'bank' or namensraum == 'finanzen' and un == 'lastschrift' %}aria-current="page" {% endif %}href="{% url 'finanzen:bank' %}" title="Zahlungen Kunden"><svg class="ic"><use href="#i-bank"/></svg><span>Kunden</span></a>
+<a class="sl-link{% if namensraum == 'finanzen' and un == 'zahlungen_lieferanten' %} aktiv{% endif %}" {% if namensraum == 'finanzen' and un == 'zahlungen_lieferanten' %}aria-current="page" {% endif %}href="{% url 'finanzen:zahlungen_lieferanten' %}" title="Zahlungen Lieferanten"><svg class="ic"><use href="#i-lastschrift"/></svg><span>Lieferanten</span></a>
+<div class="sl-titel">Weiteres</div>
 <a class="sl-link{% if namensraum == 'finanzen' and un == 'mahnwesen' %} aktiv{% endif %}" {% if namensraum == 'finanzen' and un == 'mahnwesen' %}aria-current="page" {% endif %}href="{% url 'finanzen:mahnwesen' %}" title="Mahnwesen"><svg class="ic"><use href="#i-mahnung"/></svg><span>Mahnwesen</span></a>
-<a class="sl-link{% if namensraum == 'finanzen' and un == 'bank' %} aktiv{% endif %}" {% if namensraum == 'finanzen' and un == 'bank' %}aria-current="page" {% endif %}href="{% url 'finanzen:bank' %}" title="Bankabgleich"><svg class="ic"><use href="#i-bank"/></svg><span>Bankabgleich</span></a>
 <a class="sl-link{% if namensraum == 'finanzen' and un == 'kassenbuch' %} aktiv{% endif %}" {% if namensraum == 'finanzen' and un == 'kassenbuch' %}aria-current="page" {% endif %}href="{% url 'finanzen:kassenbuch' %}" title="Kassenbuch"><svg class="ic"><use href="#i-kasse"/></svg><span>Kassenbuch</span></a>
-<a class="sl-link{% if namensraum == 'finanzen' and un == 'lastschrift' %} aktiv{% endif %}" {% if namensraum == 'finanzen' and un == 'lastschrift' %}aria-current="page" {% endif %}href="{% url 'finanzen:lastschrift' %}" title="Lastschrift-Einzug"><svg class="ic"><use href="#i-lastschrift"/></svg><span>Lastschrift-Einzug</span></a>
 <a class="sl-link{% if namensraum == 'finanzen' and un == 'datev' %} aktiv{% endif %}" {% if namensraum == 'finanzen' and un == 'datev' %}aria-current="page" {% endif %}href="{% url 'finanzen:datev' %}" title="DATEV-Export"><svg class="ic"><use href="#i-export"/></svg><span>DATEV-Export</span></a>
 </div></details>
 </nav>

@@ -55,11 +55,12 @@ PFAD = {
     "werkstatt": ("Werkstatt", [("Annahme", "werkstatt:annahme", ["annahme"]),
                                 ("Reparaturen", "werkstatt:liste", ["*"])]),
     "finanzen": ("Finanzen", [("Mahnwesen", "finanzen:mahnwesen", ["mahn*"]),
-                              ("Bankabgleich", "finanzen:bank", ["bank*"]),
+                              ("Zahlungen Kunden", "finanzen:bank", ["bank*", "lastschrift*"]),
+                              ("Zahlungen Lieferanten", "finanzen:zahlungen_lieferanten", ["zahlungen_lieferanten"]),
+                              ("Offene Posten Lieferanten", "finanzen:op_lieferanten", ["op_lieferanten"]),
                               ("Kassenbuch", "finanzen:kassenbuch", ["kassenbuch"]),
-                              ("Lastschrift-Einzug", "finanzen:lastschrift", ["lastschrift*"]),
                               ("DATEV-Export", "finanzen:datev", ["datev"]),
-                              ("Offene Posten", "finanzen:offene_posten", ["*"])]),
+                              ("Offene Posten Kunden", "finanzen:offene_posten", ["*"])]),
 }
 
 

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block titel %}Lieferantenrechnungen – wwok{% endblock %}
-{% block skript %}
+{% block titel %}{% if sicht == 'op' %}Offene Posten Lieferanten{% elif sicht == 'zahlung' %}Zahlungen Lieferanten{% else %}Lieferantenrechnungen{% endif %} – wwok{% endblock %}
+{% block skript %}{% if sicht != 'zahlung' %}
 <script>
   // Lieferant per Suchfeld: die getippte Auswahl wird zur Lieferanten-ID, freier Text gilt nicht
   (function () {
@@ -15,17 +15,19 @@
     feld.addEventListener('change', pruefen);
   })();
 </script>
-{% endblock %}
+{% endif %}{% endblock %}
 {% block inhalt %}
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>Lieferantenrechnungen · Mandant {{ request.mandant }}</h1>
+  <h1>{% if sicht == 'op' %}Offene Posten Lieferanten{% elif sicht == 'zahlung' %}Zahlungen Lieferanten{% else %}Lieferantenrechnungen{% endif %} · Mandant {{ request.mandant }}</h1>
+  {% if sicht == 'zahlung' %}<p style="opacity:.85">Rechnungen ankreuzen und unten die <strong>SEPA-Datei</strong> für die Bank erzeugen. Sie stehen danach unter „SEPA erstellt, nicht gebucht“,
+     bis du die Zahlung in der Rechnung als bezahlt buchst. Neue Rechnungen erfasst du unter <a href="{% url 'finanzen:op_lieferanten' %}">Offene Posten → Lieferanten</a>.</p>{% endif %}
   {% if abweichungen %}<p class="warnung">{{ abweichungen }} Rechnung{{ abweichungen|pluralize:"en" }} weich{{ abweichungen|pluralize:"t,en" }} vom Wareneingang ab – bitte korrigieren oder bestätigen (Zahlung und SEPA-Export sind gesperrt).</p>{% endif %}
-  <p class="zeile"><a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">Nicht bezahlt</a>
+  <p class="zeile"><a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">{% if sicht == 'zahlung' %}Zu zahlen{% else %}Nicht bezahlt{% endif %}</a>
     <a class="knopf {% if status != 'exportiert' %}leise{% endif %}" href="?status=exportiert" title="SEPA-Datei erzeugt, Zahlung noch nicht als bezahlt gebucht">SEPA erstellt, nicht gebucht</a>
     <a class="knopf {% if status != 'bezahlt' %}leise{% endif %}" href="?status=bezahlt">Bezahlt</a>
     <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a></p>
-  <form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile">{% csrf_token %}
+  {% if sicht != 'zahlung' %}<form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile">{% csrf_token %}
     <div><label for="lieferantsuche">Lieferant (Name, Kurzname oder Nummer tippen)</label>
       <input id="lieferantsuche" list="lieferantenliste" size="30" autocomplete="off" required>
       <input type="hidden" name="lieferant" id="lieferantid">
@@ -39,7 +41,7 @@
   <form method="post" action="{% url 'einkauf:rechnung_erechnung' %}" enctype="multipart/form-data" class="zeile" style="margin-top:10px">{% csrf_token %}
     <div><label>E-Rechnung einlesen (XRechnung/ZUGFeRD: XML oder PDF)</label><input type="file" name="datei" accept=".xml,.pdf"></div>
     <button type="submit" class="leise">Einlesen</button>
-  </form>
+  </form>{% endif %}
 </div>
 <div class="karte">
   <form method="post" action="{% url 'einkauf:sepa' %}">{% csrf_token %}

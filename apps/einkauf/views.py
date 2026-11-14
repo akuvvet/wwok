@@ -636,7 +636,8 @@ def wareneingang_buchen(request, we_id):
 # ---- Lieferantenrechnungen / SEPA -----------------------------------------------------------------
 
 @mit_mandant
-def rechnungen(request):
+def rechnungen(request, sicht=""):
+    """sicht: „“ = Einkauf, „op“ = Finanzen → Offene Posten Lieferanten, „zahlung“ = Finanzen → Zahlungen Lieferanten."""
     status = request.GET.get("status", "offen")
     liste = Lieferantenrechnung.objects.filter(mandant=request.mandant).select_related("lieferant") \
         .prefetch_related("wareneingaenge__positionen")
@@ -649,7 +650,7 @@ def rechnungen(request):
     return render(request, "einkauf/rechnungen.html", {
         "abweichungen": sum(1 for _, a, _ in zeilen if a["offen"]),
         "seite": seite, "parameter": parameter,
-        "zeilen": zeilen, "status": status, "lieferanten": lieferanten_auswahl(),
+        "zeilen": zeilen, "status": status, "sicht": sicht, "lieferanten": lieferanten_auswahl(),
         "heute": date.today().isoformat(), "summe": sum((z[2] for z in zeilen), Decimal("0"))})
 
 

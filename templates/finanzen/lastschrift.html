@@ -2,8 +2,10 @@
 {% block titel %}Lastschrift-Einzug – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
-  <h1>Lastschrift-Einzug · Mandant {{ request.mandant }}</h1>
-  <p><a href="{% url 'finanzen:offene_posten' %}">← Offene Posten</a></p>
+  <h1>Zahlungen Kunden: Lastschrift-Einzug · Mandant {{ request.mandant }}</h1>
+  <p class="zeile"><a class="knopf leise" href="{% url 'finanzen:bank' %}">Bankabgleich</a>
+    <a class="knopf" href="{% url 'finanzen:lastschrift' %}">Lastschrift-Einzug (SEPA-Datei)</a>
+    <a class="knopf leise" href="{% url 'finanzen:offene_posten' %}">Zahlung von Hand: Rechnung in Offene Posten öffnen</a></p>
   {% if glaeubiger_fehlt %}<div class="warnung">Für {{ request.mandant }} fehlen IBAN oder Gläubiger-ID (Verwaltung → Mandanten). Ohne sie kann keine Datei erzeugt werden.</div>{% endif %}
   <p style="opacity:.85">Wähle die offenen Rechnungen, die per <strong>SEPA-Basis-Lastschrift</strong> eingezogen werden sollen. Der Kunde braucht ein Mandat
      (IBAN, Mandatsreferenz und Mandatsdatum unter Kunde → Steuer &amp; Bank). Die Datei lädst du bei der Bank bzw. in StarMoney hoch.

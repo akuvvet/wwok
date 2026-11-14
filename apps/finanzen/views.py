@@ -314,6 +314,20 @@ def mahnung_mail(request, mahnung_id):
     return render(request, "finanzen/mahnung_mail.html", {"mahnung": mahnung, "an": an, "betreff": betreff, "text": text})
 
 
+# ---- Lieferanten: dieselbe Liste wie Einkauf → Lieferantenrechnungen, nach Aufgabe getrennt -----------
+
+def op_lieferanten(request):
+    """Offene Posten Lieferanten: unbezahlte Rechnungen, Rechnung erfassen, E-Rechnung einlesen."""
+    from apps.einkauf.views import rechnungen
+    return rechnungen(request, sicht="op")
+
+
+def zahlungen_lieferanten(request):
+    """Zahlungen Lieferanten: Rechnungen auswählen, SEPA-Datei erzeugen, exportierte bis zur Buchung verfolgen."""
+    from apps.einkauf.views import rechnungen
+    return rechnungen(request, sicht="zahlung")
+
+
 # ---- Zahlungsabgleich (Bankauszug) -------------------------------------------------------------
 
 @mit_mandant
