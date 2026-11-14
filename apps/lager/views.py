@@ -321,7 +321,7 @@ def inventur_liste(request):
             wert = request.POST.get(f"gezaehlt_{a.pk}", "").strip()
             if wert:
                 try:
-                    gebucht += bool(inventur(request.mandant, a, zahl(wert), request.user))
+                    gebucht += bool(inventur(request.mandant, a, zahl(wert), request.user, soll=zahl(request.POST.get(f"soll_{a.pk}"))))
                 except ValueError as fehler:
                     messages.error(request, f"{a.nummer}: {fehler}")
         messages.success(request, f"{gebucht} Differenzbuchung(en) erstellt.")

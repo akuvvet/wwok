@@ -58,6 +58,10 @@ def status_setzen(reparatur, status, benutzer=None, mail=True) -> str:
 
 
 def position_hinzufuegen(reparatur, art, bezeichnung, menge, preis, artikel=None) -> ReparaturPosition:
+    if reparatur.rechnung_id or reparatur.teile_gebucht:  # sonst würde das Teil nie abgebucht bzw. nie berechnet
+        raise ValueError("Es gibt bereits eine Rechnung bzw. gebuchte Teile; Positionen sind gesperrt.")
+    if menge is None or menge <= 0:  # negative Menge wäre beim Abbuchen ein Lagerzugang ohne Ware
+        raise ValueError("Die Menge muss größer als 0 sein.")
     steuer = artikel.steuersatz.prozent if artikel else Decimal("19")
     return ReparaturPosition.objects.create(reparatur=reparatur, art=art, artikel=artikel, bezeichnung=bezeichnung,
                                             menge=menge, einzelpreis=preis, steuer_prozent=steuer)

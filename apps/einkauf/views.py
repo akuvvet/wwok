@@ -372,6 +372,16 @@ def bestellung_bestellen(request, bestellung_id):
 
 @mit_mandant
 @require_POST
+@schutz("einkauf:bestellung", "bestellung_id")
+def bestellung_rest_schliessen(request, bestellung_id):
+    b = bestellung_holen(request, bestellung_id)
+    weg = services.rest_schliessen(b)
+    messages.success(request, "Bestellung abgeschlossen, Rest gestrichen: " + ", ".join(weg))
+    return redirect("einkauf:bestellung", bestellung_id=b.pk)
+
+
+@mit_mandant
+@require_POST
 def bestellung_stornieren(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
     if b.wareneingaenge.exists():
