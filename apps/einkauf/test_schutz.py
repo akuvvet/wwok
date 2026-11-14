@@ -8,7 +8,7 @@ from django.urls import reverse
 from apps.kern.models import Mandant
 from apps.lager.models import bestand
 from apps.stammdaten import ekkalk
-from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel, Steuersatz
+from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Hersteller, Lieferant, Preislistenartikel, Steuersatz
 
 from . import preislisten, services
 from .models import Preislistenimport, Preispruefung, Preislistenprofil
@@ -49,8 +49,9 @@ class ImportSchutzTest(TestCase):
     def setUp(self):
         self.lf = Lieferant.objects.create(nummer="L1", name1="API GmbH", kurzname="API")
         st = steuersatz()
+        fabrikat = Hersteller.objects.create(name="Fabrikat")  # Verknüpfung nur mit Herstellernummer UND Hersteller/EAN
         for i in range(10):
-            Artikel.objects.create(nummer=f"A{i}", bezeichnung=f"Artikel {i}", herstellernummer=f"H{i}", steuersatz=st)
+            Artikel.objects.create(nummer=f"A{i}", bezeichnung=f"Artikel {i}", herstellernummer=f"H{i}", hersteller=fabrikat, steuersatz=st)
         self.p = Preislistenprofil.objects.create(
             lieferant=self.lf, name="Liste", sp_bestellnummer="Best.-Nr.", sp_herstellernummer="Herst.-Nr.", sp_ean="EAN",
             sp_bezeichnung="Bezeichnung", sp_hersteller="Hersteller", sp_ek="EK", sp_bestand="Bestand", sp_lieferzeit="Lieferzeit")

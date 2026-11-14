@@ -375,6 +375,7 @@ def beleg_kopf(request, beleg_id):
         beleg.ansprechpartner = Ansprechpartner.objects.filter(
             pk=request.POST.get("ansprechpartner") or None, kunde=beleg.kunde).first()
         beleg.rechnungsanschrift = request.POST.get("rechnungsanschrift", "")
+        beleg.kaeufer_aus_anschrift()
         beleg.versandanschrift = request.POST.get("versandanschrift", "")
         beleg.bemerkung = request.POST.get("bemerkung", "")
         beleg.versandkosten = dezimal(request.POST.get("versandkosten"), Decimal("0"))

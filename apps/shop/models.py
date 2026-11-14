@@ -69,6 +69,12 @@ class ShopBestellung(models.Model):
     beleg = models.ForeignKey("verkauf.Beleg", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
     importiert_am = models.DateTimeField(default=timezone.now)
     hinweis = models.CharField(max_length=300, blank=True)
+    zahlung_gebucht = models.BooleanField(
+        "Zahlung aus dem Shop gebucht", default=False,
+        help_text="Die Zahlung wird genau einmal gebucht, sobald der Shop die Bestellung als bezahlt meldet.")
+    im_shop_storniert_am = models.DateTimeField(
+        "im Shop storniert am", null=True, blank=True,
+        help_text="Nur ein Hinweis: In wwok wird nichts automatisch storniert.")
 
     class Meta:
         verbose_name = "Shop-Bestellung"

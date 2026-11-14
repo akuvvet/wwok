@@ -1,6 +1,6 @@
 import os
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from urllib.parse import urlencode
 
 from django.contrib import messages
@@ -651,7 +651,7 @@ def wareneingang_buchen(request, we_id):
             wert = zahl(request.POST.get(feld), Decimal("0"))
             if not Decimal("0") <= wert < Decimal("100000000"):
                 raise ValueError(f"{name} dürfen nicht negativ sein.")
-            setattr(we, feld, wert.quantize(Decimal("0.01")))
+            setattr(we, feld, wert.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
             felder.append(feld)
         we.save(update_fields=felder)
         if request.POST.get("aktion") == "kosten":
@@ -704,7 +704,7 @@ def rechnung_neu(request):
     if brutto is None or not request.POST.get("rechnungsnummer", "").strip():
         raise ValueError("Rechnungsnummer und Bruttobetrag sind Pflicht.")
     if netto is None:
-        netto = (brutto / Decimal("1.19")).quantize(Decimal("0.01"))
+        netto = (brutto / Decimal("1.19")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     r = services.rechnung_erfassen(request.mandant, lieferant, request.POST["rechnungsnummer"].strip(),
                                    tag(request.POST.get("datum")), netto, brutto)
     return redirect("einkauf:rechnung", rechnung_id=r.pk)

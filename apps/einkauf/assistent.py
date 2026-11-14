@@ -1,6 +1,6 @@
 """Importassistent: Format einer hochgeladenen Datei erkennen, Spalten zuordnen, Artikelpreise (EK/VK) einlesen."""
 import xml.etree.ElementTree as ET
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from apps.stammdaten.models import Artikel
 
@@ -172,7 +172,7 @@ def artikelpreise(profil, inhalt: bytes, schluessel: str, spalte_schluessel: str
                     preis = preis / (1 + artikel.steuersatz.prozent / 100)
                 if preis < 0:
                     raise ValueError("Preis ist negativ.")
-                neu[feld] = preis.quantize(Decimal("0.0001") if feld == "ek" else Decimal("0.01"))
+                neu[feld] = preis.quantize(Decimal("0.0001") if feld == "ek" else Decimal("0.01"), rounding=ROUND_HALF_UP)
         except ValueError as grund:
             ergebnis["fehler"] += 1
             merke({"zeile": nr, "schluessel": wert, "grund": str(grund)})

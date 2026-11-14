@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.kern.models import Mandant
-from apps.stammdaten.models import Artikel, ArtikelLieferant, Lieferant, Preislistenartikel, Steuersatz
+from apps.stammdaten.models import Artikel, ArtikelLieferant, Hersteller, Lieferant, Preislistenartikel, Steuersatz
 
 from . import assistent
 from .models import Preislistenprofil
@@ -25,6 +25,7 @@ class AssistentTest(TestCase):
         self.lf = Lieferant.objects.create(nummer="L1", name1="Techdata GmbH")
         self.st = Steuersatz.objects.get(nummer=1)
         self.maus = Artikel.objects.create(nummer="M1", bezeichnung="Maus", herstellernummer="MX-100", steuersatz=self.st,
+                                           hersteller=Hersteller.objects.create(name="Logitech"),
                                            vk1=Decimal("20"), durchschnitts_ek=Decimal("10"))
         self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14, is_staff=True))
         s = self.client.session

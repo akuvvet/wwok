@@ -44,7 +44,9 @@ class FakeClient(ShopwareClient):
         self.gesendet = []
         self.seit = None
 
-    def bestellungen(self, seit=None, seite=1, limit=50):
+    def bestellungen(self, seit=None, seite=1, limit=50, ids=None):
+        if ids:
+            return {"data": [b for b in self._bestellungen if b.get("id") in ids], "total": 0}
         self.seit = seit
         return {"data": self._bestellungen if seite == 1 else [], "total": len(self._bestellungen)}
 

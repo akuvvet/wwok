@@ -166,14 +166,38 @@ def teilung(beleg):
     return lieferbar, knapp
 
 
+EK_ZUGANG = (Bewegungsart.WARENEINGANG, Bewegungsart.ANFANGSBESTAND)
+
+
+def _durchschnitts_ek_fortschreiben(mandant, artikel, bestand_alt, menge, preis):
+    """Ø-EK im Mandanten fortschreiben (gleiche Rechnung wie beim Wareneingang), ohne den letzten Wareneingangs-EK anzufassen.
+    Aufruf vor der Lagerbuchung. Nur Lager- und Lieferantenartikel haben einen Ø-EK."""
+    from apps.stammdaten.ekkalk import neuer_durchschnitts_ek
+    from apps.stammdaten.models import ArtikelMandant, Artikeltyp
+    if artikel.typ not in (Artikeltyp.A, Artikeltyp.P):
+        return
+    am, _ = ArtikelMandant.objects.get_or_create(artikel=artikel, mandant=mandant)
+    am.ek_avg = neuer_durchschnitts_ek(bestand_alt, am.ek_avg, menge, preis)
+    am.save(update_fields=["ek_avg"])
+
+
 @transaction.atomic
-def buche_manuell(mandant, artikel, art, menge, bemerkung="", benutzer=None):
+def buche_manuell(mandant, artikel, art, menge, bemerkung="", benutzer=None, ek=None):
+    """Manuelle Lagerbuchung. ek (netto je Stück) nur bei einem Zugang (Wareneingang, Anfangsbestand): schreibt den Ø-EK fort."""
+    from apps.stammdaten.models import Artikel
     if art in (Bewegungsart.EIGENVERBRAUCH, Bewegungsart.VERKAUF):
         menge = -abs(menge)
     elif art in (Bewegungsart.WARENEINGANG, Bewegungsart.RETOURE, Bewegungsart.ANFANGSBESTAND):
         menge = abs(menge)
     if menge == 0:
         raise ValueError("Menge darf nicht 0 sein.")
+    if ek is not None:
+        if ek < 0:
+            raise ValueError("Der EK darf nicht negativ sein.")
+        if art not in EK_ZUGANG or menge < 0:
+            raise ValueError("Ein EK-Preis ist nur bei einem Zugang (Wareneingang, Anfangsbestand) möglich.")
+        list(Artikel.objects.select_for_update().filter(pk=artikel.pk).values_list("pk", flat=True))
+        _durchschnitts_ek_fortschreiben(mandant, artikel, bestand(mandant, artikel), menge, ek)
     return Lagerbewegung.objects.create(mandant=mandant, artikel=artikel, art=art, menge=menge,
                                         bemerkung=bemerkung, benutzer=benutzer)
 
@@ -261,10 +285,15 @@ def umbuchen(von_mandant, nach_mandant, artikel, menge, benutzer=None, seriennum
     if len(nummern) > menge:
         raise ValueError(f"Mehr Seriennummern ({len(nummern)}) als Menge ({menge:f}).")
     text = f"Umbuchung {von_mandant.kurzname} → {nach_mandant.kurzname}"
+    from apps.stammdaten.models import ArtikelMandant
+    quelle_ek = ArtikelMandant.objects.filter(artikel=artikel, mandant=von_mandant).values_list("ek_avg", flat=True).first()
+    ziel_bestand = bestand(nach_mandant, artikel)  # vor der Buchung, wie beim Wareneingang
     Lagerbewegung.objects.create(mandant=von_mandant, artikel=artikel, art=Bewegungsart.UMBUCHUNG, menge=-menge,
                                  bemerkung=text, benutzer=benutzer)  # prüft den Bestand
     Lagerbewegung.objects.create(mandant=nach_mandant, artikel=artikel, art=Bewegungsart.UMBUCHUNG, menge=menge,
                                  bemerkung=text, benutzer=benutzer)
+    if quelle_ek is not None:  # Ziel übernimmt den Ø-EK der Quelle (gewogen); die Quelle behält ihren
+        _durchschnitts_ek_fortschreiben(nach_mandant, artikel, ziel_bestand, menge, quelle_ek)
     im_lager = Seriennummer.objects.filter(mandant=von_mandant, artikel=artikel, status=Seriennummer.IM_LAGER)
     for nr in nummern:
         sn = im_lager.filter(nummer=nr).first()

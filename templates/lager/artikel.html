@@ -70,6 +70,7 @@
     <div><label>Grund</label><select name="art">{% for wert, name in arten %}<option value="{{ wert }}">{{ name }}</option>{% endfor %}</select></div>
     <div><label>Menge (bei Korrektur auch negativ)</label><input name="menge" size="8"></div>
     <div><label>Bemerkung</label><input name="bemerkung" size="30"></div>
+    <div><label>EK netto je Stück (optional, nur Zugang Wareneingang; schreibt den Ø-EK fort)</label><input name="ek" size="8"></div>
     <div><label>Seriennummern (bei Wareneingang/Retoure, eine pro Zeile)</label><textarea name="seriennummern" rows="2" cols="28"></textarea></div>
     <button type="submit">Buchen</button>
   </form>

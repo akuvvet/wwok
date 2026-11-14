@@ -8,7 +8,7 @@
     {% for t in tabs %}<button type="button" class="tab{% if forloop.first %} aktiv{% endif %}{% if t.fehler %} mit-fehler{% endif %}" data-modaltab="{{ t.id }}">{{ t.titel }}{% if t.formset %} <span class="zaehler">{{ t.formset.initial_form_count }}</span>{% endif %}{% if t.id == "bilder" %} <span class="zaehler" data-bilderzaehler>({{ t.anzahl }}/{{ t.max }})</span>{% endif %}</button>{% endfor %}
   </div>
   {% if warnung %}<div class="warnung" style="margin:10px 0 0">{{ warnung }}
-    <label style="display:flex;gap:8px;align-items:center;opacity:1;margin-top:6px"><input type="checkbox" name="trotzdem" value="1"> Trotzdem anlegen</label></div>{% endif %}
+    <label style="display:flex;gap:8px;align-items:center;opacity:1;margin-top:6px"><input type="checkbox" name="trotzdem" value="1"> {{ trotzdem_text|default:"Trotzdem anlegen" }}</label></div>{% endif %}
   {% if form.non_field_errors %}<div class="warnung" style="margin:10px 0 0">{{ form.non_field_errors }}</div>{% endif %}
 
   {% for t in tabs %}

@@ -36,6 +36,7 @@ class SkontoTest(TestCase):
                                  zahlungsbedingung=self.zb if zb == "ja" else None)
         Position.objects.create(beleg=b, artikel=self.a, bezeichnung="Maus", menge=Decimal("10"), einzelpreis=Decimal("10"))
         b.abschliessen()
+        Beleg.objects.filter(pk=b.pk).update(belegdatum=date(2026, 11, 1))  # der Abschluss setzt das Tagesdatum: festes Datum für die Frist
         b.refresh_from_db()
         self.assertEqual(b.summe_brutto, Decimal("119.00"))
         return b

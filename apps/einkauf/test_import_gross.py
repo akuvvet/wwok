@@ -6,7 +6,7 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from apps.stammdaten.models import Artikel, ArtikelLieferant, Lieferant, Preislistenartikel
+from apps.stammdaten.models import Artikel, ArtikelLieferant, Hersteller, Lieferant, Preislistenartikel
 
 from . import preislisten
 from .models import Preislistenprofil
@@ -71,7 +71,7 @@ class GrosseListeTest(TestCase):
     def test_artikel_wird_spaeter_angelegt_und_beim_naechsten_import_verknuepft(self):
         preislisten.importieren(self.p, csv_text(2))
         self.assertFalse(Preislistenartikel.objects.exclude(artikel=None).exists())
-        a = Artikel.objects.create(nummer="EIGEN1", bezeichnung="Eigener", herstellernummer="H1",
+        a = Artikel.objects.create(nummer="EIGEN1", bezeichnung="Eigener", herstellernummer="H1", hersteller=Hersteller.objects.create(name="Fabrikat"),
                                    steuersatz=__import__("apps.stammdaten.models", fromlist=["Steuersatz"]).Steuersatz.objects.get(nummer=1))
         prot = preislisten.importieren(self.p, csv_text(2))
         self.assertEqual(prot.geaendert, 1)  # nur die Zeile mit der passenden Herstellernummer bekommt die Verknüpfung

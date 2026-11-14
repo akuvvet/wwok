@@ -77,6 +77,8 @@ class MaskeTest(TestCase):
         alt = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde, belegdatum=heute - timedelta(days=40))
         Position.objects.create(beleg=alt, bezeichnung="Dienst", einzelpreis=Decimal("100"))
         alt.abschliessen()
+        Beleg.objects.filter(pk=alt.pk).update(belegdatum=heute - timedelta(days=40))  # der Abschluss setzt das Tagesdatum: Alter danach einstellen
+        alt.refresh_from_db()
         services.zahlung_buchen(alt, Decimal("19"), heute, "ue")
         gs = alt.gutschrift_erzeugen()
         for i in range(30):  # mehr als eine Seite

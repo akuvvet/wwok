@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.test import TestCase
 
 from apps.kern.models import Mandant
-from apps.stammdaten.models import Artikel, ArtikelLieferant, Kunde, Lieferant, Preislistenartikel, Steuersatz
+from apps.stammdaten.models import Artikel, ArtikelLieferant, Hersteller, Kunde, Lieferant, Preislistenartikel, Steuersatz
 from apps.verkauf.models import Beleg, Belegart, Position
 
 from . import preislisten, services
@@ -38,7 +38,8 @@ class VeralteteEntfernenTest(TestCase):
 
     def test_verknuepfter_lieferantenpreis_und_belegverweise(self):
         st = Steuersatz.objects.get(nummer=1)
-        eigen = Artikel.objects.create(nummer="EIGEN", bezeichnung="Eigener", herstellernummer="H3", steuersatz=st)
+        eigen = Artikel.objects.create(nummer="EIGEN", bezeichnung="Eigener", herstellernummer="H3", steuersatz=st,
+                                       hersteller=Hersteller.objects.create(name="Fabrikat"))
         preislisten.importieren(self.p, csv_text(range(5)))
         self.assertEqual(ArtikelLieferant.objects.get().artikel, eigen)  # B3 ist verknüpft
         m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")

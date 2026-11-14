@@ -38,6 +38,7 @@ class LastschriftBankTest(TestCase):
         b = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.k, belegdatum=date(2026, 11, 1))
         Position.objects.create(beleg=b, bezeichnung="Dienst", einzelpreis=Decimal("100"))
         b.abschliessen()
+        Beleg.objects.filter(pk=b.pk).update(belegdatum=date(2026, 11, 1))  # der Abschluss setzt das Tagesdatum
         b.refresh_from_db()
         return b
 

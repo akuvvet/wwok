@@ -9,7 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.kern.models import Mandant
-from apps.stammdaten.models import Artikel, ArtikelLieferant, Lieferant, Preislistenartikel, Steuersatz
+from apps.stammdaten.models import Artikel, ArtikelLieferant, Hersteller, Lieferant, Preislistenartikel, Steuersatz
 
 from . import preislisten
 from .models import Preislistenprofil
@@ -38,7 +38,8 @@ class PreislistenTest(TestCase):
         self.lf = Lieferant.objects.create(nummer="L1", name1="Techdata GmbH", kurzname="Techdata")
         st = Steuersatz.objects.get(nummer=1)  # per Migration vorbelegt (19 %)
         self.maus = Artikel.objects.create(nummer="M1", bezeichnung="Maus", herstellernummer="MX-100",
-                                           ean="4012345678901", steuersatz=st)
+                                           ean="4012345678901", steuersatz=st,
+                                           hersteller=Hersteller.objects.create(name="Logitech"))
 
     def test_vorschau_schreibt_nichts(self):
         p = profil(self.lf)
@@ -77,9 +78,9 @@ class PreislistenTest(TestCase):
         self.assertFalse(Preislistenartikel.objects.filter(bestellnummer="TD-2").exists())
 
     def test_spaltennummern_ohne_kopfzeile_und_punkt_dezimal_ansi(self):
-        text = "TD-9|MX-100|9.99|7|Maus neu\n"
+        text = "TD-9|MX-100|9.99|7|Maus neu|Logitech\n"
         p = profil(self.lf, trennzeichen="|", zeichensatz="cp1252", dezimaltrennzeichen=".", kopfzeile=False, erste_datenzeile=1,
-                   sp_bestellnummer="1", sp_herstellernummer="2", sp_ean="", sp_bezeichnung="5", sp_hersteller="", sp_ek="3",
+                   sp_bestellnummer="1", sp_herstellernummer="2", sp_ean="", sp_bezeichnung="5", sp_hersteller="6", sp_ek="3",
                    sp_bestand="4", sp_lieferzeit="")
         prot = preislisten.importieren(p, text.encode("cp1252"))
         self.assertEqual((prot.neu, prot.fehler), (1, 0))

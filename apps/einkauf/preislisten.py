@@ -7,7 +7,7 @@ import os
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from datetime import timedelta
 
@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from apps.stammdaten.models import Artikel, ArtikelLieferant, Preislistenartikel
 
+from .services import gleicher_artikel
 from .models import BestellPosition, BestellStatus, Dateityp, Preislistenimport, Preislistenprofil, Preispruefung, Quelle
 
 FELDER = ("bestellnummer", "herstellernummer", "ean", "bezeichnung", "hersteller", "kategorie", "ek",
@@ -219,14 +220,24 @@ def mass(wert: str, feld: str, dezimal: str):
 # ---- Import -----------------------------------------------------------------------------------------
 
 def artikel_finden(zeile: dict):
-    """Eigener Artikel (Typ A/L/G) zur Zeile: über die Herstellernummer, ersatzweise über die EAN."""
+    """Eigener Artikel (Typ A/L/G) zur Zeile: Herstellernummer nur zusammen mit gleichem Hersteller oder gleicher EAN
+    (wie bei der Zuordnung im Wareneingang), ersatzweise allein über die EAN."""
     if zeile.get("herstellernummer"):
-        a = Artikel.objects.filter(herstellernummer__iexact=zeile["herstellernummer"]).first()
-        if a:
-            return a
+        for a in Artikel.objects.filter(herstellernummer__iexact=zeile["herstellernummer"]).select_related("hersteller").order_by("pk"):
+            if gleicher_artikel(zeile.get("hersteller", ""), zeile.get("ean", ""), a.hersteller.name if a.hersteller_id else "", a.ean):
+                return a
     if zeile.get("ean"):
         return Artikel.objects.filter(ean=zeile["ean"]).first()
     return None
+
+
+def artikel_zuordnen(hnr: str, hersteller: str, ean: str, nach_hnr: dict, nach_ean: dict):
+    """Artikel-ID zu einer Preislistenzeile aus den vorberechneten Verzeichnissen (siehe _importieren) oder None."""
+    if hnr:
+        for artikel_id, art_ean, art_hersteller in nach_hnr.get(hnr.lower(), ()):
+            if gleicher_artikel(hersteller, ean, art_hersteller, art_ean):
+                return artikel_id
+    return nach_ean.get(ean) if ean else None
 
 
 def vorschau(profil, inhalt: bytes, anzahl: int = 15) -> dict:
@@ -374,12 +385,10 @@ def _preispaare(profil, zeilen, vorhanden, nach_hnr, nach_ean):
             if alt is None or not alt["ek"]:
                 continue
             hnr, ean = z.get("herstellernummer", "").strip(), z.get("ean", "").strip()[:14]
-            artikel_id = nach_hnr.get(hnr.lower()) if hnr else None
-            if artikel_id is None and ean:
-                artikel_id = nach_ean.get(ean)
+            artikel_id = artikel_zuordnen(hnr, z.get("hersteller", "").strip(), ean, nach_hnr, nach_ean)
             if artikel_id is None and alt["artikel_id"] is None:
                 continue
-            paare.append((alt["ek"], zahl(z.get("ek", ""), profil.dezimaltrennzeichen).quantize(Decimal("0.0001"))))
+            paare.append((alt["ek"], zahl(z.get("ek", ""), profil.dezimaltrennzeichen).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)))
         except (ValueError, ArithmeticError, PreislistenFehler):
             continue
     return paare
@@ -415,9 +424,9 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes =
         vorhanden[bn] = {"id": pk, "ek": ek, "bestand": bestand, "lz": lz, "artikel_id": artikel_id, "bez": bez, "hersteller": hersteller,
                          "masse": dict(zip(MASS_ATTRIBUTE, masse))}
     nach_hnr, nach_ean = {}, {}
-    for artikel_id, hnr, ean in Artikel.objects.values_list("id", "herstellernummer", "ean"):
+    for artikel_id, hnr, ean, art_hersteller in Artikel.objects.order_by("pk").values_list("id", "herstellernummer", "ean", "hersteller__name"):
         if hnr:
-            nach_hnr.setdefault(hnr.lower(), artikel_id)
+            nach_hnr.setdefault(hnr.lower(), []).append((artikel_id, ean or "", art_hersteller or ""))
         if ean:
             nach_ean.setdefault(ean, artikel_id)
     lieferantenpreise = {al.bestellnummer: al for al in ArtikelLieferant.objects.filter(lieferant=lieferant)}
@@ -461,7 +470,7 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes =
             if not bestellnr:
                 raise ValueError("Bestellnummer fehlt.")
             gesehen.add(bestellnr)
-            ek = zahl(z.get("ek", ""), profil.dezimaltrennzeichen).quantize(Decimal("0.0001"))
+            ek = zahl(z.get("ek", ""), profil.dezimaltrennzeichen).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
             if ek < 0:
                 raise ValueError("EK ist negativ.")
             bestand = int(zahl(z["bestand"], profil.dezimaltrennzeichen)) if z.get("bestand") else None
@@ -474,9 +483,7 @@ def _importieren(profil, zeilen: list, dateiname: str, benutzer, inhalt: bytes =
                 if wert is not None:
                     masse[attribut] = wert
 
-            artikel_id = nach_hnr.get(hnr.lower()) if hnr else None
-            if artikel_id is None and ean:
-                artikel_id = nach_ean.get(ean)
+            artikel_id = artikel_zuordnen(hnr, hersteller, ean, nach_hnr, nach_ean)
             alt = vorhanden.get(bestellnr)
 
             if grenze_einzel is not None and alt is not None and alt["ek"] and ek != alt["ek"]:
