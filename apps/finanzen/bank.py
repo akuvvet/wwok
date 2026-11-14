@@ -4,6 +4,7 @@ import hashlib
 import io
 import re
 import xml.etree.ElementTree as ET
+from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
@@ -12,7 +13,10 @@ from django.db import transaction
 from apps.verkauf.models import Beleg, Belegart
 
 from . import services
-from .models import Bankumsatz, Zahlart
+from .models import Bankumsatz, Lastschrift, Zahlart
+
+LASTSCHRIFT_TAGE = 5  # so weit darf die Gutschrift der Bank vom Einzugsdatum abweichen, wenn die Referenz im Auszug fehlt
+RUECKGEBUEHR_MAX = Decimal("20")  # Rücklastschrift: die Bank belastet oft Betrag + Gebühr in einer Summe
 
 RECHNUNGSNR = re.compile(r"(RE|PF)\s?(\d{4})\s?-?\s?(\d{5,})", re.IGNORECASE)  # Rechnung oder Proforma (Vorkasse)
 
@@ -118,7 +122,9 @@ def lese_camt(inhalt: bytes) -> list:
         umsaetze.append({"datum": tag(text(ntry, "BookgDt/Dt") or text(ntry, "ValDt/Dt")), "betrag": betrag,
                          "name": text(details, f"RltdPties/{gegen}/Nm") if details is not None else "",
                          "iban": text(details, f"RltdPties/{gegen_konto}/Id/IBAN") if details is not None else "",
-                         "zweck": zweck or text(ntry, "AddtlNtryInf")})
+                         "zweck": zweck or text(ntry, "AddtlNtryInf"),
+                         "referenz": " ".join(dict.fromkeys(e.text.strip() for e in ntry.iter() if e.text and e.text.strip()
+                                                            and e.tag.rsplit("}", 1)[-1] in ("PmtInfId", "EndToEndId")))})
     return umsaetze
 
 
@@ -164,6 +170,7 @@ def importiere(mandant, dateiname: str, inhalt: bytes, benutzer=None) -> dict:
     """Liest eine Bankdatei ein; Dubletten werden übersprungen, Eingänge automatisch zugeordnet."""
     umsaetze = lese_camt(inhalt) if dateiname.lower().endswith(".xml") else lese_csv(inhalt)
     ergebnis = {"gelesen": len(umsaetze), "neu": 0, "doppelt": 0, "automatisch": 0}
+    neu = []
     gleiche = {}
     for u in umsaetze:
         summe = pruefsumme(mandant, u)
@@ -175,20 +182,84 @@ def importiere(mandant, dateiname: str, inhalt: bytes, benutzer=None) -> dict:
             continue
         umsatz = Bankumsatz.objects.create(mandant=mandant, buchungsdatum=u["datum"], betrag=u["betrag"],
                                            name=u["name"][:150], iban=u["iban"][:34], zweck=u["zweck"][:500],
+                                           referenz=u.get("referenz", "")[:200],
                                            pruefsumme=summe, importiert_von=benutzer)
         ergebnis["neu"] += 1
+        neu.append(umsatz)
+    for umsatz in sorted(neu, key=lambda u: u.betrag < 0):  # erst Eingänge: eine Rücklastschrift braucht die gebuchte Gutschrift
         if zuordnen_automatisch(umsatz, benutzer):
             ergebnis["automatisch"] += 1
     return ergebnis
 
 
+def finde_lastschriften(umsatz) -> list:
+    """Eingereichte, noch nicht gebuchte Lastschriften, deren Sammelgutschrift dieser Eingang ist. Die Bank schreibt je Datei und
+    Sequenz (Erst/Folge) eine Summe gut. Treffer: Referenz der Datei im Auszug und Summe passt; ohne Referenz nur, wenn Summe und
+    Einzugsdatum zu genau einer Sammelbuchung passen."""
+    gruppen, je_datei = defaultdict(list), defaultdict(list)
+    for ls in Lastschrift.objects.filter(mandant=umsatz.mandant, aufgehoben=False, zahlung__isnull=True).select_related("beleg").order_by("id"):
+        gruppen[(ls.datei, ls.sequenz)].append(ls)
+        je_datei[ls.datei].append(ls)
+    passend = [liste for liste in list(gruppen.values()) + list(je_datei.values())
+               if sum((ls.betrag for ls in liste), Decimal("0")) == umsatz.betrag]
+    text = f"{umsatz.zweck} {umsatz.referenz}".upper()
+    mit_referenz = [liste for liste in passend if liste[0].datei and liste[0].datei[:30].upper() in text]
+    if mit_referenz:
+        return mit_referenz[0]
+    nah = {tuple(ls.pk for ls in liste): liste for liste in passend
+           if all(abs((umsatz.buchungsdatum - ls.einzugsdatum).days) <= LASTSCHRIFT_TAGE for ls in liste)}
+    return next(iter(nah.values())) if len(nah) == 1 else []
+
+
+def lastschriften_buchen(umsatz, lastschriften, benutzer=None) -> list:
+    """Sammelgutschrift der Bank: je eingezogener Rechnung ein Zahlungseingang (Zahlart Lastschrift) zum Buchungsdatum."""
+    zahlungen = []
+    for ls in lastschriften:
+        z = services.zahlung_buchen(ls.beleg, ls.betrag, umsatz.buchungsdatum, Zahlart.LASTSCHRIFT,
+                                    f"Lastschrift-Einzug vom {ls.einzugsdatum:%d.%m.%Y}", benutzer, aus_bankumsatz=umsatz)
+        ls.zahlung = z
+        ls.save(update_fields=["zahlung"])
+        zahlungen.append(z)
+    umsatz.zahlung, umsatz.vorschlag, umsatz.status = zahlungen[0], lastschriften[0].beleg, Bankumsatz.ZUGEORDNET
+    umsatz.save(update_fields=["zahlung", "vorschlag", "status"])
+    return zahlungen
+
+
+def ruecklastschrift(umsatz, benutzer=None) -> bool:
+    """Belastung mit der Rechnungsnummer einer eingezogenen Lastschrift: Zahlung stornieren, Lastschrift aufheben – die Rechnung ist
+    wieder offen. Ist die Gutschrift noch nicht eingelesen, bleibt der Umsatz offen (mit Vorschlag) und wird beim Nachbuchen erledigt."""
+    for beleg in finde_rechnungen(umsatz.mandant, f"{umsatz.zweck} {umsatz.referenz}"):
+        ls = Lastschrift.objects.filter(mandant=umsatz.mandant, beleg=beleg, aufgehoben=False).order_by("-id").first()
+        if ls is None or not (ls.betrag <= -umsatz.betrag <= ls.betrag + RUECKGEBUEHR_MAX):
+            continue
+        umsatz.vorschlag = beleg
+        if ls.zahlung_id is None:
+            umsatz.save(update_fields=["vorschlag"])
+            return False
+        services.lastschrift_aufheben(ls, f"Rücklastschrift laut Kontoauszug vom {umsatz.buchungsdatum:%d.%m.%Y}", benutzer,
+                                      datum=umsatz.buchungsdatum)
+        umsatz.status = Bankumsatz.ZUGEORDNET
+        umsatz.save(update_fields=["vorschlag", "status"])
+        return True
+    return False
+
+
 def zuordnen_automatisch(umsatz, benutzer=None) -> bool:
     """Eingang mit Rechnungsnummer(n) im Verwendungszweck wird sofort gebucht, wenn er die offenen Beträge nicht übersteigt:
     genau passend, als Teilzahlung oder der Reihe nach auf mehrere Rechnungen verteilt. Eine Überzahlung bleibt Vorschlag."""
-    if umsatz.betrag <= 0:
-        umsatz.status = Bankumsatz.IGNORIERT if umsatz.betrag < 0 else umsatz.status
-        umsatz.save(update_fields=["status"])
+    if umsatz.betrag < 0:
+        if ruecklastschrift(umsatz, benutzer):
+            return True
+        if umsatz.vorschlag_id is None:  # sonstige Abbuchung; eine Rücklastschrift ohne gebuchte Gutschrift bleibt offen
+            umsatz.status = Bankumsatz.IGNORIERT
+            umsatz.save(update_fields=["status"])
         return False
+    if umsatz.betrag == 0:
+        return False
+    lastschriften = finde_lastschriften(umsatz)
+    if lastschriften:
+        lastschriften_buchen(umsatz, lastschriften, benutzer)
+        return True
     belege = finde_rechnungen(umsatz.mandant, umsatz.zweck)
     if not belege:
         return False
@@ -229,7 +300,9 @@ def zuordnen(umsatz, belege, benutzer=None) -> list:
 def vorschlaege_nachbuchen(mandant, benutzer=None) -> int:
     """Offene Eingänge mit Rechnungsnummer erneut prüfen und buchen (z. B. Teilzahlungen aus älteren Importen)."""
     anzahl = 0
-    for umsatz in Bankumsatz.objects.filter(mandant=mandant, status=Bankumsatz.OFFEN, betrag__gt=0).order_by("buchungsdatum", "id"):
+    offene = Bankumsatz.objects.filter(mandant=mandant, status=Bankumsatz.OFFEN).order_by("buchungsdatum", "id")
+    # erst Eingänge, dann Rücklastschriften, die auf ihre Gutschrift gewartet haben
+    for umsatz in list(offene.filter(betrag__gt=0)) + list(offene.filter(betrag__lt=0, vorschlag__isnull=False)):
         if zuordnen_automatisch(umsatz, benutzer):
             anzahl += 1
     return anzahl

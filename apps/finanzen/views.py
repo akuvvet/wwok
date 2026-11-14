@@ -472,7 +472,7 @@ def lastschrift(request):
     morgen = date.today() + timedelta(days=1)
     return render(request, "finanzen/lastschrift.html", {
         "zeilen": zeilen, "einzug": morgen.isoformat(),
-        "historie": Lastschrift.objects.filter(mandant=request.mandant).select_related("beleg__kunde")[:50],
+        "historie": Lastschrift.objects.filter(mandant=request.mandant).select_related("beleg__kunde", "zahlung")[:50],
         "glaeubiger_fehlt": not request.mandant.glaeubiger_id or not request.mandant.iban})
 
 
@@ -506,12 +506,11 @@ def lastschrift_export(request):
 @nur_admin
 def lastschrift_aufheben(request, ls_id):
     ls = get_object_or_404(Lastschrift, pk=ls_id, mandant=request.mandant)
-    grund = request.POST.get("grund", "").strip()
-    if not grund:
-        messages.error(request, "Bitte einen Grund angeben (z. B. Rücklastschrift, Datei nicht eingereicht).")
-    else:
-        ls.aufgehoben, ls.aufgehoben_grund = True, grund[:300]
-        ls.aufgehoben_von, ls.aufgehoben_am = request.user, timezone.now()
-        ls.save()
-        messages.success(request, f"Lastschrift {ls.beleg.nummer} aufgehoben – die Rechnung kann erneut eingezogen werden.")
+    try:
+        gebucht = ls.zahlung_id is not None
+        services.lastschrift_aufheben(ls, request.POST.get("grund"), request.user)
+        messages.success(request, f"Lastschrift {ls.beleg.nummer} aufgehoben" + (", die gebuchte Zahlung ist storniert" if gebucht else "")
+                         + " – die Rechnung kann erneut eingezogen werden.")
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
     return redirect("finanzen:lastschrift")

@@ -10,7 +10,8 @@
   <p style="opacity:.85">Wähle die offenen Rechnungen, die per <strong>SEPA-Basis-Lastschrift</strong> eingezogen werden sollen. Der Kunde braucht ein Mandat
      (IBAN, Mandatsreferenz und Mandatsdatum unter Kunde → Steuer &amp; Bank). Die Datei lädst du bei der Bank bzw. in StarMoney hoch.
      Der Kunde muss vorab informiert werden (Betrag, Fälligkeit und Mandatsreferenz).
-     Die Zahlung buchst du später über den Bankabgleich.</p>
+     Die Zahlung wird gebucht, sobald die Gutschrift der Bank im Kontoauszug steht (Bankabgleich → Kontoauszug einlesen);
+     eine Rücklastschrift im Kontoauszug storniert sie wieder und hebt die Lastschrift auf.</p>
   <form method="post" action="{% url 'finanzen:lastschrift_export' %}">{% csrf_token %}
     <div class="scroll"><table>
       <thead><tr><th></th><th>Rechnung</th><th>Kunde</th><th>Datum</th><th class="zahl">offen</th><th>Mandat</th></tr></thead>
@@ -34,6 +35,7 @@
     <thead><tr><th>Rechnung</th><th>Kunde</th><th class="zahl">Betrag</th><th>Einzug</th><th>Sequenz</th><th>Status</th></tr></thead>
     <tbody>{% for h in historie %}<tr><td>{{ h.beleg.nummer }}</td><td>{{ h.beleg.kunde.name1 }}</td><td class="zahl">{{ h.betrag }}</td><td>{{ h.einzugsdatum|date:"d.m.Y" }}</td><td>{{ h.get_sequenz_display }}</td>
       <td>{% if h.aufgehoben %}aufgehoben: {{ h.aufgehoben_grund }}{% else %}
+        {% if h.zahlung_id %}Zahlung gebucht am {{ h.zahlung.datum|date:"d.m.Y" }}{% else %}eingereicht – Gutschrift noch nicht im Kontoauszug{% endif %}
         <form method="post" action="{% url 'finanzen:lastschrift_aufheben' h.pk %}" class="zeile" style="gap:4px">{% csrf_token %}
           <input name="grund" placeholder="Grund zum Aufheben" size="22" required><button class="leise" type="submit">Aufheben</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
 </div>

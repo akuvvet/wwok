@@ -27,7 +27,7 @@
     {% for u in umsaetze %}
     <tr><td>{{ u.buchungsdatum|date:"d.m.Y" }}</td><td class="zahl">{{ u.betrag }}</td><td>{{ u.name }}</td><td>{{ u.zweck }}</td>
       <td>
-        {% if u.status == 'zugeordnet' %}{% for z in u.zahlungen.all %}{% if not forloop.first %}, {% endif %}{{ z.beleg.nummer }} ({{ z.betrag|floatformat:"2g" }} €){% empty %}{{ u.vorschlag.nummer }}{% endfor %}
+        {% if u.status == 'zugeordnet' %}{% for z in u.zahlungen.all %}{% if not forloop.first %}, {% endif %}{{ z.beleg.nummer }} ({{ z.betrag|floatformat:"2g" }} €){% empty %}{% if u.betrag < 0 %}Rücklastschrift {% endif %}{{ u.vorschlag.nummer }}{% endfor %}
         {% elif u.status == 'ignoriert' %}ignoriert
         <form method="post" action="{% url 'finanzen:bank_zuordnen' u.pk %}" style="display:inline">{% csrf_token %}
           <button type="submit" name="aktion" value="oeffnen" class="leise">wieder öffnen</button></form>
