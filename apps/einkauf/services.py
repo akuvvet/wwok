@@ -43,6 +43,8 @@ def ek_vorschlag(mandant, lieferant, artikel):
 
 @transaction.atomic
 def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None, benutzer=None) -> Bestellung:
+    if lieferant.gesperrt:  # wie in der Oberfläche: bei gesperrten Lieferanten entstehen keine neuen Belege
+        raise ValueError(f"Lieferant {lieferant.name1} ist gesperrt – es lässt sich keine Bestellung anlegen.")
     return Bestellung.objects.create(mandant=mandant, lieferant=lieferant, nummer=nummer(mandant, "BE"),
                                      bemerkung=bemerkung, aus_beleg=aus_beleg,
                                      angelegt_von=benutzer if benutzer is not None and benutzer.is_authenticated else None)
@@ -53,6 +55,10 @@ def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None
     zum eigenen Artikel)."""
     if bestellung.status not in (BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL):
         raise ValueError("Zu dieser Bestellung können keine Positionen mehr erfasst werden.")
+    if menge is None or not menge.is_finite() or not Decimal("0") < menge < Decimal("10000000"):
+        raise ValueError("Die Menge muss größer als 0 sein.")
+    if ek is not None and (not ek.is_finite() or not Decimal("0") <= ek < Decimal("100000000")):
+        raise ValueError("Der Preis darf nicht negativ sein.")
     ek = ek_runden(ek)
     if artikel is None and preisliste_artikel is not None and preisliste_artikel.artikel_id:
         artikel = preisliste_artikel.artikel  # zu dem Eintrag gibt es schon einen eigenen Artikel
@@ -82,9 +88,16 @@ def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None
                                           bezeichnung=artikel.bezeichnung, menge=menge, ek=ek if ek is not None else ek_runden(vorschlag))
 
 
-def bestellen(bestellung):
+def bestellen_pruefen(bestellung):
+    """Vor dem Bestellen (und vor dem Versand der Bestellmail): Positionen vorhanden, Bestellung nicht storniert."""
+    if bestellung.status == BestellStatus.STORNIERT:
+        raise ValueError("Die Bestellung ist storniert.")
     if not bestellung.positionen.exists():
         raise ValueError("Bestellung ohne Positionen.")
+
+
+def bestellen(bestellung):
+    bestellen_pruefen(bestellung)
     if bestellung.status == BestellStatus.ENTWURF:
         bestellung.status = BestellStatus.BESTELLT
         bestellung.save(update_fields=["status"])
@@ -292,7 +305,11 @@ def bestellungen_aus_vorschlag(mandant, auswahl) -> list:
     """auswahl: Liste von (artikel_id, menge); je Lieferant wird eine Entwurfsbestellung angelegt."""
     je_lieferant = defaultdict(list)
     for artikel_id, menge in auswahl:
-        artikel = Artikel.objects.get(pk=artikel_id)
+        artikel = Artikel.objects.filter(pk=artikel_id).first()
+        if artikel is None:
+            raise ValueError("Ein gewählter Artikel existiert nicht mehr.")
+        if menge is None or not menge.is_finite() or not Decimal("0") < menge < Decimal("10000000"):
+            raise ValueError(f"{artikel.nummer}: Die Menge muss größer als 0 sein.")
         al = guenstigster_lieferant(artikel)
         if al is None:
             raise ValueError(f"{artikel.nummer}: kein Lieferant in den Preislisten.")
@@ -310,7 +327,11 @@ def bestellungen_aus_vorschlag(mandant, auswahl) -> list:
 
 @transaction.atomic
 def wareneingang_anlegen(mandant, lieferant, bestellung=None, benutzer=None) -> Wareneingang:
-    we = Wareneingang.objects.create(mandant=mandant, lieferant=lieferant, bestellung=bestellung,
+    if lieferant.gesperrt:  # wie in der Oberfläche: bei gesperrten Lieferanten entstehen keine neuen Belege
+        raise ValueError(f"Lieferant {lieferant.name1} ist gesperrt – es lässt sich kein Wareneingang anlegen.")
+    if bestellung is not None and bestellung.status == BestellStatus.STORNIERT:
+        raise ValueError(f"Die Bestellung {bestellung.nummer} ist storniert – dazu lässt sich kein Wareneingang erfassen.")
+    we =Wareneingang.objects.create(mandant=mandant, lieferant=lieferant, bestellung=bestellung,
                                      nummer=nummer(mandant, "WE"), benutzer=benutzer)
     return we
 
@@ -455,6 +476,18 @@ def we_artikel_uebernehmen(bezug, artikel):
         wareneingang_erfassen(we, artikel, Decimal(bezug["menge"]))
 
 
+def _bestellposition_fuer_scan(we, artikel):
+    """Bestellposition für einen Scan: bei mehreren Positionen desselben Artikels die erste, in der nach diesem Wareneingang
+    noch etwas offen ist; sind alle voll, die erste (dann folgt wie bisher die Rückfrage wegen Überlieferung)."""
+    kandidaten = list(we.bestellung.positionen.filter(artikel=artikel).order_by("id"))
+    if len(kandidaten) <= 1:
+        return kandidaten[0] if kandidaten else None
+    erfasst = defaultdict(Decimal)
+    for bp_id, menge in we.positionen.filter(bestellposition__in=kandidaten).values_list("bestellposition_id", "menge"):
+        erfasst[bp_id] += menge
+    return next((bp for bp in kandidaten if bp.offen - erfasst[bp.pk] > 0), kandidaten[0])
+
+
 @transaction.atomic
 def wareneingang_erfassen(we, artikel, menge=Decimal("1"), ek=None, seriennummern="") -> WareneingangPosition:
     """Zeile zum Wareneingang; derselbe Artikel (ohne Seriennummern) erhöht die vorhandene Zeile (Scan +1)."""
@@ -467,8 +500,11 @@ def wareneingang_erfassen(we, artikel, menge=Decimal("1"), ek=None, seriennummer
         raise ValueError("Der EK darf nicht negativ sein.")
     bp = None
     if we.bestellung_id:
-        bp = we.bestellung.positionen.filter(artikel=artikel).first()
-    vorhanden = we.positionen.filter(artikel=artikel).first()
+        bp = _bestellposition_fuer_scan(we, artikel)
+    vorhanden = we.positionen.filter(artikel=artikel)
+    if bp is not None:  # mehrere Bestellpositionen desselben Artikels: Zeile der gewählten Position erhöhen
+        vorhanden = vorhanden.filter(bestellposition=bp)
+    vorhanden = vorhanden.first()
     if vorhanden and not seriennummern and not vorhanden.seriennummern:
         vorhanden.menge += menge
         vorhanden.save()
@@ -574,6 +610,8 @@ def wareneingang_buchen(we, benutzer=None, bestaetigt=False) -> int:
     we = Wareneingang.objects.select_for_update().get(pk=we.pk)  # Sperre: Doppelklick/zweiter Tab darf nicht doppelt buchen
     if we.gebucht:
         raise ValueError("Der Wareneingang ist bereits gebucht.")
+    if we.bestellung_id and we.bestellung.status == BestellStatus.STORNIERT:
+        raise ValueError(f"Die Bestellung {we.bestellung.nummer} ist storniert – der Wareneingang lässt sich nicht buchen.")
     positionen = list(we.positionen.select_related("artikel", "bestellposition"))
     if not positionen:
         raise ValueError("Keine Positionen erfasst.")
@@ -627,6 +665,39 @@ def wareneingang_buchen(we, benutzer=None, bestaetigt=False) -> int:
     return len(positionen)
 
 
+def wareneingang_loeschen(we) -> str:
+    """Ungebuchten Wareneingang löschen (die Mengen bleiben in der Bestellung offen). Gebuchte nie: sie haben das Lager verändert.
+    Gibt die Nummer des gelöschten Wareneingangs zurück."""
+    with transaction.atomic():
+        w = Wareneingang.objects.select_for_update().get(pk=we.pk)  # Sperre: nicht gleichzeitig buchen und löschen
+        if w.gebucht:
+            raise ValueError("Der Wareneingang ist bereits gebucht und lässt sich nicht löschen.")
+        if w.rechnungen.exists():
+            raise ValueError("Der Wareneingang ist einer Lieferantenrechnung zugeordnet – bitte erst die Zuordnung aufheben.")
+        nummer_ = w.nummer
+        w.delete()
+    return nummer_
+
+
+def position_loeschen(bestellung, position_id):
+    """Bestellposition entfernen – nur wenn nichts geliefert ist und sie in keinem offenen (ungebuchten) Wareneingang steht.
+    Eine bestellte Bestellung behält mindestens eine Position (nur der Entwurf darf leer werden)."""
+    with transaction.atomic():
+        b = Bestellung.objects.select_for_update().get(pk=bestellung.pk)
+        pos = BestellPosition.objects.select_for_update().filter(pk=position_id, bestellung=b).first()
+        if pos is None:
+            raise ValueError("Die Position gibt es nicht mehr.")
+        if b.status in (BestellStatus.STORNIERT, BestellStatus.GELIEFERT):
+            raise ValueError("Diese Bestellung lässt sich nicht mehr ändern.")
+        if pos.geliefert:
+            raise ValueError("Zur Position gibt es schon Wareneingänge.")
+        if pos.eingaenge.filter(wareneingang__gebucht=False).exists():
+            raise ValueError("Die Position steht in einem offenen Wareneingang – bitte dort ändern oder ihn erst löschen.")
+        if b.status != BestellStatus.ENTWURF and b.positionen.count() <= 1:
+            raise ValueError("Die letzte Position einer bestellten Bestellung lässt sich nicht löschen – bitte die Bestellung stornieren.")
+        pos.delete()
+
+
 # ---- Lieferantenrechnung / Zahlung ----------------------------------------------------------------
 
 def rechnung_erfassen(mandant, lieferant, rechnungsnummer, datum, netto, brutto, steuer=None, quelle="manuell",
@@ -666,7 +737,25 @@ def rechnung_loeschen(rechnung, notiz, benutzer=None) -> list:
     return nummern
 
 
+RMA_OFFEN = (RmaStatus.ANGELEGT, RmaStatus.EINGESENDET)
+
+
+@transaction.atomic
 def rma_anlegen(mandant, lieferant, bezeichnung, fehler, artikel=None, seriennummer="", reparatur=None) -> Rma:
+    """Doppelklick-Schutz: Zu einem Werkstattauftrag gibt es höchstens eine offene RMA; ohne Werkstattauftrag wird dieselbe
+    Meldung innerhalb von 30 Sekunden nicht zweimal angelegt."""
+    if reparatur is not None:
+        from apps.werkstatt.models import Reparatur
+        reparatur = Reparatur.objects.select_for_update().get(pk=reparatur.pk)
+        offen = Rma.objects.filter(reparatur=reparatur, status__in=RMA_OFFEN).first()
+        if offen:
+            raise ValueError(f"Zu diesem Werkstattauftrag gibt es schon die offene RMA {offen.nummer}.")
+    else:
+        doppelt = Rma.objects.filter(
+            mandant=mandant, lieferant=lieferant, bezeichnung=bezeichnung, fehler=fehler, artikel=artikel, seriennummer=seriennummer,
+            reparatur__isnull=True, status=RmaStatus.ANGELEGT, angelegt_am__gte=timezone.now() - timedelta(seconds=30)).first()
+        if doppelt:
+            raise ValueError(f"Die RMA {doppelt.nummer} wurde soeben schon mit denselben Angaben angelegt.")
     rma = Rma.objects.create(mandant=mandant, lieferant=lieferant, nummer=nummer(mandant, "RM"), bezeichnung=bezeichnung,
                              fehler=fehler, artikel=artikel, seriennummer=seriennummer, reparatur=reparatur)
     if reparatur is not None:

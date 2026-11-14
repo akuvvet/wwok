@@ -32,6 +32,7 @@ urlpatterns = [
     path("wareneingang/<int:we_id>/aufnehmen/<int:bp_id>/", views.wareneingang_aufnehmen, name="wareneingang_aufnehmen"),
     path("wareneingang/<int:we_id>/p-anlegen/", views.wareneingang_p_anlegen, name="wareneingang_p_anlegen"),
     path("wareneingang/<int:we_id>/buchen/", views.wareneingang_buchen, name="wareneingang_buchen"),
+    path("wareneingang/<int:we_id>/loeschen/", views.wareneingang_loeschen, name="wareneingang_loeschen"),
     path("rechnungen/", views.rechnungen, name="rechnungen"),
     path("rechnungen/neu/", views.rechnung_neu, name="rechnung_neu"),
     path("rechnungen/e-rechnung/", views.rechnung_erechnung, name="rechnung_erechnung"),

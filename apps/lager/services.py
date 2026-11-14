@@ -248,16 +248,42 @@ def seriennummer_wieder_einlagern(seriennummer):
 
 
 @transaction.atomic
-def umbuchen(von_mandant, nach_mandant, artikel, menge, benutzer=None):
+def umbuchen(von_mandant, nach_mandant, artikel, menge, benutzer=None, seriennummern=None):
+    """Umbuchung zwischen Mandanten. Seriennummern gehören einem Mandanten: Die umgebuchten wandern mit. Bleiben im Quellmandanten
+    mehr Nummern im Lager als Bestand, müssen die umgebuchten Nummern angegeben werden (sonst verwaisen sie dort)."""
+    from apps.stammdaten.models import Artikel
     if von_mandant == nach_mandant:
         raise ValueError("Quell- und Zielmandant sind gleich.")
     if menge <= 0:
         raise ValueError("Menge muss positiv sein.")
+    list(Artikel.objects.select_for_update().filter(pk=artikel.pk).values_list("pk", flat=True))  # wie bei Abgängen sperren
+    nummern = list(dict.fromkeys(seriennummern or []))
+    if len(nummern) > menge:
+        raise ValueError(f"Mehr Seriennummern ({len(nummern)}) als Menge ({menge:f}).")
     text = f"Umbuchung {von_mandant.kurzname} → {nach_mandant.kurzname}"
     Lagerbewegung.objects.create(mandant=von_mandant, artikel=artikel, art=Bewegungsart.UMBUCHUNG, menge=-menge,
-                                 bemerkung=text, benutzer=benutzer)
+                                 bemerkung=text, benutzer=benutzer)  # prüft den Bestand
     Lagerbewegung.objects.create(mandant=nach_mandant, artikel=artikel, art=Bewegungsart.UMBUCHUNG, menge=menge,
                                  bemerkung=text, benutzer=benutzer)
+    im_lager = Seriennummer.objects.filter(mandant=von_mandant, artikel=artikel, status=Seriennummer.IM_LAGER)
+    for nr in nummern:
+        sn = im_lager.filter(nummer=nr).first()
+        if sn is None:
+            raise ValueError(f"Seriennummer {nr} ist bei {von_mandant.kurzname} für {artikel.nummer} nicht im Lager.")
+        vorhanden = Seriennummer.objects.filter(mandant=nach_mandant, artikel=artikel, nummer=nr).first()
+        if vorhanden is not None and vorhanden.status == Seriennummer.IM_LAGER:
+            raise ValueError(f"Seriennummer {nr} ist bei {nach_mandant.kurzname} bereits im Lager.")
+        if vorhanden is not None:  # früher von dort verkauft oder umgebucht: die Nummer ist wieder im Lager
+            vorhanden.status, vorhanden.position, vorhanden.eingang_bemerkung = Seriennummer.IM_LAGER, None, text
+            vorhanden.save()
+            sn.delete()
+        else:
+            sn.mandant, sn.eingang_bemerkung = nach_mandant, text
+            sn.save()
+    ueberzaehlig = im_lager.count() - max(bestand(von_mandant, artikel), Decimal("0"))
+    if ueberzaehlig > 0:  # sonst blieben Nummern ohne Bestand im Quellmandanten zurück
+        raise ValueError(f"Bei {von_mandant.kurzname} liegen {ueberzaehlig:.0f} Seriennummer(n) mehr im Lager als Bestand bleibt: "
+                         "Bitte die Nummern angeben, die mit umgebucht werden.")
 
 
 def rueckgabe_mengen(positionen) -> dict:

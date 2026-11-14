@@ -281,7 +281,8 @@ def importieren(profil, inhalt: bytes, dateiname: str = "", benutzer=None, schut
     zeilen = zeilen_lesen(profil, inhalt)  # Formatfehler vor dem Sperren melden
     sperre_holen(profil)
     try:
-        return _importieren(profil, zeilen, dateiname, benutzer, inhalt, schutz)
+        with transaction.atomic():  # ein Abbruch mitten im Lauf lässt keine halb eingelesene Preisliste zurück
+            return _importieren(profil, zeilen, dateiname, benutzer, inhalt, schutz)
     finally:
         sperre_freigeben(profil)
 

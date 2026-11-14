@@ -219,7 +219,8 @@ def umbuchung(request, artikel_id):
     try:
         keine_leistung(artikel)
         ziel = get_object_or_404(Mandant, pk=request.POST.get("nach"), aktiv=True)
-        umbuchen(request.mandant, ziel, artikel, zahl(request.POST.get("menge"), Decimal("0")), request.user)
+        umbuchen(request.mandant, ziel, artikel, zahl(request.POST.get("menge"), Decimal("0")), request.user,
+                 zeilen(request.POST.get("seriennummern")))
         messages.success(request, f"Nach {ziel.kurzname} umgebucht.")
     except ValueError as fehler:
         messages.error(request, str(fehler))
