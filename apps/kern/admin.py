@@ -31,7 +31,7 @@ class MandantAdmin(admin.ModelAdmin):
         ("Steuer und Bank", {"fields": ["ust_id", "steuernummer", "iban", "bic", "glaeubiger_id"]}),
         ("E-Mail-Versand", {"fields": ["smtp_host", "smtp_port", "smtp_sicherheit", "smtp_benutzer", "absender_email", "absender_name", "kopie_an"]}),
         ("DATEV und Konten", {"fields": ["datev_berater", "datev_mandant", "konto_erloes_19", "konto_erloes_7", "konto_erloes_0",
-                                         "konto_bank", "konto_kasse"]}),
+                                         "konto_bank", "konto_kasse", "konto_skonto"]}),
         ("Verlauf", {"fields": ["angelegt_am", "geaendert_am", "geaendert_von"]}),
     ]
 

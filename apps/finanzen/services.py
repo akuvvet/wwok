@@ -1,5 +1,5 @@
 from datetime import timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import models, transaction
 from django.db.models.functions import Coalesce
@@ -94,6 +94,32 @@ def offen(beleg) -> Decimal:
     if beleg.art == Belegart.RECHNUNG:  # + abgegeben: verrechnete Überzahlung ist nicht mehr Guthaben dieser Rechnung
         return beleg.summe_brutto - bezahlt(beleg) - gutgeschrieben(beleg) - angerechnet(beleg) + abgegeben(beleg)
     return beleg.summe_brutto - bezahlt(beleg) - gutgeschrieben(beleg)
+
+
+def skonto(beleg):
+    """Skonto der Zahlungsbedingung: (Betrag brutto, letzter Tag der Skontofrist) oder None."""
+    zb = beleg.zahlungsbedingung
+    if beleg.art != Belegart.RECHNUNG or zb is None or zb.skonto_prozent <= 0:
+        return None
+    betrag = (beleg.summe_brutto * zb.skonto_prozent / 100).quantize(CENT, rounding=ROUND_HALF_UP)
+    return (betrag, beleg.belegdatum + timedelta(days=zb.skonto_tage)) if betrag > 0 else None
+
+
+def aktive_skonti(beleg):
+    return beleg.zahlungen.filter(zahlart=Zahlart.SKONTO, storno_zu__isnull=True, storniert_durch__isnull=True)
+
+
+def skonto_gewaehren(beleg, zahlung, benutzer=None):
+    """Nach einem Zahlungseingang: Liegt er in der Skontofrist und ist danach höchstens der Skontobetrag offen, wird der Rest
+    als Skonto ausgebucht (eigene Buchung, Zahlart Skonto). Zieht der Kunde mehr ab oder zahlt er zu spät, bleibt der Rest offen."""
+    bedingung = skonto(beleg)
+    if bedingung is None or zahlung.datum > bedingung[1] or aktive_skonti(beleg).exists():
+        return None
+    rest = offen(beleg)
+    if rest < CENT or rest > bedingung[0]:
+        return None
+    prozent = f"{beleg.zahlungsbedingung.skonto_prozent.normalize():f}".replace(".", ",")
+    return zahlung_buchen(beleg, rest, zahlung.datum, Zahlart.SKONTO, f"Skonto {prozent} % bei Zahlung bis {bedingung[1]:%d.%m.%Y}", benutzer)
 
 
 def faellig_am(beleg):
@@ -293,6 +319,9 @@ def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, s
                      (f"Storno Barzahlung {beleg.nummer}: {storno_grund}" if storno_zu and betrag < 0 else
                       f"Storno Barrückzahlung {beleg.nummer}: {storno_grund}" if storno_zu else
                       f"{'Barzahlung' if betrag > 0 else 'Barrückzahlung'} {beleg.nummer}"), datum, beleg, benutzer)
+    zahlung.skonto = None  # automatisch gewährtes Skonto zu diesem Zahlungseingang (für die Meldung in der Maske)
+    if betrag > 0 and storno_zu is None and zahlart != Zahlart.SKONTO and beleg.art == Belegart.RECHNUNG:
+        zahlung.skonto = skonto_gewaehren(beleg, zahlung, benutzer)
     return zahlung
 
 
@@ -310,6 +339,9 @@ def zahlung_stornieren(zahlung, grund, benutzer=None, datum=None) -> Zahlung:
         raise ValueError("Diese Zahlung ist bereits storniert.")
     gegen = zahlung_buchen(zahlung.beleg, -zahlung.betrag, datum or timezone.localdate(), zahlung.zahlart,
                            f"Storno: {grund}"[:200], benutzer, storno_zu=zahlung, storno_grund=grund[:300])
+    if zahlung.zahlart != Zahlart.SKONTO and zahlung.betrag > 0:  # ohne die Zahlung gibt es auch kein Skonto mehr
+        for s in list(aktive_skonti(zahlung.beleg)):
+            zahlung_stornieren(s, f"Zahlung storniert: {grund}", benutzer, datum)
     from .models import Bankumsatz
     umsaetze = {u.pk: u for u in Bankumsatz.objects.filter(zahlung=zahlung)}
     if zahlung.aus_bankumsatz_id:

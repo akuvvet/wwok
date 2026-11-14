@@ -73,6 +73,7 @@ class Mandant(Zeitstempel):
     konto_erloes_0 = models.CharField("Erlöskonto steuerfrei", max_length=8, default="8200")
     konto_bank = models.CharField("Bankkonto", max_length=8, default="1200")
     konto_kasse = models.CharField("Kassenkonto", max_length=8, default="1000")
+    konto_skonto = models.CharField("Konto gewährte Skonti", max_length=8, default="8736")
     kopie_an = models.EmailField("Kopie (BCC) an", blank=True, help_text="Optional: jede Belegmail zusätzlich hierhin.")
 
     class Meta:

@@ -58,9 +58,10 @@ def export(mandant, von, bis) -> bytes:
                            erloeskonto(mandant, satz), "", b.belegdatum.strftime("%d%m"), b.nummer, "", "",
                            f"{b.get_art_display()} {b.kunde.name1}"[:60]])
     for z in Zahlung.objects.filter(mandant=mandant, datum__range=(von, bis)).select_related("beleg__kunde").order_by("datum", "id"):
-        konto = mandant.konto_kasse if z.zahlart == Zahlart.BAR else mandant.konto_bank
+        skonto = z.zahlart == Zahlart.SKONTO  # kein Geldeingang: Skontokonto an Debitor
+        konto = mandant.konto_skonto if skonto else mandant.konto_kasse if z.zahlart == Zahlart.BAR else mandant.konto_bank
         zeilen.append([komma(abs(z.betrag)), "S" if z.betrag > 0 else "H", "EUR", "", "", "", konto, debitor(z.beleg.kunde),
-                       "", z.datum.strftime("%d%m"), z.beleg.nummer, "", "", f"Zahlung {z.beleg.kunde.name1}"[:60]])
+                       "", z.datum.strftime("%d%m"), z.beleg.nummer, "", "", f"{'Skonto' if skonto else 'Zahlung'} {z.beleg.kunde.name1}"[:60]])
     ausgabe = io.StringIO()
     schreiber = csv.writer(ausgabe, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
     jetzt = timezone.now().strftime("%Y%m%d%H%M%S000")

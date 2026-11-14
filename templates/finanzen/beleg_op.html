@@ -12,6 +12,7 @@
     {% if pf_status %}<div>Status<br><strong>{% status_symbol "zahlung" pf_status.code pf_status.text mit_text=True %}</strong></div>{% endif %}
     <div>{% if offen < 0 %}Guthaben{% else %}offen{% endif %}<br><strong style="font-size:20px">{{ offen|floatformat:"2g" }} €</strong></div>
     {% if beleg.art == 'RE' %}<div>fällig am<br>{{ faellig|date:"d.m.Y" }}</div>{% endif %}
+    {% if skonto %}<div>Skonto bis {{ skonto.1|date:"d.m.Y" }}<br>{{ skonto.0|floatformat:"2g" }} € ({{ beleg.zahlungsbedingung.skonto_prozent|floatformat:"-2" }} %)</div>{% endif %}
   </div>
   {% if beleg.art == 'PF' %}<p style="margin:8px 0 0;opacity:.8">Vorkasse: Teilzahlungen sind möglich. Erst bei vollständiger Zahlung kann die Proforma in eine Rechnung umgewandelt werden.
     Kauft der Kunde nicht, den gezahlten Betrag als <strong>negative Zahlung</strong> zurückbuchen und danach die Proforma stornieren.
@@ -27,6 +28,8 @@
     <div><label>Bemerkung</label><input name="bemerkung" size="26"></div>
     <button type="submit">Buchen</button>
   </form>
+  {% if skonto and offen > 0 %}<p style="opacity:.8;margin:8px 0 0">Zahlt der Kunde bis {{ skonto.1|date:"d.m.Y" }} und zieht höchstens {{ skonto.0|floatformat:"2g" }} € ab, wird der Rest automatisch als Skonto ausgebucht.
+    Skonto nach der Frist gewährst du von Hand: Restbetrag mit Zahlart „Skonto“ buchen.</p>{% endif %}
   <table style="margin-top:12px">
     <tr><th>Datum</th><th>Zahlart</th><th class="zahl">Betrag</th><th>Bemerkung / Stornogrund</th><th>Benutzer</th><th></th></tr>
     {% for z in zahlungen %}<tr><td>{{ z.datum|date:"d.m.Y" }}</td><td>{{ z.get_zahlart_display }}</td><td class="zahl">{{ z.betrag }}</td><td>{{ z.bemerkung }}{% if z.storno_zu_id %} <em>(Storno)</em>{% endif %}</td><td>{{ z.benutzer|default:"" }}</td>
