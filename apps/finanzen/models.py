@@ -17,6 +17,7 @@ class Zahlart(models.TextChoices):
     BAR = "ba", "Bar"
     PAYPAL = "pp", "PayPal"
     KARTE = "ka", "Karte"
+    SKONTO = "sk", "Skonto"  # kein Geldeingang: gewährter Abzug, mindert den offenen Betrag wie eine Zahlung
     SONSTIGE = "so", "Sonstige"
 
 

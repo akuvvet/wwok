@@ -145,7 +145,7 @@ def beleg_op(request, beleg_id):
         "beleg": beleg, "zahlungen": beleg.zahlungen.all(), "bezahlt": services.bezahlt(beleg),
         "gutschrift": services.gutgeschrieben(beleg), "offen": offen, "gutschriften": gutschriften,
         "verrechnungen": beleg.gutschrift_verrechnungen.select_related("gutschrift", "storniert_durch"),
-        "faellig": services.faellig_am(beleg), "mahnungen": beleg.mahnungen.all(), "zahlarten": Zahlart.choices,
+        "skonto": services.skonto(beleg), "faellig": services.faellig_am(beleg), "mahnungen": beleg.mahnungen.all(), "zahlarten": Zahlart.choices,
         "heute": date.today().isoformat()})
 
 
@@ -158,11 +158,12 @@ def zahlung_buchen(request, beleg_id):
     try:
         # offen_bisher: offener Betrag, den die Maske gezeigt hat; weicht er ab, wurde schon gebucht (Doppelklick)
         bisher = request.POST.get("offen_bisher")
-        services.zahlung_buchen(beleg, betrag(request.POST.get("betrag")), datum(request.POST.get("datum")),
-                                request.POST.get("zahlart", Zahlart.UEBERWEISUNG),
-                                request.POST.get("bemerkung", "").strip(), request.user,
-                                offen_bisher=betrag(bisher) if bisher else None)
-        messages.success(request, "Zahlung gebucht.")
+        z = services.zahlung_buchen(beleg, betrag(request.POST.get("betrag")), datum(request.POST.get("datum")),
+                                    request.POST.get("zahlart", Zahlart.UEBERWEISUNG),
+                                    request.POST.get("bemerkung", "").strip(), request.user,
+                                    offen_bisher=betrag(bisher) if bisher else None)
+        messages.success(request, "Zahlung gebucht." + (f" {z.skonto.betrag:.2f} € Skonto gewährt, die Rechnung ist ausgeglichen.".replace(".", ",", 1)
+                                                       if z.skonto else ""))
     except ValueError as fehler:
         messages.error(request, str(fehler))
     return redirect("finanzen:beleg", beleg_id=beleg.pk)
