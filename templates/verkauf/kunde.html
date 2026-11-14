@@ -52,7 +52,7 @@
   <form method="get" class="zeile" data-livefilter>
     <div><label>Belegart</label><select name="art"><option value="">alle</option>
       {% for wert, name in arten %}<option value="{{ wert }}" {% if filter == wert %}selected{% endif %}>{{ name }}</option>{% endfor %}
-      <option value="offen" {% if filter == 'offen' %}selected{% endif %}>nur Entwürfe/offene</option></select></div>
+      <option value="offen" {% if filter == 'offen' %}selected{% endif %}>nur nicht abgeschlossene/offene</option></select></div>
     <div><label>ab Datum</label><input type="date" name="ab" value="{{ ab }}"></div>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="ohne_storno" value="1" {% if ohne_storno %}checked{% endif %}> ohne Storno/Gutschrift</label>
     <noscript><button type="submit" class="leise">Filtern</button></noscript>
@@ -65,7 +65,7 @@
     <tbody>
     {% for z in zeilen %}{% with b=z.beleg %}
     <tr><td>{% if sammelrechnung and z.abrechenbar %}<input type="checkbox" name="auswahl" value="{{ b.pk }}" title="Lieferschein für Rechnung auswählen">{% endif %}</td>
-        <td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {% if b.vorlaeufig %}<span class="marke gesperrt" title="Nicht gespeichert: wird verworfen, wenn er nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>{% else %}{{ b.nummer|default:"(Entwurf)" }}{% endif %}</a>{% include "verkauf/versand_marke.html" %}
+        <td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {% if b.vorlaeufig %}<span class="marke gesperrt" title="Nicht gespeichert: wird verworfen, wenn er nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>{% else %}{{ b.nummer|default:"(nicht abgeschlossen)" }}{% endif %}</a>{% include "verkauf/versand_marke.html" %}
           {% if z.vormals %}<small style="display:block;opacity:.7">vormals {{ z.vormals }}</small>{% endif %}
           {% if z.positionen %}<details><summary style="cursor:pointer;opacity:.7;font-size:12px">{{ z.positionen|length }} Position(en)</summary>
             <ul style="margin:4px 0 0 16px;padding:0;font-size:12px;opacity:.85">{% for p in z.positionen %}<li>{{ p.menge|floatformat:"-3" }} × {{ p.bezeichnung }}</li>{% endfor %}</ul></details>{% endif %}</td>

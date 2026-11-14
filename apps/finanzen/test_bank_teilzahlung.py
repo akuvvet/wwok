@@ -91,3 +91,20 @@ class BankTeilzahlungTest(TestCase):
         u.refresh_from_db()
         self.assertEqual((u.status, u.zahlung), (Bankumsatz.OFFEN, None))
         self.assertEqual(Zahlung.objects.filter(aus_bankumsatz=u, storno_zu__isnull=True).count(), 2)  # nichts gelöscht
+        bank.zuordnen(u, [self.b])  # nach dem Storno wieder frei zuzuordnen
+        self.assertEqual(services.offen(self.b), Decimal("38.00"))
+
+    def test_gebuchter_umsatz_laesst_sich_nicht_ignorieren_und_neu_oeffnen(self):
+        # Umsatz in Tab A noch offen angezeigt, inzwischen gebucht: „Ignorieren → Wieder öffnen → Nachbuchen“ buchte doppelt
+        self.importieren(f"Rate {self.b.nummer}", "50,00")
+        u = Bankumsatz.objects.get()
+        self.assertEqual(u.status, Bankumsatz.ZUGEORDNET)
+        url = reverse("finanzen:bank_zuordnen", args=[u.pk])
+        antwort = self.client.post(url, {"aktion": "ignorieren"}, follow=True)
+        self.assertContains(antwort, "bereits gebucht")
+        self.client.post(url, {"aktion": "oeffnen"})
+        u.refresh_from_db()
+        self.assertEqual(u.status, Bankumsatz.ZUGEORDNET)
+        self.client.post(reverse("finanzen:bank_nachbuchen"))
+        self.assertEqual(services.offen(self.b), Decimal("188.00"))  # nur einmal gebucht
+        self.assertEqual(u.zahlungen.count(), 1)

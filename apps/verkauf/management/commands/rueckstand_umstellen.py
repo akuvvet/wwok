@@ -40,7 +40,7 @@ class Command(BaseCommand):
                 continue
             self.stdout.write(f"{ab} [{ab.mandant}]: {'umgestellt' if ausfuehren else 'würde umgestellt'}{versandt}")
             for z in plan:
-                ziele = ", ".join(sorted({f"{k.beleg.get_art_display()} {k.beleg.nummer or '(Entwurf)'}" for k in z["kopien"]}))
+                ziele = ", ".join(sorted({f"{k.beleg.get_art_display()} {k.beleg.nummer or '(nicht abgeschlossen)'}" for k in z["kopien"]}))
                 self.stdout.write(f"    {z['position'].bezeichnung}: {uebernahme._menge_text(z['alt'])} -> {uebernahme._menge_text(z['neu'])} "
                                   f"({uebernahme._menge_text(z['uebernommen'])} übernommen in {ziele})")
             umgestellt += 1

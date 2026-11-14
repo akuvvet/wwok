@@ -19,14 +19,14 @@ STATUS = {
         "bezahlt": ("haken", "ok", "bezahlt"),
     },
     "bestellung": {
-        "entwurf": ("stift", "neutral", "Entwurf"),
+        "entwurf": ("stift", "neutral", "nicht abgeschlossen"),
         "bestellt": ("lkw", "info", "bestellt"),
         "teil": ("halb", "hinweis", "teilweise geliefert"),
         "geliefert": ("haken", "ok", "vollständig geliefert"),
         "storniert": ("storno", "neutral", "storniert"),
     },
     "zahlung": {  # Verkauf: Belegstatus und Zahlstatus (Rechnung, Proforma)
-        "entwurf": ("stift", "neutral", "Entwurf"),
+        "entwurf": ("stift", "neutral", "nicht abgeschlossen"),
         "abgeschlossen": ("beleg", "neutral", "abgeschlossen"),
         "offen": ("uhr", "hinweis", "offen"),
         "teilbezahlt": ("halb", "hinweis", "teilbezahlt"),

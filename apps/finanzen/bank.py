@@ -207,7 +207,7 @@ def zuordnen(umsatz, belege, benutzer=None) -> list:
     Beträge hinausgeht, bleibt als Überzahlung auf der letzten). Rückgabe: [(Beleg, Betrag)]."""
     belege = list(belege) if isinstance(belege, (list, tuple)) else [belege]
     umsatz = Bankumsatz.objects.select_for_update().get(pk=umsatz.pk)
-    if umsatz.status == Bankumsatz.ZUGEORDNET:
+    if umsatz.status == Bankumsatz.ZUGEORDNET or umsatz.zahlungen.filter(storno_zu__isnull=True, storniert_durch__isnull=True).exists():
         raise ValueError("Umsatz ist bereits zugeordnet.")
     if not belege:
         raise ValueError("Bitte eine Rechnung angeben.")

@@ -33,7 +33,7 @@
 {% if offene is not None %}
 <div class="karte">
   <h2>Offene Belege zum Bearbeiten</h2>
-  <p class="fein" style="margin-top:0">Bestellungen (Entwurf, bestellt, teilweise geliefert), nicht gebuchte Wareneingänge, nicht bezahlte Lieferantenrechnungen und laufende RMA aller Lieferanten.</p>
+  <p class="fein" style="margin-top:0">Bestellungen (nicht abgeschlossen, bestellt, teilweise geliefert), nicht gebuchte Wareneingänge, nicht bezahlte Lieferantenrechnungen und laufende RMA aller Lieferanten.</p>
   {% include "einkauf/_belegzeilen.html" with zeilen=offene mit_lieferant=True leer_text="Keine offenen Belege." %}
 </div>
 {% endif %}

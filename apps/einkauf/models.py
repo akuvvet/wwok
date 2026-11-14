@@ -17,7 +17,7 @@ GELD = {"max_digits": 12, "decimal_places": 2}
 
 
 class BestellStatus(models.TextChoices):
-    ENTWURF = "entwurf", "Entwurf"
+    ENTWURF = "entwurf", "nicht abgeschlossen"
     BESTELLT = "bestellt", "bestellt"
     TEIL = "teil", "teilweise geliefert"
     GELIEFERT = "geliefert", "vollständig geliefert"

@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from apps.stammdaten.models import Artikel, ArtikelLieferant, Preislistenartikel
 
-from .models import BestellPosition, Dateityp, Preislistenimport, Preislistenprofil, Preispruefung, Quelle
+from .models import BestellPosition, BestellStatus, Dateityp, Preislistenimport, Preislistenprofil, Preispruefung, Quelle
 
 FELDER = ("bestellnummer", "herstellernummer", "ean", "bezeichnung", "hersteller", "kategorie", "ek",
           "bestand", "lieferzeit", "gewicht", "laenge", "breite", "hoehe")
@@ -337,8 +337,24 @@ def preis_verwerfen(pruefung) -> None:
 def entfernen(lieferant, bestellnummern: list, ids: list) -> int:
     """Entfernt Preislistenzeilen, die der Lieferant nicht mehr führt, samt dem daran mitgeführten Lieferantenpreis am eigenen
     Artikel. Belegpositionen und Bestellungen, die darauf verweisen, behalten Text und Preis (nur der Verweis wird gelöst).
-    Direkt in der Datenbank gelöscht, damit nicht je Zeile ein Protokolleintrag entsteht."""
-    from apps.verkauf.models import Position
+    Direkt in der Datenbank gelöscht, damit nicht je Zeile ein Protokolleintrag entsteht.
+    Zeilen, die noch als Preislistenartikel (P) in einer laufenden Lieferantenbestellung oder Kundenbestellung stehen, bleiben:
+    ohne den Verweis ließe sich die Ware im Wareneingang nicht mehr gegen die Bestellung buchen. Sie fallen beim nächsten
+    Import weg, sobald die Bestellung geliefert oder storniert ist."""
+    from apps.verkauf.models import Belegart, Position
+    gebraucht = set()
+    for i in range(0, len(ids), 1000):
+        block = ids[i:i + 1000]
+        gebraucht.update(BestellPosition.objects.filter(
+            preisliste_artikel_id__in=block, artikel__isnull=True,
+            bestellung__status__in=[BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL],
+        ).values_list("preisliste_artikel_id", flat=True))
+        gebraucht.update(Position.objects.filter(
+            preisliste_artikel_id__in=block, artikel__isnull=True, beleg__art=Belegart.AUFTRAG,
+        ).values_list("preisliste_artikel_id", flat=True))
+    if gebraucht:
+        paare = [(bn, pk) for bn, pk in zip(bestellnummern, ids) if pk not in gebraucht]
+        bestellnummern, ids = [bn for bn, _ in paare], [pk for _, pk in paare]
     for i in range(0, len(ids), 1000):
         block = ids[i:i + 1000]
         Position.objects.filter(preisliste_artikel_id__in=block).update(preisliste_artikel=None)

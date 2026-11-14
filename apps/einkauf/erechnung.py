@@ -54,12 +54,20 @@ def kind(wurzel, name):
     return next((e.text.strip() for e in wurzel if lokal(e.tag) == name and e.text), "")
 
 
+GUTSCHRIFT_CODES = {"381", "261", "262", "296", "308", "396", "532"}  # UNTDID 1001: Gutschrift-Arten
+
+
 def lese_xml(inhalt: bytes) -> dict:
     try:
         wurzel = ET.fromstring(inhalt)
     except ET.ParseError as fehler:
         raise ERechnungFehler(f"XML nicht lesbar: {fehler}")
     art = lokal(wurzel.tag)
+    typ = text(wurzel, "ExchangedDocument", "TypeCode") if art == "CrossIndustryInvoice" else kind(wurzel, "InvoiceTypeCode")
+    if art == "CreditNote" or (typ or "").strip() in GUTSCHRIFT_CODES:
+        # Gutschrift mit positiven Beträgen: als Rechnung angelegt würde sie im Zahllauf überwiesen
+        raise ERechnungFehler("Die Datei ist eine Gutschrift des Lieferanten, keine Rechnung – sie wird nicht als offene "
+                              "Rechnung angelegt. Bitte mit der betroffenen Rechnung verrechnen.")
     if art == "CrossIndustryInvoice":
         verkaeufer = finde(wurzel, "SellerTradeParty")
         summen = finde(wurzel, "SpecifiedTradeSettlementHeaderMonetarySummation")
@@ -74,7 +82,7 @@ def lese_xml(inhalt: bytes) -> dict:
             "steuer": betrag(text(summen, "TaxTotalAmount")),
             "brutto": betrag(text(summen, "GrandTotalAmount")),
         }
-    elif art in ("Invoice", "CreditNote"):
+    elif art == "Invoice":
         verkaeufer = finde(wurzel, "AccountingSupplierParty")
         summen = finde(wurzel, "LegalMonetaryTotal")
         daten = {

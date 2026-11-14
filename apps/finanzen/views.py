@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
+from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -344,14 +345,21 @@ def bank(request):
 def bank_zuordnen(request, umsatz_id):
     from .models import Bankumsatz
     umsatz = get_object_or_404(Bankumsatz, pk=umsatz_id, mandant=request.mandant)
-    if request.POST.get("aktion") == "ignorieren":
-        umsatz.status = Bankumsatz.IGNORIERT
-        umsatz.save(update_fields=["status"])
-        return redirect("finanzen:bank")
-    if request.POST.get("aktion") == "oeffnen":
-        if umsatz.status == Bankumsatz.IGNORIERT:
-            umsatz.status = Bankumsatz.OFFEN
-            umsatz.save(update_fields=["status"])
+    if request.POST.get("aktion") in ("ignorieren", "oeffnen"):
+        # Unter Zeilensperre und nur aus dem passenden Status: ein inzwischen gebuchter Umsatz (anderer Tab, „Nachbuchen“)
+        # darf nicht über „Ignorieren → Wieder öffnen“ erneut offen werden – sonst würde derselbe Eingang doppelt gebucht.
+        with transaction.atomic():
+            umsatz = Bankumsatz.objects.select_for_update().get(pk=umsatz.pk)
+            gebucht = umsatz.status == Bankumsatz.ZUGEORDNET or umsatz.zahlungen.filter(storno_zu__isnull=True, storniert_durch__isnull=True).exists()
+            if gebucht:
+                messages.error(request, "Dieser Umsatz ist bereits gebucht und bleibt zugeordnet. "
+                                        "Zum Korrigieren die Zahlung an der Rechnung stornieren.")
+            elif request.POST["aktion"] == "ignorieren" and umsatz.status == Bankumsatz.OFFEN:
+                umsatz.status = Bankumsatz.IGNORIERT
+                umsatz.save(update_fields=["status"])
+            elif request.POST["aktion"] == "oeffnen" and umsatz.status == Bankumsatz.IGNORIERT:
+                umsatz.status = Bankumsatz.OFFEN
+                umsatz.save(update_fields=["status"])
         return redirect("finanzen:bank")
     eingabe = request.POST.get("rechnung", "").strip().upper()
     nummern = [n for n in eingabe.replace(";", ",").replace(" ", ",").split(",") if n]  # mehrere Nummern: Betrag wird verteilt

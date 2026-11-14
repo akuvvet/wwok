@@ -115,11 +115,11 @@ def vergleich(mandant, menge, artikel=None, eintrag=None, ohne_position=None, be
         if offen:
             hinweise.append("Versand nicht hinterlegt")
         elif v_neu and not zusatz:
-            hinweise.append("Versand schon im Entwurf")
+            hinweise.append("Versand schon in nicht abgeschlossener Bestellung")
         elif l.versandkostenfrei_ab is not None and nachher < l.versandkostenfrei_ab:
             hinweise.append(f"noch {eur(l.versandkostenfrei_ab - nachher)} € bis versandfrei")
         if vorher:
-            hinweise.append(f"kommt in Entwurf {b.nummer}")
+            hinweise.append(f"kommt in Bestellung {b.nummer} (nicht abgeschlossen)")
         zeilen.append({**a, "ware": ware, "versand": zusatz, "versand_offen": offen, "gesamt": ware + zusatz, "versandfrei": not offen and not v_neu,
                        "je_stueck": ((ware + zusatz) / menge).quantize(CENT), "fehlt": fehlt, "lieferbar": lieferbar,
                        "hinweise": hinweise, "entwurf": b})
@@ -143,7 +143,7 @@ def bestellen(mandant, lieferant_id, menge, artikel=None, eintrag=None, position
     if position is not None:
         position = BestellPosition.objects.select_for_update().select_related("bestellung").get(pk=position.pk)
         if position.bestellung.status != BestellStatus.ENTWURF or position.geliefert:
-            raise ValueError("Nur Positionen aus Entwürfen ohne Lieferung lassen sich verschieben.")
+            raise ValueError("Nur Positionen aus nicht abgeschlossenen Bestellungen ohne Lieferung lassen sich verschieben.")
         if position.bestellung.lieferant_id == lieferant_id:
             return position.bestellung  # steht schon beim gewählten Lieferanten
     ziel = entwurf(mandant, lieferant, bevorzugt) or services.bestellung_anlegen(mandant, lieferant, "Aus Lieferantenvergleich")

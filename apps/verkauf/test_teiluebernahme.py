@@ -493,7 +493,7 @@ class AnzeigeUndWeitereTest(TeiluebernahmeBasis):
     def test_bestellansicht_zeigt_rest_und_verlauf_folgebeleg_zeigt_herkunft(self):
         re = self.uebernehmen({self.pos.pk: D("7")}, art=Belegart.RECHNUNG)
         seite = self.client.get(reverse("verkauf:beleg", args=[self.ab.pk]))
-        self.assertContains(seite, "7 übernommen in Rechnung (Entwurf), 3 offen")
+        self.assertContains(seite, "7 übernommen in Rechnung (nicht abgeschlossen), 3 offen")
         self.assertContains(seite, "Verlauf der Übernahmen")
         ziel = self.client.get(reverse("verkauf:beleg", args=[re.pk]))
         self.assertContains(ziel, "Aus der Bestellung übernommen")

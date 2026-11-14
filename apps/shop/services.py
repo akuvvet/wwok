@@ -137,9 +137,16 @@ def bestellung_importieren(shop, b: dict):
     steuerstatus = b.get("taxStatus") or g(b, "price", "taxStatus") or "gross"
     ohne_steuer = steuerstatus == "tax-free"
     for z in b.get("lineItems") or []:
-        if z.get("type") not in (None, "product"):
-            continue  # Gutscheine, Rabatte usw. werden nicht übernommen
         steuer = Decimal("0") if ohne_steuer else dez(g(z, "price", "calculatedTaxes", 0, "taxRate", standard=19))
+        if z.get("type") not in (None, "product"):
+            # Gutschein, Rabatt, Zuschlag: als Textzeile mit ihrem (meist negativen) Betrag – der Shop hat ihn im Zahlbetrag
+            # schon abgezogen, ohne die Zeile bliebe die Rechnung um diesen Betrag offen. Zeilen ohne Betrag entfallen.
+            if dez(z.get("unitPrice")):
+                Position.objects.create(
+                    beleg=beleg, typ="L", bezeichnung=str(z.get("label") or "Gutschein/Rabatt aus dem Shop")[:255],
+                    menge=dez(z.get("quantity") or 1), einzelpreis=shop_netto(z.get("unitPrice"), steuer, steuerstatus),
+                    steuer_prozent=steuer)
+            continue
         produktnummer = g(z, "payload", "productNumber")
         artikel = Artikel.objects.filter(nummer=produktnummer).first() if produktnummer else None
         if artikel is None:
@@ -152,7 +159,7 @@ def bestellung_importieren(shop, b: dict):
     if dez(versandkosten):
         beleg.versandkosten = shop_netto(versandkosten, g(lieferung, "shippingCosts", "calculatedTaxes", 0, "taxRate", standard=19), steuerstatus)
         beleg.save()
-    if not beleg.positionen.exists():
+    if not beleg.positionen.filter(einzelpreis__gte=0).exists():
         raise ValueError(f"Bestellung {nummer} enthält keine Produktpositionen.")
     beleg.berechne()
     if abs(beleg.summe_brutto - dez(b.get("amountTotal"))) > Decimal("0.05"):

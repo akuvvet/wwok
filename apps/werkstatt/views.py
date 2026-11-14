@@ -150,7 +150,7 @@ def position_loeschen(request, reparatur_id, position_id):
 def rechnung(request, reparatur_id):
     reparatur = holen(request, reparatur_id)
     beleg = services.rechnung_erzeugen(reparatur, request.user)
-    messages.success(request, "Rechnung als Entwurf angelegt – prüfen und abschließen.")
+    messages.success(request, "Rechnung angelegt (nicht abgeschlossen) – prüfen und abschließen.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 

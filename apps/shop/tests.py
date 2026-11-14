@@ -21,7 +21,7 @@ def bestellung(nr="10001", mail="max@example.test", firma="", produkt="WIN11", m
     adresse = {"id": "a1", "firstName": "Max", "lastName": "Muster", "company": firma, "street": "Hauptstr. 1",
                "zipcode": "42651", "city": "Solingen", "country": {"iso": "DE"}, "phoneNumber": "0212 123"}
     return {
-        "id": id_, "orderNumber": nr, "orderDateTime": "2026-10-20T09:30:00.000+00:00", "amountTotal": 242.80,
+        "id": id_, "orderNumber": nr, "orderDateTime": "2026-10-20T09:30:00.000+00:00", "amountTotal": 237.80,
         "customerComment": "Bitte schnell", "billingAddressId": "a1", "addresses": [adresse],
         "orderCustomer": {"email": mail, "firstName": "Max", "lastName": "Muster", "company": firma},
         "lineItems": [
@@ -122,16 +122,19 @@ class ShopTest(TestCase):
         b = Beleg.objects.get()
         self.assertEqual((b.art, b.referenz, b.versandart, b.zahlungsbedingung), (Belegart.AUFTRAG, "10001", "DHL Paket", self.zb_pp))
         self.assertEqual(b.belegdatum.isoformat(), "2026-10-20")
-        pos = b.positionen.get()  # Gutschein-Position wird nicht übernommen
+        pos, gutschein = b.positionen.order_by("id")
+        # Gutschein kommt als Textzeile mit: der Shop hat ihn im Zahlbetrag abgezogen, sonst bliebe die Rechnung um 5 € offen
+        self.assertEqual((gutschein.typ, gutschein.artikel, gutschein.bezeichnung, gutschein.einzelpreis), ("L", None, "Gutschein", Decimal("-4.20")))
         self.assertEqual((pos.artikel, pos.menge, pos.einzelpreis, pos.steuer_prozent), (self.win, Decimal("2"), Decimal("100.00"), Decimal("19")))
         self.assertEqual(b.versandkosten, Decimal("4.03"))  # 4,80 brutto
-        self.assertEqual(b.summe_brutto, Decimal("242.80"))
+        self.assertEqual(b.summe_brutto, Decimal("237.80"))
         kunde = b.kunde
         self.assertEqual((kunde.email, kunde.ort, kunde.kundenart, kunde.nummer), ("max@example.test", "Solingen", "endkunde", "40001"))
         self.assertEqual(kunde.ansprechpartner.get().nachname, "Muster")
         self.assertIn("Solingen", b.rechnungsanschrift)
         self.assertIn("Kundenkommentar", b.bemerkung)
-        self.assertEqual(fin.bezahlt(b), Decimal("242.80"))  # PayPal bereits bezahlt → Anzahlung auf die Bestellung
+        self.assertEqual(fin.bezahlt(b), Decimal("237.80"))  # PayPal bereits bezahlt → Anzahlung auf die Bestellung
+        self.assertEqual(fin.bezahlt(b), b.summe_brutto)  # nichts bleibt offen
         self.assertEqual(ShopBestellung.objects.get().hinweis, "Neukunde 40001 angelegt")
         self.assertIsNotNone(Shop.objects.get().letzter_bestellimport)
 
@@ -148,7 +151,7 @@ class ShopTest(TestCase):
         client = FakeClient(self.shop, [bestellung(produkt="UNBEKANNT", firma="Muster GmbH", mail="info@muster.test")])
         services.bestellungen_abrufen(self.shop, client)
         b = Beleg.objects.get()
-        pos = b.positionen.get()
+        pos = b.positionen.order_by("id").first()
         self.assertEqual((pos.artikel, pos.typ), (None, "L"))
         self.assertIn("UNBEKANNT", pos.zusatztext)
         self.assertEqual((b.kunde.name1, b.kunde.name2, b.kunde.kundenart), ("Muster GmbH", "Max Muster", "gewerblich"))

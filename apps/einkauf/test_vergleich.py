@@ -111,7 +111,7 @@ class VergleichTest(TestCase):
         p = services.bestellposition(b, self.a, D("1"))
         services.bestellen(b)
         r = self.client.post(reverse("einkauf:preisvergleich_bestellen"), {"position": p.pk, "lieferant": self.kosa.pk}, follow=True)
-        self.assertContains(r, "Nur Positionen aus Entwürfen")
+        self.assertContains(r, "Nur Positionen aus nicht abgeschlossenen Bestellungen")
         self.assertTrue(b.positionen.exists())
         zone = Mandant.objects.create(kurzname="ZONE", firmenname="ZONE Handel")
         fremd = services.bestellposition(services.bestellung_anlegen(zone, self.api), self.a, D("1"))
@@ -206,7 +206,7 @@ class VergleichTest(TestCase):
         services.bestellposition(services.bestellung_anlegen(self.m, l), self.a, D("1"))
         zeile = next(z for z in vergleich.vergleich(self.m, D("1"), self.a) if z["lieferant"] == l)
         self.assertEqual((zeile["versand"], zeile["versandfrei"]), (D("0"), False))
-        self.assertIn("Versand schon im Entwurf", zeile["hinweise"])
+        self.assertIn("Versand schon in nicht abgeschlossener Bestellung", zeile["hinweise"])
         self.assertTrue(next(z for z in vergleich.vergleich(self.m, D("1"), self.a) if z["lieferant"] == self.kosa)["versandfrei"])
 
     def test_eingetragener_preis_gilt_beim_uebernehmen(self):

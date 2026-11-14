@@ -56,6 +56,40 @@ class SammelrechnungUndLoeschenTest(TestCase):
         self.assertTrue(beleg_pdf(r).startswith(b"%PDF"))
         self.assertContains(self.client.get(reverse("verkauf:beleg", args=[r.pk])), f"Lieferschein {ls1.nummer} vom 01.03.2026")
 
+    def test_rechnung_aus_lieferschein_bucht_nur_die_mehrmenge(self):
+        st = self.a.steuersatz
+        kabel = Artikel.objects.create(nummer="K1", bezeichnung="Kabel", steuersatz=st, vk1=Decimal("3"))
+        buche_manuell(self.m, kabel, Bewegungsart.WARENEINGANG, Decimal("2"))
+        ls = self.lieferschein(menge="2")  # Maus 20 → 18
+        r = rechnung_aus_lieferscheinen([ls])
+        p = r.positionen.get()
+        p.menge = Decimal("5")  # 3 Stück mehr als geliefert
+        p.save()
+        neu = Position.objects.create(beleg=r, artikel=kabel, bezeichnung="Kabel", menge=Decimal("3"), einzelpreis=Decimal("3"))
+        from apps.lager.services import druckhindernis
+        self.assertIn("K1", druckhindernis(r))  # nur 2 Kabel da
+        with self.assertRaises(ValueError):
+            r.abschliessen()
+        r.refresh_from_db()
+        self.assertFalse(r.abgeschlossen)
+        self.assertEqual(bestand(self.m, self.a), Decimal("18"))
+        neu.menge = Decimal("2")
+        neu.save()
+        r.abschliessen()
+        self.assertEqual(bestand(self.m, self.a), Decimal("15"))  # nur die 3 zusätzlichen Mäuse
+        self.assertEqual(bestand(self.m, kabel), Decimal("0"))  # in der Rechnung ergänzter Artikel wird abgebucht
+
+    def test_zwei_rechnungen_zu_einem_lieferschein_buchen_nicht_doppelt(self):
+        ls = self.lieferschein(menge="5")  # 20 → 15
+        r1 = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde, vorgaenger=ls)
+        Position.objects.create(beleg=r1, artikel=self.a, bezeichnung="Maus", menge=Decimal("2"), einzelpreis=Decimal("10"))
+        r2 = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde, vorgaenger=ls)
+        Position.objects.create(beleg=r2, artikel=self.a, bezeichnung="Maus", menge=Decimal("4"), einzelpreis=Decimal("10"))
+        r1.abschliessen()
+        self.assertEqual(bestand(self.m, self.a), Decimal("15"))  # 2 von 5 gelieferten
+        r2.abschliessen()
+        self.assertEqual(bestand(self.m, self.a), Decimal("14"))  # 2 + 4 = 6, eine mehr als geliefert
+
     def test_seriennummern_und_lieferschein_im_pdf(self):
         from apps.lager.services import seriennummern_einlagern, seriennummern_zuordnen
         seriennummern_einlagern(self.m, self.a, "SN-77")

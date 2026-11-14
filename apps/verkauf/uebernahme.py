@@ -399,7 +399,7 @@ def pdf_zeilen(ab) -> list:
 
 
 def rueckstand_text(ab, positionen) -> dict:
-    """{Positions-ID: Text} für die Bestellansicht, z. B. „7 übernommen in Rechnung RE… (Entwurf), 3 offen“. Der Text gilt je
+    """{Positions-ID: Text} für die Bestellansicht, z. B. „7 übernommen in Rechnung RE… (nicht abgeschlossen), 3 offen“. Der Text gilt je
     Bestellposition (nach Verlauf); Positionen ohne Übernahme haben keinen Eintrag."""
     je_position = {}
     for e in BelegUebernahme.objects.filter(quelle=ab, quellposition__isnull=False).select_related("zielposition__beleg", "ziel"):
@@ -409,7 +409,7 @@ def rueckstand_text(ab, positionen) -> dict:
         zeilen = uebernommen_je_ziel(je_position.get(p.pk, []))
         if not zeilen:
             continue
-        teile = [f"{_menge_text(menge)} übernommen in {(beleg.get_art_display() + ' ' + (beleg.nummer or ('(nicht gespeichert)' if beleg.vorlaeufig else '(Entwurf)'))) if beleg else Belegart(art).label + ' (gelöscht)'}"
+        teile = [f"{_menge_text(menge)} übernommen in {(beleg.get_art_display() + ' ' + (beleg.nummer or ('(nicht gespeichert)' if beleg.vorlaeufig else '(nicht abgeschlossen)'))) if beleg else Belegart(art).label + ' (gelöscht)'}"
                  for beleg, art, menge in zeilen]
         erg[p.pk] = ", ".join(teile) + (f", {_menge_text(p.offen_menge)} offen" if p.offen_menge > 0 else ", nichts mehr offen")
     return erg

@@ -265,7 +265,7 @@ class Beleg(Zeitstempel):
         constraints = [models.UniqueConstraint(fields=["mandant", "art", "nummer"], name="belegnummer_eindeutig")]
 
     def __str__(self):
-        return f"{self.get_art_display()} {self.nummer or ('(nicht gespeichert)' if self.vorlaeufig else '(Entwurf)')}"
+        return f"{self.get_art_display()} {self.nummer or ('(nicht gespeichert)' if self.vorlaeufig else '(nicht abgeschlossen)')}"
 
     def vorlaeufig_sperre(self, aktion):
         """Vor dem Speichern (Abschluss mit Nummer) gibt es gar nichts nach außen: kein PDF, Druck, keine Mail, Zahlung, kein Versand."""
@@ -827,7 +827,7 @@ class Beleg(Zeitstempel):
             from apps.lager.services import offene_lieferscheine
             offen = offene_lieferscheine(self)
             if offen:
-                raise ValueError("Erst den Lieferschein " + ", ".join(l.nummer or "(Entwurf)" for l in offen) +
+                raise ValueError("Erst den Lieferschein " + ", ".join(l.nummer or "(nicht abgeschlossen)" for l in offen) +
                                  " abschließen (bucht das Lager ab), dann die Rechnung.")
         self.berechne()
         if self.art == Belegart.GUTSCHRIFT and self.vorgaenger_id and self.vorgaenger.art == Belegart.RECHNUNG:
@@ -1089,7 +1089,7 @@ class Beleg(Zeitstempel):
         from apps.lager.services import teilung
         from . import vorgang
         if self.abgeschlossen:
-            raise ValueError("Der Beleg ist schon abgeschlossen – eine Teillieferung gibt es nur für Entwürfe.")
+            raise ValueError("Der Beleg ist schon abgeschlossen – eine Teillieferung gibt es nur für nicht abgeschlossene Belege.")
         lieferbar, knapp = teilung(self)
         if not lieferbar or not knapp:
             raise ValueError("Eine Teillieferung ist nur möglich, wenn ein Teil der Positionen lieferbar ist und ein Teil nicht.")
@@ -1299,7 +1299,7 @@ class BelegUmwandlung(models.Model):
         return Belegart(self.nach_art).label
 
     def __str__(self):
-        return f"{self.von_art_name} {self.von_nummer or '(Entwurf)'} -> {self.nach_art_name}"
+        return f"{self.von_art_name} {self.von_nummer or '(nicht abgeschlossen)'} -> {self.nach_art_name}"
 
 
 class Vorgangsweg(models.TextChoices):
@@ -1381,12 +1381,12 @@ class BelegUebernahme(models.Model):
     def ziel_text(self) -> str:
         beleg = self.ziel_beleg
         if beleg is not None:
-            return f"{beleg.get_art_display()} {beleg.nummer or ('(nicht gespeichert)' if beleg.vorlaeufig else '(Entwurf)')}"
+            return f"{beleg.get_art_display()} {beleg.nummer or ('(nicht gespeichert)' if beleg.vorlaeufig else '(nicht abgeschlossen)')}"
         return f"{Belegart(self.ziel_art).label} (gelöscht)"
 
     @property
     def text(self) -> str:
-        """Zeile für Anzeige und Druck, z. B. „7 × Maus übernommen in Rechnung (Entwurf)“."""
+        """Zeile für Anzeige und Druck, z. B. „7 × Maus übernommen in Rechnung (nicht abgeschlossen)“."""
         menge = f"{self.menge.normalize():f}".replace(".", ",")
         name = (f"{self.artikelnummer} " if self.artikelnummer else "") + self.bezeichnung
         if self.richtung == self.ZURUECK:

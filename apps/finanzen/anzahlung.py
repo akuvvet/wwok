@@ -24,7 +24,7 @@ QUELLARTEN = (Belegart.PROFORMA, Belegart.AUFTRAG)
 GUTHABENARTEN = QUELLARTEN + (Belegart.RECHNUNG,)  # Überzahlte Rechnung gibt ihr Guthaben ebenfalls ab
 
 STATUS_TEXT = {
-    "entwurf": "Entwurf", "offen": "offen", "teilbezahlt": "teilbezahlt", "bezahlt": "bezahlt",
+    "entwurf": "nicht abgeschlossen", "offen": "offen", "teilbezahlt": "teilbezahlt", "bezahlt": "bezahlt",
     "ueberzahlt": "überzahlt (Guthaben)", "umgewandelt": "in Rechnung umgewandelt", "guthaben": "umgewandelt, Guthaben offen",
     "erstattet": "erstattet", "storniert": "storniert",
 }

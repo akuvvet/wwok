@@ -47,7 +47,7 @@ class LieferscheinMarkeTest(TestCase):
         ls = ab.folgebeleg_erzeugen()
         ls_url = reverse("verkauf:beleg", args=[ls.pk])
         kopf = self.client.get(reverse("verkauf:beleg", args=[ab.pk]), {"von_art": "AB"})
-        self.assertContains(kopf, f'href="{ls_url}" title="Lieferschein aus dieser Bestellung">L · {ls.nummer or "(Entwurf)"}</a>')
+        self.assertContains(kopf, f'href="{ls_url}" title="Lieferschein aus dieser Bestellung">L · {ls.nummer or "(nicht abgeschlossen)"}</a>')
         for url, daten in ((reverse("verkauf:belege"), {"status": ""}), (reverse("verkauf:kunde", args=[self.kunde.pk]), {})):
             with self.subTest(url=url):
                 r = self.client.get(url, daten)
@@ -69,7 +69,7 @@ class LieferscheinMarkeTest(TestCase):
         self.assertEqual(re.vorgaenger_id, ab.pk)
         re_url = reverse("verkauf:beleg", args=[re.pk])
         kopf = self.client.get(reverse("verkauf:beleg", args=[ab.pk]), {"von_art": "AB"})
-        self.assertContains(kopf, f'href="{re_url}" title="Rechnung aus dieser Bestellung">R · {re.nummer or "(Entwurf)"}</a>')
+        self.assertContains(kopf, f'href="{re_url}" title="Rechnung aus dieser Bestellung">R · {re.nummer or "(nicht abgeschlossen)"}</a>')
         self.assertNotContains(kopf, "Lieferschein aus dieser Bestellung")
         for url, daten in ((reverse("verkauf:belege"), {"status": ""}), (reverse("verkauf:kunde", args=[self.kunde.pk]), {})):
             with self.subTest(url=url):

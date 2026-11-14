@@ -48,6 +48,7 @@ class VeralteteEntfernenTest(TestCase):
         pos = Position.objects.create(beleg=beleg, typ="P", preisliste_artikel=eintrag, bezeichnung="Artikel 4", einzelpreis=Decimal("12"))
         best = services.bestellung_anlegen(m, self.lf)
         bp = services.bestellposition(best, None, Decimal("1"), preisliste_artikel=eintrag)
+        type(best).objects.filter(pk=best.pk).update(status="storniert")  # erledigte Bestellung schützt die Zeile nicht
         preislisten.importieren(self.p, csv_text([0, 1, 2]))  # B3 und B4 fallen weg
         self.assertEqual(self.nummern(), ["B0", "B1", "B2"])
         self.assertEqual(ArtikelLieferant.objects.count(), 0)  # Lieferantenpreis am eigenen Artikel mit entfernt
@@ -56,6 +57,28 @@ class VeralteteEntfernenTest(TestCase):
         bp.refresh_from_db()
         self.assertEqual((pos.preisliste_artikel, pos.bezeichnung, pos.einzelpreis), (None, "Artikel 4", Decimal("12.00")))  # Beleg bleibt erhalten
         self.assertEqual((bp.preisliste_artikel, bp.bezeichnung), (None, "Artikel 4"))
+
+    def test_bestellte_preislistenartikel_bleiben_bis_die_bestellung_erledigt_ist(self):
+        preislisten.importieren(self.p, csv_text(range(6)))
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        kunde = Kunde.objects.create(nummer="1", name1="K")
+        b4, b5 = (Preislistenartikel.objects.get(bestellnummer=n) for n in ("B4", "B5"))
+        best = services.bestellung_anlegen(m, self.lf)
+        bp = services.bestellposition(best, None, Decimal("2"), preisliste_artikel=b4)
+        services.bestellen(best)
+        auftrag = Beleg.objects.create(mandant=m, art=Belegart.AUFTRAG, kunde=kunde)
+        pos = Position.objects.create(beleg=auftrag, typ="P", preisliste_artikel=b5, bezeichnung="Artikel 5", einzelpreis=Decimal("12"))
+        prot = preislisten.importieren(self.p, csv_text([0, 1, 2]))  # B3, B4, B5 nicht mehr gelistet
+        self.assertEqual(prot.geloescht, 1)  # nur B3
+        self.assertEqual(self.nummern(), ["B0", "B1", "B2", "B4", "B5"])
+        bp.refresh_from_db()
+        pos.refresh_from_db()
+        self.assertEqual((bp.preisliste_artikel, pos.preisliste_artikel), (b4, b5))  # weiter gegen die Bestellung buchbar
+        self.assertEqual(services.offene_p_positionen(services.wareneingang_anlegen(m, self.lf, best)), [bp])
+        type(best).objects.filter(pk=best.pk).update(status="geliefert")
+        auftrag.delete()
+        prot = preislisten.importieren(self.p, csv_text([0, 1, 2]))
+        self.assertEqual((prot.geloescht, self.nummern()), (2, ["B0", "B1", "B2"]))  # danach fallen sie weg
 
     def test_fehlerhafte_zeilen_werden_nicht_als_veraltet_gelöscht(self):
         preislisten.importieren(self.p, csv_text(range(4)))

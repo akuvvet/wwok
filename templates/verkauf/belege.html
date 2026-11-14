@@ -10,7 +10,7 @@
       {% for wert, name in arten %}<option value="{{ wert }}" {% if art == wert %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
     <div><label for="status">Status</label><select id="status" name="status">
       <option value="">alle</option>
-      <option value="offen" {% if status == "offen" %}selected{% endif %}>Entwurf</option>
+      <option value="offen" {% if status == "offen" %}selected{% endif %}>nicht abgeschlossen</option>
       <option value="abgeschlossen" {% if status == "abgeschlossen" %}selected{% endif %}>abgeschlossen</option>
       {% if status == "dashboard" %}<option value="dashboard" selected>offen laut Dashboard</option>{% endif %}</select></div>
     <div><label for="zahlung">Zahlung (Proforma)</label><select id="zahlung" name="zahlung">
@@ -21,14 +21,14 @@
     <div><label for="bis">bis</label><input id="bis" type="date" name="bis" value="{{ bis }}"></div>
     <noscript><button type="submit">Filtern</button></noscript>
   </form>
-  <p data-zahl aria-live="polite">{{ anzahl }} Belege{% if standard_30 %} (Entwürfe der letzten 30 Tage) · <a href="?status=&amp;von=">alle anzeigen</a>{% endif %}</p>
+  <p data-zahl aria-live="polite">{{ anzahl }} Belege{% if standard_30 %} (nicht abgeschlossene der letzten 30 Tage) · <a href="?status=&amp;von=">alle anzeigen</a>{% endif %}</p>
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
   <div class="scroll">
   <table>
     <thead><tr><th>Beleg</th><th>Datum</th><th>Kunde</th><th>Referenz</th><th>Status{% status_legende "zahlung" %}</th><th class="zahl">Netto</th><th class="zahl">Brutto</th></tr></thead>
     <tbody>
     {% for b in seite.object_list %}
-    <tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {% if b.vorlaeufig %}<span class="marke gesperrt" title="Nicht gespeichert: wird verworfen, wenn er nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>{% else %}{{ b.nummer|default:"(Entwurf)" }}{% endif %}</a>{% include "verkauf/versand_marke.html" %}{% if b.vormals %}<small style="display:block;opacity:.7">vormals {{ b.vormals }}</small>{% endif %}</td>
+    <tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {% if b.vorlaeufig %}<span class="marke gesperrt" title="Nicht gespeichert: wird verworfen, wenn er nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>{% else %}{{ b.nummer|default:"(nicht abgeschlossen)" }}{% endif %}</a>{% include "verkauf/versand_marke.html" %}{% if b.vormals %}<small style="display:block;opacity:.7">vormals {{ b.vormals }}</small>{% endif %}</td>
       <td>{{ b.belegdatum|date:"d.m.Y" }}</td>
       <td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td>
       <td>{{ b.referenz }}</td>
