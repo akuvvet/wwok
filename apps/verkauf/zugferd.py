@@ -43,6 +43,15 @@ def _kategorie(prozent) -> str:
     return "S" if Decimal(prozent) > 0 else "Z"
 
 
+def kaeuferanschrift(beleg) -> dict:
+    """Käufer der E-Rechnung: die am Beleg geführte Anschrift; Altbelege ohne diese Felder fallen auf den Kundenstamm zurück."""
+    if beleg.kaeufer_ort:
+        return {"name": beleg.kaeufer_name or beleg.kunde.name1, "strasse": beleg.kaeufer_strasse, "plz": beleg.kaeufer_plz,
+                "ort": beleg.kaeufer_ort, "land": beleg.kaeufer_land or "DE"}
+    k = beleg.kunde
+    return {"name": k.name1 + (" " + k.name2 if k.name2 else ""), "strasse": k.strasse, "plz": k.plz, "ort": k.ort, "land": k.land or "DE"}
+
+
 def xml_erzeugen(beleg, xrechnung=False) -> bytes:
     """CII-XML (EN 16931) zu einer abgeschlossenen Rechnung oder Gutschrift; mit xrechnung=True nach dem deutschen
     Standard XRechnung (für Behörden): Leitweg-ID (am Kunden) und Verkäuferkontakt sind dann Pflicht."""
@@ -53,7 +62,8 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
         raise ERechnungAusgangFehler(f"Mandant {m.kurzname}: USt-ID oder Steuernummer fehlt (Verwaltung → Mandanten).")
     if not (m.strasse and m.plz and m.ort):
         raise ERechnungAusgangFehler(f"Mandant {m.kurzname}: Anschrift unvollständig (Verwaltung → Mandanten).")
-    if not (k.strasse and k.plz and k.ort):
+    kaeufer = kaeuferanschrift(beleg)
+    if not (kaeufer["strasse"] and kaeufer["plz"] and kaeufer["ort"]):
         raise ERechnungAusgangFehler(f"Kunde {k.name1}: Anschrift unvollständig (Straße, PLZ, Ort).")
     if xrechnung:
         if not k.leitweg_id.strip():
@@ -141,17 +151,17 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
         kind(kind(verkaeufer, "ram", "SpecifiedTaxRegistration"), "ram", "ID", m.ust_id.replace(" ", ""), schemeID="VA")
     if m.steuernummer:
         kind(kind(verkaeufer, "ram", "SpecifiedTaxRegistration"), "ram", "ID", m.steuernummer, schemeID="FC")
-    kaeufer = kind(vereinbarung, "ram", "BuyerTradeParty")
-    kind(kaeufer, "ram", "Name", (k.name1 + (" " + k.name2 if k.name2 else ""))[:200])
-    adresse = kind(kaeufer, "ram", "PostalTradeAddress")
-    kind(adresse, "ram", "PostcodeCode", k.plz)
-    kind(adresse, "ram", "LineOne", k.strasse)
-    kind(adresse, "ram", "CityName", k.ort)
-    kind(adresse, "ram", "CountryID", k.land or "DE")
+    kaeufer_xml = kind(vereinbarung, "ram", "BuyerTradeParty")
+    kind(kaeufer_xml, "ram", "Name", kaeufer["name"][:200])
+    adresse = kind(kaeufer_xml, "ram", "PostalTradeAddress")
+    kind(adresse, "ram", "PostcodeCode", kaeufer["plz"])
+    kind(adresse, "ram", "LineOne", kaeufer["strasse"])
+    kind(adresse, "ram", "CityName", kaeufer["ort"])
+    kind(adresse, "ram", "CountryID", kaeufer["land"])
     if k.email:
-        kind(kind(kaeufer, "ram", "URIUniversalCommunication"), "ram", "URIID", k.email, schemeID="EM")
+        kind(kind(kaeufer_xml, "ram", "URIUniversalCommunication"), "ram", "URIID", k.email, schemeID="EM")
     if k.ust_id:
-        kind(kind(kaeufer, "ram", "SpecifiedTaxRegistration"), "ram", "ID", k.ust_id.replace(" ", ""), schemeID="VA")
+        kind(kind(kaeufer_xml, "ram", "SpecifiedTaxRegistration"), "ram", "ID", k.ust_id.replace(" ", ""), schemeID="VA")
 
     kind(handel, "ram", "ApplicableHeaderTradeDelivery")
 

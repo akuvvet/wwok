@@ -215,6 +215,42 @@ def artikel_tabs(form, mandantform, komponenten, fehler=False, bilder=None, bild
     return tabs
 
 
+def lieferant_dublette(form, pk):
+    """Warntext, wenn ein anderer Lieferant gleichen Namen, gleiche USt-IdNr. oder gleiche E-Mail hat (nur bei neuem Lieferanten
+    oder geänderten Feldern). Leer = keine Dublette. Nur eine Warnung, kein Sperren; Importe laufen am Formular vorbei."""
+    ausser = Lieferant.objects.exclude(pk=pk) if pk else Lieferant.objects.all()
+    d = form.cleaned_data
+    gruende = []
+    for feld, label in (("name1", "den Namen"), ("ust_id", "die USt-IdNr."), ("email", "die E-Mail")):
+        wert = (d.get(feld) or "").strip()
+        if not wert or (pk and feld not in form.changed_data):
+            continue
+        if feld == "ust_id":
+            wert = wert.replace(" ", "")
+            treffer = [l for l in ausser.exclude(ust_id="") if l.ust_id.replace(" ", "").lower() == wert.lower()]
+            gleich = treffer[0] if treffer else None
+        else:
+            gleich = ausser.filter(**{f"{feld}__iexact": wert}).first()
+            if feld == "name1" and not gleich:  # Leerzeichen am Rand der gespeicherten Namen ignorieren
+                gleich = next((l for l in ausser.filter(name1__icontains=wert) if l.name1.strip().lower() == wert.lower()), None)
+        if gleich:
+            gruende.append(f"{label} wie Lieferant {gleich.nummer} „{gleich.name1}“")
+    if not gruende:
+        return ""
+    return "Möglicherweise gibt es diesen Lieferanten schon: " + "; ".join(gruende) + ". Trotzdem speichern?"
+
+
+def artikel_dublette(form, pk):
+    """Warntext, wenn ein anderer Artikel dieselbe EAN hat (leere EAN zählt nicht; beim Ändern nur, wenn die EAN geändert wurde)."""
+    ean = (form.cleaned_data.get("ean") or "").strip()
+    if not ean or (pk and "ean" not in form.changed_data):
+        return ""
+    gleich = Artikel.objects.filter(ean=ean).exclude(pk=pk).order_by("nummer").first() if pk else Artikel.objects.filter(ean=ean).order_by("nummer").first()
+    if not gleich:
+        return ""
+    return f"Die EAN {ean} hat schon Artikel {gleich.nummer} „{gleich.bezeichnung}“. Trotzdem speichern?"
+
+
 def bearbeiten(request, art: str, pk=None):
     """art: 'kunde' oder 'lieferant'; ohne pk wird neu angelegt."""
     kunde = art == "kunde"
@@ -251,6 +287,8 @@ def bearbeiten(request, art: str, pk=None):
             if gleich:
                 warnung = (f"Es gibt schon einen Kunden „{gleich.name1}“ in {gleich.plz} {gleich.ort} (Nr. {gleich.nummer}). "
                            "Wirklich einen weiteren anlegen?")
+        if not kunde and form.is_valid() and not request.POST.get("trotzdem"):  # Dublettenprüfung beim Lieferanten
+            warnung = lieferant_dublette(form, pk)
         if alle_gueltig(form, ap_set, an_set, mandantform) and not warnung:
             nummer_neu = form.cleaned_data["nummer"]
             try:
@@ -292,6 +330,7 @@ def bearbeiten(request, art: str, pk=None):
              else f"Neuer {'Kunde' if kunde else 'Lieferant'}")
     antwort = render(request, "stammdaten/modal.html", {
         "titel": titel, "tabs": baue_tabs(art, form, formsets, mandantform), "form": form, "neu": not pk, "warnung": warnung,
+        "trotzdem_text": "Trotzdem anlegen" if kunde else "Trotzdem speichern",
         "aktion": request.path, "kunde": kunde, "mandant": mandant,
         "ust_url": reverse(f"stammdaten:{art}_ust_id_pruefen", args=[pk]) if pk else None,
         "ust_pruefungen": UstIdPruefung.objects.filter(mandant=mandant, **{art: instanz}).select_related("benutzer")[:5] if pk else []})
@@ -387,8 +426,12 @@ def artikel_bearbeiten(request, pk=None):
         mandant=mandant, **(kopie.mandant_werte(vorlage, mandant) if vorlage else {}))
     mandantform = f.ArtikelMandantForm(daten, instance=md_instanz, prefix="md")
     status = 200
+    warnung = ""
     if request.method == "POST":
         gueltig = alle_gueltig(form, mandantform)
+        if gueltig and not request.POST.get("trotzdem"):  # doppelte EAN: warnen, mit Bestätigung speichern
+            warnung = artikel_dublette(form, pk)
+            gueltig = not warnung
         if we_fehler:
             form.add_error(None, we_fehler)
             gueltig = False
@@ -442,7 +485,8 @@ def artikel_bearbeiten(request, pk=None):
     antwort = render(request, "stammdaten/modal.html", {
         "titel": f"Artikel {instanz.nummer} – {instanz.bezeichnung}" if pk else "Neuer Artikel",
         "tabs": artikel_tabs(form, mandantform, komponenten, bool(form.non_field_errors()),
-                             bilder_daten(instanz, bilder_kopie), bool(bildfehler)), "form": form, "neu": not pk, "warnung": "",
+                             bilder_daten(instanz, bilder_kopie), bool(bildfehler)), "form": form, "neu": not pk, "warnung": warnung,
+        "trotzdem_text": "Trotzdem speichern",
         "aktion": request.path, "kunde": False, "mandant": mandant, "kopie_von": vorlage, "kopie_bilder": bool(bilder_kopie),
         "kopie_von_pl": pl_eintrag, "kopie_artikel": instanz if pk else None, "we_para": we_para})
     antwort.status_code = status

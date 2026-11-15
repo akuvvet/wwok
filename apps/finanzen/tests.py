@@ -29,6 +29,7 @@ class FinanzenTest(TestCase):
                                  belegdatum=date.today() - timedelta(days=tage_alt))
         Position.objects.create(beleg=b, bezeichnung="Dienst", einzelpreis=Decimal(netto))
         b.abschliessen()
+        Beleg.objects.filter(pk=b.pk).update(belegdatum=date.today() - timedelta(days=tage_alt))  # der Abschluss setzt das Tagesdatum: Alter danach einstellen
         b.refresh_from_db()
         return b
 

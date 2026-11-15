@@ -168,7 +168,8 @@ def buchen(request, artikel_id):
         if seriennummern and len(seriennummern) != abs(menge):
             raise ValueError(f"{len(seriennummern)} Seriennummern, aber Menge {abs(menge):f}.")
         with transaction.atomic():  # schlägt die Seriennummer fehl, wird auch die Bestandsbuchung zurückgenommen
-            buche_manuell(request.mandant, artikel, art, menge, request.POST.get("bemerkung", "").strip(), request.user)
+            ek = zahl(request.POST.get("ek"))
+            buche_manuell(request.mandant, artikel, art, menge, request.POST.get("bemerkung", "").strip(), request.user, ek=ek)
             if seriennummern:
                 seriennummern_einlagern(request.mandant, artikel, chr(10).join(seriennummern), request.POST.get("bemerkung", "").strip())
         messages.success(request, "Gebucht.")

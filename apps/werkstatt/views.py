@@ -103,7 +103,14 @@ def schutz(view):
 @schutz
 def status(request, reparatur_id):
     reparatur = holen(request, reparatur_id)
-    meldung = services.status_setzen(reparatur, request.POST.get("status"), request.user, mail=bool(request.POST.get("mail")))
+    try:
+        meldung = services.status_setzen(reparatur, request.POST.get("status"), request.user, mail=bool(request.POST.get("mail")),
+                                         ohne_berechnung=bool(request.POST.get("ohne_berechnung")))
+    except services.OhneBerechnungRueckfrage as rueckfrage:  # zweiter Schritt: Bestätigung im Formular
+        return render(request, "werkstatt/detail.html", {
+            "r": reparatur, "positionen": reparatur.positionen.select_related("artikel"), "stati": Status.choices,
+            "netto": reparatur.summe_netto, "rma": reparatur.rmas.first(), "rueckfrage": str(rueckfrage),
+            "rueckfrage_mail": bool(request.POST.get("mail"))})
     messages.success(request, f"Status: {reparatur.get_status_display()}. {meldung or ''}")
     return redirect("werkstatt:detail", reparatur_id=reparatur.pk)
 

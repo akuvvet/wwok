@@ -387,9 +387,20 @@ def kasse_buchen(mandant, art, betrag, text, datum=None, beleg=None, benutzer=No
     if art not in (Kassenbuch.EINNAHME, Kassenbuch.AUSGABE):
         raise ValueError("Kassenbuchungen sind Einnahme oder Ausgabe.")
     Mandant.objects.select_for_update().get(pk=mandant.pk)  # Sperre, damit Nummern lückenlos bleiben
+    datum = datum or timezone.localdate()
+    if datum > timezone.localdate():
+        raise ValueError("Kassenbuchungen dürfen nicht in der Zukunft liegen.")
+    letzte_buchung = Kassenbuch.objects.filter(mandant=mandant).aggregate(m=models.Max("datum"))["m"]
+    if letzte_buchung is not None and datum < letzte_buchung:
+        raise ValueError(f"Kassenbuchung nicht möglich: Das Datum liegt vor der letzten Buchung im Kassenbuch ({letzte_buchung:%d.%m.%Y}). "
+                         "Das Kassenbuch ist gesperrt, rückwirkend wird nicht gebucht.")
+    if art == Kassenbuch.AUSGABE and betrag > kassenstand(mandant):
+        stand, summe = f"{kassenstand(mandant):.2f}".replace(".", ","), f"{betrag:.2f}".replace(".", ",")
+        raise ValueError(f"Die Kasse darf nicht ins Minus laufen: Kassenstand {stand} €, gebucht werden sollen {summe} €. "
+                         "Bitte zuerst eine Einlage buchen.")
     letzte = Kassenbuch.objects.filter(mandant=mandant).aggregate(m=models.Max("nummer"))["m"] or 0
     return Kassenbuch.objects.create(mandant=mandant, nummer=letzte + 1, art=art, betrag=betrag, text=text,
-                                     datum=datum or timezone.localdate(), beleg=beleg, benutzer=benutzer)
+                                     datum=datum, beleg=beleg, benutzer=benutzer)
 
 
 def kassenstand(mandant) -> Decimal:

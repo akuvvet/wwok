@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.test import TestCase
 
 from apps.stammdaten.kopie import neuer_artikel_aus_preisliste
-from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel, Steuersatz
+from apps.stammdaten.models import Artikel, Hersteller, Lieferant, Preislistenartikel, Steuersatz
 
 from . import assistent, preislisten
 from .models import Preislistenprofil
@@ -11,17 +11,17 @@ from .models import Preislistenprofil
 D = Decimal
 
 CSV = (
-    "Best.-Nr.;Herst.-Nr.;Bezeichnung;EK;Gewicht;Länge;Breite;Höhe\n"
-    "TD-1;MX-100;Maus;12,50;450 g;120 mm;6,5;0,04 m\n"
-    "TD-2;;Tastatur;20,00;1,2 kg;;;\n"
-    "TD-3;;Kabel;1,00;abc;0;;\n"
+    "Best.-Nr.;Herst.-Nr.;Bezeichnung;EK;Gewicht;Länge;Breite;Höhe;Hersteller\n"
+    "TD-1;MX-100;Maus;12,50;450 g;120 mm;6,5;0,04 m;Logitech\n"
+    "TD-2;;Tastatur;20,00;1,2 kg;;;;\n"
+    "TD-3;;Kabel;1,00;abc;0;;;\n"
 )
 
 
 def profil(lieferant, **kw):
     daten = dict(lieferant=lieferant, name="Masse", dateityp="csv", zeichensatz="utf-8", trennzeichen=";", dezimaltrennzeichen=",",
                  sp_bestellnummer="Best.-Nr.", sp_herstellernummer="Herst.-Nr.", sp_bezeichnung="Bezeichnung", sp_ek="EK",
-                 sp_gewicht="Gewicht", sp_laenge="Länge", sp_breite="Breite", sp_hoehe="Höhe")
+                 sp_gewicht="Gewicht", sp_laenge="Länge", sp_breite="Breite", sp_hoehe="Höhe", sp_hersteller="Hersteller")
     daten.update(kw)
     return Preislistenprofil.objects.create(**daten)
 
@@ -48,7 +48,8 @@ class MasseImportTest(TestCase):
     def setUp(self):
         self.lf = Lieferant.objects.create(nummer="L1", name1="Techdata GmbH", kurzname="Techdata")
         self.st = Steuersatz.objects.get(nummer=1)
-        self.maus = Artikel.objects.create(nummer="M1", bezeichnung="Maus", herstellernummer="MX-100", steuersatz=self.st)
+        self.maus = Artikel.objects.create(nummer="M1", bezeichnung="Maus", herstellernummer="MX-100", steuersatz=self.st,
+                                           hersteller=Hersteller.objects.create(name="Logitech"))
 
     def test_spaltenzuordnung_und_vorschlag(self):
         self.assertEqual(assistent.spalten_raten(["Best.-Nr.", "Länge", "Breite", "Höhe", "Gewicht"]).keys() & {"laenge", "breite", "hoehe", "gewicht"},

@@ -3,7 +3,7 @@
 Gerechnet wird mit Warenwert plus den Versandkosten, die diese Bestellung zusätzlich auslöst. Ein offener Entwurf beim
 Lieferanten zählt mit: Er kann den Mindestbestellwert oder die Versandkostenfreiheit erreichen. Entschieden wird von Hand –
 der Vergleich sortiert und weist hin, er bestellt nichts selbst."""
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
 from django.db.models import Q
@@ -100,7 +100,7 @@ def vergleich(mandant, menge, artikel=None, eintrag=None, ohne_position=None, be
         l = a["lieferant"]
         b = entwurf(mandant, l, bevorzugt)
         vorher = entwurfswert(b, ohne_position)
-        ware = (a["ek"] * menge).quantize(CENT)
+        ware = (a["ek"] * menge).quantize(CENT, rounding=ROUND_HALF_UP)
         nachher = vorher + ware
         v_neu, v_alt = versand(l, nachher), versand(l, vorher)
         offen = v_neu is None or v_alt is None
@@ -121,7 +121,7 @@ def vergleich(mandant, menge, artikel=None, eintrag=None, ohne_position=None, be
         if vorher:
             hinweise.append(f"kommt in Bestellung {b.nummer} (nicht abgeschlossen)")
         zeilen.append({**a, "ware": ware, "versand": zusatz, "versand_offen": offen, "gesamt": ware + zusatz, "versandfrei": not offen and not v_neu,
-                       "je_stueck": ((ware + zusatz) / menge).quantize(CENT), "fehlt": fehlt, "lieferbar": lieferbar,
+                       "je_stueck": ((ware + zusatz) / menge).quantize(CENT, rounding=ROUND_HALF_UP), "fehlt": fehlt, "lieferbar": lieferbar,
                        "hinweise": hinweise, "entwurf": b})
     zeilen.sort(key=lambda z: (not z["lieferbar"], bool(z["fehlt"]), z["gesamt"], z["lieferzeit"] if z["lieferzeit"] is not None else 999))
     if zeilen:
@@ -177,4 +177,4 @@ def alternative(position):
     eigene = position.netto + (mit - ohne if mit is not None and ohne is not None else Decimal("0"))
     if beste["gesamt"] >= eigene:
         return None
-    return {**beste, "ersparnis": (eigene - beste["gesamt"]).quantize(CENT)}
+    return {**beste, "ersparnis": (eigene - beste["gesamt"]).quantize(CENT, rounding=ROUND_HALF_UP)}

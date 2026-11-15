@@ -73,6 +73,10 @@ FOLGEBELEG = {
 }
 # Beim Übernehmen wird der Beleg selbst umgewandelt (statt kopiert): Angebot -> Bestellung, Bestellung -> Rechnung direkt
 UMWANDELBAR = {(Belegart.ANGEBOT, Belegart.AUFTRAG), (Belegart.AUFTRAG, Belegart.RECHNUNG)}
+# Kopieren als ... ist bei gesperrtem Kunden nur erlaubt, wenn es einen laufenden Vorgang weiterführt (Übernahme)
+WEITERFUEHRUNG = {(Belegart.ANGEBOT, Belegart.AUFTRAG), (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN), (Belegart.AUFTRAG, Belegart.RECHNUNG),
+                  (Belegart.AUFTRAG, Belegart.PROFORMA), (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG),
+                  (Belegart.RECHNUNG, Belegart.NACHLIEFERSCHEIN)}
 # Preislistenartikel (P) gibt es nur im Angebot; in diese Belegarten werden sie nicht kopiert (Proforma wird später zur Rechnung).
 P_UNZULAESSIG = (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA)
 # Diese Belegarten werden erst beim Abschluss nummeriert und danach gesperrt.
@@ -96,6 +100,15 @@ class BelegGesperrt(Exception):
     pass
 
 
+def kundensperre_pruefen(kunde_id):
+    """Für neue Vorgänge (Beleg neu, Kopieren als, wiederkehrende Rechnung): ein gesperrter Kunde bekommt keinen neuen Beleg.
+    Liest den Stand frisch aus der Datenbank. Gutschrift, Storno und das Weiterführen laufender Belege prüfen nicht."""
+    from apps.stammdaten.models import Kunde
+    gesperrt = Kunde.objects.filter(pk=kunde_id, gesperrt=True).first()
+    if gesperrt is not None:
+        raise ValueError(f"Kunde {gesperrt.name1} ist gesperrt – kein neuer Beleg.")
+
+
 class Nummernkreis(models.Model):
     """Zähler je Mandant und Art; er läuft über den Jahreswechsel weiter, das Jahr steht nur in der Nummer."""
 
@@ -111,6 +124,9 @@ class Nummernkreis(models.Model):
     art = models.CharField("Belegart", max_length=2, choices=Belegart.choices)
     letzte_nummer = models.PositiveIntegerField("zuletzt vergeben", default=0)
     letzte_vergabe = models.DateField("zuletzt vergeben am", null=True, blank=True, editable=False)
+    hoechste_vergeben = models.PositiveIntegerField(
+        "höchste je vergebene", default=0, editable=False,
+        help_text="Steigt nur: Auch wenn ein Beleg gelöscht wird, bleibt seine Nummer verbraucht und kommt nie wieder.")
 
     class Meta:
         verbose_name = "Laufende Nummer"
@@ -149,8 +165,9 @@ class Nummernkreis(models.Model):
             if cls.gesperrt(mandant, art):
                 raise ValueError(f"Im Jahr {timezone.localdate().year} sind schon Nummern vergeben; sie müssen lückenlos weiterlaufen.")
             zaehler = [int(n.rsplit("-", 1)[-1]) for n in cls.vergebene(mandant, art) if n.rsplit("-", 1)[-1].isdigit()]
-            if naechste <= max(zaehler, default=0):
-                raise ValueError(f"Die Nummer muss größer sein als die höchste vergebene ({max(zaehler)}).")
+            hoechste = max(max(zaehler, default=0), kreis.hoechste_vergeben)  # gelöschte Belege zählen über den Merker weiter
+            if naechste <= hoechste:
+                raise ValueError(f"Die Nummer muss größer sein als die höchste vergebene ({hoechste}).")
             kreis.letzte_nummer = naechste - 1
             kreis.save(update_fields=["letzte_nummer"])
 
@@ -159,8 +176,9 @@ class Nummernkreis(models.Model):
         with transaction.atomic():
             kreis, _ = cls.objects.select_for_update().get_or_create(mandant=mandant, art=art)
             kreis.letzte_nummer += 1
+            kreis.hoechste_vergeben = max(kreis.hoechste_vergeben, kreis.letzte_nummer)
             kreis.letzte_vergabe = timezone.localdate()
-            kreis.save(update_fields=["letzte_nummer", "letzte_vergabe"])
+            kreis.save(update_fields=["letzte_nummer", "hoechste_vergeben", "letzte_vergabe"])
         return f"{art}{jahr}-{kreis.letzte_nummer:05d}"
 
     @classmethod
@@ -178,7 +196,8 @@ class Nummernkreis(models.Model):
             andere = [n for n in cls.vergebene(mandant, art) if n != nummer and n.rsplit("-", 1)[-1].lstrip("0") == str(zaehler)]
             if kreis and kreis.letzte_nummer == zaehler and not andere:
                 kreis.letzte_nummer -= 1
-                kreis.save(update_fields=["letzte_nummer"])
+                kreis.hoechste_vergeben = min(kreis.hoechste_vergeben, kreis.letzte_nummer)  # nur die eben erst vergebene, nie benutzte Nummer
+                kreis.save(update_fields=["letzte_nummer", "hoechste_vergeben"])
 
     def __str__(self):
         return f"{self.mandant} {self.art}: {self.letzte_nummer}"
@@ -217,6 +236,12 @@ class Beleg(Zeitstempel):
     zahlungsbedingung = models.ForeignKey(Zahlungsbedingung, on_delete=models.PROTECT, null=True, blank=True)
     rechnungsanschrift = models.TextField("Rechnungsanschrift", blank=True)
     versandanschrift = models.TextField("Versandanschrift", blank=True)
+    # Käufer strukturiert (für die E-Rechnung); stammt aus der Rechnungsanschrift, leer bei Altbelegen (dann gilt der Kundenstamm)
+    kaeufer_name = models.CharField("Käufer: Name", max_length=200, blank=True, editable=False)
+    kaeufer_strasse = models.CharField("Käufer: Straße", max_length=200, blank=True, editable=False)
+    kaeufer_plz = models.CharField("Käufer: PLZ", max_length=20, blank=True, editable=False)
+    kaeufer_ort = models.CharField("Käufer: Ort", max_length=100, blank=True, editable=False)
+    kaeufer_land = models.CharField("Käufer: Land", max_length=2, blank=True, editable=False)
     versandart = models.CharField("Versandart", max_length=100, blank=True)
     versandkosten = models.DecimalField("Versandkosten netto", max_digits=12, decimal_places=2, default=Decimal("0"))
     verpackung = models.DecimalField("Verpackung netto", max_digits=12, decimal_places=2, default=Decimal("0"))
@@ -566,11 +591,31 @@ class Beleg(Zeitstempel):
                 if getattr(vorher, feld) != getattr(self, feld):
                     raise BelegGesperrt(f"{self}: Feld '{feld}' ist nach Abschluss gesperrt.")
         self.nummer = self.nummer or None
+        if not self.pk and not self.kaeufer_ort:
+            self.kaeufer_aus_anschrift()
         if not self.pk and not self.nummer and self.art not in GESPERRT_NACH_ABSCHLUSS and not self.vorlaeufig:
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
         if not self.pk and self.vorlaeufig and self.zuletzt_aktiv is None:
             self.zuletzt_aktiv = timezone.now()
         super().save(*args, **kwargs)
+
+    def kaeufer_aus_anschrift(self):
+        """Füllt die strukturierten Käuferfelder aus der Rechnungsanschrift des Belegs (Namen, Straße, „PLZ Ort“, optional Land);
+        lässt sich der Text nicht zerlegen, gilt die Rechnungsanschrift des Kunden. Speichert nicht."""
+        zeilen = [z.strip() for z in (self.rechnungsanschrift or "").splitlines() if z.strip()]
+        land = "DE"
+        if len(zeilen) > 3 and re.fullmatch(r"[A-Z]{2}", zeilen[-1]):
+            land = zeilen.pop()
+        treffer = re.match(r"^(\S+)\s+(.+)$", zeilen[-1]) if len(zeilen) >= 3 else None
+        if treffer:
+            namen = zeilen[:-2]
+            werte = (" ".join(namen)[:200], zeilen[-2][:200], treffer.group(1)[:20], treffer.group(2)[:100], land)
+        else:
+            from apps.stammdaten.models import Anschriftart
+            kunde = self.kunde
+            a = kunde.anschriften.filter(art=Anschriftart.RECHNUNG).order_by("-standard").first() or kunde
+            werte = (" ".join(t for t in (a.name1, a.name2, a.name3) if t)[:200], a.strasse, a.plz, a.ort, a.land or "DE")
+        (self.kaeufer_name, self.kaeufer_strasse, self.kaeufer_plz, self.kaeufer_ort, self.kaeufer_land) = werte
 
     def delete(self, *args, **kwargs):
         """Ein Folgebeleg aus einer Bestellung (Rechnungsentwurf, Proforma) gibt die übernommene Menge an die Bestellung zurück."""
@@ -839,16 +884,19 @@ class Beleg(Zeitstempel):
         if self.art == Belegart.GUTSCHRIFT:
             from apps.lager.services import gutschrift_menge_pruefen
             gutschrift_menge_pruefen(self)
-        if war_vorlaeufig and self.art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT) and self.belegdatum < timezone.localdate():
+        if self.art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT) and self.belegdatum < timezone.localdate():
             self.belegdatum = timezone.localdate()  # Rechnung/Gutschrift tragen das Abschlussdatum, nicht den Tag des Anlegens
         if war_vorlaeufig:  # Angebot, aus dem dieser Beleg übernommen wurde: bekommt zuerst seine Nummer (Regel des Nutzers)
             from . import vorgang
             vorgang.angebot_vorab(self)
         if not self.nummer:
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
+        self.kaeufer_aus_anschrift()  # Anschrift steht mit dem Abschluss fest (die Rechnungsanschrift ist bis dahin änderbar)
         self.abgeschlossen, self.vorlaeufig, self.zuletzt_aktiv = True, False, None
         Beleg.objects.filter(pk=self.pk).update(nummer=self.nummer, abgeschlossen=True, vorlaeufig=False, zuletzt_aktiv=None,
-                                                belegdatum=self.belegdatum)
+                                                belegdatum=self.belegdatum, kaeufer_name=self.kaeufer_name,
+                                                kaeufer_strasse=self.kaeufer_strasse, kaeufer_plz=self.kaeufer_plz,
+                                                kaeufer_ort=self.kaeufer_ort, kaeufer_land=self.kaeufer_land)
         from apps.lager.services import buche_beleg  # Lieferschein/Rechnung buchen den Bestand ab
         from apps.kern.middleware import aktueller_benutzer
         benutzer = aktueller_benutzer()
@@ -1190,6 +1238,8 @@ class Beleg(Zeitstempel):
         if art not in Belegart.values or art in (Belegart.GUTSCHRIFT, Belegart.PROFORMA_STORNO) \
                 or self.art == Belegart.PROFORMA_STORNO:
             raise ValueError("Diese Belegart kann nicht als Kopie angelegt werden.")
+        if (self.art, art) not in WEITERFUEHRUNG:  # eine echte Kopie ist ein neuer Vorgang; das Weiterführen eines laufenden bleibt erlaubt
+            kundensperre_pruefen(self.kunde_id)
         if art == Belegart.LIEFERSCHEIN and self.art != Belegart.AUFTRAG:
             raise ValueError("Ein Lieferschein entsteht nur aus einer Bestellung.")
         if art == Belegart.NACHLIEFERSCHEIN and (self.art != Belegart.RECHNUNG or not self.abgeschlossen):
@@ -1817,6 +1867,10 @@ class Abo(Zeitstempel):
         if stand != self.naechster_termin:
             raise ValueError(f"{self}: Der Termin wurde gerade schon abgerechnet – bitte die Seite neu laden.")
         termin = self.naechster_termin
+        try:  # vor jeder Änderung: der Termin rückt bei gesperrtem Kunden nicht weiter
+            kundensperre_pruefen(self.kunde_id)
+        except ValueError as fehler:
+            raise ValueError(f"{self}: {fehler} Die wiederkehrende Rechnung wird nicht abgerechnet, bis die Sperre aufgehoben ist.")
         zeilen = self.zeilen(termin)
         if not zeilen and self.halbmonatlich and self.positionen.exists():
             self._termin_weiter(termin)

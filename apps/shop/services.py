@@ -112,7 +112,9 @@ def zahlart_von(name: str) -> str:
 def bestellung_importieren(shop, b: dict):
     """Eine Shopware-Bestellung als Beleg Bestellung anlegen; Rückgabe: ShopBestellung."""
     extern_id, nummer = b["id"], str(b.get("orderNumber", ""))
-    if ShopBestellung.objects.filter(shop=shop, shop_id_extern=extern_id).exists():
+    bekannt = ShopBestellung.objects.filter(shop=shop, shop_id_extern=extern_id).first()
+    if bekannt is not None:
+        status_nachziehen(bekannt, b)
         return None
     adressen = {a["id"]: a for a in (b.get("addresses") or [])}
     rechnung = adressen.get(b.get("billingAddressId")) or next(iter(adressen.values()), {})
@@ -171,11 +173,76 @@ def bestellung_importieren(shop, b: dict):
     if abs(beleg.summe_brutto - dez(b.get("amountTotal"))) > Decimal("0.05"):
         hinweise.append(f"Summe ERP {beleg.summe_brutto} € weicht vom Shop ({dez(b.get('amountTotal'))} €) ab")
     status = g((b.get("transactions") or [{}])[0], "stateMachineState", "technicalName")
+    gebucht = False
     if status == "paid":  # bereits bezahlt (z. B. PayPal) → Anzahlung auf die Bestellung
         zahlung_buchen(beleg, dez(b.get("amountTotal")), beleg.belegdatum, zahlart_von(zahlart_name or ""),
                        f"Shop {nummer}: {zahlart_name}"[:200])
-    return ShopBestellung.objects.create(shop=shop, shop_id_extern=extern_id, bestellnummer=nummer, beleg=beleg,
-                                         hinweis="; ".join(hinweise)[:300])
+        gebucht = True
+    sb = ShopBestellung.objects.create(shop=shop, shop_id_extern=extern_id, bestellnummer=nummer, beleg=beleg,
+                                       hinweis="; ".join(hinweise)[:300], zahlung_gebucht=gebucht)
+    if g(b, "stateMachineState", "technicalName") == "cancelled":
+        status_nachziehen(sb, b)
+    return sb
+
+
+def schon_bezahlt(beleg) -> bool:
+    """Steht auf der Bestellung oder einem ihrer Folgebelege (Lieferschein, Rechnung) schon eine aktive Zahlung? Dann wurde der
+    Geldeingang bereits gebucht (von Hand oder über den Bankabgleich) und darf nicht ein zweites Mal gebucht werden."""
+    from apps.finanzen.models import Zahlung
+    ids, neu = {beleg.pk}, {beleg.pk}
+    while neu:
+        neu = set(Beleg.objects.filter(vorgaenger_id__in=neu).values_list("pk", flat=True)) - ids
+        ids |= neu
+    return Zahlung.objects.filter(beleg_id__in=ids, storno_zu__isnull=True, storniert_durch__isnull=True).exists()
+
+
+def status_nachziehen(sb, b: dict):
+    """Zahl- und Stornostatus einer schon importierten Bestellung nachziehen. Bezahlt: die Zahlung wird genau einmal auf die
+    Bestellung gebucht. Im Shop storniert: wwok storniert nichts, es wird nur ein Hinweis gespeichert (Entscheidung Nutzer)."""
+    with transaction.atomic():
+        sb = ShopBestellung.objects.select_for_update().select_related("beleg").get(pk=sb.pk)  # Sperre gegen doppelte Zahlungsbuchung
+        felder = []
+        if not sb.im_shop_storniert_am and g(b, "stateMachineState", "technicalName") == "cancelled":
+            sb.im_shop_storniert_am = timezone.now()
+            felder.append("im_shop_storniert_am")
+        transaktion = (b.get("transactions") or [{}])[0] or {}
+        if not sb.zahlung_gebucht and g(transaktion, "stateMachineState", "technicalName") == "paid" and sb.beleg_id:
+            zahlart_name = g(transaktion, "paymentMethod", "name")
+            try:
+                if schon_bezahlt(sb.beleg):
+                    raise ValueError("im Vorgang ist schon eine Zahlung gebucht – bitte prüfen")
+                with transaction.atomic():
+                    zahlung_buchen(sb.beleg, dez(b.get("amountTotal")), timezone.localdate(), zahlart_von(zahlart_name or ""),
+                                   f"Shop {sb.bestellnummer}: {zahlart_name}"[:200])
+                sb.zahlung_gebucht = True
+                felder.append("zahlung_gebucht")
+            except ValueError as fehler:  # z. B. Beleg nicht mehr zahlbar: nicht raten, Hinweis für die Prüfung
+                text = f"Im Shop bezahlt, Zahlung nicht gebucht: {fehler}"
+                if text[:100] not in sb.hinweis:
+                    sb.hinweis = "; ".join(t for t in (sb.hinweis, text) if t)[:300]
+                    felder.append("hinweis")
+        if felder:
+            sb.save(update_fields=felder)
+    return sb
+
+
+NACHZIEHEN_TAGE = 60  # so lange wird der Status noch nicht bezahlter, nicht stornierter Shop-Bestellungen nachgefragt
+
+
+def _offene_nachziehen(shop, client, ergebnis):
+    """Bestellungen, die älter als der Abrufzeitraum sind, können sich im Shop noch ändern (bezahlt, storniert)."""
+    offen = list(ShopBestellung.objects.filter(
+        shop=shop, importiert_am__gte=timezone.now() - timedelta(days=NACHZIEHEN_TAGE), im_shop_storniert_am__isnull=True,
+        zahlung_gebucht=False).values_list("shop_id_extern", flat=True)[:100])
+    if not offen:
+        return
+    try:
+        for b in client.bestellungen(ids=offen).get("data") or []:
+            sb = ShopBestellung.objects.filter(shop=shop, shop_id_extern=b.get("id")).first()
+            if sb is not None:
+                status_nachziehen(sb, b)
+    except Exception as fehler:  # Statusabfrage darf den Import neuer Bestellungen nicht scheitern lassen
+        ergebnis["statusfehler"] = str(fehler)
 
 
 def bestellungen_abrufen(shop, client=None) -> dict:
@@ -199,12 +266,14 @@ def bestellungen_abrufen(shop, client=None) -> dict:
         if len(daten) < 50:
             break
         seite += 1
+    _offene_nachziehen(shop, client, ergebnis)
     if not ergebnis["fehler"]:  # bei Fehlern bleibt der Zeitpunkt stehen, damit die Bestellung erneut versucht wird
         shop.letzter_bestellimport = start
         shop.save(update_fields=["letzter_bestellimport"])
     SyncProtokoll.objects.create(
         shop=shop, art="bestellungen", erfolgreich=not ergebnis["fehler"],
-        meldung=f"{ergebnis['neu']} neu, {ergebnis['bekannt']} bereits bekannt" + (f", Fehler: {'; '.join(ergebnis['fehler'])}"[:350] if ergebnis["fehler"] else ""))
+        meldung=f"{ergebnis['neu']} neu, {ergebnis['bekannt']} bereits bekannt"
+        + (f", Statusabfrage fehlgeschlagen: {ergebnis['statusfehler']}"[:150] if ergebnis.get("statusfehler") else "") + (f", Fehler: {'; '.join(ergebnis['fehler'])}"[:350] if ergebnis["fehler"] else ""))
     return ergebnis
 
 

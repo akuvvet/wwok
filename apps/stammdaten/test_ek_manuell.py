@@ -35,6 +35,11 @@ class EkManuellTest(TestCase):
         d.update(extra)
         return d
 
+    def logitech(self):
+        """Preislisten verknüpfen nur bei gleicher Herstellernummer UND gleichem Hersteller oder gleicher EAN."""
+        from .models import Hersteller
+        Artikel.objects.filter(herstellernummer__startswith="MX-").update(hersteller=Hersteller.objects.get_or_create(name="Logitech")[0])
+
     def anlegen(self, **extra):
         return self.client.post(reverse("stammdaten:artikel_neu"), self.daten(**extra))
 
@@ -78,6 +83,7 @@ class EkManuellTest(TestCase):
     def test_preisimport_hat_vorrang_und_setzt_herkunft_import(self):
         self.anlegen(ek_manuell="12,50", herstellernummer="MX-100")
         a = Artikel.objects.get(nummer="5000")
+        self.logitech()
         preislisten.importieren(profil(self.lf), "Best.-Nr.;Herst.-Nr.;EAN;Bezeichnung;Hersteller;EK;Bestand;Lieferzeit\n"
                                                  "TD-1;MX-100;;Maus;Logitech;9,80;40;2\n".encode(), "liste.csv")
         a.refresh_from_db()
@@ -136,6 +142,7 @@ class EkManuellTest(TestCase):
         a = Artikel.objects.create(nummer="5000", bezeichnung="Maus", steuersatz=self.st, herstellernummer="MX-100",
                                    durchschnitts_ek=D("10"), ek_herkunft="wareneingang")
         Lagerbewegung.objects.create(mandant=self.m, artikel=a, art=Bewegungsart.WARENEINGANG, menge=D("1"))
+        self.logitech()
         preislisten.importieren(profil(self.lf), "Best.-Nr.;Herst.-Nr.;EAN;Bezeichnung;Hersteller;EK;Bestand;Lieferzeit\n"
                                                  "TD-1;MX-100;;Maus;Logitech;9,80;40;2\n".encode(), "liste.csv")
         a.refresh_from_db()
@@ -148,6 +155,7 @@ class EkManuellTest(TestCase):
         uebernommen = Artikel.objects.create(nummer="5001", bezeichnung="Pad", steuersatz=self.st, herstellernummer="MX-200",
                                              durchschnitts_ek=D("3.50"), ek_herkunft="import")
         datum = uebernommen.ek_geaendert_am
+        self.logitech()
         preislisten.importieren(profil(self.lf), liste.encode(), "liste.csv")
         mention.refresh_from_db()
         uebernommen.refresh_from_db()

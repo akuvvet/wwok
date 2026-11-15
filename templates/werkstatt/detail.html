@@ -55,6 +55,15 @@
     <div>Status<br><strong>{% status_symbol "werkstatt" r.status r.get_status_display mit_text=True %}</strong>{% if r.garantie %}<br>Garantiefall{% endif %}</div>
   </div>
   <p style="margin-top:12px"><strong>Fehler:</strong> {{ r.fehler|linebreaksbr }}<br><strong>Zubehör:</strong> {{ r.zubehoer|default:"–" }}</p>
+  {% if rueckfrage %}
+  <form method="post" action="{% url 'werkstatt:status' r.pk %}" class="zeile" style="border:1px solid #c80;padding:8px;margin-bottom:8px">{% csrf_token %}
+    <strong>{{ rueckfrage }}</strong>
+    <input type="hidden" name="status" value="abgeholt"><input type="hidden" name="ohne_berechnung" value="1">
+    {% if rueckfrage_mail %}<input type="hidden" name="mail" value="on">{% endif %}
+    <button type="submit" class="gefahr">Ja, ohne Berechnung abholen</button>
+    <a class="knopf leise" href="{% url 'werkstatt:detail' r.pk %}">Abbrechen</a>
+  </form>
+  {% endif %}
   <form method="post" action="{% url 'werkstatt:status' r.pk %}" class="zeile">{% csrf_token %}
     {% for w, n in stati %}{% if w != r.status and w != 'storniert' and w != 'rma' %}<button name="status" value="{{ w }}" type="submit" class="leise">→ {{ n }}</button>{% endif %}{% endfor %}
     <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="mail" checked> Kunde per Mail benachrichtigen</label>

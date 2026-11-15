@@ -269,10 +269,12 @@ def rest_schliessen(bestellung) -> list:
     return weg
 
 
-def offen_bestellt(mandant, artikel) -> Decimal:
+def offen_bestellt(mandant, artikel, mit_entwurf=False) -> Decimal:
+    """Noch erwartete Menge (bestellt/teilweise geliefert). Mit mit_entwurf zählen auch nicht abgeschlossene Bestellungen mit,
+    so legt ein zweiter Klick auf den Bestellvorschlag nichts doppelt an. Stornierte und gelieferte zählen nie."""
+    status = [BestellStatus.BESTELLT, BestellStatus.TEIL] + ([BestellStatus.ENTWURF] if mit_entwurf else [])
     return BestellPosition.objects.filter(
-        bestellung__mandant=mandant, artikel=artikel,
-        bestellung__status__in=[BestellStatus.BESTELLT, BestellStatus.TEIL]).aggregate(
+        bestellung__mandant=mandant, artikel=artikel, bestellung__status__in=status).aggregate(
         s=Sum(models.F("menge") - models.F("geliefert")))["s"] or Decimal("0")
 
 
@@ -292,7 +294,7 @@ def bestellvorschlag(mandant) -> list:
             ziel, grund = Decimal(fest[artikel_id]), "Mindestbestand"
         else:
             ziel, grund = (verkauft[artikel_id] / 3).to_integral_value(rounding="ROUND_CEILING"), "Verkaufsverlauf (1 Monat)"
-        haben = bestand(mandant, artikel) - reserviert(mandant, artikel) + offen_bestellt(mandant, artikel)
+        haben = bestand(mandant, artikel) - reserviert(mandant, artikel) + offen_bestellt(mandant, artikel, mit_entwurf=True)
         if ziel > 0 and haben < ziel:
             al = guenstigster_lieferant(artikel)
             vorschlag.append({"artikel": artikel, "ziel": ziel, "haben": haben, "menge": ziel - haben, "grund": grund,
@@ -336,6 +338,14 @@ def wareneingang_anlegen(mandant, lieferant, bestellung=None, benutzer=None) -> 
     return we
 
 
+def gleicher_artikel(hersteller: str, ean: str, artikel_hersteller: str, artikel_ean: str) -> bool:
+    """Herstellernummern sind nicht eindeutig: Ein Treffer über die Herstellernummer gilt nur, wenn auch der Hersteller
+    oder die EAN übereinstimmt. Fehlen beide Angaben auf einer Seite, wird nicht verknüpft."""
+    hersteller_gleich = bool(hersteller and artikel_hersteller and hersteller.strip().lower() == artikel_hersteller.strip().lower())
+    ean_gleich = bool(ean and artikel_ean and ean.strip() == artikel_ean.strip())
+    return hersteller_gleich or ean_gleich
+
+
 @transaction.atomic
 def artikel_aus_preisliste(eintrag):
     """Aus einem Preislistenartikel (Typ P) wird ein eigener Artikel (Typ A) mit Nummer aus dem Nummernkreis.
@@ -348,10 +358,7 @@ def artikel_aus_preisliste(eintrag):
     artikel = None
     if herstellernr:  # nur verknüpfen, wenn auch Hersteller oder EAN passen (Herstellernummern sind nicht eindeutig)
         for kandidat in Artikel.objects.filter(herstellernummer__iexact=herstellernr).select_related("hersteller").order_by("pk"):
-            hersteller_gleich = bool(eintrag.hersteller and kandidat.hersteller_id
-                                     and kandidat.hersteller.name.strip().lower() == eintrag.hersteller.strip().lower())
-            ean_gleich = bool(eintrag.ean and kandidat.ean and eintrag.ean == kandidat.ean)
-            if hersteller_gleich or ean_gleich:
+            if gleicher_artikel(eintrag.hersteller, eintrag.ean, kandidat.hersteller.name if kandidat.hersteller_id else "", kandidat.ean):
                 artikel = kandidat
                 break
     if artikel is None:

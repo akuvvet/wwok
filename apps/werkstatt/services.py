@@ -42,10 +42,22 @@ def statusmail(reparatur, benutzer=None):
         return f"Statusmail nicht gesendet: {fehler}"
 
 
+class OhneBerechnungRueckfrage(ValueError):
+    """Abholen ohne Rechnung (und ohne Garantiefall) braucht eine ausdrückliche Bestätigung."""
+
+
 @transaction.atomic
-def status_setzen(reparatur, status, benutzer=None, mail=True) -> str:
+def status_setzen(reparatur, status, benutzer=None, mail=True, ohne_berechnung=False) -> str:
+    """Setzt den Status. „abgeholt“ nur mit Rechnung oder bei Garantiefall; sonst Rückfrage (OhneBerechnungRueckfrage),
+    erst mit ohne_berechnung=True wird gesetzt und der Verzicht am Auftrag vermerkt."""
     if status not in Status.values:
         raise ValueError("Unbekannter Status.")
+    if status == Status.ABGEHOLT and not reparatur.rechnung_id and not reparatur.garantie:
+        if not ohne_berechnung:
+            raise OhneBerechnungRueckfrage("Ohne Berechnung abholen? Zu diesem Auftrag gibt es keine Rechnung und er ist kein Garantiefall.")
+        wer = f" von {benutzer}" if benutzer else ""
+        vermerk = f"{timezone.localdate():%d.%m.%Y}: Ohne Berechnung abgeholt (bestätigt{wer})."
+        reparatur.interne_notiz = (reparatur.interne_notiz + chr(10) + vermerk).strip()
     reparatur.status = status
     heute = timezone.localdate()
     if status == Status.FERTIG:

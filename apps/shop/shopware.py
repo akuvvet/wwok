@@ -68,8 +68,11 @@ class ShopwareClient:
             seite += 1
 
     # -- Fachfunktionen -----------------------------------------------------------------------------
-    def bestellungen(self, seit=None, seite: int = 1, limit: int = 50) -> dict:
+    def bestellungen(self, seit=None, seite: int = 1, limit: int = 50, ids=None) -> dict:
+        """ids: nur diese Bestellungen (zum Nachziehen von Zahl- und Stornostatus bereits importierter)."""
         filter_ = [{"type": "range", "field": "createdAt", "parameters": {"gte": seit.strftime("%Y-%m-%dT%H:%M:%S+00:00")}}] if seit else []
+        if ids:
+            filter_ = [{"type": "equalsAny", "field": "id", "value": "|".join(ids)}]
         adresse = {"associations": {"country": {}}}
         return self.api("POST", "/api/search/order", {
             "page": seite, "limit": limit, "filter": filter_, "sort": [{"field": "createdAt", "order": "ASC"}],

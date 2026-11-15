@@ -91,7 +91,7 @@ class BestellPosition(models.Model):
 
     @property
     def netto(self) -> Decimal:
-        return (self.menge * self.ek).quantize(Decimal("0.01"))
+        return (self.menge * self.ek).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     def __str__(self):
         return f"{self.menge:f} × {self.nummer}"
@@ -173,7 +173,7 @@ class WareneingangPosition(models.Model):
 
     @property
     def netto(self) -> Decimal:
-        return (self.menge * self.ek).quantize(Decimal("0.01"))
+        return (self.menge * self.ek).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class RechnungStatus(models.TextChoices):
@@ -238,7 +238,7 @@ class Lieferantenrechnung(Zeitstempel):
         """Betrag für die Überweisung; Skonto nur, wenn die Skontofrist am Zahlungstag noch läuft."""
         am = am or timezone.localdate()
         if self.skonto_prozent and self.skonto_bis and am <= self.skonto_bis:
-            return (self.brutto * (Decimal("100") - self.skonto_prozent) / 100).quantize(Decimal("0.01"))
+            return (self.brutto * (Decimal("100") - self.skonto_prozent) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return self.brutto
 
     def abgleich(self) -> dict:
