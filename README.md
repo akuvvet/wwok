@@ -130,7 +130,7 @@ Hinweis: Die gemeinsame Nutzung der Kundendaten durch zwei Firmen muss rechtlich
 | Typ | Bedeutung | Lagerbestand |
 | --- | --- | --- |
 | **A** – Artikel | normale Produkte, Ein- und Verkauf | ja |
-| **P** – Preisliste | Lieferantenprodukte aus importierten Preislisten, ohne eigene Artikelanlage verkaufbar | nein, wird beim Wareneingang **automatisch zu A** |
+| **P** – Preisliste | Lieferantenprodukte aus importierten Preislisten, ohne eigene Artikelanlage verkaufbar | nein; ein eigener Artikel A entsteht nur **nach Rückfrage** im Wareneingang (Abschnitt 18) |
 | **L** – Leistung | Dienstleistungen | nein |
 | **G** – Gruppe | zusammengesetzte Position: Überschrift mit Gesamtpreis netto/brutto, darunter Unterartikel **ohne** Einzelpreise | aus den Komponenten berechnet |
 
@@ -416,7 +416,7 @@ Nach Erstellung des Pflichtenhefts wurden ergänzt: Feldlisten Artikel, Kunden, 
 | Bereich | Wahl | Grund |
 | --- | --- | --- |
 | Sprache | Python **3.12** | wwok läuft in venv312; System-Python des Servers bleibt 3.10.12 |
-| Framework | Django 5.1 | Benutzer, Rechte, Formulare, Migrationen und Verwaltungsoberfläche schon eingebaut |
+| Framework | Django 5.2 (LTS) | Benutzer, Rechte, Formulare, Migrationen und Verwaltungsoberfläche schon eingebaut |
 | Datenbank | MySQL/MariaDB auf dem Server, SQLite lokal | MySQL läuft schon auf dem Server |
 | Webserver | Gunicorn hinter nginx (Plesk) | Standard für Django |
 | Einstellungen | `.env`-Datei | Passwörter nie im Code |
@@ -447,7 +447,7 @@ wwok/
 └── requirements.txt
 ```
 
-Noch nicht umgesetzt: `versand` (DHL/Deutsche Post), eBay/Kaufland, `auswertungen`, Anmeldung mit 2FA (siehe Abschnitt 16).
+Der Versand (DHL-Paket-Label, Deutsche Post INTERNETMARKE) liegt in `apps/verkauf` (`dhl.py`, `internetmarke.py`, `versand.py`), die Übersicht mit Umsatz und Top-Listen ist das Dashboard auf der Startseite. Noch nicht umgesetzt: eBay/Kaufland, Auswertungen mit Marge und Excel, Anmeldung mit 2FA (siehe Abschnitt 16).
 
 ### 8.3 Was bereits programmiert ist
 
@@ -494,7 +494,7 @@ Die Pflege läuft zusätzlich über die Django-Verwaltungsoberfläche unter **`/
 | `esd` | Key-Import, automatische Vergabe beim Verkauf (nur Kategorie Software), Volumenkeys, Retoure |
 | `shop` | Shopware 6 über die Admin-API: Bestellimport, Bestands- und Preisabgleich je Shop, Artikeldaten (Texte, Maße, Hersteller, Kategorie, Bilder, neue Artikel) per Knopf oder im eingestellten Takt |
 
-**Getestet:** Die Testsuite (Abschnitt 19) deckt Modelle, Belegfluss, Lager- und Bestandsregeln, Preislisten-Import, Zahlungen, ESD, Shop und die Dialoge für Kunden/Lieferanten ab (aktuell 140 Tests).
+**Getestet:** Die Testsuite (Abschnitt 19) deckt Modelle, Belegfluss, Lager- und Bestandsregeln, Preislisten-Import, Zahlungen, ESD, Shop und die Dialoge für Kunden/Lieferanten ab (aktuell rund 1.560 Tests).
 
 ### 8.4 Sicherheit in den Einstellungen
 
@@ -665,7 +665,9 @@ Wenn die E-Mail auf GitHub nicht sichtbar sein soll: die `noreply`-Adresse aus G
 ### 13.2 Pakete (SSH als root)
 
 ```bash
-python3 --version        # Ergebnis: Python 3.10.12 → passt
+python3 --version        # System-Python 3.10.12 bleibt unverändert (Plesk und andere Seiten nutzen es)
+# wwok läuft seit 15.11.2026 mit Python 3.12 in einer eigenen Umgebung (venv312, „venv“ ist eine Verknüpfung darauf):
+# add-apt-repository -y ppa:deadsnakes/ppa && apt-get install -y python3.12 python3.12-venv python3.12-dev
 apt install -y python3-venv python3-dev default-libmysqlclient-dev pkg-config build-essential git
 ```
 
@@ -862,7 +864,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Werkstatt, ESD-Keys, Shopware-Anbindung
 - [ ] Anmeldung mit 2FA (bewusst verschoben)
 - [x] Lastschrift-Einzug (pain.008)
-- [ ] Ausgehende E-Rechnung (ZUGFeRD/XRechnung) – Eingang ist umgesetzt
+- [x] Ausgehende E-Rechnung (ZUGFeRD im PDF, XRechnung als XML am Beleg); die Käuferanschrift kommt vom Beleg. Offen: PDF/A-3 extern prüfen, PDF/XML archivieren
 - [x] Proforma-Rechnung, Nachlieferschein, wiederkehrende Rechnungen
 - [x] Versand mit DHL-Paket-Label und Sendungsnummer
 - [x] Rechte: Admin (is_staff/Superuser) und Mitarbeiter; Storno, Lastschrift aufheben und Preislisten-Einrichtung nur Admin
@@ -880,8 +882,12 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Überzahlung: Guthaben des Kunden beim Zahlung buchen anderer Rechnungen vorschlagen und nachvollziehbar verrechnen
 - [x] Vorläufige Belege: Neue Belege, Übernahmen, Umwandlungen und Kopien aus der Belegmaske sind bis „Speichern: abschließen & Nummer vergeben“ vorläufig (ohne Nummer) und werden sonst komplett zurückgenommen; `BelegVorgang`, Befehl `belege_verwerfen`, Abo legt eine Bestellung an; aus einem nicht gespeicherten Angebot ohne Rückfrage, das Angebot wird erst mit dem neuen Beleg nummeriert, beim Verwerfen ist es wie vorher (Abschnitt 18)
 - [x] Shop: fehlende Kategorie samt Elternkategorien beim Senden eines Online-Artikels anlegen, Zuordnung über den Pfad (Issue 59)
-- [ ] Deutsche Post, eBay, Kaufland, Newsletter mit Double-Opt-in, Kategorien-Sync mit Shopware
-- [ ] Auswertungen (Umsatz, Marge, Topseller) und Startseiten-Übersicht mit Wiedervorlagen und fälligen Mahnungen
+- [x] Deutsche Post (INTERNETMARKE) im Versand; Shop-Kategorien werden beim Senden eines Online-Artikels zugeordnet oder angelegt (Issue 59)
+- [ ] eBay, Kaufland, Newsletter mit Double-Opt-in
+- [x] Dashboard mit Umsatz, Top-Listen und Arbeitsliste; Wiedervorlagen auf der Startseite
+- [ ] Auswertungen mit Marge, Excel-Ausgabe und freiem Zeitraum
+- [x] Gesamtprüfung vom 14.11.2026 (`docs/pruefbericht-2026-11-14.md`): Abschnitt A und C behoben, darunter automatisches Kunden-Skonto, Lastschrift erst mit der Gutschrift im Bankabgleich, Kasse nie im Minus, Belegnummern bleiben nach dem Löschen verbraucht, Kundensperre auch bei Kopie und wiederkehrender Rechnung, Warnung bei doppelter EAN und doppeltem Lieferanten
+- [x] Python 3.12 (eigene Umgebung auf dem Server) und Django 5.2; hochgeladene Preislisten liegen außerhalb des öffentlichen Medienordners (`PRIVAT_ROOT`)
 
 **Einrichtung**
 
@@ -898,15 +904,15 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 
 ## 16. Nächste Schritte
 
-0a. Auf dem Server nach dem Deploy: Cron-Zeilen für `belege_verwerfen` (alle 10 Minuten) und `wiederkehrende_rechnungen` (täglich) in `/etc/cron.d/wwok` eintragen (Abschnitt 13.10); `python manage.py belege_verwerfen` im Probelauf prüfen. Bestehende Altentwürfe sichten: Sie bleiben unverändert (nicht vorläufig) und müssen von Hand abgeschlossen oder gelöscht werden
+0a. Auf dem Server nach dem Deploy: Cron-Zeilen für `belege_verwerfen` (jede Minute) und `wiederkehrende_rechnungen` (täglich) in `/etc/cron.d/wwok` eintragen (Abschnitt 13.10); `python manage.py belege_verwerfen` im Probelauf prüfen. Bestehende Altentwürfe sichten: Sie bleiben unverändert (nicht vorläufig) und müssen von Hand abgeschlossen oder gelöscht werden
 0. Auf dem Server nach dem Deploy: `python manage.py rueckstand_umstellen` im **Probelauf** prüfen, dann mit `--ausfuehren` die Bestellungen mit alten Teilübernahmen (auch beim Kunden versandte) auf den Rest umstellen
-1. Entscheidung zur **Lastschrift** (pain.008, Rechnungshinweis mit Mandatsreferenz und Gläubiger-ID) und Gläubiger-ID für beide Mandanten eintragen
-2. **Anmeldung mit 2FA** und Benutzerrechte
+1. Lastschrift (pain.008) ist umgesetzt; noch prüfen, ob die Gläubiger-ID für beide Mandanten eingetragen ist
+2. **Anmeldung mit 2FA**, Limit für Anmeldeversuche und Benutzerrechte je Mandant (Prüfbericht B4, E5)
 3. Fehlerhafte Rechnung RE2026-00003 korrigieren (Storno oder Bestandsnachbuchung)
-4. **Ausgehende E-Rechnung** (ZUGFeRD/XRechnung) vor 2027
-5. Startseite mit Wiedervorlagen, fälligen Mahnungen und **Auswertungen**
-6. Proforma-Rechnung, Nachlieferschein, wiederkehrende Rechnungen
-7. Versand (DHL, Deutsche Post), danach eBay, Kaufland, Newsletter
+4. Ausgehende E-Rechnung ist gebaut; vor 2027 noch extern als PDF/A-3 prüfen und PDF/XML archivieren
+5. **Auswertungen** mit Marge, Excel und freiem Zeitraum (Dashboard und Wiedervorlagen sind umgesetzt)
+6. Offene Punkte aus `docs/pruefbericht-2026-11-14.md`: Abschnitt B (Betrieb/Sicherheit), D (offene Anforderungen), E (Entscheidungen), dazu die Fragen an den Steuerberater (Mahngebühr als Forderung, DATEV-Konten PayPal/Karte, Skontokonto, Rechnungsdatum)
+7. eBay, Kaufland, Newsletter; Versand mit GLS/DPD/UPS (DHL und Deutsche Post sind umgesetzt)
 8. Backup und Wiederherstellung einmal real durchspielen
 9. Bestehende Mailvorlagen auf dem Server auf alten Wortlaut prüfen (z. B. „Auftrag“ statt „Bestellung“)
 10. Umwandeln: Ein per Mail verschicktes Angebot lässt sich nach der Umwandlung nicht originalgetreu nachdrucken (kein PDF-Archiv). Klären, ob Art und Nummer am Versandnachweis gespeichert werden sollen
@@ -958,7 +964,7 @@ Diese Regeln sind mit dem Nutzer abgestimmt und im Code umgesetzt. Änderungen n
 | EK (errechnet) | Maßgebend ist der Import-EK: zuerst der übernommene EK (Zeitplan „Günstigster EK“, Preis-Assistent), sonst der günstigste Preislisten-EK, sonst der beim Anlegen eingetragene „EK-Preis netto“ (manuell, nur Typ A, immer änderbar). Wareneingang und Lagerbestand ändern den EK nicht. Preisimport und Bestpreis-Übernahme setzen die Herkunft auf „Import“ mit Datum (Herkunft „Wareneingang“ nur noch bei Altdaten ohne Preisliste). Derselbe EK gilt für VK per Aufschlag, Marge und Lagerwert. Ohne EK zeigen Artikelliste und Artikelseite „EK fehlt“; Gruppenartikel (G) = Summe der Komponenten; Leistungen (L) = eingetragene Kosten. Grundlage für VK per Aufschlag; Leistungskosten zählen dabei nicht, auch nicht in Gruppen |
 | Kalkulations-EK je Mandant (Issue 12, löst „Import-EK ist maßgebend“ ab, Stand Schritt 1) | Pro Artikel (Typ A) und Mandant: `ek_avg` (gleitender Ø-EK), `ek_we` (letzter Wareneingang), `ek2` mit `ek2_datum` und `ek2_fix`; `ek_import` ist der günstigste Preislisten-EK und gilt für alle Mandanten. Ø-EK bei jedem Wareneingang: (Bestand alt × Ø-EK alt + Menge × Preis) / (Bestand alt + Menge), bei Bestand ≤ 0 gleich dem Preis; Preis ist der Kalkulations-EK der Position (mit Nebenkosten); Verkäufe, Abgänge und Retouren ändern ihn nicht; 4 Nachkommastellen. `ek_kalk`, erster Treffer: ek2_fix → ek2; Bestand > 0 → max(Ø-EK, ek_import); Bestand 0 → ek_import, dann ek_we, dann ek2; sonst kein EK und kein VK. VK = ek_kalk / (1 − Marge); die Marge ist der bisherige Aufschlag umgerechnet (Marge = Aufschlag / (100 + Aufschlag)); Rundung 2 Stellen oder aufgerundet auf ,99 (globale Preisvorgabe). Neuer VK: Erhöhung automatisch; Senkung bis 10 % automatisch, darüber nur per Klick (Liste „VK-Senkung prüfen“); `vk_fix` je Stufe ändert nie. Gruppen (G) und Leistungen (L) behalten ihre Regel. Schutz (Schritt 2): Im Wareneingang Rückfrage vor dem Buchen, wenn der Kalkulations-EK um mehr als 50 % vom Ø-EK (nur mit Bestand) bzw. Import-EK abweicht. Preisimport: ändern sich mehr als 20 % der Artikel (mindestens 5 mit bisherigem Preis) um mehr als 30 %, wird der gesamte Import zurückgehalten (Status „zur Prüfung“, Freigeben oder Verwerfen); ein einzelner Preis mit mehr als 50 % Abweichung zum bisherigen wird nicht übernommen, sondern in die Prüfliste gestellt (Übernahme per Klick). Grenzen in der globalen Preisvorgabe. Preis-Radar (Schritt 3, je Mandant, Dashboard-Kachel und Liste „Preis-Radar“): Vergleichsbasis ist der Ø-EK (Bestand > 0), sonst ek_kalk. Kategorien: Verlust (VK < Basis, rot), Marge unter Ziel (Zielmarge VK1, gelb), Preisverfall (Import-EK < Ø-EK × 0,85, blau), Preiserhöhung möglich (nur bei `vk_fix`, grün), EK2 prüfen (älter als 180 Tage), EK-Abweichung (> 20 % zu EK2), Kein EK (grau). Euro-Wert = (Bestand + offene Bestellungen + offene Angebote) × Differenz je Stück, Liste absteigend. Im Dashboard nur mit Menge > 0; „EK2 prüfen“ und „Kein EK“ nur als Ampel in der Artikelliste. Differenzen unter 3 % der Basis oder unter 0,50 € je Stück werden nicht gemeldet; Typ P ohne Menge nie, Typ L nur mit Kosten, Typ G nie; `warnungen_aus` zeigt nur die Ampel. „Gesehen“ blendet aus, bis sich ek_kalk, Ø-EK oder VK spürbar ändern. Liste „VK-Senkung prüfen“ (Übernahme per Klick, nur Admin). Noch nicht angeschlossen: Artikelmaske, automatische VK-Übernahme, EK-Trend, Belegwarnung, Rohertrag, Mail (Schritte 1b, 4) |
 | Zahlungen | Eingang und Ausgang sind unveränderlich; Korrektur nur per Stornobuchung mit Storno-Grund |
-| Artikeldaten an den Shop | Online-Artikel (A, G) gehen per Knopf „Artikeldaten senden“ (auch nur eine Artikelnummer) oder im Takt aus Verwaltung → Shops an den Shop; Standard ist „nur per Knopf“. Die Zuordnung läuft über die Artikelnummer. In wwok leere Felder überschreiben im Shop nichts, gefüllte schon. Fehlt der Artikel im Shop, wird er sofort sichtbar angelegt und ist nur bis zum gemeldeten Bestand bestellbar; ohne Preis oder mit 0 € wird er nicht angelegt. Knopf nur für Admins; ein Lauf per Knopf endet nach 12 Sekunden, der nächste macht weiter. Die Kategorie wird nur bei eindeutig gleichem Namen zugeordnet und nie im Shop angelegt, fehlende Hersteller schon. Wechselt die Kategorie, entfernt wwok nur die selbst gesetzte alte. Bilder: Das erste ist Titelbild; hat ein Produkt im Shop schon Bilder, die nicht von wwok stammen, bleiben sie und wwok sendet keine, damit nichts doppelt erscheint; gelöscht werden nur Bilder, die wwok selbst gesendet hat; fehlt eine Bilddatei, bleiben die Bilder im Shop unverändert. Fällt „online“ weg oder wird der Artikel „nicht aktiv“, setzt der nächste Abgleich ihn im Shop auf inaktiv, gelöscht wird nichts; betroffen sind nur Artikel, die wwok schon einmal gemeldet hat. Mehr als 50 auf einmal stoppen mit Meldung und gehen nur per „Bestand & Preise senden“ mit „alle Artikel“ |
+| Artikeldaten an den Shop | Online-Artikel (A, G) gehen per Knopf „Artikeldaten senden“ (auch nur eine Artikelnummer) oder im Takt aus Verwaltung → Shops an den Shop; Standard ist „nur per Knopf“. Die Zuordnung läuft über die Artikelnummer. In wwok leere Felder überschreiben im Shop nichts, gefüllte schon. Fehlt der Artikel im Shop, wird er sofort sichtbar angelegt und ist nur bis zum gemeldeten Bestand bestellbar; ohne Preis oder mit 0 € wird er nicht angelegt. Knopf nur für Admins; ein Lauf per Knopf endet nach 12 Sekunden, der nächste macht weiter. Die Kategorie wird zugeordnet oder bei Bedarf angelegt (siehe „Shop-Kategorien (Issue 59)“), fehlende Hersteller werden angelegt. Wechselt die Kategorie, entfernt wwok nur die selbst gesetzte alte. Bilder: Das erste ist Titelbild; hat ein Produkt im Shop schon Bilder, die nicht von wwok stammen, bleiben sie und wwok sendet keine, damit nichts doppelt erscheint; gelöscht werden nur Bilder, die wwok selbst gesendet hat; fehlt eine Bilddatei, bleiben die Bilder im Shop unverändert. Fällt „online“ weg oder wird der Artikel „nicht aktiv“, setzt der nächste Abgleich ihn im Shop auf inaktiv, gelöscht wird nichts; betroffen sind nur Artikel, die wwok schon einmal gemeldet hat. Mehr als 50 auf einmal stoppen mit Meldung und gehen nur per „Bestand & Preise senden“ mit „alle Artikel“ |
 | Shop-Preise | Der Abgleich meldet die Preisstufe des Shops als Standardpreis. Sind in Verwaltung → Shops eine Preisstufe für angemeldete Kunden und die Regel-ID aus dem Shopware Rule Builder eingetragen, geht diese Stufe zusätzlich als Preis mit Regel an den Shop, gilt ab Stück 1 und folgt dem VK; entfällt der VK, wird der Preis im Shop entfernt. Steht bei einem Produkt schon ein fremder Preis mit Regel, bleibt er unberührt, wwok sendet dort keinen Kundenpreis und nennt das im Protokoll. Gibt es die Regel im Shop nicht, gehen Bestand und Standardpreis trotzdem raus. Ob netto oder brutto angezeigt wird und wer unter die Regel fällt, legt Shopware fest (Kundengruppe „Anzeige“ und Regel). Beim Bestellimport zählt der Steuerstatus der Bestellung: Preise von Netto-Kunden werden unverändert übernommen, steuerfreie mit 0 % |
 | Gutschrift verrechnen | Eine abgeschlossene Gutschrift mindert die Rechnung nicht von selbst, denn der Kunde kann schon bezahlt haben, ohne dass die Zahlung gebucht ist. Sie steht als eigener Minusposten in den offenen Posten, die Rechnung bleibt in voller Höhe offen und läuft normal in Mahnung und Lastschrift. Verrechnet wird von Hand auf der Zahlungsseite einer Rechnung desselben Kunden, mit frei wählbarem Betrag bis zum Rest der Gutschrift; ein Rest bleibt als Guthaben stehen. Die Rechnung darf dabei ins Minus gehen, die Überzahlung wird als Rückzahlung (negative Zahlung) gebucht. Verrechnungen sind unveränderlich; Admins heben sie per Gegenbuchung mit Pflichtgrund auf. Kontoauszug und Kreditlimit rechnen den Saldo, unverrechnete Gutschriften zählen dort also mit. Alle vor dieser Regel entstandenen Gutschriften gelten als unverrechnet |
 | Abgeschlossene Rechnung/Gutschrift | gesperrt, Korrektur nur per Gutschrift |
@@ -1000,6 +1006,10 @@ sudo -u shopokaycomputer ../venv/bin/python manage.py <befehl> <datei>
 | `preislisten_abrufen` | Lieferanten-Preislisten laut Profil abrufen und einlesen (Cron, stündlich) |
 | `p_artikel_zuruecksetzen` | alle Preislistenartikel eines Lieferanten löschen, danach neu einlesen |
 | `shop_sync` | Abgleich mit den Shopware-Shops (Cron, alle 10 Minuten) |
+| `belege_verwerfen` | verwirft nicht gespeicherte (vorläufige) Belege, deren Maske geschlossen wurde; ohne `--ausfuehren` nur Probelauf (Cron, jede Minute) |
+| `wiederkehrende_rechnungen` | legt zu allen fälligen wiederkehrenden Rechnungen eine Bestellung an (Cron, täglich) |
+| `rueckstand_umstellen` | stellt Bestellungen mit alten Teilübernahmen auf die offene Restmenge um; ohne `--ausfuehren` nur Probelauf (einmalig für Altdaten) |
+| `internetmarke_pruefen <Mandant>` | prüft den INTERNETMARKE-Zugang eines Mandanten (Anmeldung, Guthaben, Produktcodes), ohne Kauf |
 
 Offene Posten aus Mention werden **nicht** importiert.
 
