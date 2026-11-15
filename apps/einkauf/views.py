@@ -939,12 +939,7 @@ def preislisten_liste(request):
 @mit_mandant
 @admin_bei_aenderung
 def preisliste(request, profil_id):
-    import uuid
-
-    from django.core.files.base import ContentFile
-    from django.core.files.storage import default_storage
-
-    from . import preislisten
+    from . import ablage, preislisten
     from .models import Preislistenprofil
     profil = get_object_or_404(Preislistenprofil.objects.select_related("lieferant"), pk=profil_id)
     kontext = {"profil": profil, "importe": profil.importe.all()[:10], "vorschau": None, "token": ""}
@@ -966,18 +961,15 @@ def preisliste(request, profil_id):
                     name, inhalt = datei.name, datei.read()
                 else:
                     name, inhalt = preislisten.abrufen(profil)
-                token = f"{uuid.uuid4().hex}__{name}"
-                default_storage.save(f"tmp/preislisten/{token}", ContentFile(inhalt))
+                token = ablage.speichern(inhalt, name)
                 kontext.update(vorschau=preislisten.vorschau(profil, inhalt), token=token, dateiname=name)
             elif aktion == "importieren":
                 token = request.POST.get("token", "")
-                pfad = f"tmp/preislisten/{os.path.basename(token)}"
-                if not token or not default_storage.exists(pfad):
+                datei = ablage.lesen(token)
+                if datei is None:
                     raise ValueError("Die Vorschau ist abgelaufen – bitte erneut hochladen.")
-                with default_storage.open(pfad) as f:
-                    inhalt = f.read()
-                protokoll = preislisten.importieren(profil, inhalt, token.split("__", 1)[-1], request.user)
-                default_storage.delete(pfad)
+                protokoll = preislisten.importieren(profil, datei[0], datei[1], request.user)
+                ablage.loeschen(token)
                 messages.success(request, f"Import abgeschlossen: {protokoll.meldung}")
                 return redirect("einkauf:preislistenimport", import_id=protokoll.pk)
         except (ValueError, preislisten.PreislistenFehler) as fehler:

@@ -132,6 +132,8 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "medien/"
 MEDIA_ROOT = Path(env("MEDIA_ROOT", str(BASE_DIR / "medien")))
+# Dateien, die der Webserver NICHT ausliefern darf (z. B. hochgeladene Preislisten mit EK-Preisen): neben dem Medienordner
+PRIVAT_ROOT = Path(env("PRIVAT_ROOT", str(MEDIA_ROOT.parent / "privat")))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

@@ -1,9 +1,5 @@
-import os
-import uuid
 
 from django.contrib import messages
-from django.core.files.base import ContentFile
-from django.core.files.storage import default_storage
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -11,22 +7,19 @@ from apps.stammdaten.models import Lieferant, lieferanten_auswahl
 from apps.kern.rechte import admin_bei_aenderung, nur_admin
 from apps.verkauf.views import mit_mandant
 
-from . import assistent, preislisten
+from . import ablage, assistent, preislisten
 from .models import Dateityp, Preislistenprofil, Quelle
 
 
 def tmp_speichern(inhalt: bytes, name: str) -> str:
-    token = f"{uuid.uuid4().hex}__{os.path.basename(name)}"
-    default_storage.save(f"tmp/preislisten/{token}", ContentFile(inhalt))
-    return token
+    return ablage.speichern(inhalt, name)
 
 
 def tmp_lesen(token: str):
-    pfad = f"tmp/preislisten/{os.path.basename(token or '')}"
-    if not token or not default_storage.exists(pfad):
+    datei = ablage.lesen(token)
+    if datei is None:
         raise preislisten.PreislistenFehler("Die hochgeladene Datei ist nicht mehr vorhanden – bitte erneut hochladen.")
-    with default_storage.open(pfad) as f:
-        return f.read(), token.split("__", 1)[-1]
+    return datei
 
 
 def profil_aus_post(post, lieferant, erkannt) -> Preislistenprofil:
@@ -148,7 +141,7 @@ def artikelpreise(request):
                                auswahl=auswahl, profil=profil, schluessel_art=request.POST.get("schluessel_art", "nummer"),
                                brutto=request.POST.get("brutto") == "1", ergebnis=ergebnis, angewendet=aktion == "anwenden")
                 if aktion == "anwenden":
-                    default_storage.delete(f"tmp/preislisten/{os.path.basename(request.POST['token'])}")
+                    ablage.loeschen(request.POST["token"])
                     messages.success(request, f"{ergebnis['geaendert']} Artikel aktualisiert.")
         except (ValueError, preislisten.PreislistenFehler) as fehler:
             messages.error(request, str(fehler))

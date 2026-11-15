@@ -89,6 +89,8 @@ location ~ ^/ {   # nicht "location /": Plesk definiert das selbst
 }
 ```
 
+Hochgeladene Preislisten (EK-Preise) liegen bewusst nicht unter `/medien/`, sondern in `erp-daten/privat/` (Einstellung `PRIVAT_ROOT`, Standard: neben dem Medienordner). Für diesen Ordner darf es keine `location` geben.
+
 Optional zusätzlich: Zugriff nur aus dem Büro-Netz (`allow BÜRO-IP; deny all;`).
 
 ## 6. Aktualisieren
