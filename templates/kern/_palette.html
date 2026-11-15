@@ -1,0 +1,267 @@
+{# Schnellbedienung Strg+K: Stil und Skript #}
+<style>
+  dialog.palette { border:1px solid var(--rand); border-radius:var(--radius, 10px); padding:0; width:min(640px, calc(100vw - 24px)); max-height:min(560px, 80vh);
+    margin:9vh auto auto; background:var(--karte); color:var(--text); box-shadow:var(--schatten-gross, 0 12px 40px rgba(0,0,0,.3)); overflow:hidden; }
+  dialog.palette[open] { display:flex; flex-direction:column; }
+  dialog.palette::backdrop { background:rgba(0,0,0,.45); }
+  @media (prefers-reduced-motion: no-preference) {
+    dialog.palette[open] { animation:pal-ein .12s ease-out; }
+    @keyframes pal-ein { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+  }
+  .pal-kopf { display:flex; align-items:center; gap:8px; padding:4px 8px 4px 14px; border-bottom:1px solid var(--rand); flex:none; }
+  .pal-kopf:focus-within { box-shadow:inset 0 -2px 0 var(--akzent); }
+  .pal-kopf .ic { margin:0; flex:none; opacity:.6; }
+  dialog.palette input.pal-eingabe { flex:1; min-width:0; border:0; border-radius:0; background:transparent; color:var(--text); font-size:17px; padding:12px 4px; outline:none; }
+  dialog.palette input.pal-eingabe:focus { outline:none; }
+  dialog.palette button.pal-zu { background:transparent; color:var(--leise, var(--text)); border:0; padding:4px 10px; font-size:20px; line-height:1; border-radius:6px; }
+  dialog.palette button.pal-zu:hover { background:var(--grund); }
+  dialog.palette button.pal-zu:focus-visible { outline:2px solid var(--akzent); outline-offset:0; }
+  .pal-liste { flex:1 1 auto; min-height:0; overflow-y:auto; padding:6px; overscroll-behavior:contain; }
+  .pal-gruppe { padding:8px 10px 3px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--leise, var(--text)); opacity:.85; }
+  dialog.palette a.pal-zeile { display:flex; align-items:baseline; gap:10px; padding:8px 10px; border-radius:calc(var(--radius, 10px) - 3px); color:var(--text); text-decoration:none; }
+  dialog.palette a.pal-zeile.aktiv { background:var(--grund); box-shadow:inset 3px 0 0 var(--akzent); }
+  dialog.palette a.pal-zeile:focus-visible { outline:2px solid var(--akzent); outline-offset:-2px; }
+  .pal-titel { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pal-zusatz { margin-left:auto; flex:none; max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--leise, var(--text)); opacity:.85; }
+  .pal-status { flex:none; padding:6px 16px; font-size:13px; color:var(--leise, var(--text)); }
+  .pal-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; padding:0; }
+  .pal-fuss { flex:none; display:flex; gap:14px; flex-wrap:wrap; padding:8px 16px; border-top:1px solid var(--rand); font-size:12px; color:var(--leise, var(--text)); background:var(--grund); }
+  .pal-fuss kbd { font:inherit; font-size:11px; padding:0 5px; border:1px solid var(--rand); border-radius:4px; background:var(--karte); color:var(--text); }
+  @media (max-width:640px) {
+    dialog.palette { width:100vw; max-width:100vw; margin:0; border-radius:0 0 var(--radius, 10px) var(--radius, 10px); border-left:0; border-right:0; border-top:0; max-height:85vh; }
+    .pal-fuss { display:none; }
+  }
+</style>
+<dialog id="palette" class="palette" aria-label="Schnellbedienung" data-url="{% url 'schnellsuche' %}">
+  <div class="pal-kopf">
+    <svg class="ic" aria-hidden="true"><use href="#i-suche"/></svg>
+    <input type="text" class="pal-eingabe" id="palette-eingabe" role="combobox" aria-expanded="false" aria-controls="palette-liste" aria-autocomplete="list"
+           aria-label="Schnellbedienung: Kunde, Artikel, Beleg oder Funktion suchen" placeholder="Wohin? Kunde, Artikel, Beleg oder Funktion …"
+           autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100">
+    <button type="button" class="pal-zu" id="palette-zu" aria-label="Schnellbedienung schließen">×</button>
+  </div>
+  <div class="pal-liste" id="palette-liste" role="listbox" aria-label="Treffer"></div>
+  <div class="pal-status" id="palette-status" role="status" aria-live="polite"></div>
+  <div class="pal-fuss" aria-hidden="true"><span><kbd>↑</kbd> <kbd>↓</kbd> wählen</span><span><kbd>Enter</kbd> öffnen</span><span><kbd>Strg</kbd>+<kbd>Enter</kbd> neuer Tab</span><span><kbd>Esc</kbd> schließen</span></div>
+</dialog>
+<script>
+  // Schnellbedienung: Strg+K / Cmd+K öffnet ein Befehlsfenster; Menüpunkte kommen aus der Seitenleiste, Kunden, Artikel, Belege usw. vom Server
+  (function () {
+    var dialog = document.getElementById('palette');
+    if (!dialog || typeof dialog.showModal !== 'function') return;
+    var eingabe = document.getElementById('palette-eingabe'), liste = document.getElementById('palette-liste'), status = document.getElementById('palette-status');
+    var ADRESSE = dialog.getAttribute('data-url'), SPEICHER = 'wwok_palette_zuletzt', MAX_ZULETZT = 6, MAX_LOKAL = 8, VERZOEGERUNG = 150;
+    var alle = [], eintraege = [], servertreffer = [], aktiv = -1, bewegt = false, laedt = false, fehler = false, timer = null, abbruch = null, vorherFokus = null;
+
+    function text(s) { return (s || '').replace(/\s+/g, ' ').trim(); }
+    function sicherePfad(url) { return typeof url === 'string' && url.charAt(0) === '/' && url.charAt(1) !== '/'; }
+
+    // Menüpunkte und feste Befehle aus der aktuellen Seite lesen: bleibt so automatisch aktuell und rechtegerecht
+    function sammeln() {
+      var neu = [], gesehen = {};
+      function dazu(e) { var schluessel = e.url || e.titel; if (gesehen[schluessel]) return; gesehen[schluessel] = true; neu.push(e); }
+      document.querySelectorAll('#seitenleiste a.sl-link, nav.seitenleiste a.sl-link').forEach(function (a) {
+        var href = a.getAttribute('href');
+        if (!href || href.charAt(0) === '#' || /^javascript:/i.test(href)) return;
+        var span = a.querySelector('span:not(.ic)'), titel = text(span ? span.textContent : a.textContent) || text(a.getAttribute('title'));
+        var gruppe = a.closest('details.gruppe'), kopf = gruppe && gruppe.querySelector('summary > span:not(.gpfeil)');
+        if (titel) dazu({ gruppe: 'Menü', titel: titel, zusatz: kopf ? text(kopf.textContent) : '', url: href, merken: true });
+      });
+      var pw = document.querySelector('header a[title="Passwort ändern"]');
+      if (pw && pw.getAttribute('href')) dazu({ gruppe: 'Funktion', titel: 'Passwort ändern', zusatz: '', url: pw.getAttribute('href'), merken: true });
+      var verw = document.querySelector('header a[aria-label="Verwaltung"]');
+      if (verw && verw.getAttribute('href')) dazu({ gruppe: 'Funktion', titel: 'Verwaltung', zusatz: '', url: verw.getAttribute('href'), merken: true });
+      document.querySelectorAll('.mandantwahl form').forEach(function (f) {
+        var knopf = f.querySelector('button');
+        if (knopf) dazu({ gruppe: 'Funktion', titel: 'Mandant wechseln: ' + text(knopf.textContent), zusatz: '', aktion: function () { f.requestSubmit ? f.requestSubmit() : f.submit(); } });
+      });
+      var abmelden = document.querySelector('header form[action*="logout"]');
+      if (abmelden) dazu({ gruppe: 'Funktion', titel: 'Abmelden', zusatz: '', aktion: function () { abmelden.requestSubmit ? abmelden.requestSubmit() : abmelden.submit(); } });
+      alle = neu;
+    }
+
+    // Zuletzt gewählt: nur Menüziele (Titel und Adresse stammen aus der Seitenleiste, keine Kunden- oder Belegdaten), je Browser
+    function zuletztLesen() {
+      try {
+        var urls = JSON.parse(localStorage.getItem(SPEICHER) || '[]');
+        if (!Array.isArray(urls)) return [];
+        var ergebnis = [];
+        urls.forEach(function (u) {
+          var treffer = alle.filter(function (e) { return e.url === u; })[0];  // nur, was heute noch im Menü steht
+          if (treffer) ergebnis.push({ gruppe: 'Zuletzt', titel: treffer.titel, zusatz: treffer.zusatz, url: treffer.url, merken: true });
+        });
+        return ergebnis.slice(0, MAX_ZULETZT);
+      } catch (f) { return []; }
+    }
+    function merken(e) {
+      if (!e.merken || !e.url) return;
+      try {
+        var urls = JSON.parse(localStorage.getItem(SPEICHER) || '[]');
+        if (!Array.isArray(urls)) urls = [];
+        urls = [e.url].concat(urls.filter(function (u) { return u !== e.url; })).slice(0, MAX_ZULETZT);
+        localStorage.setItem(SPEICHER, JSON.stringify(urls));
+      } catch (f) { /* Speicher gesperrt: dann eben ohne Merkliste */ }
+    }
+
+    function lokalFiltern(q) {
+      var woerter = q.toLowerCase().split(/\s+/).filter(Boolean);
+      var treffer = alle.filter(function (e) {
+        var heu = (e.titel + ' ' + e.zusatz).toLowerCase();
+        return woerter.every(function (w) { return heu.indexOf(w) >= 0; });
+      });
+      treffer.sort(function (a, b) {  // Titel, die mit dem ersten Wort beginnen, zuerst
+        var x = a.titel.toLowerCase().indexOf(woerter[0]) === 0 ? 0 : 1, y = b.titel.toLowerCase().indexOf(woerter[0]) === 0 ? 0 : 1;
+        return x - y;
+      });
+      return treffer.slice(0, MAX_LOKAL);
+    }
+
+    function zeichnen() {
+      var q = text(eingabe.value), alter = bewegt && eintraege[aktiv] ? eintraege[aktiv] : null;
+      eintraege = q ? lokalFiltern(q) : zuletztLesen().concat(alle);
+      if (q.length >= 2) eintraege = eintraege.concat(servertreffer);
+      aktiv = eintraege.length ? 0 : -1;
+      if (alter) { var pos = eintraege.findIndex(function (e) { return e.url === alter.url && e.titel === alter.titel; }); if (pos >= 0) aktiv = pos; }
+      liste.textContent = '';
+      var letzte = null, block = null, nummer = 0;
+      eintraege.forEach(function (e, i) {
+        if (e.gruppe !== letzte) {
+          letzte = e.gruppe; nummer++;
+          block = document.createElement('div'); block.setAttribute('role', 'group');
+          var kopf = document.createElement('div'); kopf.className = 'pal-gruppe'; kopf.id = 'pal-g-' + nummer; kopf.textContent = e.gruppe;
+          block.setAttribute('aria-labelledby', kopf.id); block.appendChild(kopf); liste.appendChild(block);
+        }
+        var a = document.createElement('a');
+        a.className = 'pal-zeile'; a.id = 'pal-o-' + i; a.setAttribute('role', 'option'); a.setAttribute('data-i', i); a.tabIndex = -1;
+        a.href = e.url || '#';
+        var t = document.createElement('span'); t.className = 'pal-titel'; t.textContent = e.titel; a.appendChild(t);
+        if (e.zusatz) { var z = document.createElement('span'); z.className = 'pal-zusatz'; z.textContent = e.zusatz; a.appendChild(z); }
+        block.appendChild(a);
+      });
+      var meldung = '', nurVorleser = false;
+      if (laedt) meldung = 'Suche …';
+      else if (fehler) meldung = 'Die Suche ist gerade nicht erreichbar. Menüpunkte funktionieren weiter.';
+      else if (!eintraege.length) meldung = q ? 'Keine Treffer' : '';
+      else { meldung = eintraege.length + ' Einträge'; nurVorleser = true; }
+      status.textContent = meldung; status.className = 'pal-status' + (nurVorleser ? ' pal-sr' : '');
+      markieren();
+    }
+
+    function markieren() {
+      var zeilen = liste.querySelectorAll('a.pal-zeile');
+      zeilen.forEach(function (a, i) { var an = i === aktiv; a.classList.toggle('aktiv', an); a.setAttribute('aria-selected', an ? 'true' : 'false'); });
+      eingabe.setAttribute('aria-expanded', eintraege.length ? 'true' : 'false');
+      if (aktiv >= 0 && zeilen[aktiv]) { eingabe.setAttribute('aria-activedescendant', zeilen[aktiv].id); zeilen[aktiv].scrollIntoView({ block: 'nearest' }); }
+      else eingabe.removeAttribute('aria-activedescendant');
+    }
+
+    function bewegen(schritt) {
+      if (!eintraege.length) return;
+      aktiv = (aktiv + schritt + eintraege.length) % eintraege.length; bewegt = true; markieren();
+    }
+
+    function abfragen(q) {
+      var steuerung = window.AbortController ? new AbortController() : null;
+      abbruch = steuerung;
+      fetch(ADRESSE + '?q=' + encodeURIComponent(q), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: steuerung ? steuerung.signal : undefined })
+        .then(function (r) { if (!r.ok || r.redirected) throw new Error('Antwort ' + r.status); return r.json(); })
+        .then(function (d) {
+          if (abbruch !== steuerung) return;  // veraltete Antwort verwerfen
+          servertreffer = (d.treffer || []).filter(function (t) { return sicherePfad(t.url); }).map(function (t) {
+            return { gruppe: String(t.gruppe || ''), titel: String(t.titel || ''), zusatz: String(t.zusatz || ''), url: t.url };
+          });
+          laedt = false; zeichnen();
+        })
+        .catch(function (f) {
+          if ((f && f.name === 'AbortError') || abbruch !== steuerung) return;
+          laedt = false; fehler = true; zeichnen();
+        });
+    }
+
+    function eingegeben() {
+      clearTimeout(timer);
+      if (abbruch && abbruch.abort) abbruch.abort();
+      abbruch = null; servertreffer = []; fehler = false; bewegt = false;
+      var q = text(eingabe.value);
+      if (q.length < 2) { laedt = false; zeichnen(); return; }
+      laedt = true; zeichnen();
+      timer = setTimeout(function () { abfragen(q); }, VERZOEGERUNG);
+    }
+
+    function waehlen(i, neuerTab) {
+      var e = eintraege[i];
+      if (!e) return;
+      if (e.aktion) { schliessen(true); e.aktion(); return; }
+      if (!sicherePfad(e.url) && !/^https?:/i.test(e.url)) return;
+      merken(e);
+      if (neuerTab) { window.open(e.url, '_blank', 'noopener'); schliessen(); return; }
+      location.href = e.url;
+    }
+
+    function oeffnen() {
+      if (dialog.open || document.querySelector('dialog[open]')) return;  // nicht über einem anderen Dialog
+      vorherFokus = document.activeElement;
+      sammeln();
+      eingabe.value = ''; servertreffer = []; laedt = false; fehler = false; bewegt = false;
+      dialog.showModal();
+      zeichnen();
+      eingabe.focus();
+    }
+    function schliessen(ohneFokus) {
+      if (dialog.open) dialog.close();
+      if (ohneFokus) vorherFokus = null;
+    }
+    dialog.addEventListener('close', function () {
+      clearTimeout(timer);
+      if (abbruch && abbruch.abort) abbruch.abort();
+      abbruch = null;
+      var ziel = vorherFokus; vorherFokus = null;
+      if (ziel && ziel.focus && document.contains(ziel)) ziel.focus();  // Fokus kehrt dorthin zurück, wo man war
+    });
+
+    // Escape gilt nur der Palette: Ereignis hier abfangen, damit die Handler in base.html (Maske verlassen, Menüs schließen) nichts davon sehen
+    dialog.addEventListener('keydown', function (e) {
+      if (e.isComposing) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); schliessen(); return; }
+      if (e.target !== eingabe) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); bewegen(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); bewegen(-1); }
+      else if (e.key === 'Enter') { e.preventDefault(); waehlen(aktiv, e.ctrlKey || e.metaKey); }
+    });
+    dialog.addEventListener('cancel', function (e) { e.preventDefault(); schliessen(); });  // Escape ist oben schon erledigt; Sicherheitsnetz
+    dialog.addEventListener('click', function (e) { if (e.target === dialog) schliessen(); });  // Klick auf den abgedunkelten Rand
+    document.getElementById('palette-zu').addEventListener('click', function () { schliessen(); });
+    eingabe.addEventListener('input', eingegeben);
+
+    liste.addEventListener('mousemove', function (e) {
+      var a = e.target.closest ? e.target.closest('a.pal-zeile') : null;
+      if (!a) return;
+      var i = parseInt(a.getAttribute('data-i'), 10);
+      if (i !== aktiv) { aktiv = i; bewegt = true; markieren(); }
+    });
+    liste.addEventListener('click', function (e) {
+      var a = e.target.closest ? e.target.closest('a.pal-zeile') : null;
+      if (!a) return;
+      var eintrag = eintraege[parseInt(a.getAttribute('data-i'), 10)];
+      if (!eintrag) return;
+      if (eintrag.aktion) { e.preventDefault(); waehlen(parseInt(a.getAttribute('data-i'), 10), false); return; }
+      merken(eintrag);  // normaler Link: der Browser navigiert selbst (auch Strg+Klick, mittlere Taste)
+      if (e.ctrlKey || e.metaKey || e.shiftKey) schliessen(true);
+    });
+
+    // Strg+K / Cmd+K öffnet und schließt, auch aus Eingabefeldern; das Standardverhalten des Browsers (Adressleisten-Suche) entfällt
+    document.addEventListener('keydown', function (e) {
+      if (e.isComposing || e.altKey || e.shiftKey || !(e.ctrlKey || e.metaKey) || (e.key || '').toLowerCase() !== 'k') return;
+      if (dialog.open) { e.preventDefault(); schliessen(); return; }
+      if (document.querySelector('dialog[open]')) return;  // ein anderer Dialog ist offen
+      e.preventDefault(); oeffnen();
+    }, true);
+
+    // Einstiege: window.wwokPalette() und jedes Element mit data-palette
+    window.wwokPalette = oeffnen;
+    document.addEventListener('click', function (e) {
+      var ausloeser = e.target.closest ? e.target.closest('[data-palette]') : null;
+      if (ausloeser) { e.preventDefault(); oeffnen(); }
+    });
+  })();
+</script>

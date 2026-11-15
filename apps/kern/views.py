@@ -26,14 +26,17 @@ def dashboard(request):
     tage = kennzahlen.zeitraum_pruefen(request.GET.get("tage"))
     heute = timezone.localdate()
     von, bis, vorher_von, vorher_bis = kennzahlen.zeitraeume(heute, tage)
+    kacheln = kennzahlen.kacheln(mandant, tage, heute)
+    vergleiche = kennzahlen.zeitraumvergleiche(mandant, heute)
+    verlauf = kennzahlen.verlauf(mandant, tage, heute)
+    kanaele = kennzahlen.kanaele(mandant, von, bis)
     return render(request, "kern/dashboard.html", {
-        "tage": tage, "zeitraeume": kennzahlen.ZEITRAEUME, "von": von, "bis": bis,
-        "kacheln": kennzahlen.kacheln(mandant, tage, heute),
-        "vergleiche": kennzahlen.zeitraumvergleiche(mandant, heute),
-        "verlauf": kennzahlen.verlauf(mandant, tage, heute),
+        "tage": tage, "zeitraeume": kennzahlen.ZEITRAEUME, "von": von, "bis": bis, "heute": heute,
+        "kacheln": kacheln, "vergleiche": vergleiche, "verlauf": verlauf,
+        "grafik": kennzahlen.diagramme(mandant, heute, kacheln, verlauf, kanaele, vergleiche),
         "kunden": kennzahlen.top_kunden(mandant, von, bis),
         "artikel": kennzahlen.top_artikel(mandant, von, bis),
         "lieferanten": kennzahlen.top_lieferanten(mandant, von, bis),
-        "kanaele": kennzahlen.kanaele(mandant, von, bis),
+        "kanaele": kanaele,
         "arbeit": kennzahlen.arbeitsliste(mandant, von, heute),
         "radar": radar.auswertung(mandant)})
