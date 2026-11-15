@@ -54,6 +54,12 @@ jobs:
           sudo apt-get install -y -qq pkg-config default-libmysqlclient-dev
           pip install -r requirements.txt
 
+      - name: Löschende Migrationen anhalten (nur mit Freigabe im Auftrag des Nutzers)
+        if: startsWith(github.ref, 'refs/heads/claude/')
+        run: |
+          git diff --name-only --diff-filter=ACMR origin/main HEAD -- 'apps/*/migrations/*.py' > /tmp/migrationen.txt
+          xargs -r python deploy/loeschende_migrationen.py < /tmp/migrationen.txt
+
       - name: Prüfkette (check, Migrationen, Tests)
         env:
           DJANGO_SECRET_KEY: ci-test-key-nicht-produktiv

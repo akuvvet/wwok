@@ -9,10 +9,10 @@ Gesamtprüfung nur durch Lesen des Codes (Stand `main` ea716a6 + Lieferant-Menü
 | Abschnitt | Stand |
 |---|---|
 | A | alle 12 Befunde behoben und live |
-| B | B2 (Python 3.12, Django 5.2) und B8 (Preislisten-Ablage) erledigt; B1, B3, B4, B5, B6, B7 offen |
+| B | B2 (Python 3.12, Django 5.2) und B8 (Preislisten-Ablage) erledigt; B1 teilweise (löschende Migrationen halten den Deploy an); B3, B4, B5, B6, B7 offen |
 | C | 19 Fehler behoben; von den 14 Entscheidungen 12 umgesetzt. Offen: Mahngebühr als Forderung und DATEV-Konten PayPal/Karte/BU-Schlüssel (Steuerberater) |
 | D | unbearbeitet |
-| E | 1 bis 3 entschieden und umgesetzt (Bestellung bleibt löschbar, die Nummer bleibt verbraucht; jede Rechnung trägt das Abschlussdatum; Kundensperre auch bei Kopie und wiederkehrender Rechnung). 4 bis 8 offen |
+| E | 1 bis 3 entschieden und umgesetzt (Bestellung bleibt löschbar, die Nummer bleibt verbraucht; jede Rechnung trägt das Abschlussdatum; Kundensperre auch bei Kopie und wiederkehrender Rechnung). 4: reservierte Ware ist für andere nicht lieferbar. 5: bleibt, alle Benutzer sehen beide Mandanten. 6: Minuspreise erlaubt, Belegsumme nicht negativ. 7: bleibt vorerst (Import-EK). 8: Deploy bleibt automatisch, löschende Migrationen halten an |
 | F | README nachgeführt. Kein Widerspruch zur freien Gutschrift gefunden: README 18 und Code sagen beide „nur aus einer Rechnung“ |
 | G | Tests zu A und C ergänzt (Suite rund 1.560 Tests); eigene Testrunde für Werkstatt und ESD steht aus |
 

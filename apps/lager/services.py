@@ -6,7 +6,8 @@ from django.db.models import Q
 
 from apps.verkauf.models import Belegart, Ruecknahme
 
-from .models import BestandReichtNicht, Bewegungsart, Lagerbewegung, Reparaturart, Reparaturbewegung, Seriennummer, bestand
+from .models import (BestandReichtNicht, Bewegungsart, Lagerbewegung, Reparaturart, Reparaturbewegung, Seriennummer, bestand,
+                     reservierende_positionen)
 
 LAGERFUEHREND = "A"  # nur Typ A (Lagerartikel) wird gebucht
 
@@ -90,14 +91,47 @@ def buchmengen(beleg) -> tuple:
     return mehr, {a: artikel[a] for a in mehr}
 
 
+def vorgang_ids(beleg) -> set:
+    """IDs aller Belege desselben Vorgangs: Vorgänger, Folgebelege und Belege, die über eine Teilübernahme verbunden sind."""
+    from apps.verkauf.models import Beleg, BelegUebernahme
+    if not beleg.pk:
+        return {beleg.vorgaenger_id} if beleg.vorgaenger_id else set()
+    ids, neu = {beleg.pk}, {beleg.pk}
+    while neu:
+        nachbarn = set(Beleg.objects.filter(pk__in=neu, vorgaenger__isnull=False).values_list("vorgaenger_id", flat=True))
+        nachbarn |= set(Beleg.objects.filter(vorgaenger_id__in=neu).values_list("pk", flat=True))
+        for quelle, ziel in BelegUebernahme.objects.filter(Q(quelle_id__in=neu) | Q(ziel_id__in=neu)).values_list("quelle_id", "ziel_id"):
+            nachbarn |= {quelle, ziel}
+        neu = nachbarn - ids - {None}
+        ids |= neu
+    return ids
+
+
+def fremd_reserviert(beleg, artikel_ids) -> dict:
+    """{Artikel-ID: Menge}, die für ANDERE Kundenbestellungen reserviert ist. Die Reservierung des eigenen Vorgangs (Rest der
+    Bestellung, Proforma) zählt nicht mit: sonst würde eine Bestellung ihre eigene Lieferung blockieren."""
+    from django.db.models import Sum
+
+    from apps.verkauf.models import mit_offener_menge
+    offen = mit_offener_menge(reservierende_positionen(beleg.mandant).filter(artikel_id__in=list(artikel_ids))
+                              .exclude(beleg_id__in=vorgang_ids(beleg)))
+    return {z["artikel_id"]: z["s"] for z in offen.filter(offen__gt=0).order_by().values("artikel_id").annotate(s=Sum("offen"))}
+
+
 def fehlbestand(beleg) -> list:
-    """Texte zu Lagerartikeln, deren Bestand für Lieferschein/Rechnung nicht reicht (leer = alles lieferbar)."""
+    """Texte zu Lagerartikeln, deren verfügbarer Bestand für Lieferschein/Rechnung nicht reicht (leer = alles lieferbar).
+    Verfügbar = Bestand minus Menge, die für andere Kundenbestellungen reserviert ist (Entscheidung des Nutzers, 15.11.2026:
+    reservierte Ware ist wie „verfügbar 0“)."""
     mengen, artikel = buchmengen(beleg)
+    reserviert = fremd_reserviert(beleg, mengen.keys()) if mengen else {}
     knapp = []
     for artikel_id, menge in mengen.items():
         vorhanden = bestand(beleg.mandant, artikel[artikel_id])
-        if vorhanden < menge:
-            knapp.append(f"{artikel[artikel_id].nummer} {artikel[artikel_id].bezeichnung[:40]} (benötigt {menge:f}, vorhanden {vorhanden:f})")
+        fremd = reserviert.get(artikel_id) or Decimal("0")
+        if vorhanden - fremd < menge:
+            zusatz = f", davon {fremd:f} für andere Bestellungen reserviert" if fremd > 0 else ""
+            knapp.append(f"{artikel[artikel_id].nummer} {artikel[artikel_id].bezeichnung[:40]} "
+                         f"(benötigt {menge:f}, vorhanden {vorhanden:f}{zusatz})")
     return knapp
 
 
