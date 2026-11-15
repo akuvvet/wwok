@@ -487,6 +487,26 @@ class DashboardTest(TestCase):
         for svg in __import__("re").findall(r"<svg\b[^>]*>", html[html.index('<div class="db-seite">'):]):
             self.assertTrue('role="img"' in svg or 'aria-hidden="true"' in svg, svg)  # jede Grafik: Textalternative oder dekorativ
 
+    def test_preisradar_erklaert_jede_zeile(self):
+        """Jede Zeile der Karte „Preis-Radar“ trägt ihre Erklärung als Tooltip und als Text für Vorleseprogramme."""
+        from apps.stammdaten import radar
+        self.mit_mandant()
+        antwort = self.client.get(reverse("dashboard"))
+        html = antwort.content.decode()
+        karte = html[html.index('id="db-h-radar"'):]
+        karte = karte[:karte.index("</section>")]
+        self.assertEqual(karte.count("<a "), 7)  # fünf Kategorien, VK-Senkung, Import zur Prüfung
+        self.assertEqual(karte.count("<a ") , karte.count(' data-tip="') - 1)  # jede Zeile, dazu das „i“ an der Überschrift
+        for k in antwort.context["radar"]["kategorien"]:
+            self.assertTrue(k["hinweis"], k["schluessel"])
+            self.assertIn(f'aria-describedby="db-tip-{k["schluessel"]}"', karte)
+            self.assertIn(f'<small id="db-tip-{k["schluessel"]}">', karte)
+        for schluessel in ("senkung", "importe"):
+            self.assertIn(f'<small id="db-tip-{schluessel}">', karte)
+        self.assertNotIn("ek2_pruefen", {k["schluessel"] for k in antwort.context["radar"]["kategorien"]})
+        self.assertEqual(set(radar.ERKLAERUNG) - {"senkung", "importe"},
+                         {k["schluessel"] for k in antwort.context["radar"]["kategorien"]})
+
     def test_dashboard_abfragen_obergrenze(self):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
