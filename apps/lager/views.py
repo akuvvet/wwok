@@ -105,7 +105,7 @@ def uebersicht(request):
         b = summen.get(a.pk, Decimal("0"))
         r = reserviert_summen.get(a.pk, Decimal("0")) if b else Decimal("0")
         ek, quelle = eks[a.pk]
-        zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": b - r, "reparatur": reparatur.get(a.pk, Decimal("0")),
+        zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": max(b - r, Decimal("0")), "reparatur": reparatur.get(a.pk, Decimal("0")),
                        "ek": ek, "ek_quelle": quelle})
     lagerwert = Decimal("0")  # mit demselben EK wie der VK: Import-EK, sonst manueller EK (README 18)
     mit_bestand = list(Artikel.objects.filter(pk__in=[k for k, s in summen.items() if s]))
@@ -141,7 +141,7 @@ def artikel_detail(request, artikel_id):
         "bestellt": offen_bestellt(request.mandant, artikel), "letzter_we": letzter_we,
         "lieferanten": artikel.lieferanten.select_related("lieferant").order_by("ek"),
         "gruppe_verfuegbar": gruppe, "kalkulation": gruppen_kalkulation(artikel) if artikel.typ == "G" else None,
-        "artikel": artikel, "daten": daten, "bestand": b, "reserviert": r, "verfuegbar": b - r,
+        "artikel": artikel, "daten": daten, "bestand": b, "reserviert": r, "verfuegbar": max(b - r, Decimal("0")),
         "bewegungen": Lagerbewegung.objects.filter(mandant=request.mandant, artikel=artikel).select_related("beleg", "benutzer")[:100],
         "reparatur": reparaturbestand(request.mandant, artikel),
         "reparaturbewegungen": Reparaturbewegung.objects.filter(mandant=request.mandant, artikel=artikel).select_related("beleg", "benutzer")[:100],

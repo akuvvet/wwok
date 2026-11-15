@@ -88,6 +88,12 @@ def reserviert(mandant, artikel) -> Decimal:
     return offen.filter(offen__gt=0).aggregate(s=models.Sum("offen"))["s"] or Decimal("0")
 
 
+def verfuegbar(mandant, artikel) -> Decimal:
+    """Bestand minus Reservierung, aber nie unter 0 (Vorgabe des Nutzers: kein Bestandswert geht ins Minus). Ist mehr
+    bestellt als am Lager, ist verfügbar 0; der Rückstand steht in den Bestellungen."""
+    return max(bestand(mandant, artikel) - reserviert(mandant, artikel), Decimal("0"))
+
+
 def reserviert_je_artikel(mandant, artikel_ids) -> dict:
     """{artikel_id: reservierte Menge} wie reserviert(), aber für viele Artikel in einer Abfrage."""
     from apps.verkauf.models import mit_offener_menge
@@ -176,6 +182,5 @@ def gruppen_verfuegbar(mandant, gruppe):
     for k in gruppe.komponenten.select_related("komponente"):
         if k.komponente.typ != "A" or not k.menge:
             continue
-        frei = bestand(mandant, k.komponente) - reserviert(mandant, k.komponente)
-        mengen.append((frei / k.menge).to_integral_value(rounding="ROUND_FLOOR"))
+        mengen.append((verfuegbar(mandant, k.komponente) / k.menge).to_integral_value(rounding="ROUND_FLOOR"))
     return min(mengen) if mengen else None
