@@ -342,3 +342,158 @@ class DashboardTest(TestCase):
             self.assertEqual(html.count('aria-current="page"'), 1, name)
         self.assertNotIn('aria-current="page" href="' + reverse("finanzen:offene_posten"),
                          self.client.get(reverse("verkauf:beleg", args=[b.pk])).content.decode())
+
+    # --- Lagerwert ---
+    def artikel_mit_bestand(self, nummer, menge, ek, mandant=None):
+        from apps.lager.models import Bewegungsart, Lagerbewegung
+        art = Artikel.objects.create(nummer=nummer, bezeichnung=nummer, ek_manuell=ek,
+                                     steuersatz=Steuersatz.objects.get_or_create(bezeichnung="19", defaults={"prozent": Decimal("19")})[0])
+        Lagerbewegung.objects.create(mandant=mandant or self.m, artikel=art, art=Bewegungsart.ANFANGSBESTAND, menge=Decimal(menge))
+        return art
+
+    def test_lagerwert_bestand_mal_ek_gleich_artikeluebersicht(self):
+        self.mit_mandant()
+        self.artikel_mit_bestand("A1", "10", Decimal("2.50"))
+        self.artikel_mit_bestand("A2", "3", Decimal("100"))
+        self.artikel_mit_bestand("A3", "4", None)  # ohne EK: nicht bewertet, aber gezählt
+        erg = dashboard.lagerwert(self.m)
+        self.assertEqual(erg["wert"], Decimal("325.00"))
+        self.assertEqual((erg["artikel"], erg["ohne_ek"]), (3, 1))
+        uebersicht = self.client.get(reverse("lager:uebersicht"))
+        self.assertEqual(uebersicht.context["lagerwert"], erg["wert"])  # dieselbe Zahl wie in der Artikelübersicht
+        self.assertContains(self.client.get(reverse("dashboard")), "Lagerwert")
+
+    def test_lagerwert_negativer_bestand_zaehlt_null_und_fremder_mandant_nicht(self):
+        n1 = self.artikel_mit_bestand("N1", "5", Decimal("10"))
+        from apps.lager.models import Lagerbewegung
+        Lagerbewegung.objects.filter(artikel=n1).update(menge=Decimal("-5"))  # Altdaten im Minus (Speichern ließe es nicht zu)
+        self.artikel_mit_bestand("F1", "100", Decimal("10"), mandant=self.fremd)
+        self.assertEqual(dashboard.lagerwert(self.m), {"wert": Decimal("0.00"), "artikel": 0, "ohne_ek": 0})
+        self.assertEqual(dashboard.lagerwert(self.fremd)["wert"], Decimal("1000.00"))
+
+    def test_lagerwert_kachel_im_html_nur_eigener_mandant(self):
+        self.artikel_mit_bestand("F1", "100", Decimal("10"), mandant=self.fremd)
+        self.mit_mandant()
+        antwort = self.client.get(reverse("dashboard"))
+        self.assertEqual(antwort.context["grafik"]["lager"]["wert"], Decimal("0.00"))
+        self.mit_mandant(self.fremd)
+        self.assertEqual(self.client.get(reverse("dashboard")).context["grafik"]["lager"]["wert"], Decimal("1000.00"))
+
+    # --- Monatsbalken ---
+    def test_monatsumsaetze_werte_und_gutschriften(self):
+        self.beleg(netto="100", tag=date(2026, 3, 5))
+        self.beleg(Belegart.GUTSCHRIFT, netto="30", tag=date(2026, 3, 20))
+        self.beleg(netto="50", tag=date(2026, 1, 31))
+        self.beleg(netto="999", tag=date(2025, 3, 31))  # 13 Monate zurück: nicht im Diagramm
+        self.beleg(netto="500", tag=date(2026, 3, 6), abgeschlossen=False)
+        self.beleg(Belegart.PROFORMA, netto="500", tag=date(2026, 3, 6))
+        self.beleg(netto="777", tag=date(2026, 3, 6), mandant=self.fremd)
+        erg = dashboard.monatsumsaetze(self.m, HEUTE)
+        self.assertEqual(len(erg["balken"]), 12)
+        self.assertEqual([m["name"] for m in erg["monate"]][0], "Apr 2025")
+        self.assertEqual(erg["monate"][-1], {"name": "Mär 2026", "netto": Decimal("70.00")})  # 100 − 30
+        self.assertEqual(erg["monate"][-3]["netto"], Decimal("50.00"))
+        self.assertEqual(erg["summe"], Decimal("120.00"))
+        self.assertTrue(erg["balken"][-1]["aktuell"])
+        self.assertIn("Mär 2026: 70,00 €", erg["balken"][-1]["text"])
+
+    def test_monatsumsaetze_negativer_monat_und_jahreswechsel(self):
+        heute = date(2026, 1, 15)
+        self.beleg(Belegart.GUTSCHRIFT, netto="40", tag=date(2025, 12, 3))
+        erg = dashboard.monatsumsaetze(self.m, heute)
+        self.assertEqual(erg["monate"][-2], {"name": "Dez 2025", "netto": Decimal("-40.00")})
+        self.assertTrue(erg["balken"][-2]["negativ"])
+        self.assertEqual(erg["monate"][0]["name"], "Feb 2025")
+
+    def test_monatsumsaetze_eine_abfrage(self):
+        self.beleg(netto="1", tag=HEUTE)
+        with self.assertNumQueries(1):
+            dashboard.monatsumsaetze(self.m, HEUTE)
+
+    def test_sparkline(self):
+        self.assertIsNone(dashboard.sparkline([Decimal("1")]))
+        flach = dashboard.sparkline([Decimal("0")] * 5)
+        self.assertEqual(len(flach["linie"].split()), 5)
+        self.assertEqual(len(dashboard.sparkline([1, 5, 3])["linie"].split()), 3)
+
+    # --- Kanäle ---
+    def test_kanaele_ring_summiert_auf_hundert_und_fasst_rest_zusammen(self):
+        for i in range(8):
+            self.beleg(netto=str(100 * (i + 1)), bezugnahme=f"Kanal {i}")
+        ring = dashboard.kanaele_ring(dashboard.kanaele(self.m, HEUTE, HEUTE))
+        self.assertEqual(len(ring["segmente"]), 6)
+        self.assertEqual(ring["segmente"][-1]["name"], "Sonstige")
+        self.assertEqual(ring["segmente"][0]["name"], "Kanal 7")
+        self.assertEqual(ring["gesamt"], Decimal("3600.00"))
+        self.assertAlmostEqual(sum(float(s["prozent"]) for s in ring["segmente"]), 100, delta=0.5)
+        self.assertEqual(ring["segmente"][1]["versatz"], f"-{ring['segmente'][0]['prozent']:.1f}")
+
+    def test_kanaele_ring_leer(self):
+        self.assertEqual(dashboard.kanaele_ring([])["segmente"], [])
+        self.mit_mandant()
+        self.assertContains(self.client.get(reverse("dashboard")), "Keine Rechnungen im Zeitraum.")
+
+    def test_kanaele_im_ring_nur_eigener_mandant(self):
+        self.beleg(netto="100", bezugnahme="Shop", mandant=self.fremd, tag=timezone.localdate())
+        self.mit_mandant()
+        self.assertEqual(self.client.get(reverse("dashboard")).context["grafik"]["ring"]["segmente"], [])
+
+    # --- Offene Posten nach Alter ---
+    def test_offene_posten_altersgruppen(self):
+        from apps.finanzen.models import Zahlung
+        zb = Zahlungsbedingung.objects.create(bezeichnung="10 Tage", tage_netto=10, tage_mahnung=20)
+        self.beleg(netto="100", tag=HEUTE - timedelta(days=3), zahlungsbedingung=zb)  # fällig in 7 Tagen
+        self.beleg(netto="200", tag=HEUTE - timedelta(days=10), zahlungsbedingung=zb)  # heute fällig: noch nicht überfällig
+        self.beleg(netto="300", tag=HEUTE - timedelta(days=11), zahlungsbedingung=zb)  # 1 Tag
+        self.beleg(netto="400", tag=HEUTE - timedelta(days=40), zahlungsbedingung=zb)  # 30 Tage
+        self.beleg(netto="500", tag=HEUTE - timedelta(days=41), zahlungsbedingung=zb)  # 31 Tage
+        self.beleg(netto="600", tag=HEUTE - timedelta(days=70), zahlungsbedingung=zb)  # 60 Tage
+        self.beleg(netto="700", tag=HEUTE - timedelta(days=71), zahlungsbedingung=zb)  # 61 Tage
+        bezahlt = self.beleg(netto="800", tag=HEUTE - timedelta(days=200), zahlungsbedingung=zb)
+        Zahlung.objects.create(mandant=self.m, beleg=bezahlt, betrag=bezahlt.summe_brutto, datum=HEUTE)
+        teil = self.beleg(netto="1000", tag=HEUTE - timedelta(days=100), zahlungsbedingung=zb)  # 1190 brutto, 190 bezahlt
+        Zahlung.objects.create(mandant=self.m, beleg=teil, betrag=Decimal("190"), datum=HEUTE)
+        self.beleg(netto="999", tag=HEUTE - timedelta(days=100), zahlungsbedingung=zb, mandant=self.fremd)
+        posten = dashboard.offene_posten(self.m, HEUTE)
+        k = Decimal("1.19")
+        self.assertEqual(posten["alter"], {"nicht_faellig": (300 * k).quantize(Decimal("0.01")),
+                                           "bis30": (700 * k).quantize(Decimal("0.01")),
+                                           "bis60": (1100 * k).quantize(Decimal("0.01")),
+                                           "ueber60": (700 * k + 1000).quantize(Decimal("0.01"))})
+        self.assertEqual(sum(posten["alter"].values()), posten["betrag"])
+        gruppen = dashboard.posten_alter(posten)
+        self.assertEqual([g["name"] for g in gruppen["gruppen"]][0], "Nicht fällig")
+        self.assertAlmostEqual(sum(float(g["anteil"]) for g in gruppen["gruppen"]), 100, delta=0.1)
+        self.assertEqual(gruppen["summe"], posten["betrag"])
+
+    def test_altersgruppen_ohne_posten_und_gutschrift_nicht_in_gruppen(self):
+        leer = dashboard.posten_alter(dashboard.offene_posten(self.m, HEUTE))
+        self.assertEqual(leer["summe"], Decimal("0"))
+        self.assertTrue(all(g["anteil"] == "0.00" for g in leer["gruppen"]))
+        self.beleg(Belegart.GUTSCHRIFT, netto="50")
+        posten = dashboard.offene_posten(self.m, HEUTE)
+        self.assertEqual(posten["betrag"], Decimal("-59.50"))  # Kachel zieht die Gutschrift ab
+        self.assertEqual(sum(posten["alter"].values()), Decimal("0"))  # Altersdiagramm nur offene Rechnungen
+
+    # --- Seite / Abfragen ---
+    def test_seite_zeigt_neue_diagramme_mit_textalternative(self):
+        self.mit_mandant()
+        self.beleg(tag=timezone.localdate(), bezugnahme="Shop")
+        html = self.client.get(reverse("dashboard")).content.decode()
+        for teil in ("Umsatz heute", "Umsatz diesen Monat", "Lagerwert", "Umsatz je Monat", "Vertriebskanäle", "Offene Posten nach Alter",
+                     "Was ist zu tun", "Preis-Radar", 'role="img"'):
+            self.assertIn(teil, html, teil)
+        self.assertEqual(html.count('aria-current="true"'), 1)
+        for svg in __import__("re").findall(r"<svg\b[^>]*>", html[html.index('<div class="db-seite">'):]):
+            self.assertTrue('role="img"' in svg or 'aria-hidden="true"' in svg, svg)  # jede Grafik: Textalternative oder dekorativ
+
+    def test_dashboard_abfragen_obergrenze(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        self.mit_mandant()
+        self.beleg(tag=timezone.localdate(), bezugnahme="Shop")
+        self.artikel_mit_bestand("Q1", "2", Decimal("5"))
+        self.client.get(reverse("dashboard"))  # Mahnstufen werden beim ersten Aufruf angelegt
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse("dashboard"))
+        self.assertLessEqual(len(ctx), 50, [q["sql"][:80] for q in ctx])

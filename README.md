@@ -885,6 +885,9 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Deutsche Post (INTERNETMARKE) im Versand; Shop-Kategorien werden beim Senden eines Online-Artikels zugeordnet oder angelegt (Issue 59)
 - [ ] eBay, Kaufland, Newsletter mit Double-Opt-in
 - [x] Dashboard mit Umsatz, Top-Listen und Arbeitsliste; Wiedervorlagen auf der Startseite
+- [x] Neue Oberfläche (15.11.2026): ruhigere Optik für alle Seiten (`templates/_optik.html`, hell und dunkel, Layoutfarbe des Mandanten gilt weiter), Dashboard mit Kennzahlen-Kacheln (Umsatz Zeitraum/heute/Monat, Lagerwert, offene Posten) und Diagrammen (Verlauf, 12 Monate, Kanäle, offene Posten nach Alter)
+- [x] Flexible Listen: Jeder Benutzer richtet jede Liste über das Zahnrad für sich ein (Spalten ein-/ausblenden, Reihenfolge, Breite, Zeilendichte); gespeichert je Benutzer und Liste (`kern.Listenansicht`). Ein Admin setzt sie in der Verwaltung zurück: Benutzer markieren → Aktion „Listenansichten zurücksetzen“
+- [x] Schnellbedienung: **Strg+K** (oder Knopf „Wohin?“ in der Kopfzeile) öffnet ein Suchfenster für Kunden, Artikel, Belege, Lieferanten, Bestellungen, Reparaturen und alle Menüpunkte; Belege und Bestellungen nur des aktiven Mandanten
 - [ ] Auswertungen mit Marge, Excel-Ausgabe und freiem Zeitraum
 - [x] Gesamtprüfung vom 14.11.2026 (`docs/pruefbericht-2026-11-14.md`): Abschnitt A und C behoben, darunter automatisches Kunden-Skonto, Lastschrift erst mit der Gutschrift im Bankabgleich, Kasse nie im Minus, Belegnummern bleiben nach dem Löschen verbraucht, Kundensperre auch bei Kopie und wiederkehrender Rechnung, Warnung bei doppelter EAN und doppeltem Lieferanten
 - [x] Python 3.12 (eigene Umgebung auf dem Server) und Django 5.2; hochgeladene Preislisten liegen außerhalb des öffentlichen Medienordners (`PRIVAT_ROOT`)

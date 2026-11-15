@@ -110,3 +110,25 @@ class AenderungsProtokoll(models.Model):
 
     def delete(self, *args, **kwargs):
         raise PermissionError("Protokolleinträge dürfen nicht gelöscht werden.")
+
+
+class Listenansicht(models.Model):
+    """Gespeicherte Ansicht einer Liste (Spalten, Reihenfolge, Breite, Dichte) je Benutzer."""
+
+    benutzer = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name="Benutzer", on_delete=models.CASCADE, related_name="listenansichten"
+    )
+    schluessel = models.CharField("Liste", max_length=200)
+    einstellung = models.JSONField("Einstellung", default=dict)
+    geaendert_am = models.DateTimeField("geändert", auto_now=True)
+
+    class Meta:
+        verbose_name = "Listenansicht"
+        verbose_name_plural = "Listenansichten"
+        ordering = ["benutzer", "schluessel"]
+        constraints = [
+            models.UniqueConstraint(fields=["benutzer", "schluessel"], name="listenansicht_je_benutzer_eindeutig"),
+        ]
+
+    def __str__(self):
+        return f"{self.benutzer} – {self.schluessel}"

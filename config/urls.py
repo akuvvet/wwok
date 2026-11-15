@@ -4,6 +4,8 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
+from apps.kern import listen as kern_listen
+from apps.kern import schnellsuche as kern_schnellsuche
 from apps.kern import views as kern_views
 
 admin.site.site_header = "wwok Warenwirtschaft"
@@ -17,6 +19,8 @@ konto = [
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("password_change/", auth_views.PasswordChangeView.as_view(), name="password_change"),
     path("password_change/done/", auth_views.PasswordChangeDoneView.as_view(), name="password_change_done"),
+    path("listenansicht/", kern_listen.listenansicht, name="listenansicht"),
+    path("schnellsuche/", kern_schnellsuche.schnellsuche, name="schnellsuche"),
 ]
 
 urlpatterns = [

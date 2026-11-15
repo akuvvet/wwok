@@ -1,0 +1,327 @@
+{# Flexible Listen: Stil und Skript. Wirkt auf alle Tabellen mit <thead> im Hauptbereich; Speicherung je Benutzer auf dem Server (kern/listen.py). #}
+<style>
+  .lst-leiste { display: flex; justify-content: flex-end; margin: 0 0 .25rem; }
+  .lst-knopf { background: var(--karte); color: var(--text); border: 1px solid var(--rand); border-radius: var(--radius, 10px);
+    padding: .1rem .5rem; min-width: 34px; min-height: 34px; font-size: 1.05rem; line-height: 1.3; cursor: pointer; }
+  .lst-knopf:hover, .lst-knopf[aria-expanded="true"] { border-color: var(--akzent); }
+  .lst-knopf:focus-visible, .lst-menue button:focus-visible, .lst-menue select:focus-visible, .lst-menue input:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
+  .lst-menue { position: fixed; z-index: 1000; box-sizing: border-box; background: var(--karte); color: var(--text); border: 1px solid var(--rand);
+    border-radius: var(--radius, 10px); box-shadow: var(--schatten-gross, 0 8px 24px rgba(0, 0, 0, .25)); padding: .6rem;
+    width: min(22rem, calc(100vw - 1rem)); max-height: 75vh; overflow: auto; text-align: left; font-size: .9rem; font-weight: normal; }
+  .lst-menue[hidden] { display: none; }
+  .lst-menue h4 { margin: 0 0 .4rem; font-size: .95rem; }
+  .lst-menue ul { list-style: none; margin: 0 0 .6rem; padding: 0; }
+  .lst-menue li { display: flex; align-items: center; gap: .3rem; padding: .1rem 0; }
+  .lst-menue li label { flex: 1; display: flex; align-items: center; gap: .4rem; min-height: 32px; cursor: pointer; }
+  .lst-menue li label input { width: auto; margin: 0; }
+  .lst-menue button { background: var(--feld); color: var(--text); border: 1px solid var(--feldrand); border-radius: var(--radius, 10px);
+    padding: .1rem .5rem; min-width: 34px; min-height: 34px; font-size: .9rem; cursor: pointer; }
+  .lst-menue button:disabled { opacity: .35; cursor: default; }
+  .lst-menue .lst-fuss { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; border-top: 1px solid var(--rand); padding-top: .5rem; }
+  .lst-menue .lst-fuss select { background: var(--feld); color: var(--text); border: 1px solid var(--feldrand); border-radius: var(--radius, 10px); padding: .25rem .4rem; min-height: 34px; width: auto; }
+  .lst-menue .lst-zurueck { margin-left: auto; color: var(--warn); }
+  .lst-th { position: relative; }
+  .lst-th[draggable="true"] { cursor: grab; }
+  .lst-ziel { box-shadow: inset 3px 0 0 var(--akzent); }
+  .lst-griff { position: absolute; top: 0; right: 0; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; user-select: none; }
+  .lst-griff:hover, .lst-griff.lst-zieht { background: var(--akzent); opacity: .5; }
+  .lst-weg { display: none !important; }
+  .lst-breit { overflow: hidden; text-overflow: ellipsis; }
+  table.lst-kompakt th, table.lst-kompakt td { padding-top: .1rem !important; padding-bottom: .1rem !important; line-height: 1.2; }
+  @media (max-width: 600px) {
+    .lst-menue { left: .5rem !important; right: .5rem !important; bottom: .5rem !important; top: auto !important; width: auto; max-height: 70vh; }
+    .lst-knopf, .lst-menue button { min-width: 44px; min-height: 44px; }
+    .lst-menue li label { min-height: 44px; }
+  }
+  @media print { .lst-leiste, .lst-menue, .lst-griff { display: none !important; } }
+</style>
+<script>
+  // Flexible Listen: Spalten ein-/ausblenden, Reihenfolge, Breite und Zeilendichte je Tabelle; gespeichert je Benutzer auf dem Server.
+  // Schlüssel = Seitenpfad ohne Zahlen-IDs | Nummer der Tabelle | Kennzeichen aus den Spaltentiteln. Läuft nach jedem Nachladen (MutationObserver) erneut.
+  (function () {
+    var haupt = document.querySelector('main');
+    if (!haupt) return;
+    var ADRESSE = '{% url "listenansicht" %}';
+    var seite = location.pathname.replace(/\/\d+(?=\/|$)/g, '/#');
+    var speicherName = 'wwok-listen:' + seite;
+    var ansichten = {};  // Schlüssel -> Einstellung {dichte, spalten:[{i,t,v,b}]}
+    try { ansichten = JSON.parse(sessionStorage.getItem(speicherName)) || {}; } catch (e) { ansichten = {}; }
+    var stand = 1, offen = null, ausstehend = {}, timer = {};
+
+    function zwischenspeichern() { try { sessionStorage.setItem(speicherName, JSON.stringify(ansichten)); } catch (e) {} }
+    function csrf() { var f = document.querySelector('input[name=csrfmiddlewaretoken]'); return f ? f.value : ''; }
+    function senden(daten) {
+      return fetch(ADRESSE, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf()}, body: JSON.stringify(daten)});
+    }
+    function speichern(schluessel) {  // kurz verzögert, damit Ziehen nicht jeden Schritt sendet
+      ausstehend[schluessel] = true;
+      clearTimeout(timer[schluessel]);
+      timer[schluessel] = setTimeout(function () {
+        var e = ansichten[schluessel];
+        (e ? senden({schluessel: schluessel, einstellung: e}) : senden({schluessel: schluessel, zuruecksetzen: true}))
+          .then(function () { delete ausstehend[schluessel]; }, function () { delete ausstehend[schluessel]; });
+      }, 600);
+    }
+    function kennzeichen(titel) {
+      var h = 5381, s = titel.join('\u0001');
+      for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+      return h.toString(36);
+    }
+    function titelVon(th) { return th.textContent.replace(/\s+/g, ' ').trim(); }
+
+    // Eignung: nur einfache Listen. Erfassungstabellen, Summentabellen, Köpfe mit colspan/rowspan und kleine Tabellen bleiben unberührt.
+    function spaltenkoepfe(t) {
+      if (!t.tHead || t.tHead.rows.length !== 1) return null;
+      if (t.classList.contains('summentabelle') || t.closest('[data-keine-ansicht]')) return null;
+      if (t.parentElement && t.parentElement.closest('table')) return null;
+      var zellen = Array.prototype.slice.call(t.tHead.rows[0].cells);
+      if (zellen.length < 3 || zellen.length > 60) return null;
+      if (zellen.some(function (z) { return z.colSpan > 1 || z.rowSpan > 1; })) return null;
+      if (t.querySelector('tbody input:not([type=hidden]):not([type=checkbox]):not([type=radio]), tbody select, tbody textarea')) return null;
+      return zellen;
+    }
+    function zeilenVorbereiten(t) {  // jede Zelle merkt sich ihre ursprüngliche Spalte; Zeilen mit colspan bleiben unangetastet
+      var n = t._lz.n;
+      Array.prototype.forEach.call(t.rows, function (zeile) {
+        if (zeile._lzBereit) return;
+        zeile._lzBereit = true;
+        var zellen = Array.prototype.slice.call(zeile.cells);
+        zeile._lzRegulaer = zellen.length === n && zellen.every(function (z) { return z.colSpan === 1 && z.rowSpan === 1; });
+        if (zeile._lzRegulaer) zellen.forEach(function (z, i) { z._lzSpalte = i; });
+      });
+    }
+    function fest(t, i) {  // Aktionsspalten bleiben immer sichtbar
+      if (t._lz.koepfe[i].classList.contains('aktionszelle')) return true;
+      var z = t.tBodies.length && t.tBodies[0].rows.length ? t.tBodies[0].rows[0] : null;
+      return !!(z && z._lzRegulaer && z.cells[0] && Array.prototype.some.call(z.cells, function (c) { return c._lzSpalte === i && c.classList.contains('aktionszelle'); }));
+    }
+    function plan(t) {  // vollständige Einstellung: alle Spalten in Anzeigereihenfolge
+      var st = t._lz, e = ansichten[st.schluessel] || {}, gesehen = {}, liste = [];
+      (e.spalten || []).forEach(function (s) {
+        if (s.i < st.n && !gesehen[s.i]) { gesehen[s.i] = true; liste.push({i: s.i, t: st.titel[s.i], v: s.v !== false || fest(t, s.i), b: s.b || null}); }
+      });
+      for (var i = 0; i < st.n; i++) if (!gesehen[i]) liste.push({i: i, t: st.titel[i], v: true, b: null});
+      return {dichte: e.dichte === 'kompakt' ? 'kompakt' : 'normal', spalten: liste};
+    }
+    function anwenden(t) {
+      var p = plan(t), st = t._lz, reihenfolge = p.spalten.map(function (s) { return s.i; }), eig = {};
+      p.spalten.forEach(function (s) { eig[s.i] = s; });
+      t.classList.toggle('lst-kompakt', p.dichte === 'kompakt');
+      Array.prototype.forEach.call(t.rows, function (zeile) {
+        if (!zeile._lzRegulaer || zeile._lzStand === stand) return;
+        zeile._lzStand = stand;
+        var zellen = Array.prototype.slice.call(zeile.cells), stimmt = zellen.every(function (z, k) { return z._lzSpalte === reihenfolge[k]; });
+        if (!stimmt) {
+          var nach = {};
+          zellen.forEach(function (z) { nach[z._lzSpalte] = z; });
+          reihenfolge.forEach(function (i) { zeile.appendChild(nach[i]); });
+        }
+        Array.prototype.forEach.call(zeile.cells, function (z) {
+          var s = eig[z._lzSpalte];
+          z.classList.toggle('lst-weg', !s.v);
+          z.classList.toggle('lst-breit', !!s.b);
+          z.style.width = z.style.minWidth = z.style.maxWidth = s.b ? s.b + 'px' : '';
+        });
+      });
+      if (st.menue && !st.menue.hidden) menueFuellen(t);
+    }
+    function alleAnwenden() { stand++; Array.prototype.forEach.call(document.querySelectorAll('table'), function (t) { if (t._lz) anwenden(t); }); }
+
+    function aendern(t, aenderung) {  // Einstellung ändern, anzeigen, zwischenspeichern, verzögert an den Server
+      var p = plan(t);
+      aenderung(p);
+      ansichten[t._lz.schluessel] = p;
+      stand++;
+      anwenden(t);
+      zwischenspeichern();
+      speichern(t._lz.schluessel);
+    }
+    function verschieben(p, i, ziel) {  // Spalte i an die Stelle der Spalte "ziel" setzen
+      var von = p.spalten.map(function (s) { return s.i; }).indexOf(i), nach = p.spalten.map(function (s) { return s.i; }).indexOf(ziel);
+      if (von < 0 || nach < 0 || von === nach) return;
+      p.spalten.splice(nach, 0, p.spalten.splice(von, 1)[0]);
+    }
+    function zuruecksetzen(t) {
+      delete ansichten[t._lz.schluessel];
+      stand++;
+      anwenden(t);
+      zwischenspeichern();
+      speichern(t._lz.schluessel);
+    }
+
+    // Menü je Tabelle
+    function menueFuellen(t) {
+      var st = t._lz, m = st.menue, p = plan(t), fokus = document.activeElement, merke = fokus && m.contains(fokus) ? fokus.getAttribute('data-merke') : null;
+      m.textContent = '';
+      var kopf = document.createElement('h4'); kopf.textContent = 'Ansicht anpassen'; m.appendChild(kopf);
+      var ul = document.createElement('ul');
+      p.spalten.forEach(function (s, pos) {
+        var li = document.createElement('li'), label = document.createElement('label'), cb = document.createElement('input'), tx = document.createElement('span');
+        cb.type = 'checkbox'; cb.checked = s.v; cb.disabled = fest(t, s.i); cb.setAttribute('data-merke', 'v' + s.i);
+        cb.addEventListener('change', function () { aendern(t, function (q) { q.spalten.forEach(function (x) { if (x.i === s.i) x.v = cb.checked; }); }); });
+        tx.textContent = s.t || ('Spalte ' + (s.i + 1));
+        label.appendChild(cb); label.appendChild(tx); li.appendChild(label);
+        [['hoch', '↑', 'nach oben', pos === 0 ? -1 : p.spalten[pos - 1].i], ['runter', '↓', 'nach unten', pos === p.spalten.length - 1 ? -1 : p.spalten[pos + 1].i]].forEach(function (d) {
+          var b = document.createElement('button'); b.type = 'button'; b.textContent = d[1];
+          b.setAttribute('aria-label', (s.t || ('Spalte ' + (s.i + 1))) + ' ' + d[2] + ' verschieben'); b.title = d[2]; b.disabled = d[3] < 0;
+          b.setAttribute('data-merke', d[0] + s.i);
+          b.addEventListener('click', function () { aendern(t, function (q) { verschieben(q, s.i, d[3]); }); });
+          li.appendChild(b);
+        });
+        ul.appendChild(li);
+      });
+      m.appendChild(ul);
+      var fuss = document.createElement('div'); fuss.className = 'lst-fuss';
+      var sel = document.createElement('select'); sel.setAttribute('aria-label', 'Zeilendichte'); sel.setAttribute('data-merke', 'dichte');
+      [['normal', 'Zeilen normal'], ['kompakt', 'Zeilen kompakt']].forEach(function (o) {
+        var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; if (o[0] === p.dichte) op.selected = true; sel.appendChild(op);
+      });
+      sel.addEventListener('change', function () { aendern(t, function (q) { q.dichte = sel.value; }); });
+      var z = document.createElement('button'); z.type = 'button'; z.className = 'lst-zurueck'; z.textContent = 'Zurücksetzen'; z.setAttribute('data-merke', 'zurueck');
+      z.addEventListener('click', function () { zuruecksetzen(t); });
+      fuss.appendChild(sel); fuss.appendChild(z); m.appendChild(fuss);
+      if (merke) {  // Fokus bleibt nach dem Neuaufbau an derselben Stelle (Tastaturbedienung)
+        var ziel = m.querySelector('[data-merke="' + merke + '"]');
+        if (ziel && !ziel.disabled) ziel.focus();
+        else { var anderes = m.querySelector('li button:not(:disabled)'); if (anderes) anderes.focus(); }
+      }
+    }
+    function menueSchliessen(zurueckFokus) {
+      if (!offen) return;
+      var t = offen; offen = null;
+      t._lz.menue.hidden = true; t._lz.knopf.setAttribute('aria-expanded', 'false');
+      if (zurueckFokus) t._lz.knopf.focus();
+    }
+    function menueOeffnen(t) {
+      menueSchliessen(false);
+      var st = t._lz, m = st.menue;
+      menueFuellen(t);
+      m.hidden = false; st.knopf.setAttribute('aria-expanded', 'true'); offen = t;
+      if (window.matchMedia('(max-width: 600px)').matches) { m.style.top = m.style.right = ''; }
+      else {
+        var r = st.knopf.getBoundingClientRect();
+        m.style.top = Math.min(r.bottom + 4, Math.max(8, window.innerHeight - 120)) + 'px';
+        m.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+      }
+      var erstes = m.querySelector('input:not(:disabled)'); if (erstes) erstes.focus();
+    }
+
+    // Ziehen der Kopfzellen und Spaltenbreite
+    function ziehenEinrichten(t) {
+      var kopfzeile = t.tHead.rows[0], quelle = null;
+      Array.prototype.forEach.call(kopfzeile.cells, function (th, i) {
+        th.classList.add('lst-th'); th.setAttribute('data-lst-spalte', i); th.draggable = true;
+        if (getComputedStyle(th).position === 'static') th.style.position = 'relative';
+        var g = document.createElement('span'); g.className = 'lst-griff'; g.setAttribute('aria-hidden', 'true'); g.title = 'Breite ziehen (Doppelklick: automatisch)';
+        th.appendChild(g);
+        g.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); });
+        g.addEventListener('dblclick', function (e) { e.stopPropagation(); aendern(t, function (q) { q.spalten.forEach(function (x) { if (x.i === i) x.b = null; }); }); });
+        g.addEventListener('pointerdown', function (e) {
+          e.preventDefault(); e.stopPropagation(); th.draggable = false;
+          var start = e.clientX, breite = th.getBoundingClientRect().width, neu = breite;
+          g.setPointerCapture(e.pointerId); g.classList.add('lst-zieht');
+          function bewegen(ev) {
+            neu = Math.max(40, Math.min(1500, Math.round(breite + ev.clientX - start)));
+            Array.prototype.forEach.call(t.rows, function (zeile) {
+              if (!zeile._lzRegulaer) return;
+              Array.prototype.forEach.call(zeile.cells, function (z) { if (z._lzSpalte === i) { z.classList.add('lst-breit'); z.style.width = z.style.minWidth = z.style.maxWidth = neu + 'px'; } });
+            });
+          }
+          function ende() {
+            g.removeEventListener('pointermove', bewegen); g.removeEventListener('pointerup', ende); g.removeEventListener('pointercancel', ende);
+            g.classList.remove('lst-zieht'); th.draggable = true;
+            if (neu !== Math.round(breite)) aendern(t, function (q) { q.spalten.forEach(function (x) { if (x.i === i) x.b = neu; }); });
+          }
+          g.addEventListener('pointermove', bewegen); g.addEventListener('pointerup', ende); g.addEventListener('pointercancel', ende);
+        });
+      });
+      kopfzeile.addEventListener('dragstart', function (e) {
+        var th = e.target.closest && e.target.closest('th');
+        if (!th || th.parentNode !== kopfzeile) return;
+        quelle = +th.getAttribute('data-lst-spalte');
+        try { e.dataTransfer.setData('text/plain', 'spalte'); e.dataTransfer.effectAllowed = 'move'; } catch (x) {}
+      });
+      kopfzeile.addEventListener('dragover', function (e) {
+        if (quelle === null) return;
+        var th = e.target.closest && e.target.closest('th');
+        if (!th || th.parentNode !== kopfzeile) return;
+        e.preventDefault();
+        Array.prototype.forEach.call(kopfzeile.cells, function (c) { c.classList.toggle('lst-ziel', c === th && +th.getAttribute('data-lst-spalte') !== quelle); });
+      });
+      kopfzeile.addEventListener('drop', function (e) {
+        if (quelle === null) return;
+        e.preventDefault();
+        var th = e.target.closest && e.target.closest('th'), von = quelle;
+        quelle = null;
+        Array.prototype.forEach.call(kopfzeile.cells, function (c) { c.classList.remove('lst-ziel'); });
+        if (th && th.parentNode === kopfzeile) aendern(t, function (q) { verschieben(q, von, +th.getAttribute('data-lst-spalte')); });
+      });
+      kopfzeile.addEventListener('dragend', function () {
+        quelle = null;
+        Array.prototype.forEach.call(kopfzeile.cells, function (c) { c.classList.remove('lst-ziel'); });
+      });
+    }
+
+    function einrichten(t, vorsatz, nr) {
+      var koepfe = spaltenkoepfe(t);
+      if (!koepfe) { t._lzAus = true; return; }
+      var titel = koepfe.map(titelVon);
+      var schluessel = vorsatz + '|' + nr + '|' + kennzeichen(titel);
+      if (schluessel.length > 200) { t._lzAus = true; return; }
+      t._lz = {schluessel: schluessel, n: koepfe.length, titel: titel, koepfe: koepfe};
+      var leiste = document.createElement('div'); leiste.className = 'lst-leiste';
+      var knopf = document.createElement('button'); knopf.type = 'button'; knopf.className = 'lst-knopf'; knopf.textContent = '⚙︎';
+      knopf.setAttribute('aria-label', 'Ansicht anpassen'); knopf.title = 'Ansicht anpassen'; knopf.setAttribute('aria-haspopup', 'true'); knopf.setAttribute('aria-expanded', 'false');
+      var menue = document.createElement('div'); menue.className = 'lst-menue'; menue.hidden = true; menue.setAttribute('role', 'group'); menue.setAttribute('aria-label', 'Ansicht anpassen');
+      knopf.addEventListener('click', function () { if (offen === t) menueSchliessen(true); else menueOeffnen(t); });
+      leiste.appendChild(knopf); leiste.appendChild(menue);
+      t._lz.knopf = knopf; t._lz.menue = menue;
+      t.parentNode.insertBefore(leiste, t);
+      zeilenVorbereiten(t);
+      ziehenEinrichten(t);
+      anwenden(t);
+    }
+    function durchsuchen() {  // neue Tabellen einrichten, nachgeladene Zeilen bestehender Tabellen nachziehen
+      var bereiche = [[haupt, 'main']];
+      Array.prototype.forEach.call(document.querySelectorAll('dialog.modal'), function (d, k) { bereiche.push([d, 'd:' + (d.id || k)]); });
+      bereiche.forEach(function (b) {
+        var nr = 0;
+        Array.prototype.forEach.call(b[0].querySelectorAll('table'), function (t) {
+          if (b[1] === 'main' && t.closest('dialog.modal')) return;
+          nr++;
+          if (t._lzAus) return;
+          if (t._lz) { zeilenVorbereiten(t); anwenden(t); return; }
+          einrichten(t, b[1] === 'main' ? seite : seite + '~' + b[1], nr);
+        });
+      });
+    }
+
+    // Beobachter: nach Live-Filter und Dialog-Nachladern wieder anwenden, ohne auf eigene Änderungen zu reagieren
+    var beobachter = new MutationObserver(function (liste) {
+      var relevant = liste.some(function (m) { return !(m.target.closest && m.target.closest('.lst-leiste')); });
+      if (relevant) durchsuchen();
+      beobachter.takeRecords();  // eigene Änderungen verwerfen, sonst Endlosschleife
+    });
+    durchsuchen();
+    beobachter.takeRecords();
+    beobachter.observe(document.body, {childList: true, subtree: true});
+
+    // Gespeicherte Ansichten dieser Seite in einem Abruf holen; der Server ist die Quelle der Wahrheit
+    fetch(ADRESSE + '?seite=' + encodeURIComponent(seite), {credentials: 'same-origin'}).then(function (r) {
+      if (!r.ok || r.redirected) throw new Error('Status ' + r.status);
+      return r.json();
+    }).then(function (d) {
+      var neu = d.ansichten || {};
+      Object.keys(ausstehend).forEach(function (k) { if (ansichten[k]) neu[k] = ansichten[k]; else delete neu[k]; });
+      ansichten = neu; zwischenspeichern(); alleAnwenden(); beobachter.takeRecords();
+    }).catch(function () {});
+
+    document.addEventListener('click', function (e) {
+      if (offen && !offen._lz.menue.contains(e.target) && !offen._lz.knopf.contains(e.target)) menueSchliessen(false);
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && offen) menueSchliessen(true); });
+    window.addEventListener('scroll', function (e) {
+      if (offen && !offen._lz.menue.contains(e.target) && !window.matchMedia('(max-width: 600px)').matches) menueSchliessen(false);
+    }, true);
+  })();
+</script>

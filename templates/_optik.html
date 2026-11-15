@@ -1,0 +1,100 @@
+{% comment %}Optik 0.10: ruhiger, moderner Anstrich über den Grundstil aus base.html. Steht nach dem Grundstil und vor der Mandantfarbe,
+damit die Layoutfarbe des Mandanten weiter gewinnt. Nur Aussehen – keine Maße, an denen Skripte oder feste Positionen hängen
+(Kopfhöhe, Breite der Seitenleiste).{% endcomment %}
+<style>
+  :root {
+    --grund:#f3f5f9; --rand:#dfe3ea; --text:#171b22; --leise:#5b6472; --radius:10px;
+    --schatten:0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.07);
+    --schatten-gross:0 12px 32px rgba(16,24,40,.14), 0 2px 6px rgba(16,24,40,.06);
+    --toenung:color-mix(in srgb, var(--akzent) 9%, transparent);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --grund:#0f1216; --karte:#181c22; --rand:#2a3039; --text:#e8eaed; --leise:#a0a8b4;
+      --schatten:0 1px 2px rgba(0,0,0,.4); --schatten-gross:0 14px 36px rgba(0,0,0,.55);
+      --toenung:color-mix(in srgb, var(--akzent) 16%, transparent); }
+  }
+  html { scrollbar-color:color-mix(in srgb, var(--text) 28%, transparent) transparent; }
+  body { -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; font-feature-settings:"cv11","ss01"; }
+  ::selection { background:color-mix(in srgb, var(--akzent) 28%, transparent); }
+
+  /* Kopfzeile: leicht durchscheinend, hebt sich beim Scrollen ab */
+  header { background:color-mix(in srgb, var(--karte) 86%, transparent); -webkit-backdrop-filter:saturate(1.4) blur(10px); backdrop-filter:saturate(1.4) blur(10px);
+           box-shadow:0 1px 0 var(--rand), 0 4px 14px rgba(16,24,40,.04); border-bottom-color:transparent; }
+  .firma, header strong { letter-spacing:-.01em; }
+  .kopfsuche input { border-radius:999px; padding-left:14px; background:var(--grund); border-color:transparent; transition:background .15s, border-color .15s, width .2s; }
+  .kopfsuche input:focus { background:var(--feld); border-color:var(--akzent); }
+  .palettenknopf { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; background:var(--grund); border-color:var(--rand); color:var(--leise); font-size:13px; }
+  .palettenknopf kbd { font:inherit; font-size:11px; padding:0 5px; border:1px solid var(--rand); border-radius:5px; background:var(--karte); }
+  @media (max-width:640px) { .palettenknopf kbd { display:none; } }  /* am Handy gibt es keine Strg-Taste */
+
+  /* Seitenleiste: aktive Zeile getönt statt Vollfläche */
+  .seitenleiste { border-right-color:var(--rand); gap:3px; }
+  .sl-link, .gruppe > summary { border-radius:8px; transition:background .12s, color .12s; }
+  .sl-link:hover, .gruppe > summary:hover { background:var(--toenung); }
+  .sl-link.aktiv { background:var(--toenung); color:var(--akzent); font-weight:600; box-shadow:inset 3px 0 0 var(--akzent); }
+  .gruppe.aktiv > summary { box-shadow:none; }
+  .sl-titel { color:var(--leise); opacity:1; }
+
+  /* Flächen */
+  main { max-width:1400px; }
+  .karte { border-radius:12px; border-color:var(--rand); box-shadow:var(--schatten); padding:18px; }
+  h1 { font-size:22px; font-weight:650; letter-spacing:-.015em; }
+  h2 { font-size:16px; font-weight:650; letter-spacing:-.01em; }
+  .fein, .mfeld small { color:var(--leise); opacity:1; }
+  label { color:var(--leise); opacity:1; }
+  .haken-zeile, .hinweishaken label { color:var(--text); }
+
+  /* Tabellen: ruhiger Kopf, Zeile unter dem Zeiger hervorgehoben */
+  th, td { padding:8px 10px; }
+  thead th { font-size:12px; font-weight:600; letter-spacing:.03em; text-transform:uppercase; color:var(--leise); border-bottom-color:var(--rand); }
+  main tbody tr { transition:background .1s; }
+  main tbody tr:hover > td { background:var(--toenung); }
+  .summentabelle tbody tr:hover > td, .infoblock tr:hover > td { background:transparent; }
+  .scroll { border-radius:10px; }
+  .scroll thead th { background:color-mix(in srgb, var(--karte) 94%, var(--text)); }
+
+  /* Knöpfe und Felder */
+  input, select, textarea, button { border-radius:8px; }
+  button, .knopf { font-weight:550; border-radius:8px; transition:filter .12s, background .12s, box-shadow .12s, transform .06s; }
+  button:not(.leise):not(.gefahr):not(.tab):not(.symbol):not(.toast-zu):not(.leistenknopf):not(.menueknopf):hover, .knopf:not(.leise):hover { filter:brightness(1.08); box-shadow:var(--schatten); }
+  button:active, .knopf:active { transform:translateY(1px); }
+  button.leise:hover, .knopf.leise:hover { background:var(--toenung); }
+  button.gefahr:hover { background:color-mix(in srgb, var(--warn) 10%, transparent); }
+  button:focus-visible, .knopf:focus-visible, a:focus-visible { outline:2px solid var(--akzent); outline-offset:2px; }
+  input:not([type=checkbox]):not([type=radio]), select, textarea { transition:border-color .12s, box-shadow .12s; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--akzent); box-shadow:0 0 0 3px color-mix(in srgb, var(--akzent) 22%, transparent); }
+  input[type=checkbox], input[type=radio] { accent-color:var(--akzent); }
+  .symbol { border-radius:8px; border-color:color-mix(in srgb, var(--akzent) 45%, transparent); transition:background .12s, color .12s; }
+  .symbol::after, .status-symbol[data-tip]::after { border-radius:6px; box-shadow:var(--schatten); }
+  .marke { border-radius:999px; padding:2px 10px; font-weight:550; }
+  .marke.ok { background:color-mix(in srgb, var(--ok) 10%, transparent); } .marke.gesperrt { background:color-mix(in srgb, var(--warn) 10%, transparent); }
+  .tab { border-radius:10px 10px 0 0; transition:background .12s; }
+  .tab:not(.aktiv):hover { background:var(--toenung); }
+  .erfassung, .zeilenblock { border-radius:10px; }
+  .meldung, .warnung { border-radius:10px; }
+
+  /* Schwebendes: Menüs, Dialoge, Meldungen */
+  .menue-mehr .mehr, .status-legende > ul { border-radius:12px; box-shadow:var(--schatten-gross); padding:10px; }
+  dialog.modal, dialog.hinweisdialog { border-radius:16px; box-shadow:var(--schatten-gross); border-color:var(--rand); }
+  dialog.modal::backdrop, dialog.hinweisdialog::backdrop { background:rgba(15,18,22,.45); -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px); }
+  .toast { border-radius:12px; box-shadow:var(--schatten-gross); }
+  .fuss { color:var(--leise); opacity:1; }
+
+  /* Bewegung: Seite und Dialoge blenden weich ein */
+  @keyframes wwok-ein { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  @keyframes wwok-dialog { from { opacity:0; transform:translateY(10px) scale(.985); } to { opacity:1; transform:none; } }
+  main { animation:wwok-ein .22s ease-out; }
+  dialog[open].modal, dialog[open].hinweisdialog { animation:wwok-dialog .16s ease-out; }
+  @media (prefers-reduced-motion: reduce) { main, dialog[open].modal, dialog[open].hinweisdialog { animation:none; } button, .knopf, .sl-link, main tbody tr { transition:none; } }
+  @media print { main { animation:none; max-width:none; } .karte { box-shadow:none; } header { -webkit-backdrop-filter:none; backdrop-filter:none; } }
+
+  /* Anmeldeseite */
+  .anmeldung { max-width:400px; margin:8vh auto 0; }
+  .anmeldung .karte { padding:28px; border-radius:16px; box-shadow:var(--schatten-gross); }
+  .anmeldung .marke-logo { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+  .anmeldung .marke-logo svg { width:44px; height:44px; flex:none; border-radius:11px; box-shadow:var(--schatten); }
+  .anmeldung .marke-logo strong { font-size:20px; letter-spacing:-.02em; display:block; }
+  .anmeldung .marke-logo span { color:var(--leise); font-size:13px; }
+  .anmeldung input { width:100%; padding:9px 11px; }
+  .anmeldung button { width:100%; padding:10px; margin-top:6px; }
+</style>

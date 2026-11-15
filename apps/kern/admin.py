@@ -1,9 +1,11 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin as BasisUserAdmin
 
 from django import forms
 from django.utils.html import format_html
 
-from .models import AenderungsProtokoll, Mandant
+from .models import AenderungsProtokoll, Listenansicht, Mandant
 
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 
@@ -57,3 +59,40 @@ class AenderungsProtokollAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(Listenansicht)
+class ListenansichtAdmin(admin.ModelAdmin):
+    """Gespeicherte Listenansichten der Benutzer: ansehen und löschen (Zurücksetzen), nicht bearbeiten."""
+    list_display = ["benutzer", "schluessel", "geaendert_am"]
+    list_filter = ["benutzer"]
+    search_fields = ["schluessel"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+Benutzer = get_user_model()
+if admin.site.is_registered(Benutzer):
+    admin.site.unregister(Benutzer)
+
+
+@admin.register(Benutzer)
+class BenutzerAdmin(BasisUserAdmin):
+    """Wie die Standard-Benutzerverwaltung, dazu die Aktion zum Zurücksetzen der Listenansichten."""
+    actions = [*BasisUserAdmin.actions, "listenansichten_zuruecksetzen"]
+
+    def has_listenansichten_permission(self, request):
+        return request.user.is_active and request.user.is_staff and request.user.has_perm("kern.delete_listenansicht")
+
+    @admin.action(description="Listenansichten zurücksetzen", permissions=["listenansichten"])
+    def listenansichten_zuruecksetzen(self, request, queryset):
+        anzahl, _ = Listenansicht.objects.filter(benutzer__in=queryset).delete()
+        self.message_user(
+            request,
+            f"{anzahl} gespeicherte Listenansicht(en) von {queryset.count()} Benutzer(n) zurückgesetzt.",
+            messages.SUCCESS,
+        )

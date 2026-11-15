@@ -2,52 +2,187 @@
 {% block titel %}Dashboard – wwok{% endblock %}
 {% block inhalt %}
 <style>
-  .db-kopf { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
-  .db-kopf h1 { margin:0; }
-  .db-kacheln { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin-bottom:16px; }
-  .db-kachel { display:block; color:inherit; text-decoration:none; background:var(--karte); border:1px solid var(--rand); border-left:6px solid var(--akzent);
-               border-radius:8px; padding:12px 14px; }
-  .db-kachel:hover { border-color:var(--akzent); }
-  .db-kachel.ok { border-left-color:var(--ok); } .db-kachel.warn { border-left-color:var(--warn); }
-  .db-kachel .titel { font-size:13px; opacity:.8; margin-bottom:4px; }
-  .db-kachel .gross { font-size:26px; font-weight:600; font-variant-numeric:tabular-nums; line-height:1.2; }
-  .db-kachel .klein { font-size:13px; margin-top:4px; }
-  .db-auf { color:var(--ok); } .db-ab { color:var(--warn); } .db-gleich { opacity:.7; }
-  .db-vergleiche { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
-  .db-vergleiche .karte, .db-listen .karte { margin-bottom:0; }
-  .db-vergleiche .zeile2 { display:flex; justify-content:space-between; gap:8px; font-variant-numeric:tabular-nums; font-size:14px; }
-  .db-abschnitt { margin:20px 0 8px; font-size:16px; }
-  .db-listen { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); gap:12px; }
-  .db-listen table { width:100%; }
-  .db-listen td.zahl { white-space:nowrap; }
-  .db-balken { height:8px; border-radius:4px; background:var(--akzent); }
-  .db-balkenspur { background:var(--rand); border-radius:4px; }
-  .db-diagramm { width:100%; height:auto; display:block; }
-  .db-diagramm text { fill:var(--text); font-size:11px; }
-  .db-diagramm .gitter { stroke:var(--rand); stroke-width:1; }
-  .db-diagramm .flaeche { fill:var(--akzent); opacity:.15; }
-  .db-diagramm .linie { fill:none; stroke:var(--akzent); stroke-width:2; }
-  .db-diagramm .vorlinie { fill:none; stroke:var(--text); opacity:.45; stroke-width:1.5; stroke-dasharray:5 4; }
-  .db-diagramm circle { fill:var(--akzent); stroke:var(--karte); stroke-width:1; }
-  .db-legende { display:flex; gap:16px; font-size:12px; margin-top:4px; flex-wrap:wrap; }
-  .db-arbeit { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; }
-  .db-arbeit a { display:flex; justify-content:space-between; gap:8px; padding:8px 12px; border:1px solid var(--rand); border-radius:6px; color:inherit; text-decoration:none; }
-  .db-arbeit a:hover { border-color:var(--akzent); }
+  /* Seitenspezifisch (Präfix db-). Nur Variablen aus base.html, jeweils mit Rückfallwert. */
+  .db-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .db-seite { --db-leise:var(--leise, color-mix(in srgb, var(--text) 62%, var(--karte)));
+              --db-schatten:var(--schatten, 0 1px 3px rgba(0,0,0,.08));
+              --db-schatten-gross:var(--schatten-gross, 0 8px 24px rgba(0,0,0,.12));
+              --db-radius:var(--radius, 10px);
+              --db-weich:color-mix(in srgb, var(--akzent) 10%, var(--karte)); }
+  .db-seite .karte { margin:0; border-radius:var(--db-radius); box-shadow:var(--db-schatten); padding:18px 20px; min-width:0; }
+  .db-seite h1 { margin:0; font-size:26px; letter-spacing:-.01em; line-height:1.2; }
+  .db-seite h2 { margin:0 0 2px; font-size:16px; letter-spacing:-.005em; }
+  .db-leise { color:var(--db-leise); }
+  .db-unter { font-size:13px; color:var(--db-leise); margin:0 0 12px; }
+  .db-zahl { font-variant-numeric:tabular-nums; }
+
+  /* Kopf */
+  .db-kopf { display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+  .db-datum { font-size:14px; color:var(--db-leise); margin:4px 0 0; }
+  .db-segment { display:inline-flex; padding:3px; gap:2px; border-radius:999px; background:color-mix(in srgb, var(--text) 7%, var(--karte));
+                border:1px solid var(--rand); max-width:100%; }
+  .db-segment a { padding:6px 14px; border-radius:999px; text-decoration:none; color:var(--db-leise); font-size:14px; white-space:nowrap; }
+  .db-segment a:hover { color:var(--text); }
+  .db-segment a[aria-current=true] { background:var(--akzent); color:#fff; font-weight:600; box-shadow:var(--db-schatten); }
+  .db-segment a:focus-visible { outline:2px solid var(--akzent); outline-offset:2px; }
+  .db-zeitraum { font-size:12px; color:var(--db-leise); margin:0 0 16px; }
+
+  /* Raster */
+  .db-raster { display:grid; grid-template-columns:repeat(12, minmax(0,1fr)); gap:16px; margin-bottom:16px; }
+  .db-s12 { grid-column:span 12; } .db-s8 { grid-column:span 8; } .db-s7 { grid-column:span 7; }
+  .db-s6 { grid-column:span 6; } .db-s5 { grid-column:span 5; } .db-s4 { grid-column:span 4; }
+  @media (max-width:1000px) { .db-s8, .db-s7, .db-s6, .db-s5, .db-s4 { grid-column:span 12; } }
+
+  /* Kacheln */
+  .db-kacheln { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(250px,100%), 1fr)); gap:16px; margin-bottom:16px; }
+  .db-kachel { position:relative; display:flex; flex-direction:column; gap:2px; min-width:0; overflow:hidden; color:inherit; text-decoration:none;
+               background:var(--karte); border:1px solid var(--rand); border-radius:var(--db-radius); padding:16px 18px 14px; box-shadow:var(--db-schatten);
+               transition:box-shadow .2s, transform .2s, border-color .2s; }
+  .db-kachel::before { content:""; position:absolute; inset:0 auto 0 0; width:4px; background:var(--akzent); }
+  .db-kachel.ok::before { background:var(--ok); } .db-kachel.warn::before { background:var(--warn); }
+  .db-kachel:hover { box-shadow:var(--db-schatten-gross); border-color:color-mix(in srgb, var(--akzent) 55%, var(--rand)); transform:translateY(-2px); }
+  .db-kachel:focus-visible { outline:2px solid var(--akzent); outline-offset:2px; }
+  .db-kachel .titel { font-size:13px; font-weight:600; color:var(--db-leise); text-transform:uppercase; letter-spacing:.04em; }
+  .db-kachel .gross { font-size:32px; font-weight:700; letter-spacing:-.02em; line-height:1.15; font-variant-numeric:tabular-nums; margin-top:4px; overflow-wrap:anywhere; }
+  .db-kachel .gross small { font-size:14px; font-weight:400; color:var(--db-leise); letter-spacing:0; }
+  .db-kachel .klein { font-size:13px; color:var(--db-leise); margin-top:4px; line-height:1.45; }
+  .db-spark { display:block; width:100%; height:38px; margin-top:8px; }
+  .db-spark .fl { fill:color-mix(in srgb, var(--akzent) 16%, transparent); stroke:none; }
+  .db-spark .li { fill:none; stroke:var(--akzent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+  .db-spark circle { fill:var(--akzent); stroke:var(--karte); stroke-width:1.5; }
+  .db-kachel.ok .db-spark .fl { fill:color-mix(in srgb, var(--ok) 16%, transparent); }
+  .db-kachel.ok .db-spark .li { stroke:var(--ok); } .db-kachel.ok .db-spark circle { fill:var(--ok); }
+  .db-delta { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .db-delta.auf { color:var(--ok); background:color-mix(in srgb, var(--ok) 13%, var(--karte)); }
+  .db-delta.ab { color:var(--warn); background:color-mix(in srgb, var(--warn) 12%, var(--karte)); }
+  .db-delta.gleich { color:var(--db-leise); background:color-mix(in srgb, var(--text) 8%, var(--karte)); }
+  .db-ab { color:var(--warn); } .db-auf { color:var(--ok); }
+
+  /* Diagramme */
+  .db-diagramm { width:100%; height:auto; display:block; overflow:visible; }
+  .db-diagramm text { fill:var(--db-leise); font-size:12px; font-variant-numeric:tabular-nums; }
+  .db-diagramm .gitter { stroke:var(--rand); stroke-width:1; stroke-dasharray:2 4; }
+  .db-diagramm .null { stroke:color-mix(in srgb, var(--text) 35%, var(--rand)); stroke-width:1; }
+  .db-diagramm .linie { fill:none; stroke:var(--akzent); stroke-width:2.5; stroke-linejoin:round; stroke-linecap:round; }
+  .db-diagramm .vorlinie { fill:none; stroke:var(--db-leise); opacity:.7; stroke-width:1.5; stroke-dasharray:5 4; }
+  .db-diagramm .punkt { fill:var(--akzent); stroke:var(--karte); stroke-width:1.5; }
+  .db-diagramm .punkt:hover { r:5; }
+  .db-diagramm .balken { fill:var(--akzent); opacity:.55; }
+  .db-diagramm .balken.aktuell { opacity:1; }
+  .db-diagramm .balken.negativ { fill:var(--warn); }
+  .db-diagramm .balken:hover { opacity:1; }
+  .db-legende { display:flex; gap:6px 18px; font-size:13px; color:var(--db-leise); margin-top:10px; flex-wrap:wrap; align-items:center; }
+  .db-legende strong { color:var(--text); font-variant-numeric:tabular-nums; }
+  .db-punkt { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:baseline; }
+
+  .db-ring-zeile { display:flex; gap:20px; align-items:center; flex-wrap:wrap; }
+  .db-ring { flex:0 0 160px; width:160px; position:relative; }
+  .db-ring svg { display:block; width:100%; height:auto; transform:rotate(0deg); }
+  .db-ring .spur { fill:none; stroke:var(--rand); stroke-width:6; }
+  .db-ring .seg { fill:none; stroke-width:6; transform:rotate(-90deg); transform-origin:21px 21px; }
+  .db-ring .mitte { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; font-variant-numeric:tabular-nums; }
+  .db-ring .mitte strong { font-size:15px; } .db-ring .mitte span { font-size:11px; color:var(--db-leise); }
+  .db-f0 { stroke:var(--akzent); background:var(--akzent); }
+  .db-f1 { stroke:var(--ok); background:var(--ok); }
+  .db-f2 { stroke:var(--hinweis); background:var(--hinweis); }
+  .db-f3 { stroke:color-mix(in srgb, var(--akzent) 50%, var(--karte)); background:color-mix(in srgb, var(--akzent) 50%, var(--karte)); }
+  .db-f4 { stroke:color-mix(in srgb, var(--warn) 70%, var(--karte)); background:color-mix(in srgb, var(--warn) 70%, var(--karte)); }
+  .db-f5 { stroke:color-mix(in srgb, var(--text) 40%, var(--karte)); background:color-mix(in srgb, var(--text) 40%, var(--karte)); }
+  .db-tab { flex:1 1 220px; min-width:0; border-collapse:collapse; display:table; width:100%; }
+  .db-tab td, .db-tab th { padding:5px 6px; border:0; border-bottom:1px solid color-mix(in srgb, var(--rand) 60%, transparent); text-align:left; font-weight:400; vertical-align:middle; }
+  .db-tab tr:last-child td, .db-tab tr:last-child th { border-bottom:0; }
+  .db-tab td.zahl { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+
+  .db-alter { display:flex; height:22px; border-radius:999px; overflow:hidden; background:var(--rand); margin:8px 0 12px; }
+  .db-alter span { display:block; height:100%; min-width:0; transition:width .6s ease; }
+  .db-a0 { background:var(--ok); } .db-a1 { background:var(--hinweis); }
+  .db-a2 { background:color-mix(in srgb, var(--hinweis) 45%, var(--warn)); } .db-a3 { background:var(--warn); }
+
+  /* Listen */
+  .db-vergleiche { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(200px,100%), 1fr)); gap:12px; }
+  .db-vergleiche > div { padding:12px 14px; border-radius:calc(var(--db-radius) - 2px); background:var(--db-weich); border:1px solid color-mix(in srgb, var(--akzent) 14%, var(--rand)); }
+  .db-vergleiche .zeile2 { display:flex; justify-content:space-between; align-items:center; gap:8px; font-variant-numeric:tabular-nums; font-size:14px; margin-top:2px; }
+  .db-vergleiche .zeile2 span.leise { color:var(--db-leise); font-size:12px; }
+  .db-arbeit { display:grid; gap:6px; }
+  .db-arbeit a { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 12px; border-radius:calc(var(--db-radius) - 2px);
+                 color:inherit; text-decoration:none; background:color-mix(in srgb, var(--text) 4%, var(--karte)); border:1px solid transparent; transition:border-color .15s, background .15s; }
+  .db-arbeit a:hover, .db-arbeit a:focus-visible { border-color:var(--akzent); background:var(--db-weich); }
+  .db-arbeit span { min-width:0; font-size:14px; }
+  .db-arbeit strong { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .db-arbeit.breit { grid-template-columns:repeat(auto-fit, minmax(min(240px,100%), 1fr)); }
+  .db-liste table { display:table; width:100%; border-collapse:collapse; }
+  .db-liste td { padding:7px 4px; border:0; border-bottom:1px solid color-mix(in srgb, var(--rand) 60%, transparent); vertical-align:top; overflow-wrap:anywhere; }
+  .db-liste tr:last-child td { border-bottom:0; }
+  .db-liste td.zahl { white-space:nowrap; text-align:right; font-variant-numeric:tabular-nums; }
+  .db-listen { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(340px,100%), 1fr)); gap:16px; }
+
+  /* Einblenden */
+  @keyframes db-ein { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  .db-seite .db-kachel, .db-seite .karte { animation:db-ein .5s ease both; }
+  .db-kacheln > :nth-child(2) { animation-delay:.04s; } .db-kacheln > :nth-child(3) { animation-delay:.08s; } .db-kacheln > :nth-child(4) { animation-delay:.12s; }
+  .db-kacheln > :nth-child(5) { animation-delay:.16s; } .db-kacheln > :nth-child(6) { animation-delay:.2s; } .db-kacheln > :nth-child(7) { animation-delay:.24s; }
+  .db-raster > :nth-child(2) { animation-delay:.08s; } .db-raster > :nth-child(3) { animation-delay:.14s; }
+  @media (prefers-reduced-motion: reduce) {
+    .db-seite .db-kachel, .db-seite .karte { animation:none; }
+    .db-kachel, .db-alter span, .db-arbeit a { transition:none; }
+    .db-kachel:hover { transform:none; }
+  }
+  @media (max-width:640px) {
+    .db-seite h1 { font-size:22px; } .db-kachel .gross { font-size:28px; }
+    .db-seite .karte { padding:14px; } .db-segment { overflow-x:auto; }
+  }
 </style>
 
+<div class="db-seite">
 <div class="db-kopf">
-  <h1>Dashboard · {{ request.mandant }}</h1>
-  <p class="zeile" style="margin:0">
-    {% for t in zeitraeume %}<a class="knopf {% if t != tage %}leise{% endif %}"{% if t == tage %} aria-current="true"{% endif %} href="?tage={{ t }}">{% if t == 365 %}1 Jahr{% else %}{{ t }} Tage{% endif %}</a>{% endfor %}
-  </p>
+  <div>
+    <h1>Guten Tag{% if request.user.first_name %}, {{ request.user.first_name }}{% endif %}</h1>
+    <p class="db-datum">{{ heute|date:"l, j. F Y" }} · {{ request.mandant }}</p>
+  </div>
+  <nav class="db-segment" aria-label="Zeitraum wählen">
+    {% for t in zeitraeume %}<a{% if t == tage %} aria-current="true"{% endif %} href="?tage={{ t }}">{% if t == 365 %}1 Jahr{% else %}{{ t }} Tage{% endif %}</a>{% endfor %}
+  </nav>
 </div>
-<p class="fein">Zeitraum: {{ von|date:"d.m.Y" }} bis {{ bis|date:"d.m.Y" }}, Vergleich mit {{ kacheln.vorher_von|date:"d.m.Y" }} bis {{ kacheln.vorher_bis|date:"d.m.Y" }}. Alle Beträge netto, außer offene Posten.</p>
+<p class="db-zeitraum">Zeitraum: {{ von|date:"d.m.Y" }} bis {{ bis|date:"d.m.Y" }}, Vergleich mit {{ kacheln.vorher_von|date:"d.m.Y" }} bis {{ kacheln.vorher_bis|date:"d.m.Y" }}. Alle Beträge netto, außer offene Posten.</p>
 
 <div class="db-kacheln">
-  <a class="db-kachel" href="{% url 'verkauf:belege' %}?art=AB&status=dashboard">
-    <div class="titel">Offene Kundenbestellungen</div>
-    <div class="gross">{{ kacheln.bestellungen.anzahl }}</div>
-    <div class="klein">{{ kacheln.bestellungen.netto|floatformat:"2g" }} € netto, noch nicht geliefert</div>
+  <a class="db-kachel ok" href="{% url 'verkauf:belege' %}?art=RE&status=abgeschlossen&von={{ von|date:'Y-m-d' }}&bis={{ bis|date:'Y-m-d' }}">
+    <div class="titel">Umsatz {{ tage }} Tage</div>
+    <div class="gross">{{ kacheln.umsatz.netto|floatformat:"2g" }} €</div>
+    <div class="klein">{{ kacheln.umsatz.anzahl }} Rechnung{{ kacheln.umsatz.anzahl|pluralize:"en" }} abzüglich Gutschriften ·
+      {% with v=kacheln.umsatz.veraenderung %}
+        {% if v.art == "prozent" %}<span class="db-delta {{ v.richtung }}">{% if v.richtung == "auf" %}▲{% elif v.richtung == "ab" %}▼{% else %}●{% endif %} {{ v.prozent|floatformat:1 }} %</span>
+        {% elif v.art == "neu" %}<span class="db-delta auf">neu</span>{% else %}–{% endif %}
+      {% endwith %}
+      gegenüber Vorzeitraum ({{ kacheln.umsatz.vorher|floatformat:"2g" }} €)</div>
+    {% if grafik.spark_umsatz %}<svg class="db-spark" viewBox="0 0 {{ grafik.spark_umsatz.breite }} {{ grafik.spark_umsatz.hoehe }}" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="fl" d="{{ grafik.spark_umsatz.flaeche }}"/><polyline class="li" points="{{ grafik.spark_umsatz.linie }}"/></svg>{% endif %}
+  </a>
+  <a class="db-kachel ok" href="{% url 'verkauf:belege' %}?art=RE&status=abgeschlossen&von={{ heute|date:'Y-m-d' }}&bis={{ heute|date:'Y-m-d' }}">
+    <div class="titel">Umsatz heute</div>
+    <div class="gross">{{ grafik.heute.a.netto|floatformat:"2g" }} €</div>
+    <div class="klein">{{ grafik.heute.a.anzahl }} Rechnung{{ grafik.heute.a.anzahl|pluralize:"en" }} ·
+      {% with v=grafik.heute.veraenderung %}
+        {% if v.art == "prozent" %}<span class="db-delta {{ v.richtung }}">{% if v.richtung == "auf" %}▲{% elif v.richtung == "ab" %}▼{% else %}●{% endif %} {{ v.prozent|floatformat:1 }} %</span>
+        {% elif v.art == "neu" %}<span class="db-delta auf">neu</span>{% else %}–{% endif %}
+      {% endwith %}
+      gegenüber gestern ({{ grafik.heute.b.netto|floatformat:"2g" }} €)</div>
+    {% if grafik.spark_heute %}<svg class="db-spark" viewBox="0 0 {{ grafik.spark_heute.breite }} {{ grafik.spark_heute.hoehe }}" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="fl" d="{{ grafik.spark_heute.flaeche }}"/><polyline class="li" points="{{ grafik.spark_heute.linie }}"/></svg>{% endif %}
+  </a>
+  <a class="db-kachel ok" href="{% url 'verkauf:belege' %}?art=RE&status=abgeschlossen&von={{ heute|date:'Y-m' }}-01&bis={{ heute|date:'Y-m-d' }}">
+    <div class="titel">Umsatz diesen Monat</div>
+    <div class="gross">{{ grafik.monat.a.netto|floatformat:"2g" }} €</div>
+    <div class="klein">{{ grafik.monat.a.anzahl }} Rechnung{{ grafik.monat.a.anzahl|pluralize:"en" }} ·
+      {% with v=grafik.monat.veraenderung %}
+        {% if v.art == "prozent" %}<span class="db-delta {{ v.richtung }}">{% if v.richtung == "auf" %}▲{% elif v.richtung == "ab" %}▼{% else %}●{% endif %} {{ v.prozent|floatformat:1 }} %</span>
+        {% elif v.art == "neu" %}<span class="db-delta auf">neu</span>{% else %}–{% endif %}
+      {% endwith %}
+      gegenüber Vormonat bis zum selben Tag ({{ grafik.monat.b.netto|floatformat:"2g" }} €)</div>
+    {% if grafik.spark_monat %}<svg class="db-spark" viewBox="0 0 {{ grafik.spark_monat.breite }} {{ grafik.spark_monat.hoehe }}" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="fl" d="{{ grafik.spark_monat.flaeche }}"/><polyline class="li" points="{{ grafik.spark_monat.linie }}"/></svg>{% endif %}
+  </a>
+  <a class="db-kachel" href="{% url 'lager:uebersicht' %}?bestand=1">
+    <div class="titel">Lagerwert</div>
+    <div class="gross">{{ grafik.lager.wert|floatformat:"2g" }} €</div>
+    <div class="klein">Bestand × Einkaufspreis, {{ grafik.lager.artikel }} Artikel auf Lager{% if grafik.lager.ohne_ek %}<br><span class="db-ab">{{ grafik.lager.ohne_ek }} ohne Einkaufspreis (nicht bewertet)</span>{% endif %}</div>
   </a>
   <a class="db-kachel {% if kacheln.posten.ueberfaellig_anzahl %}warn{% endif %}" href="{% url 'finanzen:offene_posten' %}">
     <div class="titel">Offene Posten Kunden</div>
@@ -55,104 +190,165 @@
     <div class="klein">{{ kacheln.posten.anzahl }} Rechnung{{ kacheln.posten.anzahl|pluralize:"en" }} offen{% if kacheln.posten.ueberfaellig_anzahl %},
       <span class="db-ab">{{ kacheln.posten.ueberfaellig_anzahl }} überfällig ({{ kacheln.posten.ueberfaellig_betrag|floatformat:"2g" }} €)</span>{% endif %}</div>
   </a>
-  <a class="db-kachel ok" href="{% url 'verkauf:belege' %}?art=RE&status=abgeschlossen&von={{ von|date:'Y-m-d' }}&bis={{ bis|date:'Y-m-d' }}">
-    <div class="titel">Umsatz {{ tage }} Tage</div>
-    <div class="gross">{{ kacheln.umsatz.netto|floatformat:"2g" }} €</div>
-    <div class="klein">{{ kacheln.umsatz.anzahl }} Rechnung{{ kacheln.umsatz.anzahl|pluralize:"en" }} abzüglich Gutschriften ·
-      {% with v=kacheln.umsatz.veraenderung %}
-        {% if v.art == "prozent" %}<span class="db-{{ v.richtung }}">{% if v.richtung == "auf" %}▲{% elif v.richtung == "ab" %}▼{% else %}●{% endif %} {{ v.prozent|floatformat:1 }} %</span>
-        {% elif v.art == "neu" %}<span class="db-auf">neu</span>{% else %}–{% endif %}
-      {% endwith %}
-      gegenüber Vorzeitraum ({{ kacheln.umsatz.vorher|floatformat:"2g" }} €)</div>
+  <a class="db-kachel" href="{% url 'verkauf:belege' %}?art=AB&status=dashboard">
+    <div class="titel">Offene Kundenbestellungen</div>
+    <div class="gross">{{ kacheln.bestellungen.anzahl }}</div>
+    <div class="klein">{{ kacheln.bestellungen.netto|floatformat:"2g" }} € netto, noch nicht geliefert</div>
   </a>
   <a class="db-kachel" href="{% url 'einkauf:bestellungen' %}?status=bestellt">
     <div class="titel">Lieferanten</div>
-    <div class="gross">{{ kacheln.lieferanten.bestellungen_anzahl }} <span style="font-size:14px;font-weight:400">offene Bestellung{{ kacheln.lieferanten.bestellungen_anzahl|pluralize:"en" }}</span></div>
+    <div class="gross">{{ kacheln.lieferanten.bestellungen_anzahl }} <small>offene Bestellung{{ kacheln.lieferanten.bestellungen_anzahl|pluralize:"en" }}</small></div>
     <div class="klein">{{ kacheln.lieferanten.bestellungen_netto|floatformat:"2g" }} € netto noch offen<br>
       {{ kacheln.lieferanten.rechnungen_anzahl }} offene Rechnung{{ kacheln.lieferanten.rechnungen_anzahl|pluralize:"en" }}: {{ kacheln.lieferanten.rechnungen_brutto|floatformat:"2g" }} € brutto{% if kacheln.lieferanten.rechnungen_ueberfaellig %}, <span class="db-ab">{{ kacheln.lieferanten.rechnungen_ueberfaellig }} überfällig</span>{% endif %}</div>
   </a>
 </div>
 
-<h2 class="db-abschnitt">Zeitraumvergleich (Umsatz netto)</h2>
-<div class="db-vergleiche">
-  {% for v in vergleiche %}
-  <div class="karte">
-    <strong>{{ v.titel }}</strong>
-    <div class="zeile2"><span>{{ v.a_text }}</span><strong>{{ v.a.netto|floatformat:"2g" }} €</strong></div>
-    <div class="zeile2"><span class="fein">{{ v.b_text }}</span><span class="fein">{{ v.b.netto|floatformat:"2g" }} €</span></div>
-    <div class="zeile2" style="margin-top:6px">
-      <span class="fein">{{ v.a.anzahl }} Rechnung{{ v.a.anzahl|pluralize:"en" }} (vorher {{ v.b.anzahl }})</span>
-      {% if v.veraenderung.art == "prozent" %}<strong class="db-{{ v.veraenderung.richtung }}">{% if v.veraenderung.richtung == "auf" %}▲{% elif v.veraenderung.richtung == "ab" %}▼{% else %}●{% endif %} {{ v.veraenderung.prozent|floatformat:1 }} %</strong>
-      {% elif v.veraenderung.art == "neu" %}<strong class="db-auf">neu</strong>{% else %}<span class="db-gleich">–</span>{% endif %}
+<div class="db-raster">
+  <section class="karte db-s8" aria-labelledby="db-h-verlauf">
+    <h2 id="db-h-verlauf">Umsatzverlauf{% if verlauf.wochen %} (Wochenwerte){% endif %}</h2>
+    <p class="db-unter">Netto je {% if verlauf.wochen %}Woche{% else %}Tag{% endif %}, im Vergleich zum Vorzeitraum</p>
+    <svg class="db-diagramm" viewBox="0 0 {{ verlauf.breite }} {{ verlauf.hoehe }}" role="img"
+         aria-label="Umsatzverlauf der letzten {{ tage }} Tage: Summe {{ verlauf.summe|floatformat:'2g' }} Euro, Vorzeitraum {{ verlauf.vorsumme|floatformat:'2g' }} Euro">
+      <defs><linearGradient id="db-verlauf-fl" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" style="stop-color:var(--akzent);stop-opacity:.38"/><stop offset="1" style="stop-color:var(--akzent);stop-opacity:0"/></linearGradient></defs>
+      {% for g in verlauf.gitter %}
+      <line class="gitter" x1="{{ verlauf.links }}" x2="{{ verlauf.rechts }}" y1="{{ g.y }}" y2="{{ g.y }}"/>
+      <text x="{{ verlauf.links }}" y="{{ g.y }}" dx="-8" dy="4" text-anchor="end">{{ g.text }}</text>
+      {% endfor %}
+      <line class="null" x1="{{ verlauf.links }}" x2="{{ verlauf.rechts }}" y1="{{ verlauf.nulllinie }}" y2="{{ verlauf.nulllinie }}"/>
+      <path d="{{ verlauf.flaeche }}" style="fill:url(#db-verlauf-fl)"/>
+      <polyline class="vorlinie" points="{{ verlauf.vorlinie }}"/>
+      <polyline class="linie" points="{{ verlauf.linie }}"/>
+      {% for p in verlauf.punkte %}<circle class="punkt" cx="{{ p.x }}" cy="{{ p.y }}" r="{% if verlauf.punkte|length > 40 %}2.5{% else %}3.5{% endif %}"><title>{{ p.text }}</title></circle>{% endfor %}
+      {% for b in verlauf.beschriftung %}<text x="{{ b.x }}" y="{{ verlauf.unten }}" text-anchor="middle">{{ b.text }}</text>{% endfor %}
+    </svg>
+    <div class="db-legende"><span><span class="db-punkt" style="background:var(--akzent)"></span>aktueller Zeitraum</span>
+      <span><span class="db-punkt" style="border:2px dashed var(--db-leise);width:14px;height:0;border-radius:0;margin-bottom:3px"></span>Vorzeitraum ({{ verlauf.vorsumme|floatformat:"2g" }} €)</span>
+      <span>Summe: <strong>{{ verlauf.summe|floatformat:"2g" }} €</strong></span></div>
+  </section>
+
+  <section class="karte db-s4" aria-labelledby="db-h-arbeit">
+    <h2 id="db-h-arbeit">Was ist zu tun</h2>
+    <p class="db-unter">Arbeitsliste</p>
+    <div class="db-arbeit">
+      <a href="{% url 'werkstatt:liste' %}"><span>Offene Reparaturen</span><strong>{{ arbeit.reparaturen }}</strong></a>
+      <a href="{% url 'finanzen:mahnwesen' %}"><span>Mahnfällige Rechnungen</span><strong {% if arbeit.mahnungen %}class="db-ab"{% endif %}>{{ arbeit.mahnungen }}</strong></a>
+      <a href="{% url 'shop:uebersicht' %}"><span>Shop-Bestellungen im Zeitraum</span><strong>{{ arbeit.shop_bestellungen }}</strong></a>
+      <a href="{% url 'verkauf:belege' %}?art=AN&status=dashboard"><span>Offene Angebote (gültig, ohne Folgebeleg)</span><strong>{{ arbeit.angebote }}</strong></a>
+      <a href="{% url 'verkauf:start' %}"><span>Fällige Wiedervorlagen</span><strong {% if arbeit.wiedervorlagen %}class="db-ab"{% endif %}>{{ arbeit.wiedervorlagen }}</strong></a>
     </div>
-  </div>
-  {% endfor %}
+  </section>
+
+  <section class="karte db-s7" aria-labelledby="db-h-monate">
+    <h2 id="db-h-monate">Umsatz je Monat</h2>
+    <p class="db-unter">Letzte 12 Monate, netto (Rechnungen abzüglich Gutschriften)</p>
+    <svg class="db-diagramm" viewBox="0 0 {{ grafik.monate.breite }} {{ grafik.monate.hoehe }}" role="img"
+         aria-label="Umsatz je Monat, letzte 12 Monate, Summe {{ grafik.monate.summe|floatformat:'2g' }} Euro. Die Werte stehen in der Tabelle darunter.">
+      {% for g in grafik.monate.gitter %}
+      <line class="gitter" x1="{{ grafik.monate.links }}" x2="{{ grafik.monate.rechts }}" y1="{{ g.y }}" y2="{{ g.y }}"/>
+      <text x="{{ grafik.monate.links }}" y="{{ g.y }}" dx="-8" dy="4" text-anchor="end">{{ g.text }}</text>
+      {% endfor %}
+      <line class="null" x1="{{ grafik.monate.links }}" x2="{{ grafik.monate.rechts }}" y1="{{ grafik.monate.nulllinie }}" y2="{{ grafik.monate.nulllinie }}"/>
+      {% for b in grafik.monate.balken %}
+      <rect class="balken{% if b.aktuell %} aktuell{% endif %}{% if b.negativ %} negativ{% endif %}" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.breite }}" height="{{ b.hoehe }}" rx="3"><title>{{ b.text }}</title></rect>
+      <text x="{{ b.mitte }}" y="{{ grafik.monate.unten }}" text-anchor="middle">{{ b.label }}</text>
+      {% endfor %}
+    </svg>
+    <table class="db-sr"><caption>Umsatz je Monat (netto)</caption>
+      {% for m in grafik.monate.monate %}<tr><th scope="row">{{ m.name }}</th><td>{{ m.netto|floatformat:"2g" }} €</td></tr>{% endfor %}
+    </table>
+    <div class="db-legende"><span>Summe 12 Monate: <strong>{{ grafik.monate.summe|floatformat:"2g" }} €</strong></span><span>der laufende Monat ist kräftig dargestellt</span></div>
+  </section>
+
+  <section class="karte db-s5" aria-labelledby="db-h-kanaele">
+    <h2 id="db-h-kanaele">Vertriebskanäle</h2>
+    <p class="db-unter">Umsatz nach Bezugnahme im Zeitraum (Rechnungen netto)</p>
+    {% if grafik.ring.segmente %}
+    <div class="db-ring-zeile">
+      <div class="db-ring">
+        <svg viewBox="0 0 42 42" role="img" aria-label="Vertriebskanäle: {% for s in grafik.ring.segmente %}{{ s.name }} {{ s.prozent|floatformat:1 }} Prozent{% if not forloop.last %}, {% endif %}{% endfor %}">
+          <circle class="spur" cx="21" cy="21" r="15.9155"/>
+          {% for s in grafik.ring.segmente %}<circle class="seg db-f{{ s.farbe }}" cx="21" cy="21" r="15.9155" pathLength="100" stroke-dasharray="{{ s.laenge }} 100" stroke-dashoffset="{{ s.versatz }}"><title>{{ s.name }}: {{ s.prozent|floatformat:1 }} % ({{ s.umsatz|floatformat:"2g" }} €)</title></circle>{% endfor %}
+        </svg>
+        <div class="mitte"><strong>{{ grafik.ring.gesamt|floatformat:"0g" }} €</strong><span>netto</span></div>
+      </div>
+      <table class="db-tab">
+        {% for s in grafik.ring.segmente %}<tr><th scope="row"><span class="db-punkt db-f{{ s.farbe }}"></span>{{ s.name }}</th>
+          <td class="zahl">{{ s.prozent|floatformat:1 }} %</td><td class="zahl">{{ s.umsatz|floatformat:"2g" }} €</td></tr>{% endfor %}
+      </table>
+    </div>
+    {% else %}<p class="db-leise">Keine Rechnungen im Zeitraum.</p>{% endif %}
+  </section>
+
+  <section class="karte db-s6" aria-labelledby="db-h-alter">
+    <h2 id="db-h-alter">Offene Posten nach Alter</h2>
+    <p class="db-unter">Offene Rechnungen (brutto) nach Tagen über dem Fälligkeitsdatum</p>
+    <div class="db-alter" role="img" aria-label="Offene Posten nach Alter: {% for g in grafik.alter.gruppen %}{{ g.name }} {{ g.betrag|floatformat:'2g' }} Euro{% if not forloop.last %}, {% endif %}{% endfor %}">
+      {% for g in grafik.alter.gruppen %}{% if g.betrag > 0 %}<span class="db-a{{ forloop.counter0 }}" style="width:{{ g.anteil }}%" title="{{ g.name }}: {{ g.betrag|floatformat:'2g' }} €"></span>{% endif %}{% endfor %}
+    </div>
+    <table class="db-tab">
+      {% for g in grafik.alter.gruppen %}<tr><th scope="row"><span class="db-punkt db-a{{ forloop.counter0 }}"></span>{{ g.name }}</th>
+        <td class="zahl">{{ g.prozent|floatformat:1 }} %</td><td class="zahl">{{ g.betrag|floatformat:"2g" }} €</td></tr>{% endfor %}
+      <tr><th scope="row"><strong>Summe offener Rechnungen</strong></th><td></td><td class="zahl"><strong>{{ grafik.alter.summe|floatformat:"2g" }} €</strong></td></tr>
+    </table>
+    <p class="db-unter" style="margin:8px 0 0">Ohne Überzahlungen und noch nicht verrechnete Gutschriften; die Kachel „Offene Posten“ zieht diese ab.</p>
+  </section>
+
+  <section class="karte db-s6" aria-labelledby="db-h-vergleich">
+    <h2 id="db-h-vergleich">Zeitraumvergleich</h2>
+    <p class="db-unter">Umsatz netto</p>
+    <div class="db-vergleiche">
+      {% for v in vergleiche %}
+      <div>
+        <strong>{{ v.titel }}</strong>
+        <div class="zeile2"><span class="leise">{{ v.a_text }}</span><strong>{{ v.a.netto|floatformat:"2g" }} €</strong></div>
+        <div class="zeile2"><span class="leise">{{ v.b_text }}</span><span class="db-leise">{{ v.b.netto|floatformat:"2g" }} €</span></div>
+        <div class="zeile2" style="margin-top:8px">
+          <span class="leise">{{ v.a.anzahl }} Rechnung{{ v.a.anzahl|pluralize:"en" }} (vorher {{ v.b.anzahl }})</span>
+          {% if v.veraenderung.art == "prozent" %}<span class="db-delta {{ v.veraenderung.richtung }}">{% if v.veraenderung.richtung == "auf" %}▲{% elif v.veraenderung.richtung == "ab" %}▼{% else %}●{% endif %} {{ v.veraenderung.prozent|floatformat:1 }} %</span>
+          {% elif v.veraenderung.art == "neu" %}<span class="db-delta auf">neu</span>{% else %}<span class="db-leise">–</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="karte db-s12" aria-labelledby="db-h-radar">
+    <h2 id="db-h-radar">Preis-Radar</h2>
+    <div class="db-arbeit breit" style="margin-top:10px">
+      {% for k in radar.kategorien %}<a href="{% url 'stammdaten:radar' %}?kategorie={{ k.schluessel }}"><span>{{ k.name }}</span><strong {% if k.farbe == "rot" and k.anzahl %}class="db-ab"{% endif %}>{{ k.anzahl }}{% if k.euro %} · {{ k.euro|floatformat:"2g" }} €{% endif %}</strong></a>{% endfor %}
+      <a href="{% url 'stammdaten:radar' %}?kategorie=senkung"><span>VK-Senkung prüfen</span><strong>{{ radar.senkung }}</strong></a>
+      <a href="{% url 'einkauf:preispruefliste' %}"><span>Import zur Prüfung</span><strong {% if radar.importe %}class="db-ab"{% endif %}>{{ radar.importe }}</strong></a>
+    </div>
+  </section>
 </div>
 
-<h2 class="db-abschnitt">Umsatzverlauf{% if verlauf.wochen %} (Wochenwerte){% endif %}</h2>
-<div class="karte">
-  <svg class="db-diagramm" viewBox="0 0 {{ verlauf.breite }} {{ verlauf.hoehe }}" role="img" aria-label="Umsatzverlauf im Zeitraum mit Vorzeitraum">
-    {% for g in verlauf.gitter %}
-    <line class="gitter" x1="{{ verlauf.links }}" x2="{{ verlauf.rechts }}" y1="{{ g.y }}" y2="{{ g.y }}"/>
-    <text x="{{ verlauf.links }}" y="{{ g.y }}" dx="-6" dy="4" text-anchor="end">{{ g.text }}</text>
-    {% endfor %}
-    <path class="flaeche" d="{{ verlauf.flaeche }}"/>
-    <polyline class="vorlinie" points="{{ verlauf.vorlinie }}"/>
-    <polyline class="linie" points="{{ verlauf.linie }}"/>
-    {% for p in verlauf.punkte %}<circle cx="{{ p.x }}" cy="{{ p.y }}" r="3"><title>{{ p.text }}</title></circle>{% endfor %}
-    {% for b in verlauf.beschriftung %}<text x="{{ b.x }}" y="{{ verlauf.unten }}" text-anchor="middle">{{ b.text }}</text>{% endfor %}
-  </svg>
-  <div class="db-legende"><span><span style="color:var(--akzent)">━</span> aktueller Zeitraum</span><span><span style="opacity:.6">╍</span> Vorzeitraum</span>
-    <span>Summe: <strong>{{ verlauf.summe|floatformat:"2g" }} €</strong></span></div>
-</div>
-
-<h2 class="db-abschnitt">Preis-Radar</h2>
-<div class="db-arbeit">
-  {% for k in radar.kategorien %}<a href="{% url 'stammdaten:radar' %}?kategorie={{ k.schluessel }}"><span>{{ k.name }}</span><strong {% if k.farbe == "rot" and k.anzahl %}class="db-ab"{% endif %}>{{ k.anzahl }}{% if k.euro %} · {{ k.euro|floatformat:"2g" }} €{% endif %}</strong></a>{% endfor %}
-  <a href="{% url 'stammdaten:radar' %}?kategorie=senkung"><span>VK-Senkung prüfen</span><strong>{{ radar.senkung }}</strong></a>
-  <a href="{% url 'einkauf:preispruefliste' %}"><span>Import zur Prüfung</span><strong {% if radar.importe %}class="db-ab"{% endif %}>{{ radar.importe }}</strong></a>
-</div>
-
-<h2 class="db-abschnitt">Arbeitsliste</h2>
-<div class="db-arbeit">
-  <a href="{% url 'werkstatt:liste' %}"><span>Offene Reparaturen</span><strong>{{ arbeit.reparaturen }}</strong></a>
-  <a href="{% url 'finanzen:mahnwesen' %}"><span>Mahnfällige Rechnungen</span><strong {% if arbeit.mahnungen %}class="db-ab"{% endif %}>{{ arbeit.mahnungen }}</strong></a>
-  <a href="{% url 'shop:uebersicht' %}"><span>Shop-Bestellungen im Zeitraum</span><strong>{{ arbeit.shop_bestellungen }}</strong></a>
-  <a href="{% url 'verkauf:belege' %}?art=AN&status=dashboard"><span>Offene Angebote (gültig, ohne Folgebeleg)</span><strong>{{ arbeit.angebote }}</strong></a>
-  <a href="{% url 'verkauf:start' %}"><span>Fällige Wiedervorlagen</span><strong {% if arbeit.wiedervorlagen %}class="db-ab"{% endif %}>{{ arbeit.wiedervorlagen }}</strong></a>
-</div>
-
-<h2 class="db-abschnitt">Auswertungen im Zeitraum</h2>
 <div class="db-listen">
-  <div class="karte">
-    <strong>Top 10 Kunden (Umsatz netto)</strong>
+  <section class="karte db-liste" aria-labelledby="db-h-kunden">
+    <h2 id="db-h-kunden">Top 10 Kunden</h2>
+    <p class="db-unter">Umsatz netto im Zeitraum</p>
     <table>
       {% for k in kunden %}<tr><td>{{ forloop.counter }}.</td><td><a href="{% url 'verkauf:kunde' k.kunde_id %}">{{ k.kunde__name1 }}</a></td><td class="zahl">{{ k.umsatz|floatformat:"2g" }} €</td></tr>
       {% empty %}<tr><td>Keine Umsätze im Zeitraum.</td></tr>{% endfor %}
     </table>
-  </div>
-  <div class="karte">
-    <strong>Top 10 Artikel (Umsatz netto)</strong>
+  </section>
+  <section class="karte db-liste" aria-labelledby="db-h-artikel">
+    <h2 id="db-h-artikel">Top 10 Artikel</h2>
+    <p class="db-unter">Umsatz netto im Zeitraum</p>
     <table>
       {% for a in artikel %}<tr><td>{{ forloop.counter }}.</td><td><a href="{% url 'lager:artikel' a.artikel_id %}">{{ a.artikel__nummer }}</a><br><span class="fein">{{ a.artikel__bezeichnung|truncatechars:42 }}</span></td>
         <td class="zahl">{{ a.stueck|floatformat:"-3g" }} Stk.</td><td class="zahl">{{ a.umsatz|floatformat:"2g" }} €</td></tr>
       {% empty %}<tr><td>Keine Artikelumsätze im Zeitraum.</td></tr>{% endfor %}
     </table>
-  </div>
-  <div class="karte">
-    <strong>Top Lieferanten (Einkauf netto, nach Rechnungsdatum)</strong>
+  </section>
+  <section class="karte db-liste" aria-labelledby="db-h-lieferanten">
+    <h2 id="db-h-lieferanten">Top Lieferanten</h2>
+    <p class="db-unter">Einkauf netto, nach Rechnungsdatum</p>
     <table>
       {% for l in lieferanten %}<tr><td>{{ forloop.counter }}.</td><td><a href="{% url 'stammdaten:lieferant_bearbeiten' l.lieferant_id %}">{{ l.lieferant__name1 }}</a></td><td class="zahl">{{ l.volumen|floatformat:"2g" }} €</td></tr>
       {% empty %}<tr><td>Keine Lieferantenrechnungen im Zeitraum.</td></tr>{% endfor %}
     </table>
-  </div>
-  <div class="karte">
-    <strong>Umsatz nach Bezugnahme (Rechnungen netto)</strong>
-    <table>
-      {% for k in kanaele %}<tr><td>{{ k.name }}<div class="db-balkenspur"><div class="db-balken" style="width:{{ k.prozent|stringformat:'.1f' }}%"></div></div></td>
-        <td class="zahl">{{ k.prozent|floatformat:1 }} %</td><td class="zahl">{{ k.umsatz|floatformat:"2g" }} €</td></tr>
-      {% empty %}<tr><td>Keine Rechnungen im Zeitraum.</td></tr>{% endfor %}
-    </table>
-  </div>
+  </section>
+</div>
 </div>
 {% endblock %}
