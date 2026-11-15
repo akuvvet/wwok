@@ -287,7 +287,7 @@ def beleg_detail(request, beleg_id):
             elif beleg.vorgaenger_id and beleg.vorgaenger.art == "AB":  # der Rückstand der Bestellung blockiert ihre Teillieferung nicht
                 frei += sum((q.offen_menge for q in beleg.vorgaenger.positionen.filter(artikel=p.artikel)), Decimal("0"))
             if frei < (p.offen_menge if beleg.art == "AB" else p.menge):
-                p.knapp = frei
+                p.knapp = max(frei, Decimal("0"))  # angezeigt wird nie ein Minusbestand
         if beleg.art == "AB" and p.pk and not p.gruppe_id:  # Altdaten (Kopie): „5 von 10 geliefert, 5 offen“
             p.geliefert = p.uebernommen
             p.rueckstand = p.menge - p.geliefert if p.geliefert > 0 else None
@@ -1242,8 +1242,8 @@ def api_artikel(request):
         preis, quelle = verkaufspreis(a, kunde)
         frei = None
         if a.typ == "A":
-            from apps.lager.models import bestand, reserviert
-            frei = str(bestand(request.mandant, a) - reserviert(request.mandant, a))
+            from apps.lager.models import verfuegbar
+            frei = str(verfuegbar(request.mandant, a))
         elif a.typ == "G":
             from apps.lager.models import gruppen_verfuegbar
             g = gruppen_verfuegbar(request.mandant, a)
