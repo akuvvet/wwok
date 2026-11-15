@@ -35,6 +35,19 @@ KATEGORIEN = (
     ("kein_ek", "Kein EK", "grau"),
 )
 NAMEN = {k: n for k, n, _ in KATEGORIEN}
+# Erklärung je Zeile der Dashboard-Karte (Tooltip). Die Grenzen stehen in der globalen Preisvorgabe; genannt sind die Standardwerte.
+ERKLAERUNG = {
+    "verlust": "Der Verkaufspreis (VK1) liegt unter dem Einkaufspreis – jeder Verkauf macht Verlust. Der Betrag ist der Verlust über Bestand und offene Belege.",
+    "marge": "Der Verkaufspreis (VK1) deckt den Einkaufspreis, erreicht aber die eingestellte Zielmarge nicht. Der Betrag ist die fehlende Marge.",
+    "verfall": "Der aktuelle Preislisten-EK liegt deutlich (Standard: mehr als 15 %) unter dem Ø-EK der Lagerware – der Bestand ist teurer eingekauft, als man heute einkaufen würde.",
+    "erhoehung": "Der Verkaufspreis (VK1) ist fest eingetragen und liegt unter dem errechneten Preis – er könnte angehoben werden.",
+    "ek_abweichung": "Der Kalkulations-EK weicht stark (Standard: mehr als 20 %) vom hinterlegten EK2 ab – einer der beiden Preise stimmt vermutlich nicht mehr.",
+    "senkung": "Der neu berechnete Verkaufspreis läge deutlich (Standard: mehr als 10 %) unter dem bisherigen. So große Senkungen werden nicht automatisch übernommen, sondern hier zur Entscheidung vorgelegt.",
+    "importe": "Preislisten-Importe und einzelne Preise, die wegen ungewöhnlich großer Abweichung zurückgehalten wurden und auf Freigabe oder Verwerfen warten.",
+}
+ERKLAERUNG_RADAR = ("Das Preis-Radar zeigt Preisgefahren dieses Mandanten. Die Zahl ist die Anzahl betroffener Artikel, der Betrag der Euro-Wert: "
+                    "(Bestand + offene Bestellungen + offene Angebote) × Differenz je Stück. Gezählt werden nur Artikel mit Bestand oder offenen Belegen; "
+                    "kleine Differenzen und als gesehen markierte Artikel bleiben außen vor.")
 FARBEN = {k: f for k, _, f in KATEGORIEN}
 NUR_LISTE = ("ek2_pruefen", "kein_ek")  # nie im Dashboard, nur Ampel in der Artikelliste
 AMPEL_REIHENFOLGE = ("rot", "gelb", "blau", "gruen", "grau")
@@ -282,11 +295,12 @@ def auswertung(mandant, jetzt=None) -> dict:
         if schluessel in NUR_LISTE:
             continue
         zeilen = [(e, b) for e in liste for b in e.meldungen() if b.kategorie == schluessel]
-        kategorien.append({"schluessel": schluessel, "name": name, "farbe": farbe, "anzahl": len(zeilen),
+        kategorien.append({"schluessel": schluessel, "name": name, "farbe": farbe, "anzahl": len(zeilen), "hinweis": ERKLAERUNG.get(schluessel, ""),
                            "euro": sum((e.euro(b) for e, b in zeilen), NULL)})
     senkung = [e for e in liste if e.senkung_pruefen and not e.warnungen_aus and e.menge > 0]
     importe = Preislistenimport.objects.filter(status="zur_pruefung").count() + Preispruefung.objects.filter(status="offen").count()
-    return {"kategorien": kategorien, "senkung": len(senkung), "importe": importe,
+    return {"kategorien": kategorien, "senkung": len(senkung), "importe": importe, "hinweis": ERKLAERUNG_RADAR,
+            "hinweis_senkung": ERKLAERUNG["senkung"], "hinweis_importe": ERKLAERUNG["importe"],
             "rot": next((k["anzahl"] for k in kategorien if k["schluessel"] == "verlust"), 0)}
 
 

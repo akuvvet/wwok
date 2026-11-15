@@ -110,6 +110,21 @@
   .db-arbeit span { min-width:0; font-size:14px; }
   .db-arbeit strong { font-variant-numeric:tabular-nums; white-space:nowrap; }
   .db-arbeit.breit { grid-template-columns:repeat(auto-fit, minmax(min(240px,100%), 1fr)); }
+  /* Erklärung je Zeile: Tooltip bei Maus und Tastatur; ohne Maus (Handy) steht der Text klein unter dem Namen */
+  .db-arbeit a[data-tip] { position:relative; }
+  .db-arbeit a small { display:none; flex-basis:100%; font-size:12px; color:var(--leise, #5b6472); line-height:1.35; }
+  .db-arbeit a[data-tip]::after, .db-info[data-tip]::after { content:attr(data-tip); position:absolute; left:0; bottom:calc(100% + 8px); z-index:25; width:max-content; max-width:min(340px, 80vw);
+    padding:8px 11px; border-radius:8px; background:var(--text); color:var(--karte); font-size:12.5px; font-weight:400; line-height:1.4; white-space:normal; text-align:left;
+    box-shadow:var(--schatten-gross, 0 8px 24px rgba(0,0,0,.2)); opacity:0; visibility:hidden; pointer-events:none; transition:opacity .12s; }
+  .db-arbeit a[data-tip]:hover::after, .db-arbeit a[data-tip]:focus-visible::after, .db-info[data-tip]:hover::after, .db-info[data-tip]:focus::after { opacity:1; visibility:visible; }
+  .db-info { position:relative; display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; margin-left:6px; border:1px solid var(--rand); border-radius:50%;
+    font-size:11px; font-weight:600; color:var(--leise, #5b6472); cursor:help; vertical-align:2px; }
+  .db-info:focus-visible { outline:2px solid var(--akzent); outline-offset:2px; }
+  #db-h-radar { position:relative; } #db-h-radar .db-info { position:static; }  /* Tooltip richtet sich an der Überschrift aus, nicht am kleinen i */
+  .db-info[data-tip]::after { bottom:auto; top:calc(100% + 8px); max-width:min(340px, 100%); letter-spacing:0; text-transform:none; }
+  .db-arbeit a[data-tip]::after { right:0; width:auto; max-width:none; }  /* so breit wie die Zeile: ragt nie aus dem Fenster */
+  @media (hover:none) { .db-arbeit a[data-tip] { flex-wrap:wrap; } .db-arbeit a small { display:block; } .db-arbeit a[data-tip]::after { display:none; } }
+  @media print { .db-arbeit a[data-tip]::after, .db-info { display:none; } }
   .db-liste table { display:table; width:100%; border-collapse:collapse; }
   .db-liste td { padding:7px 4px; border:0; border-bottom:1px solid color-mix(in srgb, var(--rand) 60%, transparent); vertical-align:top; overflow-wrap:anywhere; }
   .db-liste tr:last-child td { border-bottom:0; }
@@ -314,11 +329,11 @@
   </section>
 
   <section class="karte db-s12" aria-labelledby="db-h-radar">
-    <h2 id="db-h-radar">Preis-Radar</h2>
+    <h2 id="db-h-radar">Preis-Radar{% if radar.hinweis %}<span class="db-info" tabindex="0" role="note" aria-label="{{ radar.hinweis }}" data-tip="{{ radar.hinweis }}">i</span>{% endif %}</h2>
     <div class="db-arbeit breit" style="margin-top:10px">
-      {% for k in radar.kategorien %}<a href="{% url 'stammdaten:radar' %}?kategorie={{ k.schluessel }}"><span>{{ k.name }}</span><strong {% if k.farbe == "rot" and k.anzahl %}class="db-ab"{% endif %}>{{ k.anzahl }}{% if k.euro %} · {{ k.euro|floatformat:"2g" }} €{% endif %}</strong></a>{% endfor %}
-      <a href="{% url 'stammdaten:radar' %}?kategorie=senkung"><span>VK-Senkung prüfen</span><strong>{{ radar.senkung }}</strong></a>
-      <a href="{% url 'einkauf:preispruefliste' %}"><span>Import zur Prüfung</span><strong {% if radar.importe %}class="db-ab"{% endif %}>{{ radar.importe }}</strong></a>
+      {% for k in radar.kategorien %}<a href="{% url 'stammdaten:radar' %}?kategorie={{ k.schluessel }}"{% if k.hinweis %} data-tip="{{ k.hinweis }}" aria-describedby="db-tip-{{ k.schluessel }}"{% endif %}><span>{{ k.name }}</span><strong {% if k.farbe == "rot" and k.anzahl %}class="db-ab"{% endif %}>{{ k.anzahl }}{% if k.euro %} · {{ k.euro|floatformat:"2g" }} €{% endif %}</strong>{% if k.hinweis %}<small id="db-tip-{{ k.schluessel }}">{{ k.hinweis }}</small>{% endif %}</a>{% endfor %}
+      <a href="{% url 'stammdaten:radar' %}?kategorie=senkung"{% if radar.hinweis_senkung %} data-tip="{{ radar.hinweis_senkung }}" aria-describedby="db-tip-senkung"{% endif %}><span>VK-Senkung prüfen</span><strong>{{ radar.senkung }}</strong>{% if radar.hinweis_senkung %}<small id="db-tip-senkung">{{ radar.hinweis_senkung }}</small>{% endif %}</a>
+      <a href="{% url 'einkauf:preispruefliste' %}"{% if radar.hinweis_importe %} data-tip="{{ radar.hinweis_importe }}" aria-describedby="db-tip-importe"{% endif %}><span>Import zur Prüfung</span><strong {% if radar.importe %}class="db-ab"{% endif %}>{{ radar.importe }}</strong>{% if radar.hinweis_importe %}<small id="db-tip-importe">{{ radar.hinweis_importe }}</small>{% endif %}</a>
     </div>
   </section>
 </div>
