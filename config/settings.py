@@ -84,6 +84,7 @@ TEMPLATES = [
                 "apps.kern.kontext.hauptbereich",
                 "apps.kern.kontext.seitenpfad",
                 "apps.kern.kontext.aktiver_mandant",
+                "apps.kern.kontext.version",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
             ],
