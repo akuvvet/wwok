@@ -234,3 +234,33 @@ class RechnungsdatumTest(Basis):
         r.abschliessen()
         r.refresh_from_db()
         self.assertEqual(r.belegdatum, heute + timedelta(days=3))
+
+
+class MinusbelegTest(Basis):
+    """Prüfbericht E6: Negative Einzelpreise sind erlaubt, die Belegsumme darf nicht negativ werden."""
+
+    def beleg(self, *preise):
+        b = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.kunde)
+        for preis in preise:
+            Position.objects.create(beleg=b, typ="L", bezeichnung="Zeile", menge=1, einzelpreis=Decimal(preis))
+        return b
+
+    def test_minuszeile_mit_positiver_summe_ist_erlaubt(self):
+        b = self.beleg("100", "-20")
+        b.abschliessen()
+        b.refresh_from_db()
+        self.assertTrue(b.abgeschlossen)
+        self.assertEqual(b.summe_netto, Decimal("80.00"))
+
+    def test_summe_null_ist_erlaubt(self):
+        b = self.beleg("20", "-20")
+        b.abschliessen()
+        b.refresh_from_db()
+        self.assertTrue(b.abgeschlossen)
+
+    def test_negative_belegsumme_wird_abgelehnt(self):
+        b = self.beleg("10", "-20")
+        with self.assertRaisesMessage(ValueError, "Die Belegsumme ist negativ"):
+            b.abschliessen()
+        b.refresh_from_db()
+        self.assertFalse(b.abgeschlossen)

@@ -875,6 +875,9 @@ class Beleg(Zeitstempel):
                 raise ValueError("Erst den Lieferschein " + ", ".join(l.nummer or "(nicht abgeschlossen)" for l in offen) +
                                  " abschließen (bucht das Lager ab), dann die Rechnung.")
         self.berechne()
+        if self.summe_netto < 0 or self.summe_brutto < 0:  # Minuszeilen (Nachlass, Pfand) sind erlaubt, ein Minusbeleg nicht
+            raise ValueError(f"Die Belegsumme ist negativ ({self.summe_brutto} €). Positionen mit Minuspreis dürfen den Beleg "
+                             "nicht unter 0 bringen; für eine Erstattung gibt es die Gutschrift zur Rechnung.")
         if self.art == Belegart.GUTSCHRIFT and self.vorgaenger_id and self.vorgaenger.art == Belegart.RECHNUNG:
             andere = sum((g.summe_brutto for g in self.vorgaenger.folgebelege.filter(art=Belegart.GUTSCHRIFT, abgeschlossen=True)
                           .exclude(pk=self.pk)), Decimal("0"))
