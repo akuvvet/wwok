@@ -8,7 +8,7 @@ Diese Datei fasst **alles** zusammen, was bisher besprochen und entschieden wurd
 | --- | --- |
 | Repository | `akuvvet/wwok` (privat) |
 | Lokaler Ordner | `D:\Desktop\github\wwok` |
-| Server | Strato V-Server, Ubuntu 22.04, Plesk, Python 3.10.12 |
+| Server | Strato V-Server, Ubuntu 22.04, Plesk, Python 3.12 für wwok (eigene Umgebung venv312; System-Python bleibt 3.10.12) |
 | Ziel-Adresse | `https://erp.okaycomputer.de` |
 | Pflichtenheft im Repo | [`docs/pflichtenheft.md`](docs/pflichtenheft.md) |
 | Pflichtenheft (Original, editierbar) | Claude-Dokument „Pflichtenheft Web-Warenwirtschaft“: https://claude.ai/artifact/BDJTVmgcQwKVpeas77Bk7W |
@@ -415,7 +415,7 @@ Nach Erstellung des Pflichtenhefts wurden ergänzt: Feldlisten Artikel, Kunden, 
 
 | Bereich | Wahl | Grund |
 | --- | --- | --- |
-| Sprache | Python **3.10+** | wird bereits genutzt, Server hat 3.10.12 |
+| Sprache | Python **3.12** | wwok läuft in venv312; System-Python des Servers bleibt 3.10.12 |
 | Framework | Django 5.1 | Benutzer, Rechte, Formulare, Migrationen und Verwaltungsoberfläche schon eingebaut |
 | Datenbank | MySQL/MariaDB auf dem Server, SQLite lokal | MySQL läuft schon auf dem Server |
 | Webserver | Gunicorn hinter nginx (Plesk) | Standard für Django |
@@ -518,7 +518,7 @@ Beim Prüfen der `.env` nur die **Variablennamen** anzeigen (`cut -d= -f1`), nie
 
 ### 9.1 Ausgangslage
 
-- **Strato V-Server** mit **Plesk**, Ubuntu 22.04, Python 3.10.12
+- **Strato V-Server** mit **Plesk**, Ubuntu 22.04, Python 3.12 für wwok (venv312, über deadsnakes installiert), System-Python 3.10.12
 - Shops liegen unter `/var/www/vhosts/okaycomputer.de` und `/var/www/vhosts/zone-edv.de`
 
 ### 9.2 Empfehlung und Begründung
