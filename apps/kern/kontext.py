@@ -91,6 +91,12 @@ def seitenpfad(request):
     return {"seitenpfad": [(bereich, None)]}
 
 
+def version(request):
+    """Programmversion für die Fußzeile – bei Rückfragen sieht man sofort, welcher Stand läuft."""
+    from config import __version__
+    return {"wwok_version": __version__}
+
+
 def aktiver_mandant(request):
     """Für die Kopfzeile: unter welcher Firma gerade gearbeitet wird."""
     benutzer = getattr(request, "user", None)

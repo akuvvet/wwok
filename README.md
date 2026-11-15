@@ -923,6 +923,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - `main` = Stand, der auf dem Server läuft. Entwicklung in eigenen Branches.
 - Jede Änderung an Modellen braucht eine Migration (`python manage.py makemigrations`), die mit eingecheckt wird.
 - Echte Kunden- oder Belegdaten **nie** einchecken.
+- **Versionsnummer** steht an genau einer Stelle (`config/__init__.py`) und erscheint in der Fußzeile jeder Seite. Zählung: letzte Stelle bei Korrekturen (0.9.1), mittlere bei neuen Funktionen (0.10.0), 1.0 erst nach Abschnitt B des Prüfberichts und den Antworten des Steuerberaters. Jede Version bekommt eine Markierung im Repository (Git-Tag `v0.9.0`).
 - Änderungen am Pflichtenheft im Claude-Dokument pflegen und `docs/pflichtenheft.md` neu exportieren.
 
 ## 18. Fachregeln im Programm (verbindlich)
