@@ -133,3 +133,13 @@ class ReservierenTest(VorlaeufigBasis):
         self.haken(self.a, self.pa, False)
         kopie = self.a.kopieren_als(Belegart.AUFTRAG)
         self.assertTrue(kopie.positionen.get().reservieren)
+
+    def test_bestellvorschlag_zaehlt_positionen_ohne_haken_als_bedarf(self):
+        from apps.einkauf.services import bestellvorschlag
+        from apps.stammdaten.models import ArtikelMandant
+        ArtikelMandant.objects.create(artikel=self.win, mandant=self.m, mindestbestand=2)
+        menge = lambda: [z["menge"] for z in bestellvorschlag(self.m) if z["artikel"] == self.win]
+        self.assertEqual(menge(), [D("10")])  # 5 am Lager, 13 bestellt, Ziel 2: es fehlen 10
+        self.haken(self.a, self.pa, False)
+        self.assertEqual(menge(), [D("10")])  # ohne Haken bleibt Kunde A Bedarf: er wartet auf genau diese Ware
+        self.assertEqual(reserviert(self.m, self.win), D("3"))  # festgehalten wird trotzdem nur die Menge von Kunde B
