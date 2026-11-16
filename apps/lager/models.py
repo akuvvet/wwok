@@ -75,9 +75,10 @@ def bestand(mandant, artikel) -> Decimal:
 
 
 def reservierende_positionen(mandant):
-    """Positionen, die Bestand reservieren: Kundenbestellungen und nicht stornierte Proforma-Rechnungen."""
+    """Positionen, die Bestand reservieren: Kundenbestellungen und nicht stornierte Proforma-Rechnungen.
+    Positionen ohne Haken „R“ (Position.reservieren) halten nichts fest: sie warten auf den Wareneingang."""
     from apps.verkauf.models import Belegart, Position, stornierte_proformas
-    return Position.objects.filter(beleg__mandant=mandant, beleg__art__in=(Belegart.AUFTRAG, Belegart.PROFORMA))         .exclude(beleg__in=stornierte_proformas())
+    return Position.objects.filter(beleg__mandant=mandant, beleg__art__in=(Belegart.AUFTRAG, Belegart.PROFORMA), reservieren=True)       .exclude(beleg__in=stornierte_proformas())
 
 
 def reserviert(mandant, artikel) -> Decimal:

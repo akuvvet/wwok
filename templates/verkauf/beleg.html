@@ -126,7 +126,7 @@
 
 <div class="karte tabinhalt" id="tab-positionen">
   <div class="scroll" id="positionsliste"><table>
-    <thead><tr><th>Pos.</th><th>Artikel / Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">Preis</th><th class="zahl">Rabatt</th><th class="zahl">Netto</th>{% if beleg.art == 'GS' %}<th title="Bestand: R = Reparaturbestand, B = Lagerbestand, – = keine Ware zurück">B</th>{% endif %}<th></th></tr></thead>
+    <thead><tr><th>Pos.</th><th>Artikel / Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">Preis</th><th class="zahl">Rabatt</th><th class="zahl">Netto</th>{% if beleg.art == 'GS' %}<th title="Bestand: R = Reparaturbestand, B = Lagerbestand, – = keine Ware zurück">B</th>{% endif %}{% if beleg.art == 'AB' %}<th title="Reservieren: Mit Haken hält die Position ihren Lagerbestand fest. Ohne Haken wartet sie auf den Wareneingang, der Bestand ist für andere Bestellungen frei.">R</th>{% endif %}<th></th></tr></thead>
     <tbody>{% for p in positionen %}
     <tr data-ekstk="{% with ek=p.ek_stueck %}{% if ek is not None %}{{ ek|unlocalize }}{% endif %}{% endwith %}" data-preis="{{ p.einzelpreis|unlocalize }}" data-sub="{{ p.gruppe_id|default_if_none:'' }}"{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}>
       <td>{{ p.pos }}</td>
@@ -139,6 +139,7 @@
         {% if p.uebernahme_text %}<br><small style="color:var(--warn)" title="Die übernommene Menge ist aus der Bestellung herausgenommen; hier steht nur der Rest. Reserviert wird der Rest.">{{ p.uebernahme_text }}</small>{% endif %}
         {% if p.rueckstand %}<br><small style="color:var(--warn)" title="Rückstand: wird mit dem Wareneingang reserviert">Rückstand: {{ p.geliefert|floatformat:"-3" }} von {{ p.menge|floatformat:"-3" }} geliefert, {{ p.rueckstand|floatformat:"-3" }} offen</small>{% endif %}
         {% if p.knapp is not None %}<br><small style="color:var(--warn)">nur {{ p.knapp|floatformat:"-3" }} verfügbar</small>{% endif %}
+        {% if beleg.art == 'AB' and not p.reservieren and p.artikel and p.artikel.typ == 'A' %}<br><small style="color:var(--hinweis)">nicht reserviert – wartet auf Wareneingang</small>{% endif %}
         {% if p.bestellt %}<br><small style="opacity:.75" title="Beim Lieferanten bestellt (ohne nicht abgeschlossene und Stornos)">bestellt: {{ p.bestellt|floatformat:"-3" }} von {{ p.menge|floatformat:"-3" }}</small>{% endif %}
         {% if p.artikel and p.artikel.typ == 'A' and beleg.art == 'LS' or p.artikel and p.artikel.typ == 'A' and beleg.art == 'RE' %}
         <details><summary style="cursor:pointer;opacity:.8">Seriennummern{% if p.seriennummern.all %} ({{ p.seriennummern.count }}){% endif %}</summary>
@@ -165,9 +166,10 @@
       <td class="zahl">{% if not p.gruppe_id and p.rabatt_prozent %}{{ p.rabatt_prozent|floatformat:"-2" }} %{% endif %}</td>
       <td class="zahl">{% if not p.gruppe_id %}{{ p.netto_gesamt|floatformat:"2g" }}{% endif %}</td>
       {% if beleg.art == 'GS' %}<td>{% if p.artikel and p.artikel.typ == 'A' %}{% if beleg.positionen_gesperrt %}<span title="{{ p.get_ruecknahme_display }}">{% if p.ruecknahme == 'K' %}–{% else %}{{ p.ruecknahme }}{% endif %}</span>{% else %}<form method="post" action="{% url 'verkauf:position_ruecknahme' beleg.pk p.pk %}">{% csrf_token %}<button class="leise" type="submit" title="{{ p.get_ruecknahme_display|default:'Noch nicht gewählt' }} – klicken zum Wechseln">{% if p.ruecknahme == 'K' %}–{% else %}{{ p.ruecknahme|default:"?" }}{% endif %}</button></form>{% endif %}{% endif %}</td>{% endif %}
+      {% if beleg.art == 'AB' %}<td>{% if p.artikel and p.artikel.typ == 'A' %}<form method="post" action="{% url 'verkauf:position_reservieren' beleg.pk p.pk %}">{% csrf_token %}<input type="checkbox" name="reservieren" value="1" {% if p.reservieren %}checked{% endif %} onchange="this.form.submit()" aria-label="{{ p.bezeichnung }} reservieren" title="{% if p.reservieren %}Reserviert den Lagerbestand – Haken entfernen gibt ihn für andere Bestellungen frei{% else %}Nicht reserviert (wartet auf Wareneingang) – Haken setzen reserviert wieder{% endif %}"><noscript><button class="leise" type="submit">OK</button></noscript></form>{% endif %}</td>{% endif %}
       <td>{% if not beleg.positionen_gesperrt %}<form method="post" action="{% url 'verkauf:position_loeschen' beleg.pk p.pk %}">{% csrf_token %}<button class="gefahr" type="submit" title="Position löschen">×</button></form>{% endif %}</td>
     </tr>
-    {% empty %}<tr><td colspan="8" style="padding:20px;text-align:center;opacity:.7">Noch keine Positionen – unten einen Artikel suchen und mit Enter übernehmen.</td></tr>{% endfor %}</tbody>
+    {% empty %}<tr><td colspan="9" style="padding:20px;text-align:center;opacity:.7">Noch keine Positionen – unten einen Artikel suchen und mit Enter übernehmen.</td></tr>{% endfor %}</tbody>
   </table></div>
 
   {% if not beleg.positionen_gesperrt %}
