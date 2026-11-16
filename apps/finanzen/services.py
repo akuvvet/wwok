@@ -432,3 +432,96 @@ def kontoauszug(mandant, kunde):
         saldo += betrag
         zeilen.append({"datum": datum, "text": text, "betrag": betrag, "saldo": saldo, "beleg": beleg})
     return zeilen, saldo
+
+
+def zahlungsweg(beleg):
+    """Lückenloser Weg des Geldes zu einer Rechnung und ihren Gutschriften, zeitlich geordnet: Rechnung, Zahlungseingänge,
+    Gutschriften, Verrechnungen, Auszahlungen an den Kunden, jeweils mit Zahlart, Herkunft (Kontoauszug, Kassenbuch,
+    Lastschriftdatei), Benutzer und Grund. „stand“ ist der offene Betrag der Rechnung nach dem Schritt.
+    Rückgabe None (Belegart ohne Weg) oder {rechnung, zeilen, gutschriften, verrechnet, frei, eingang, ausgezahlt, stand, ueber}."""
+    if beleg.art == Belegart.RECHNUNG and beleg.abgeschlossen:
+        rechnung = beleg
+    elif beleg.art == Belegart.GUTSCHRIFT and beleg.abgeschlossen:
+        rechnung = beleg.vorgaenger if beleg.vorgaenger_id and beleg.vorgaenger.art == Belegart.RECHNUNG else None
+    else:
+        return None
+    gutschriften = (list(rechnung.folgebelege.filter(art=Belegart.GUTSCHRIFT, abgeschlossen=True).select_related("ueber_rechnung_von"))
+                    if rechnung else [beleg])
+    eigene_gs = {g.pk for g in gutschriften}
+    zeilen = []
+
+    def zeile(datum, rang, zeit, vorgang, weg="", betrag=None, wirkung=None, benutzer=None, text="", ziel=None, art=""):
+        zeilen.append({"datum": datum, "rang": rang, "zeit": zeit, "vorgang": vorgang, "weg": weg, "betrag": betrag, "wirkung": wirkung,
+                       "benutzer": benutzer, "text": text, "ziel": ziel, "art": art, "stand": None})
+
+    eingang = ausgezahlt = Decimal("0")
+    if rechnung:
+        zeile(rechnung.belegdatum, 0, None, f"Rechnung {rechnung.nummer} ausgestellt", betrag=rechnung.summe_brutto,
+              wirkung=rechnung.summe_brutto, art="beleg")
+        kasse = list(Kassenbuch.objects.filter(mandant=rechnung.mandant, beleg=rechnung).order_by("nummer"))
+        zahlungen = rechnung.zahlungen.select_related("benutzer", "aus_bankumsatz").prefetch_related("lastschriften").order_by("erfasst_am", "pk")
+        for z in zahlungen:
+            weg = z.get_zahlart_display()
+            umsatz = z.aus_bankumsatz or getattr(z, "bankumsatz", None)
+            if umsatz is not None:
+                weg += f" – Kontoauszug {umsatz.buchungsdatum:%d.%m.%Y}" + (f", {umsatz.name}" if umsatz.name else "")
+            elif z.zahlart == Zahlart.BAR:
+                art = Kassenbuch.EINNAHME if z.betrag > 0 else Kassenbuch.AUSGABE
+                eintrag = next((k for k in kasse if k.art == art and k.betrag == abs(z.betrag) and k.datum == z.datum), None)
+                if eintrag is not None:
+                    kasse.remove(eintrag)
+                    weg += f" – Kassenbuch Nr. {eintrag.nummer}"
+            for ls in z.lastschriften.all():
+                weg += f" – Lastschriftdatei {ls.datei}, Mandat {ls.mandatsreferenz}"
+            ist_eingang = (z.betrag > 0) != bool(z.storno_zu_id)  # das Storno eines Eingangs mindert den Eingang, nicht die Auszahlung
+            if z.storno_zu_id:
+                vorgang = "Storno eines Zahlungseingangs" if ist_eingang else "Storno einer Auszahlung"
+            elif z.zahlart == Zahlart.SKONTO:
+                vorgang = "Skonto gewährt" if z.betrag > 0 else "Skonto zurückgenommen"
+            else:
+                vorgang = "Zahlungseingang" if z.betrag > 0 else "Auszahlung an den Kunden"
+            if z.zahlart != Zahlart.SKONTO:
+                if ist_eingang:
+                    eingang += z.betrag
+                else:
+                    ausgezahlt -= z.betrag
+            zeile(z.datum, 1, z.erfasst_am, vorgang, weg, z.betrag, -z.betrag, z.benutzer, z.storno_grund or z.bemerkung,
+                  art="aus" if z.betrag < 0 and not z.storno_zu_id else "zahlung")
+        for a in rechnung.anzahlungen.select_related("quelle", "benutzer"):
+            zeile(a.datum, 1, a.erfasst_am,
+                  ("Verrechnung aufgehoben: " if a.storno_zu_id else "Guthaben verrechnet: ") + f"{a.quelle} → Rechnung {rechnung.nummer}",
+                  "Verrechnung (kein Geldfluss)", a.betrag, -a.betrag, a.benutzer, a.storno_grund, a.quelle, "verrechnung")
+        for a in rechnung.anzahlung_verrechnungen.select_related("rechnung", "benutzer"):
+            zeile(a.datum, 1, a.erfasst_am,
+                  ("Verrechnung aufgehoben: " if a.storno_zu_id else "Überzahlung weiterverrechnet: ") + f"Rechnung {rechnung.nummer} → {a.rechnung}",
+                  "Verrechnung (kein Geldfluss)", a.betrag, a.betrag, a.benutzer, a.storno_grund, a.rechnung, "verrechnung")
+    for g in gutschriften:
+        text = ""
+        if g.ueber_rechnung_grund:
+            text = f"Über dem Rechnungsbetrag – Begründung: {g.ueber_rechnung_grund}" + (f" ({g.ueber_rechnung_von})" if g.ueber_rechnung_von_id else "")
+        angelegt = g.angelegt_am if timezone.localtime(g.angelegt_am).date() == g.belegdatum else None  # am selben Tag: Uhrzeit ordnet ein
+        zeile(g.belegdatum, 2, angelegt, f"Gutschrift {g.nummer} ausgestellt", "noch kein Geldfluss: Guthaben des Kunden", g.summe_brutto,
+              None, None, text, g if g.pk != beleg.pk else None, "beleg")
+    bedingung = models.Q(gutschrift__in=gutschriften)
+    if rechnung:
+        bedingung |= models.Q(rechnung=rechnung)
+    verrechnet = Decimal("0")
+    for v in Gutschriftverrechnung.objects.filter(bedingung).select_related("gutschrift", "rechnung", "benutzer"):
+        hier = rechnung is not None and v.rechnung_id == rechnung.pk
+        if v.gutschrift_id in eigene_gs:
+            verrechnet += v.betrag
+        ziel = v.rechnung if not hier else (v.gutschrift if v.gutschrift_id not in eigene_gs else None)  # fremder Beleg: Verweis auf dessen Zahlungsseite
+        zeile(v.datum, 3, v.erfasst_am,
+              ("Verrechnung aufgehoben: " if v.storno_zu_id else "Gutschrift verrechnet: ") + f"{v.gutschrift.nummer} → Rechnung {v.rechnung.nummer}",
+              "Verrechnung (kein Geldfluss)", v.betrag, -v.betrag if hier else None, v.benutzer, v.storno_grund, ziel, "verrechnung")
+    frueh = timezone.now().replace(year=1971)
+    zeilen.sort(key=lambda z: (z["datum"], z["zeit"] or frueh, z["rang"]))
+    stand = Decimal("0")
+    for z in zeilen:
+        if z["wirkung"] is not None:
+            stand += z["wirkung"]
+            z["stand"] = stand
+    summe = sum((g.summe_brutto for g in gutschriften), Decimal("0"))
+    return {"rechnung": rechnung, "zeilen": zeilen, "gutschriften": summe, "verrechnet": verrechnet, "frei": summe - verrechnet,
+            "eingang": eingang, "ausgezahlt": ausgezahlt, "stand": stand if rechnung else None,
+            "ueber": summe - rechnung.summe_brutto if rechnung and summe > rechnung.summe_brutto + CENT else None}

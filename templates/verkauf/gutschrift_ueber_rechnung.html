@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block titel %}Gutschrift über dem Rechnungsbetrag – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Gutschrift über dem Rechnungsbetrag</h1>
+  <p class="warnung">{{ meldung }}</p>
+  {% if ueber %}<table style="max-width:460px">
+    <tr><td>Rechnung <a href="{% url 'verkauf:beleg' ueber.rechnung.pk %}">{{ ueber.rechnung.nummer }}</a></td><td class="zahl">{{ ueber.betrag|floatformat:"2g" }} €</td></tr>
+    <tr><td>bereits abgeschlossene Gutschriften</td><td class="zahl">{{ ueber.andere|floatformat:"2g" }} €</td></tr>
+    <tr><td>diese Gutschrift</td><td class="zahl">{{ beleg.summe_brutto|floatformat:"2g" }} €</td></tr>
+    <tr><td><strong>Gutschriften zusammen</strong></td><td class="zahl"><strong>{{ ueber.gesamt|floatformat:"2g" }} €</strong></td></tr>
+    <tr><td><strong>über dem Rechnungsbetrag</strong></td><td class="zahl"><strong>{{ ueber.ueber|floatformat:"2g" }} €</strong></td></tr>
+  </table>{% endif %}
+  <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" style="margin-top:12px">{% csrf_token %}
+    <input type="hidden" name="danach" value="{{ danach }}">
+    {% if esd_ohne_key %}<input type="hidden" name="esd_ohne_key" value="1">{% endif %}
+    <label for="ueber_grund">Warum wird mehr gutgeschrieben als berechnet? (Pflicht, wird an der Gutschrift gespeichert und nicht gedruckt)</label>
+    <textarea id="ueber_grund" name="ueber_grund" rows="3" maxlength="300" required autofocus style="width:100%;max-width:640px"></textarea>
+    {% if fehlt %}<p class="warnung">Bitte eine Begründung eintragen.</p>{% endif %}
+    <div class="zeile" style="margin-top:12px">
+      <button type="submit">Mit Begründung abschließen</button>
+      <a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Zurück zur Gutschrift</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

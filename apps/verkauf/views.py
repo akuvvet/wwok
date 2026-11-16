@@ -19,7 +19,7 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import (runden, zahlungsbedingung_vorkasse, Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Mengenregel, Position, Ruecknahme, Versand, Versandart,
+from .models import (runden, GutschriftUeberRechnung, zahlungsbedingung_vorkasse, Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Mengenregel, Position, Ruecknahme, Versand, Versandart,
                      Vorgangsweg, Wiedervorlage, letzte_preise, regel_vorschlag)
 from . import vorgang
 from .mail import MailFehler, beleg_senden
@@ -319,6 +319,7 @@ def beleg_detail(request, beleg_id):
         "verlauf_ab": verlauf_ab, "verlauf_ziel": verlauf_ziel,
         "lieferantenbestellungen": lieferantenbestellungen,
         "anzahlungen": list(beleg.anzahlungen.select_related("quelle")) if beleg.art == Belegart.RECHNUNG else [],
+        "gs_ueber": beleg.gutschrift_ueber_rechnung() if beleg.art == Belegart.GUTSCHRIFT else None,
         "kredit_warnung": kredit_warnung, "kredit_differenz": kredit_differenz,"kunde_offen": offen, "kreditlimit": limit,
         "esd_positionen": any(p.artikel_id and p.artikel.esd_key for p in positionen),
         "hat_lagerartikel": any(p.artikel_id and p.artikel.typ == "A" for p in positionen), "retoure_offen": retoure_offen(beleg),
@@ -749,7 +750,12 @@ def beleg_abschliessen(request, beleg_id):
     from apps.esd.services import KeysFehlen, fehlende_keys
     ohne_key = request.POST.get("esd_ohne_key") == "1"
     try:
-        beleg.abschliessen(esd_ohne_key=ohne_key)
+        beleg.abschliessen(esd_ohne_key=ohne_key, ueber_grund=request.POST.get("ueber_grund", ""))
+    except GutschriftUeberRechnung as fehler:  # Rückfrage: Gutschriften über dem Rechnungsbetrag nur mit Begründung
+        beleg = beleg_holen(request, beleg_id)
+        return render(request, "verkauf/gutschrift_ueber_rechnung.html", {
+            "beleg": beleg, "meldung": str(fehler), "ueber": beleg.gutschrift_ueber_rechnung(), "danach": request.POST.get("danach", ""),
+            "esd_ohne_key": "1" if ohne_key else "", "fehlt": "ueber_grund" in request.POST})
     except KeysFehlen as fehler:  # Rückfrage: ohne Key abschließen und drucken, Key später unter ESD-Keys zuordnen
         return render(request, "verkauf/esd_ohne_key.html", {"beleg": beleg_holen(request, beleg_id), "meldung": str(fehler),
                                                               "danach": request.POST.get("danach", "")})

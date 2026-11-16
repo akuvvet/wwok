@@ -226,6 +226,10 @@ class Versandart(Zeitstempel):
         return self.name
 
 
+class GutschriftUeberRechnung(ValueError):
+    """Die Gutschriften zu einer Rechnung übersteigen zusammen den Rechnungsbetrag: Abschluss nur mit Begründung (Rückfrage in der Maske)."""
+
+
 class Beleg(Zeitstempel):
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="belege")
     art = models.CharField("Belegart", max_length=2, choices=Belegart.choices)
@@ -258,6 +262,8 @@ class Beleg(Zeitstempel):
     vortext = models.TextField("Text vor den Positionen", blank=True)
     schlusstext = models.TextField("Text nach den Positionen", blank=True)
     bemerkung = models.TextField("Bemerkung (intern, wird nicht gedruckt)", blank=True)
+    ueber_rechnung_grund = models.CharField("Begründung: Gutschriften über dem Rechnungsbetrag", max_length=300, blank=True, editable=False)
+    ueber_rechnung_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, editable=False, related_name="+")
     vorgaenger = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="folgebelege")
     lieferscheine = models.ManyToManyField("self", symmetrical=False, blank=True, related_name="rechnungen",
@@ -840,8 +846,21 @@ class Beleg(Zeitstempel):
             self.versandkosten = Decimal("0") if frei else stamm.versandkosten
             self.verpackung, self.versicherung = stamm.verpackung, stamm.versicherung
 
+    def gutschrift_ueber_rechnung(self):
+        """Gutschrift zu einer Rechnung: Übersteigen die abgeschlossenen Gutschriften zusammen mit dieser den Rechnungsbetrag?
+        Rückgabe None oder {rechnung, betrag (der Rechnung), andere (übrige abgeschlossene Gutschriften), gesamt, ueber}."""
+        if self.art != Belegart.GUTSCHRIFT or not self.vorgaenger_id or self.vorgaenger.art != Belegart.RECHNUNG:
+            return None
+        rechnung = self.vorgaenger
+        andere = sum((g.summe_brutto for g in rechnung.folgebelege.filter(art=Belegart.GUTSCHRIFT, abgeschlossen=True)
+                      .exclude(pk=self.pk)), Decimal("0"))
+        gesamt = andere + self.summe_brutto
+        if gesamt <= rechnung.summe_brutto + CENT:
+            return None
+        return {"rechnung": rechnung, "betrag": rechnung.summe_brutto, "andere": andere, "gesamt": gesamt, "ueber": gesamt - rechnung.summe_brutto}
+
     @transaction.atomic
-    def abschliessen(self, p_erlaubt=False, esd_ohne_key=False):
+    def abschliessen(self, p_erlaubt=False, esd_ohne_key=False, ueber_grund=""):
         """p_erlaubt: nur für „erst abschließen, dann übernehmen“ (views._erst_abschliessen): eine Bestellung mit Preislistenartikeln
         (P) darf abgeschlossen werden, weil die Übernahme die P-Positionen sofort in ein neues Angebot verschiebt."""
         if self.abgeschlossen:
@@ -878,12 +897,16 @@ class Beleg(Zeitstempel):
         if self.summe_netto < 0 or self.summe_brutto < 0:  # Minuszeilen (Nachlass, Pfand) sind erlaubt, ein Minusbeleg nicht
             raise ValueError(f"Die Belegsumme ist negativ ({self.summe_brutto} €). Positionen mit Minuspreis dürfen den Beleg "
                              "nicht unter 0 bringen; für eine Erstattung gibt es die Gutschrift zur Rechnung.")
-        if self.art == Belegart.GUTSCHRIFT and self.vorgaenger_id and self.vorgaenger.art == Belegart.RECHNUNG:
-            andere = sum((g.summe_brutto for g in self.vorgaenger.folgebelege.filter(art=Belegart.GUTSCHRIFT, abgeschlossen=True)
-                          .exclude(pk=self.pk)), Decimal("0"))
-            if andere + self.summe_brutto > self.vorgaenger.summe_brutto + CENT:
-                raise ValueError(f"Die Gutschriften ({andere + self.summe_brutto} €) würden die Rechnung "
-                                 f"{self.vorgaenger.nummer} ({self.vorgaenger.summe_brutto} €) übersteigen.")
+        ueber = self.gutschrift_ueber_rechnung()
+        if ueber:  # Regel des Nutzers: keine Sperre, aber Warnung und Pflichtbegründung
+            Beleg.objects.select_for_update().get(pk=ueber["rechnung"].pk)  # zwei Teilgutschriften gleichzeitig: nacheinander prüfen
+            ueber = self.gutschrift_ueber_rechnung()
+        self.ueber_rechnung_grund = " ".join((ueber_grund or "").split())[:300] if ueber else ""
+        if ueber and not self.ueber_rechnung_grund:
+            euro = {k: f"{ueber[k]:.2f}".replace(".", ",") for k in ("gesamt", "ueber", "betrag")}
+            raise GutschriftUeberRechnung(
+                f"Die Gutschriften zur Rechnung {ueber['rechnung'].nummer} ergeben zusammen {euro['gesamt']} € und liegen damit "
+                f"{euro['ueber']} € über dem Rechnungsbetrag von {euro['betrag']} €. Bitte begründen, warum.")
         if self.art == Belegart.GUTSCHRIFT:
             from apps.lager.services import gutschrift_menge_pruefen
             gutschrift_menge_pruefen(self)
@@ -896,7 +919,11 @@ class Beleg(Zeitstempel):
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
         self.kaeufer_aus_anschrift()  # Anschrift steht mit dem Abschluss fest (die Rechnungsanschrift ist bis dahin änderbar)
         self.abgeschlossen, self.vorlaeufig, self.zuletzt_aktiv = True, False, None
+        if self.ueber_rechnung_grund:
+            from apps.kern.middleware import aktueller_benutzer as wer
+            self.ueber_rechnung_von = wer() if wer() is not None and wer().is_authenticated else None
         Beleg.objects.filter(pk=self.pk).update(nummer=self.nummer, abgeschlossen=True, vorlaeufig=False, zuletzt_aktiv=None,
+                                                ueber_rechnung_grund=self.ueber_rechnung_grund, ueber_rechnung_von=self.ueber_rechnung_von,
                                                 belegdatum=self.belegdatum, kaeufer_name=self.kaeufer_name,
                                                 kaeufer_strasse=self.kaeufer_strasse, kaeufer_plz=self.kaeufer_plz,
                                                 kaeufer_ort=self.kaeufer_ort, kaeufer_land=self.kaeufer_land)

@@ -132,7 +132,9 @@ def beleg_op(request, beleg_id):
         for z in services.offene_rechnungen(request.mandant, beleg.kunde):
             if z["offen"] > 0:
                 andere.append({"beleg": z["beleg"], "offen": z["offen"], "vorschlag": min(z["offen"], guthaben)})
+    ist_gs = beleg.art == Belegart.GUTSCHRIFT
     return render(request, "finanzen/beleg_op.html", {
+        "weg": services.zahlungsweg(beleg), "gs_rest": services.gutschrift_rest(beleg) if ist_gs else None,
         "quelle": quelle, "guthaben": guthaben, "andere_rechnungen": andere,
         # Zahlung buchen: freie Guthaben des Kunden zum Verrechnen vorschlagen (nur für offene Rechnungen)
         "kunden_guthaben": [{**g, "vorschlag": min(g["guthaben"], offen)} for g in anzahlungmodul.kunden_guthaben(
