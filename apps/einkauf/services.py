@@ -143,6 +143,9 @@ def _schluessel(artikel_id, preisliste_artikel):
         return "a", artikel_id
     if preisliste_artikel is not None and preisliste_artikel.artikel_id:  # inzwischen eigener Artikel
         return "a", preisliste_artikel.artikel_id
+    if preisliste_artikel is not None and preisliste_artikel.herstellernummer:
+        # derselbe Artikel bei einem anderen Lieferanten (Lieferantenwahl) zählt für die Position ebenfalls als bestellt
+        return "p", "h:" + preisliste_artikel.herstellernummer.lower()
     return "p", preisliste_artikel.pk if preisliste_artikel is not None else None
 
 
@@ -176,11 +179,30 @@ def bestellt_je_position(beleg, positionen=None) -> dict:
         vorrat[("a", artikel_id)] += topf
     ergebnis = {}
     for p in positionen:
-        k = _schluessel(p.artikel_id, p.preisliste_artikel)
-        menge = min(max(vorrat[k], Decimal("0")), p.menge)
-        vorrat[k] -= menge
-        ergebnis[p.pk] = menge
+        ergebnis[p.pk] = Decimal("0")
+        for k in _schluessel_liste(p):
+            menge = min(max(vorrat[k], Decimal("0")), p.menge - ergebnis[p.pk])
+            vorrat[k] -= menge
+            ergebnis[p.pk] += menge
     return ergebnis
+
+
+def _gleicher_hersteller(a, b) -> bool:
+    """Gleiche Herstellernummer zählt nur als derselbe Artikel, wenn die Hersteller nicht ausdrücklich verschieden sind."""
+    return not a.hersteller or not b.hersteller or a.hersteller.strip().lower() == b.hersteller.strip().lower()
+
+
+def _schluessel_liste(position) -> list:
+    """Schlüssel, unter denen eine Bestellung für die Position zählt. Typ P: auch dieselbe Herstellernummer bei einem anderen
+    Lieferanten (Lieferantenwahl), egal ob dessen Preislistenzeile schon einen eigenen Artikel hat oder nicht."""
+    eintrag = position.preisliste_artikel
+    liste = [_schluessel(position.artikel_id, eintrag)]
+    if eintrag is not None and not position.artikel_id and eintrag.herstellernummer:
+        liste.append(("p", "h:" + eintrag.herstellernummer.lower()))
+        for e in Preislistenartikel.objects.filter(herstellernummer__iexact=eintrag.herstellernummer, artikel__isnull=False):
+            if _gleicher_hersteller(eintrag, e):
+                liste.append(("a", e.artikel_id))
+    return list(dict.fromkeys(liste))
 
 
 def bestellstand(beleg) -> dict:
@@ -199,13 +221,9 @@ def rueckfrage_noetig(beleg) -> bool:
     return beleg.art == Belegart.AUFTRAG and any(m > 0 for m in bestellt_je_position(beleg).values())
 
 
-@transaction.atomic
-def bestellungen_aus_beleg(beleg, modus=None, grund="", benutzer=None) -> list:
-    """Angebot oder Kundenbestellung in Lieferantenbestellungen kopieren: je Lieferant eine Bestellung (günstigster Lieferant).
-    Ist bei einer Kundenbestellung schon etwas bestellt, muss modus gewählt sein: „fehlend“ (nur Restmengen) oder
-    „komplett“ (alles erneut, mit Grund)."""
-    from apps.verkauf.models import Beleg
-    Beleg.objects.select_for_update().filter(pk=beleg.pk).first()  # gleichzeitiges Kopieren nacheinander
+def _zu_bestellen(beleg, modus=None, grund=""):
+    """([(Position, Menge)], Bemerkung, Modus): was aus dem Beleg jetzt beim Lieferanten zu bestellen ist. Ist bei einer
+    Kundenbestellung schon etwas bestellt, muss modus gewählt sein: „fehlend“ (nur Restmengen) oder „komplett“ (mit Grund)."""
     grund = (grund or "").strip()
     positionen = bestellbare_positionen(beleg)
     bestellt = bestellt_je_position(beleg, positionen)
@@ -221,24 +239,130 @@ def bestellungen_aus_beleg(beleg, modus=None, grund="", benutzer=None) -> list:
             raise ValueError("Aus dieser Kundenbestellung ist schon beim Lieferanten bestellt – bitte wählen, was bestellt werden soll.")
     else:
         modus = MODUS_KOMPLETT
+    zeilen_ = [(p, p.menge - bestellt[p.pk] if modus == MODUS_FEHLEND else p.menge) for p in positionen]
+    zeilen_ = [(p, menge) for p, menge in zeilen_ if menge > 0]
+    if modus == MODUS_FEHLEND and not zeilen_:
+        raise ValueError("Alle Positionen sind bereits beim Lieferanten bestellt.")
+    return zeilen_, bemerkung, modus
+
+
+# ---- Lieferantenwahl mit Preisvergleich ---------------------------------------------------------
+# Hat der Kundenbeleg mehrere Positionen und führt mehr als ein Lieferant mindestens eine davon, wird vor dem Anlegen gefragt,
+# bei wem bestellt wird. Verglichen wird der Warenwert (EK × Menge) aus den Preislisten; Versandkosten sind nicht bekannt.
+
+def _cent(betrag):
+    return betrag.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _lieferbar(angebot) -> bool:
+    return angebot["bestand"] is None or angebot["bestand"] > 0
+
+
+def _rang(angebot):
+    """Reihenfolge der Angebote einer Position: lieferbar vor Bestand 0, dann der Preis; bei Gleichstand der Lieferant der
+    Angebotszeile (Typ P), dann der Name."""
+    return (not _lieferbar(angebot), angebot["ek"], not angebot["eigen"], angebot["lieferant"].kurz.lower(), angebot["lieferant"].pk)
+
+
+def angebote_je_lieferant(position, menge) -> dict:
+    """{Lieferanten-ID: Angebot} für eine Position des Kundenbelegs. Lagerartikel: die Preislistenzeilen am Artikel.
+    Preislistenartikel (Typ P): die Zeile selbst und dieselbe Herstellernummer bei anderen Lieferanten. Je Lieferant zählt
+    die günstigste Zeile; gesperrte Lieferanten fehlen."""
+    ergebnis = {}
+
+    def merken(lieferant, ek, bestand, eintrag=None, eigen=False):
+        ek = ek_runden(ek)
+        alt = ergebnis.get(lieferant.pk)
+        if alt is None or (not alt["eigen"] and (eigen or ek < alt["ek"])):
+            ergebnis[lieferant.pk] = {"lieferant": lieferant, "ek": ek, "bestand": bestand, "eintrag": eintrag, "eigen": eigen,
+                                      "summe": _cent(ek * menge), "knapp": bestand is not None and bestand < menge}
+
+    if position.preisliste_artikel_id and not position.artikel_id:
+        eigener = position.preisliste_artikel
+        if not eigener.lieferant.gesperrt:
+            merken(eigener.lieferant, eigener.ek, eigener.bestand, eigener, eigen=True)
+        if eigener.herstellernummer:
+            for e in (Preislistenartikel.objects.filter(herstellernummer__iexact=eigener.herstellernummer, lieferant__gesperrt=False)
+                      .exclude(pk=eigener.pk).select_related("lieferant").order_by("ek", "pk")):
+                if _gleicher_hersteller(eigener, e):
+                    merken(e.lieferant, e.ek, e.bestand, e)
+    else:
+        for al in (ArtikelLieferant.objects.filter(artikel=position.artikel, ek__isnull=False, lieferant__gesperrt=False)
+                   .select_related("lieferant").order_by("ek", "pk")):
+            merken(al.lieferant, al.ek, al.bestand)
+    return ergebnis
+
+
+def lieferantenvergleich(beleg, modus=None, grund="") -> dict:
+    """Preisvergleich für „In Lieferantenbestellung kopieren“: je Position die Angebote aller Lieferanten und je Lieferant,
+    was es kostet, alles dort zu bestellen (was er nicht führt, kommt vom jeweils günstigsten anderen)."""
+    positionen, _bemerkung, modus = _zu_bestellen(beleg, modus, grund)
+    zeilen_ = []
+    for p, menge in positionen:
+        angebote = angebote_je_lieferant(p, menge)
+        zeilen_.append({"position": p, "menge": menge, "angebote": angebote,
+                        "bester": min(angebote.values(), key=_rang) if angebote else None})
+    mit_angebot = [z for z in zeilen_ if z["bester"]]
+    guenstigste = sum((z["bester"]["summe"] for z in mit_angebot), Decimal("0"))
+    lieferanten = {}
+    for z in mit_angebot:
+        for a in z["angebote"].values():
+            lieferanten[a["lieferant"].pk] = a["lieferant"]
+    spalten = []
+    for lf in lieferanten.values():
+        eigene = [z["angebote"][lf.pk] for z in mit_angebot if lf.pk in z["angebote"]]
+        gesamt = sum((z["angebote"].get(lf.pk, z["bester"])["summe"] for z in mit_angebot), Decimal("0"))
+        spalten.append({"lieferant": lf, "anzahl": len(eigene), "fehlt": len(mit_angebot) - len(eigene),
+                        "summe": sum((a["summe"] for a in eigene), Decimal("0")), "gesamt": gesamt, "mehr": gesamt - guenstigste,
+                        "knapp": any(a["knapp"] for a in eigene)})
+    spalten.sort(key=lambda s: (s["fehlt"], s["gesamt"], s["lieferant"].kurz.lower(), s["lieferant"].pk))
+    for z in zeilen_:
+        z["zellen"] = [z["angebote"].get(s["lieferant"].pk) for s in spalten]
+    aufteilung = {}  # günstigste Aufteilung: Lieferant -> Anzahl Positionen
+    for z in mit_angebot:
+        name = z["bester"]["lieferant"].kurz
+        aufteilung[name] = aufteilung.get(name, 0) + 1
+    return {"zeilen": zeilen_, "spalten": spalten, "guenstigste": guenstigste, "aufteilung": sorted(aufteilung.items()),
+            "modus": modus, "wahl_noetig": len(zeilen_) >= 2 and any(len(z["angebote"]) >= 2 for z in zeilen_)}
+
+
+@transaction.atomic
+def bestellungen_aus_beleg(beleg, modus=None, grund="", benutzer=None, wahl=None) -> list:
+    """Angebot oder Kundenbestellung in Lieferantenbestellungen kopieren: je Lieferant eine Bestellung. Ohne wahl bekommt jede
+    Position den günstigsten Lieferanten (Typ P: den der Preislistenzeile); mit wahl ({Positions-ID: Lieferanten-ID}, aus der
+    Lieferantenwahl) den gewählten. Ist bei einer Kundenbestellung schon etwas bestellt, muss modus gewählt sein: „fehlend“
+    (nur Restmengen) oder „komplett“ (alles erneut, mit Grund)."""
+    from apps.verkauf.models import Beleg
+    Beleg.objects.select_for_update().filter(pk=beleg.pk).first()  # gleichzeitiges Kopieren nacheinander
+    positionen, bemerkung, modus = _zu_bestellen(beleg, modus, grund)
+    wahl = wahl or {}
     je_lieferant = defaultdict(list)
     ohne = []
-    for p in positionen:
-        menge = p.menge - bestellt[p.pk] if modus == MODUS_FEHLEND else p.menge
-        if menge <= 0:
+    for p, menge in positionen:
+        if p.pk in wahl:
+            angebot = angebote_je_lieferant(p, menge).get(wahl[p.pk])
+            if angebot is None:
+                raise ValueError(f"„{p.bezeichnung}“ führt der gewählte Lieferant nicht (mehr) – bitte die Lieferanten neu wählen.")
+            je_lieferant[angebot["lieferant"]].append((p, menge, angebot))
             continue
         if p.preisliste_artikel_id and not p.artikel_id:  # Typ P: der Lieferant steht an der Preislistenzeile
-            je_lieferant[p.preisliste_artikel.lieferant].append((p, menge))
+            je_lieferant[p.preisliste_artikel.lieferant].append((p, menge, None))
             continue
         al = guenstigster_lieferant(p.artikel)
-        (je_lieferant[al.lieferant] if al else ohne).append((p, menge))
-    if modus == MODUS_FEHLEND and not je_lieferant and not ohne:
-        raise ValueError("Alle Positionen sind bereits beim Lieferanten bestellt.")
+        if al:
+            je_lieferant[al.lieferant].append((p, menge, None))
+        else:
+            ohne.append((p, menge))
     ergebnis = []
     for lieferant, zeilen_ in je_lieferant.items():
         b = bestellung_anlegen(beleg.mandant, lieferant, bemerkung, aus_beleg=beleg, benutzer=benutzer)
-        for p, menge in zeilen_:
-            bestellposition(b, p.artikel, menge, preisliste_artikel=p.preisliste_artikel)
+        for p, menge, angebot in zeilen_:
+            if angebot is None:
+                bestellposition(b, p.artikel, menge, preisliste_artikel=p.preisliste_artikel)
+            elif angebot["eintrag"] is not None:  # Typ P: die Preislistenzeile des gewählten Lieferanten
+                bestellposition(b, None, menge, preisliste_artikel=angebot["eintrag"])
+            else:
+                bestellposition(b, p.artikel, menge, ek=angebot["ek"])
         ergebnis.append(b)
     if not ergebnis:
         raise ValueError("Keiner der Artikel hat einen Lieferanten in den Preislisten.")

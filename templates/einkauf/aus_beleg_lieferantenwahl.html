@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block titel %}{{ beleg }} – Lieferant wählen – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>{{ beleg }}: Bei welchem Lieferanten bestellen?</h1>
+  <p>Vergleich des Warenwerts (EK netto × Menge) aus den Preislisten{% if modus == 'fehlend' %}, nur für die noch fehlenden Mengen{% endif %}. Versandkosten und Mindestbestellwerte der Lieferanten sind nicht eingerechnet.</p>
+  <div class="scroll"><table id="vergleich">
+    <thead><tr><th>Möglichkeit</th><th class="zahl">Warenwert</th><th class="zahl">Unterschied</th><th></th></tr></thead>
+    <tbody>
+      <tr><td><strong>Günstigste Aufteilung</strong> <small style="opacity:.75">– je Position der günstigste lieferbare Lieferant:
+          {% for name, anzahl in aufteilung %}{{ name }} ({{ anzahl }} Pos.){% if not forloop.last %}, {% endif %}{% endfor %}</small></td>
+        <td class="zahl">{{ guenstigste|floatformat:2 }} €</td><td class="zahl">–</td>
+        <td><button type="button" class="leise" data-wahl="best">Auswählen</button></td></tr>
+      {% for s in spalten %}<tr>
+        <td><strong>Alles bei {{ s.lieferant.kurz }}</strong>
+          {% if s.fehlt %}<small style="opacity:.75">– führt {{ s.anzahl }} von {{ s.anzahl|add:s.fehlt }} Positionen, der Rest kommt vom jeweils günstigsten</small>{% endif %}
+          {% if s.knapp %}<small style="color:var(--hinweis)">– Bestand reicht nicht für alle Mengen</small>{% endif %}</td>
+        <td class="zahl">{{ s.gesamt|floatformat:2 }} €</td>
+        <td class="zahl">{% if s.mehr > 0 %}<span style="color:var(--warn)">+{{ s.mehr|floatformat:2 }} €</span>{% elif s.mehr < 0 %}<span style="color:var(--ok)">{{ s.mehr|floatformat:2 }} €</span>{% else %}<span style="color:var(--ok)">gleich günstig</span>{% endif %}</td>
+        <td><button type="button" class="leise" data-wahl="{{ s.lieferant.pk }}">Auswählen</button></td></tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+
+  <form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}" id="lieferantenwahl">{% csrf_token %}
+    <input type="hidden" name="wahl" value="1"><input type="hidden" name="modus" value="{{ modus }}"><input type="hidden" name="grund" value="{{ grund }}">
+    <h2>Positionen</h2>
+    <p><small style="opacity:.75">Die Auswahl lässt sich je Position ändern. Vorbelegt ist die günstigste Aufteilung.</small></p>
+    <div class="scroll"><table>
+      <thead><tr><th>Artikel</th><th class="zahl">Menge</th>{% for s in spalten %}<th>{{ s.lieferant.kurz }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for z in zeilen %}<tr{% if z.bester %} data-pos="{{ z.position.pk }}"{% endif %}>
+        <td>{% if z.position.artikelnummer %}<span style="opacity:.7">{{ z.position.artikelnummer }}</span> {% endif %}{{ z.position.bezeichnung }}</td>
+        <td class="zahl">{{ z.menge|floatformat:"-3" }}</td>
+        {% if not z.bester %}<td colspan="{{ spalten|length }}"><span style="color:var(--hinweis)">kein Lieferant in den Preislisten – wird nicht bestellt</span></td>
+        {% else %}{% for a in z.zellen %}<td>{% if a %}
+          <label style="display:block;font-weight:normal;opacity:1;cursor:pointer;white-space:nowrap">
+            <input type="radio" name="lf_{{ z.position.pk }}" value="{{ a.lieferant.pk }}" data-summe="{{ a.summe|stringformat:'s' }}"{% if a.lieferant.pk == z.bester.lieferant.pk %} checked data-best="1"{% endif %}>
+            {{ a.ek|floatformat:2 }} € <small style="opacity:.75">= {{ a.summe|floatformat:2 }} €</small>
+            <br><small style="margin-left:22px;{% if a.bestand == 0 or a.knapp %}color:var(--hinweis){% else %}opacity:.75{% endif %}">{% if a.bestand is None %}Bestand unbekannt{% elif a.bestand == 0 %}nicht auf Lager{% elif a.knapp %}nur {{ a.bestand }} auf Lager{% else %}{{ a.bestand }} auf Lager{% endif %}</small>
+          </label>{% else %}<span style="opacity:.5">–</span>{% endif %}</td>{% endfor %}{% endif %}
+      </tr>{% endfor %}</tbody>
+      <tfoot><tr><th colspan="2">Ihre Auswahl</th>{% for s in spalten %}<th class="zahl" data-spalte="{{ s.lieferant.pk }}">–</th>{% endfor %}</tr></tfoot>
+    </table></div>
+    <p><strong>Ihre Auswahl: <span id="wahlsumme">–</span></strong> <span id="wahltext" style="opacity:.75"></span></p>
+    <p class="zeile"><button type="submit">Lieferantenbestellung anlegen</button><a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Abbrechen (Esc)</a></p>
+  </form>
+</div>
+<script>
+(function () {
+  var f = document.getElementById("lieferantenwahl"), guenstigste = Number("{{ guenstigste|stringformat:'s' }}");
+  function euro(x) { return x.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"; }
+  function rechnen() {
+    var je = {}, summe = 0, anzahl = 0;
+    Array.prototype.forEach.call(f.querySelectorAll("input[type=radio]:checked"), function (r) {
+      je[r.value] = (je[r.value] || 0) + Number(r.dataset.summe); summe += Number(r.dataset.summe);
+    });
+    Array.prototype.forEach.call(f.querySelectorAll("[data-spalte]"), function (th) {
+      var x = je[th.dataset.spalte]; th.textContent = x === undefined ? "–" : euro(x); if (x !== undefined) { anzahl += 1; }
+    });
+    var mehr = Math.round((summe - guenstigste) * 100) / 100;
+    document.getElementById("wahlsumme").textContent = euro(summe);
+    document.getElementById("wahltext").textContent = "in " + anzahl + (anzahl === 1 ? " Bestellung" : " Bestellungen") +
+      (mehr > 0 ? " · " + euro(mehr) + " mehr als die günstigste Aufteilung" : mehr < 0 ? " · " + euro(-mehr) + " weniger als die günstigste Aufteilung" : " · günstigste Aufteilung");
+  }
+  Array.prototype.forEach.call(document.querySelectorAll("#vergleich button[data-wahl]"), function (knopf) {
+    knopf.addEventListener("click", function () {
+      Array.prototype.forEach.call(f.querySelectorAll("tr[data-pos]"), function (tr) {
+        var r = knopf.dataset.wahl === "best" ? null : tr.querySelector('input[type=radio][value="' + knopf.dataset.wahl + '"]');
+        (r || tr.querySelector("input[data-best]")).checked = true;
+      });
+      rechnen();
+    });
+  });
+  f.addEventListener("change", rechnen);
+  rechnen();
+})();
+</script>
+{% endblock %}

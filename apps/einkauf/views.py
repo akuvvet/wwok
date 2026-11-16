@@ -456,9 +456,21 @@ def bestellung_aus_beleg(request, beleg_id):
     modus = request.POST.get("modus") or None
     if modus is None and services.rueckfrage_noetig(beleg):  # Kundenbestellung schon (teilweise) bestellt: erst fragen
         return render(request, "einkauf/aus_beleg_rueckfrage.html", {"beleg": beleg, **services.bestellstand(beleg)})
+    grund = request.POST.get("grund", "")
     try:
         beleg.stand_pruefen()
-        liste = services.bestellungen_aus_beleg(beleg, modus=modus, grund=request.POST.get("grund", ""), benutzer=request.user)
+        wahl = None
+        if request.POST.get("wahl"):  # Antwort aus der Lieferantenwahl: je Position der gewählte Lieferant
+            wahl = {}
+            for name, wert in request.POST.items():
+                if name.startswith("lf_") and name[3:].isdigit() and wert.isdigit():
+                    wahl[int(name[3:])] = int(wert)
+        else:  # mehrere Positionen und mehr als ein möglicher Lieferant: erst fragen, mit Preisvergleich
+            vergleich = services.lieferantenvergleich(beleg, modus=modus, grund=grund)
+            if vergleich["wahl_noetig"]:
+                return render(request, "einkauf/aus_beleg_lieferantenwahl.html", {
+                    "beleg": beleg, "modus": modus or "", "grund": grund, **vergleich})
+        liste = services.bestellungen_aus_beleg(beleg, modus=modus, grund=grund, benutzer=request.user, wahl=wahl)
     except ValueError as fehler:
         messages.error(request, str(fehler))
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
