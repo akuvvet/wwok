@@ -4,7 +4,14 @@
 <a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
 <div class="karte">
   <h1><a href="{% url 'verkauf:beleg' beleg.pk %}">{{ beleg }}</a> – {{ beleg.kunde.name1 }}</h1>
-  <div class="raster">
+  {% if beleg.art == 'GS' %}<div class="raster">
+    <div>Gutschriftbetrag<br><strong>{{ beleg.summe_brutto|floatformat:"2g" }} €</strong></div>
+    <div>mit Rechnungen verrechnet<br><strong>{{ weg.verrechnet|floatformat:"2g" }} €</strong></div>
+    <div>noch frei (Guthaben des Kunden)<br><strong style="font-size:20px">{{ gs_rest|floatformat:"2g" }} €</strong></div>
+    {% if weg.rechnung %}<div>zur Rechnung<br><a href="{% url 'finanzen:beleg' weg.rechnung.pk %}">{{ weg.rechnung.nummer }}</a> ({{ weg.rechnung.summe_brutto|floatformat:"2g" }} €)</div>{% endif %}
+  </div>
+  <p style="margin:8px 0 0;opacity:.8">Eine Gutschrift wird nicht direkt ausgezahlt: Sie wird auf der Zahlungsseite einer Rechnung des Kunden verrechnet{% if weg.rechnung %} (<a href="{% url 'finanzen:beleg' weg.rechnung.pk %}">Rechnung {{ weg.rechnung.nummer }}</a>){% endif %}. Ist die Rechnung schon bezahlt, entsteht dort ein Guthaben, das als <strong>negative Zahlung</strong> mit Zahlart und Datum ausgezahlt wird.</p>
+  {% else %}<div class="raster">
     <div>{% if beleg.art == 'PF' %}Proforma-Betrag{% elif beleg.art == 'AB' %}Bestellwert{% else %}Rechnungsbetrag{% endif %}<br><strong>{{ beleg.summe_brutto|floatformat:"2g" }} €</strong></div>
     <div>bezahlt<br><strong>{{ bezahlt|floatformat:"2g" }} €</strong></div>
     {% if beleg.art == 'RE' %}<div>verrechnete Gutschriften<br><strong>{{ gutschrift|floatformat:"2g" }} €</strong></div>
@@ -13,12 +20,32 @@
     <div>{% if offen < 0 %}Guthaben{% else %}offen{% endif %}<br><strong style="font-size:20px">{{ offen|floatformat:"2g" }} €</strong></div>
     {% if beleg.art == 'RE' %}<div>fällig am<br>{{ faellig|date:"d.m.Y" }}</div>{% endif %}
     {% if skonto %}<div>Skonto bis {{ skonto.1|date:"d.m.Y" }}<br>{{ skonto.0|floatformat:"2g" }} € ({{ beleg.zahlungsbedingung.skonto_prozent|floatformat:"-2" }} %)</div>{% endif %}
-  </div>
+  </div>{% endif %}
   {% if beleg.art == 'PF' %}<p style="margin:8px 0 0;opacity:.8">Vorkasse: Teilzahlungen sind möglich. Erst bei vollständiger Zahlung kann die Proforma in eine Rechnung umgewandelt werden.
     Kauft der Kunde nicht, den gezahlten Betrag als <strong>negative Zahlung</strong> zurückbuchen und danach die Proforma stornieren.
     Ein Guthaben (Überzahlung) wird zurückgezahlt oder unten mit einer anderen Rechnung verrechnet.</p>{% endif %}
 </div>
 
+{% if weg %}
+<div class="karte" id="zahlungsweg">
+  <h2>Zahlungsweg</h2>
+  <p style="opacity:.8">Alle Schritte zu {% if weg.rechnung %}Rechnung {{ weg.rechnung.nummer }} und ihren Gutschriften{% else %}dieser Gutschrift{% endif %} in zeitlicher Reihenfolge. Jede Buchung ist unveränderlich; Korrekturen stehen als eigene Zeile mit Grund.</p>
+  {% if weg.ueber %}<p class="warnung">Die Gutschriften ({{ weg.gutschriften|floatformat:"2g" }} €) liegen {{ weg.ueber|floatformat:"2g" }} € über dem Rechnungsbetrag ({{ weg.rechnung.summe_brutto|floatformat:"2g" }} €). Die Begründung steht an der Gutschrift.</p>{% endif %}
+  <table>
+    <tr><th>Datum</th><th>Vorgang</th><th>Zahlungsweg</th><th class="zahl">Betrag</th>{% if weg.rechnung %}<th class="zahl">Rechnung offen</th>{% endif %}<th>Benutzer</th><th>Bemerkung / Grund</th></tr>
+    {% for z in weg.zeilen %}<tr{% if z.art == 'aus' %} style="font-weight:600"{% endif %}><td>{{ z.datum|date:"d.m.Y" }}</td>
+      <td>{{ z.vorgang }}{% if z.ziel %} <a href="{% url 'finanzen:beleg' z.ziel.pk %}" title="Zahlungsseite dieses Belegs">↗</a>{% endif %}</td>
+      <td>{{ z.weg }}</td><td class="zahl">{{ z.betrag|floatformat:"2g" }}</td>{% if weg.rechnung %}<td class="zahl">{% if z.stand is not None %}{{ z.stand|floatformat:"2g" }}{% endif %}</td>{% endif %}
+      <td>{{ z.benutzer|default:"" }}</td><td>{{ z.text }}</td></tr>{% endfor %}
+  </table>
+  <p class="zeile" style="margin:10px 0 0;gap:18px">{% if weg.rechnung %}<span>Zahlungseingang: <strong>{{ weg.eingang|floatformat:"2g" }} €</strong></span>{% endif %}
+    <span>Gutschriften: <strong>{{ weg.gutschriften|floatformat:"2g" }} €</strong></span><span>davon verrechnet: <strong>{{ weg.verrechnet|floatformat:"2g" }} €</strong></span>
+    <span>noch frei: <strong>{{ weg.frei|floatformat:"2g" }} €</strong></span>{% if weg.rechnung %}<span>ausgezahlt: <strong>{{ weg.ausgezahlt|floatformat:"2g" }} €</strong></span>
+    <span>Rechnung {% if weg.stand < 0 %}Guthaben{% else %}offen{% endif %}: <strong>{{ weg.stand|floatformat:"2g" }} €</strong></span>{% endif %}</p>
+</div>
+{% endif %}
+
+{% if beleg.art != 'GS' %}
 <div class="karte">
   <h2>Zahlung buchen</h2>
   <form method="post" action="{% url 'finanzen:zahlung' beleg.pk %}" class="zeile">{% csrf_token %}<input type="hidden" name="offen_bisher" value="{{ offen|floatformat:2 }}">
@@ -39,6 +66,7 @@
     {% empty %}<tr><td colspan="6">Noch keine Zahlungen.</td></tr>{% endfor %}
   </table>
 </div>
+{% endif %}
 
 {% if kunden_guthaben %}
 <div class="karte">
