@@ -6,6 +6,9 @@ from django.core.validators import RegexValidator
 from django.db import models
 
 
+FARBPRUEFER = RegexValidator(r"^#[0-9a-fA-F]{6}$", "Farbe als #RRGGBB, z. B. #15803d.")
+
+
 class Zeitstempel(models.Model):
     """Basisklasse: Anlagedatum, letzte Änderung und Benutzer automatisch."""
 
@@ -51,9 +54,22 @@ class Mandant(Zeitstempel):
     glaeubiger_id = models.CharField("Gläubiger-ID (SEPA)", max_length=35, blank=True)
     aktiv = models.BooleanField("aktiv", default=True)
     farbe = models.CharField(
-        "Layoutfarbe", max_length=7, blank=True, validators=[RegexValidator(r"^#[0-9a-fA-F]{6}$", "Farbe als #RRGGBB, z. B. #15803d.")],
+        "Layoutfarbe", max_length=7, blank=True, validators=[FARBPRUEFER],
         help_text="Akzentfarbe der Oberfläche für diesen Mandanten (Menü, Knöpfe, Links, Kopfleiste), z. B. Grün für ZONE, Blau für OKAY. "
                   "Leer = Standardblau. Im dunklen Modus wird sie automatisch aufgehellt.")
+    flaechenmodus = models.CharField(
+        "Flächenfarben", max_length=8, default="standard",
+        choices=[("standard", "Neutral (Standard)"),
+                 ("ton", "Gleiche Tonart – Kopfbereich, Seitenleiste und Karten aus der Layoutfarbe abgeleitet"),
+                 ("eigen", "Eigene Farbe je Bereich")],
+        help_text="Neutral: weiße Flächen wie bisher. Gleiche Tonart: alle drei Bereiche in Abstufungen der Layoutfarbe. "
+                  "Eigene Farbe: die drei Felder darunter gelten. Schrift und Ränder passen sich automatisch an, damit alles lesbar bleibt.")
+    farbe_kopf = models.CharField("Farbe Kopfbereich", max_length=7, blank=True, validators=[FARBPRUEFER],
+                                  help_text="Nur bei „Eigene Farbe je Bereich“. Leer = neutral.")
+    farbe_leiste = models.CharField("Farbe Seitenleiste", max_length=7, blank=True, validators=[FARBPRUEFER],
+                                    help_text="Nur bei „Eigene Farbe je Bereich“. Leer = neutral.")
+    farbe_karte = models.CharField("Farbe Karten", max_length=7, blank=True, validators=[FARBPRUEFER],
+                                   help_text="Nur bei „Eigene Farbe je Bereich“. Leer = neutral.")
     logo = models.ImageField("Logo", upload_to="logos/", blank=True,
                              help_text="PNG oder JPG, am besten quer und mit transparentem oder weißem Hintergrund (max. 2 MB). Erscheint oben rechts auf Belegen.")
     # E-Mail-Versand (das Passwort steht nicht hier, sondern in der .env als SMTP_PASSWORD_<KURZNAME>)
@@ -83,6 +99,13 @@ class Mandant(Zeitstempel):
 
     def __str__(self):
         return self.kurzname
+
+    @property
+    def flaechen_css(self):
+        """CSS für die Flächenfarben (Kopfbereich, Seitenleiste, Karten); leer bei „Neutral“."""
+        from .layout import flaechen_css
+
+        return flaechen_css(self)
 
 
 class AenderungsProtokoll(models.Model):
