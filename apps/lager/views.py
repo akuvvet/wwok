@@ -45,6 +45,7 @@ def suche(q, artikel=None):
 
 
 SEITENGROESSEN = (25, 50, 100, 200)
+INVENTUR_SUCHE_MAX = 200  # Inventur mit Suchbegriff zeigt höchstens so viele Zeilen
 
 
 def kategorien_baum():
@@ -308,18 +309,22 @@ def gutschrift_retoure(request, beleg_id):
 def inventur_liste(request):
     """Zählliste mit Erfassung: gezählte Mengen eintragen, Differenzen werden gebucht.
     Standard: nur aktive Artikel; Haken „Nicht aktiv“ zeigt nur die als nicht aktiv markierten.
-    Suche, Kategorie und dieser Haken grenzen nur die Anzeige ein; gebucht wird jede eingetragene Zählung eines Artikels mit Bestand,
-    auch wenn er nach einem Filterwechsel gerade nicht angezeigt wird (die Maske trägt die Werte mit)."""
+    Ohne Suchbegriff stehen nur Artikel mit Bestand in der Liste (Zählliste zum Drucken). Mit Suchbegriff auch Artikel mit Bestand 0,
+    damit sich ein Artikel einzählen lässt, der laut System nicht da ist; ein Treffer auf die Artikelnummer steht oben.
+    Suche, Kategorie und dieser Haken grenzen nur die Anzeige ein; gebucht wird jede eingetragene Zählung,
+    auch wenn der Artikel nach einem Filterwechsel gerade nicht angezeigt wird (die Maske trägt die Werte mit)."""
     summen = {s["artikel"]: s["s"] for s in Lagerbewegung.objects.filter(mandant=request.mandant)
               .values("artikel").annotate(s=Sum("menge"))}
     plaetze = {d.artikel_id: d.lagerplatz for d in ArtikelMandant.objects.filter(mandant=request.mandant)}
     q = request.GET.get("q", "").strip()
     kategorie = request.GET.get("kategorie", "")
     nicht_aktiv = request.GET.get("nicht_aktiv") == "1"
-    alle = Artikel.objects.filter(pk__in=[a for a, s in summen.items() if s], typ="A")
+    lagerartikel = Artikel.objects.filter(typ="A")
+    alle = lagerartikel.filter(pk__in=[a for a, s in summen.items() if s])
     if request.method == "POST":
         gebucht = 0
-        for a in alle.order_by("nummer"):
+        gesendet = [k[9:] for k, v in request.POST.items() if k.startswith("gezaehlt_") and k[9:].isdigit() and v.strip()]
+        for a in lagerartikel.filter(pk__in=gesendet).order_by("nummer"):
             wert = request.POST.get(f"gezaehlt_{a.pk}", "").strip()
             if wert:
                 try:
@@ -328,8 +333,12 @@ def inventur_liste(request):
                     messages.error(request, f"{a.nummer}: {fehler}")
         messages.success(request, f"{gebucht} Differenzbuchung(en) erstellt.")
         return redirect(request.get_full_path())
-    artikel = nach_kategorie(suche(q, alle) if q else alle, kategorie).filter(nicht_aktiv=nicht_aktiv)
-    zeilen_ = sorted(({"artikel": a, "soll": summen.get(a.pk, Decimal("0")), "platz": plaetze.get(a.pk, "")}
-                      for a in artikel.select_related("kategorie")), key=lambda z: (z["platz"], z["artikel"].nummer))
+    artikel = nach_kategorie(suche(q, lagerartikel) if q else alle, kategorie).filter(nicht_aktiv=nicht_aktiv)
+    zeilen_ = sorted(({"artikel": a, "soll": summen.get(a.pk) or Decimal("0"), "platz": plaetze.get(a.pk, "")}
+                      for a in artikel.select_related("kategorie")),
+                     key=lambda z: (z["artikel"].nummer.lower() != q.lower(), z["platz"], z["artikel"].nummer))
+    gekuerzt = bool(q) and len(zeilen_) > INVENTUR_SUCHE_MAX  # die Suche geht über alle Artikel: Anzeige begrenzen
+    if gekuerzt:
+        zeilen_ = zeilen_[:INVENTUR_SUCHE_MAX]
     return render(request, "lager/inventur.html", {
-        "zeilen": zeilen_, "q": q, "kategorie": kategorie, "nicht_aktiv": nicht_aktiv, "kategorien": kategorien_baum()})
+        "zeilen": zeilen_, "gekuerzt": gekuerzt, "q": q, "kategorie": kategorie, "nicht_aktiv": nicht_aktiv, "kategorien": kategorien_baum()})
