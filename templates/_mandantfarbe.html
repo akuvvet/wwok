@@ -9,3 +9,5 @@ Für die eigenen Seiten (base.html) und die Verwaltung (admin/base_site.html).{%
   }
   .kopfbereich, #header { border-top:4px solid var(--mandantfarbe); }
 </style>{% endif %}
+{% comment %}Flächenfarben (Verwaltung → Mandanten → Aussehen): Kopfbereich, Seitenleiste und Karten getrennt, siehe apps/kern/layout.py.{% endcomment %}
+{% if aktiver_mandant.flaechen_css %}<style data-flaechenfarben>{{ aktiver_mandant.flaechen_css }}</style>{% endif %}

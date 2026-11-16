@@ -57,7 +57,7 @@ class MandantLogoTest(TestCase):
     def test_zu_grosses_oder_kein_bild_wird_abgelehnt(self):
         daten = {"kurzname": "X", "firmenname": "X GmbH", "land": "DE", "smtp_port": 587, "smtp_sicherheit": "starttls",
                  "konto_erloes_19": "8400", "konto_erloes_7": "8300", "konto_erloes_0": "8200", "konto_bank": "1200",
-                 "konto_kasse": "1000", "konto_skonto": "8736", "aktiv": "on"}
+                 "konto_kasse": "1000", "konto_skonto": "8736", "aktiv": "on", "flaechenmodus": "standard"}
         gross = SimpleUploadedFile("g.png", png() + b"0" * (2 * 1024 * 1024 + 1))
         form = MandantForm(daten, {"logo": gross})
         self.assertIn("logo", form.errors)
