@@ -46,7 +46,29 @@ class InventurFilterTest(TestCase):
         self.assertEqual(self.nummern(q="schwarz funk"), ["M100"])
         self.assertEqual(self.nummern(q="k200"), ["K200"])
         self.assertEqual(self.nummern(q="4001234567890"), ["M100"])  # EAN (Scanner)
-        self.assertEqual(self.nummern(q="maus"), ["M100"])  # nicht: ohne Bestand, anderer Mandant
+        # die Suche findet auch Artikel ohne Bestand in diesem Mandanten (Soll 0), damit sie sich einzählen lassen
+        self.assertEqual(sorted(self.nummern(q="maus")), ["L400", "M100", "Z500"])
+
+    def test_suche_findet_artikel_ohne_bestand_und_artikelnummer_steht_oben(self):
+        """Artikel 23278 hat Bestand 0; ein anderer Artikel mit Bestand trägt 23278 in der EAN. Beide erscheinen, der gesuchte zuerst."""
+        st = Steuersatz.objects.first()
+        gesucht = Artikel.objects.create(nummer="23278", bezeichnung="Netzteil", steuersatz=st)
+        anderer = Artikel.objects.create(nummer="23482", bezeichnung="Lüfter", ean="4002327800017", steuersatz=st)
+        buche_manuell(self.m, anderer, Bewegungsart.WARENEINGANG, Decimal("2"))
+        r = self.client.get(reverse("lager:inventur_liste"), {"q": "23278"})
+        self.assertEqual([z["artikel"].nummer for z in r.context["zeilen"]], ["23278", "23482"])
+        self.assertEqual(r.context["zeilen"][0]["soll"], Decimal("0"))
+        self.assertContains(r, 'name="gezaehlt_%d"' % gesucht.pk)
+        self.assertNotIn("23278", self.nummern())  # ohne Suchbegriff bleibt die Zählliste bei Artikeln mit Bestand
+        self.client.post(reverse("lager:inventur_liste") + "?q=23278", {f"gezaehlt_{gesucht.pk}": "1", f"soll_{gesucht.pk}": "0"})
+        self.assertEqual(bestand(self.m, gesucht), Decimal("1"))
+
+    def test_suche_ist_auf_hoechstzahl_begrenzt(self):
+        st = Steuersatz.objects.first()
+        Artikel.objects.bulk_create(Artikel(nummer=f"B{i:04d}", bezeichnung="Blende", steuersatz=st) for i in range(205))
+        r = self.client.get(reverse("lager:inventur_liste"), {"q": "blende"})
+        self.assertEqual(len(r.context["zeilen"]), 200)
+        self.assertContains(r, "bitte genauer suchen")
 
     def test_haken_nicht_aktiv_zeigt_nur_nicht_aktive(self):
         self.assertEqual(self.nummern(q="tastatur"), [])
@@ -120,8 +142,11 @@ class InventurFilterTest(TestCase):
         self.assertContains(self.client.get(url), 'name="nicht_aktiv" value="1" >')
         self.assertContains(self.client.get(url, {"nicht_aktiv": "1"}), 'name="nicht_aktiv" value="1" checked')
 
-    def test_buchen_ignoriert_artikel_ohne_bestand_und_fremden_mandanten(self):
+    def test_buchen_auch_ohne_bestand_nur_im_eigenen_mandanten_und_keine_leistung(self):
+        leistung = Artikel.objects.create(nummer="D600", bezeichnung="Dienstleistung", typ="L", steuersatz=Steuersatz.objects.first())
         self.client.post(reverse("lager:inventur_liste"),
-                         {f"gezaehlt_{self.leer.pk}": "2", f"gezaehlt_{self.zone.pk}": "9"})
+                         {f"gezaehlt_{self.leer.pk}": "2", f"gezaehlt_{self.zone.pk}": "9", f"gezaehlt_{leistung.pk}": "4",
+                          "gezaehlt_abc": "1"})
         self.assertEqual((bestand(self.m, self.leer), bestand(self.m, self.zone), bestand(self.m2, self.zone)),
-                         (Decimal("0"), Decimal("0"), Decimal("3")))
+                         (Decimal("2"), Decimal("9"), Decimal("3")))  # der Bestand des anderen Mandanten bleibt unberührt
+        self.assertEqual(bestand(self.m, leistung), Decimal("0"))

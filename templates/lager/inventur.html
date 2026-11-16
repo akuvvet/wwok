@@ -13,10 +13,10 @@
     <noscript><button type="submit" class="leise">Filtern</button></noscript>
     <button type="button" class="leise" onclick="window.print()">Zählliste drucken</button>
   </form>
-  <p style="opacity:.8">Gezählte Menge eintragen; leere Zeilen bleiben unverändert. Eingetragene Mengen bleiben beim Suchen und Filtern erhalten. Beim Speichern werden Differenzen automatisch als Inventurbuchung gebucht. Wurde ein Artikel seit dem Öffnen der Liste verkauft oder eingebucht, wird er nicht gebucht und gemeldet.</p>
+  <p style="opacity:.8">Ohne Suchbegriff stehen hier nur Artikel mit Bestand; die Suche findet auch Artikel mit Bestand 0. Gezählte Menge eintragen; leere Zeilen bleiben unverändert. Eingetragene Mengen bleiben beim Suchen und Filtern erhalten. Beim Speichern werden Differenzen automatisch als Inventurbuchung gebucht. Wurde ein Artikel seit dem Öffnen der Liste verkauft oder eingebucht, wird er nicht gebucht und gemeldet.</p>
   <form method="post" id="zaehlliste">{% csrf_token %}
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
-  <p data-zahl>{{ zeilen|length }} Artikel mit Bestand</p>
+  <p data-zahl>{% if q %}{{ zeilen|length }} Treffer, auch Artikel ohne Bestand{% if gekuerzt %} (nur die ersten {{ zeilen|length }} – bitte genauer suchen){% endif %}{% else %}{{ zeilen|length }} Artikel mit Bestand{% endif %}</p>
   <table>
     <tr><th>Lagerplatz</th><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Soll</th><th>gezählt</th></tr>
     {% for z in zeilen %}
