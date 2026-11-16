@@ -294,7 +294,8 @@ def bestellvorschlag(mandant) -> list:
             ziel, grund = Decimal(fest[artikel_id]), "Mindestbestand"
         else:
             ziel, grund = (verkauft[artikel_id] / 3).to_integral_value(rounding="ROUND_CEILING"), "Verkaufsverlauf (1 Monat)"
-        haben = bestand(mandant, artikel) - reserviert(mandant, artikel) + offen_bestellt(mandant, artikel, mit_entwurf=True)
+        # Bedarf sind alle offenen Kundenbestellungen, auch Positionen ohne Haken „R“ (sie warten auf genau diese Ware)
+        haben = bestand(mandant, artikel) - reserviert(mandant, artikel, mit_wartenden=True) + offen_bestellt(mandant, artikel, mit_entwurf=True)
         if ziel > 0 and haben < ziel:
             al = guenstigster_lieferant(artikel)
             vorschlag.append({"artikel": artikel, "ziel": ziel, "haben": haben, "menge": ziel - haben, "grund": grund,

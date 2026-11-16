@@ -74,18 +74,20 @@ def bestand(mandant, artikel) -> Decimal:
         s=models.Sum("menge"))["s"] or Decimal("0")
 
 
-def reservierende_positionen(mandant):
+def reservierende_positionen(mandant, mit_wartenden=False):
     """Positionen, die Bestand reservieren: Kundenbestellungen und nicht stornierte Proforma-Rechnungen.
     Positionen ohne Haken „R“ (Position.reservieren) halten nichts fest: sie warten auf den Wareneingang."""
     from apps.verkauf.models import Belegart, Position, stornierte_proformas
-    return Position.objects.filter(beleg__mandant=mandant, beleg__art__in=(Belegart.AUFTRAG, Belegart.PROFORMA), reservieren=True)       .exclude(beleg__in=stornierte_proformas())
+    return Position.objects.filter(beleg__mandant=mandant, beleg__art__in=(Belegart.AUFTRAG, Belegart.PROFORMA),
+                                   **({} if mit_wartenden else {"reservieren": True}))       .exclude(beleg__in=stornierte_proformas())
 
 
-def reserviert(mandant, artikel) -> Decimal:
+def reserviert(mandant, artikel, mit_wartenden=False) -> Decimal:
     """Offene Menge in Kundenbestellungen: bestellt minus schon in Lieferschein/Rechnung übernommen (Rückstand zählt mit).
     Eine Proforma (Vorkasse) übernimmt die Reservierung ihrer Bestellung, bis sie zur Rechnung wird oder storniert ist."""
     from apps.verkauf.models import mit_offener_menge
-    offen = mit_offener_menge(reservierende_positionen(mandant).filter(artikel=artikel))
+    # mit_wartenden (Bestellvorschlag): auch Positionen ohne Haken „R“ – sie sind Bedarf, auch wenn sie nichts festhalten
+    offen = mit_offener_menge(reservierende_positionen(mandant, mit_wartenden).filter(artikel=artikel))
     return offen.filter(offen__gt=0).aggregate(s=models.Sum("offen"))["s"] or Decimal("0")
 
 
