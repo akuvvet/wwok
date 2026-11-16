@@ -978,8 +978,8 @@ class Beleg(Zeitstempel):
             return []
         offen, frei, eigen, liste = self.offene_mengen(), {}, {}, []
         for p in self.positionen.select_related("artikel"):  # eigene Reservierung je Artikel (inkl. Unterpositionen)
-            if p.artikel_id and p.artikel.typ == Artikeltyp.A:
-                eigen[p.artikel_id] = eigen.get(p.artikel_id, Decimal("0")) + p.offen_menge
+            if p.artikel_id and p.artikel.typ == Artikeltyp.A:  # ohne Haken „R“ reserviert die Position nichts
+                eigen[p.artikel_id] = eigen.get(p.artikel_id, Decimal("0")) + (p.offen_menge if p.reservieren else Decimal("0"))
         for p in self.positionen.filter(gruppe__isnull=True).select_related("artikel"):
             if p.pk not in offen or not p.artikel_id or p.artikel.typ != Artikeltyp.A:
                 continue
@@ -1583,7 +1583,7 @@ def kopiere_positionen(quelle, ziel, mengen=None, ausser=()):
             beleg=ziel, gruppe=neu.get(p.gruppe_id), typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung,
             preisliste_artikel=p.preisliste_artikel, menge=menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent,
             steuer_prozent=p.steuer_prozent, zusatztext=p.zusatztext, lieferschein=lieferschein or p.lieferschein,
-            quellposition=p, preis_fest=p.preis_fest)
+            quellposition=p, preis_fest=p.preis_fest)  # reservieren wird nicht kopiert: eine Kopie startet mit Haken „R“
 
 
 UEBERNAHME_ARTEN = (Belegart.LIEFERSCHEIN, Belegart.RECHNUNG, Belegart.PROFORMA)  # nur diese Folgebelege zählen als Teilübernahme
@@ -1667,6 +1667,10 @@ class Position(Zeitstempel):
         "aus der Bestellung verschoben", default=False, editable=False,
         help_text="Die Menge dieser Position im Lieferschein, in der Rechnung oder Proforma wurde aus der Bestellung herausgenommen "
                   "(die Bestellung behält nur den Rest). Alte Kopien (False) lassen die Bestellmenge unverändert.")
+    reservieren = models.BooleanField(
+        "reservieren", default=True,
+        help_text="Spalte R der Bestellung: Ohne Haken hält die Position keinen Lagerbestand fest (sie wartet auf den Wareneingang); "
+                  "der Bestand ist für andere Bestellungen frei.")
 
     class Meta:
         verbose_name = "Position"

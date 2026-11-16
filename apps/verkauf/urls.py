@@ -19,6 +19,7 @@ urlpatterns = [
     path("beleg/<int:beleg_id>/position/import/", views.positionen_import, name="positionen_import"),
     path("beleg/<int:beleg_id>/position/<int:position_id>/aendern/", views.position_aendern, name="position_aendern"),
     path("beleg/<int:beleg_id>/position/<int:position_id>/loeschen/", views.position_loeschen, name="position_loeschen"),
+    path("beleg/<int:beleg_id>/position/<int:position_id>/reservieren/", views.position_reservieren, name="position_reservieren"),
     path("beleg/<int:beleg_id>/position/<int:position_id>/bestand/", views.position_ruecknahme, name="position_ruecknahme"),
     path("beleg/<int:beleg_id>/position/<int:position_id>/gruppenpreis/", views.gruppenpreis, name="gruppenpreis"),
     path("beleg/<int:beleg_id>/loeschen/", views.beleg_loeschen, name="beleg_loeschen"),

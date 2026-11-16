@@ -283,9 +283,10 @@ def beleg_detail(request, beleg_id):
         if p.artikel_id and p.artikel.typ == "A" and not beleg.abgeschlossen and beleg.art in ("AB", "LS", "RE"):
             frei = bestand(beleg.mandant, p.artikel) - reserviert(beleg.mandant, p.artikel)
             if beleg.art == "AB":
-                frei += p.offen_menge  # die eigene Reservierung nicht doppelt zählen
+                if p.reservieren:
+                    frei += p.offen_menge  # die eigene Reservierung nicht doppelt zählen
             elif beleg.vorgaenger_id and beleg.vorgaenger.art == "AB":  # der Rückstand der Bestellung blockiert ihre Teillieferung nicht
-                frei += sum((q.offen_menge for q in beleg.vorgaenger.positionen.filter(artikel=p.artikel)), Decimal("0"))
+                frei += sum((q.offen_menge for q in beleg.vorgaenger.positionen.filter(artikel=p.artikel, reservieren=True)), Decimal("0"))
             if frei < (p.offen_menge if beleg.art == "AB" else p.menge):
                 p.knapp = max(frei, Decimal("0"))  # angezeigt wird nie ein Minusbestand
         # Bezeichnung in Rot: der Bestand reicht nicht, oder (Bestellung) Preislistenartikel, der noch nicht im Lager ist
@@ -711,6 +712,26 @@ def position_loeschen(request, beleg_id, position_id):
         p.delete()
         beleg.berechne()
     messages.success(request, "Gespeichert.")
+    return redirect("verkauf:beleg", beleg_id=beleg.pk)
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+def position_reservieren(request, beleg_id, position_id):
+    """Spalte R der Bestellung: Haken = die Position reserviert ihre offene Menge; ohne Haken hält sie keinen Lagerbestand fest
+    (sie wartet auf den Wareneingang) und der Bestand ist für andere Bestellungen frei."""
+    with transaction.atomic():
+        beleg = beleg_holen(request, beleg_id, sperren=True)
+        if beleg.art != Belegart.AUFTRAG:
+            raise ValueError("Reservieren lässt sich nur in einer Bestellung wählen.")
+        p = get_object_or_404(Position, pk=position_id, beleg=beleg, artikel__typ="A")
+        p.reservieren = request.POST.get("reservieren") == "1"
+        p.save()
+    if p.reservieren:
+        messages.success(request, f"{p.bezeichnung}: wird wieder reserviert.")
+    else:
+        messages.success(request, f"{p.bezeichnung}: Reservierung aufgehoben – der Lagerbestand ist für andere Bestellungen frei.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 

@@ -59,7 +59,9 @@ def _anteil(menge, teil, gesamt, name) -> Decimal:
 
 
 def _kopie(quelle, beleg, menge, pos, gruppe, verschoben=True, mit_quelle=True) -> Position:
+    # Der Haken „R“ (reservieren) wandert mit: Teilmenge in die Proforma und Rückbuchung in die Bestellung behalten ihn
     return Position.objects.create(
+        reservieren=quelle.reservieren,
         beleg=beleg, gruppe=gruppe, pos=pos, typ=quelle.typ, artikel=quelle.artikel, bezeichnung=quelle.bezeichnung,
         preisliste_artikel=quelle.preisliste_artikel, menge=menge, einzelpreis=quelle.einzelpreis,
         rabatt_prozent=quelle.rabatt_prozent, steuer_prozent=quelle.steuer_prozent, zusatztext=quelle.zusatztext,
