@@ -201,14 +201,68 @@ class UmwandelnTest(TestCase):
         ab.refresh_from_db()
         self.assertEqual(ab.art, Belegart.AUFTRAG)
 
-    def test_bestellung_mit_zahlung_wird_kopiert(self):
+    def test_bestellung_mit_anzahlung_wird_umgewandelt_zahlung_ist_teilzahlung(self):
+        """Entscheidung 16.11.2026: Die Anzahlung hindert die Umwandlung nicht; es bleibt keine leere Bestellung zurück."""
+        from apps.finanzen.services import offen, zahlung_buchen
         ab = self.beleg(Belegart.AUFTRAG)
+        alt = ab.nummer
         Zahlung.objects.create(mandant=self.m, beleg=ab, betrag=Decimal("10"))
         re = ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG)
+        self.assertEqual((re.pk, re.art), (ab.pk, Belegart.RECHNUNG))
+        self.assertFalse(Beleg.objects.filter(art=Belegart.AUFTRAG).exists())
+        self.assertEqual(re.zahlungen.count(), 1)
+        re.abschliessen()
+        self.assertEqual(offen(re), Decimal("37.60"))  # 47,60 brutto, 10,00 angezahlt
+        self.assertFalse(Anzahlungsverrechnung.objects.exists())  # nichts zu verrechnen: die Zahlung hängt an der Rechnung
+        text = " ".join(PdfReader(io.BytesIO(beleg_pdf(re))).pages[0].extract_text().split())
+        self.assertIn("abzüglich erhaltene Zahlung -10,00 €", text)
+        self.assertIn("Restbetrag 37,60 €", text)
+        self.assertIn(f"(Bestellung {alt})", text)
+        import xml.etree.ElementTree as ET
+        from .zugferd import xml_erzeugen
+        ram = "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}"
+        Mandant.objects.filter(pk=self.m.pk).update(strasse="Weg 1", plz="42651", ort="Solingen", ust_id="DE123456789",
+                                                    iban="DE02120300000000202051", email="info@okay.test")
+        Kunde.objects.filter(pk=self.kunde.pk).update(strasse="Str. 2", plz="10115", ort="Berlin")
+        re = Beleg.objects.get(pk=re.pk)
+        summen = ET.fromstring(xml_erzeugen(re)).find(f".//{ram}SpecifiedTradeSettlementHeaderMonetarySummation")
+        self.assertEqual((summen.find(ram + "TotalPrepaidAmount").text, summen.find(ram + "DuePayableAmount").text),
+                         ("10.00", "37.60"))  # E-Rechnung und Druckbild nennen dieselben Beträge
+        zahlung_buchen(re, Decimal("5"), timezone.localdate(), "UE")  # spätere Zahlung ändert den ausgestellten Beleg nicht
+        text = " ".join(PdfReader(io.BytesIO(beleg_pdf(re))).pages[0].extract_text().split())
+        self.assertIn("Restbetrag 37,60 €", text)
+        self.assertEqual(offen(re), Decimal("32.60"))
+
+    def test_anzahlung_ueber_dem_rechnungsbetrag_druckt_restbetrag_null(self):
+        from apps.finanzen.services import offen
+        ab = self.beleg(Belegart.AUFTRAG)
+        Zahlung.objects.create(mandant=self.m, beleg=ab, betrag=Decimal("60"))
+        re = ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG)
+        re.abschliessen()
+        text = " ".join(PdfReader(io.BytesIO(beleg_pdf(re))).pages[0].extract_text().split())
+        self.assertIn("abzüglich erhaltene Zahlung -47,60 €", text)
+        self.assertIn("Restbetrag 0,00 €", text)
+        self.assertEqual(offen(re), Decimal("-12.40"))  # der Rest ist Guthaben des Kunden
+
+    def test_bestellung_mit_anzahlung_vorlaeufig_umwandeln_und_verwerfen(self):
+        from . import vorgang
+        ab = self.beleg(Belegart.AUFTRAG)
+        alt = ab.nummer
+        Zahlung.objects.create(mandant=self.m, beleg=ab, betrag=Decimal("10"))
+        re = ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG, vorlaeufig=True)
+        self.assertEqual((re.pk, re.art, re.vorlaeufig), (ab.pk, Belegart.RECHNUNG, True))
+        vorgang.beleg_verwerfen(re, self.benutzer, "test")
+        ab.refresh_from_db()
+        self.assertEqual((ab.art, ab.nummer, ab.zahlungen.count()), (Belegart.AUFTRAG, alt, 1))
+
+    def test_bestellung_mit_anzahlung_teilmenge_bleibt_bestellung(self):
+        ab = self.beleg(Belegart.AUFTRAG, menge=20)  # nur 10 am Lager: Teillieferung
+        Zahlung.objects.create(mandant=self.m, beleg=ab, betrag=Decimal("10"))
+        p = ab.positionen.get()
+        re = ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG, entscheidungen={p.pk: "10"})
         ab.refresh_from_db()
         self.assertNotEqual(re.pk, ab.pk)
-        self.assertEqual(ab.art, Belegart.AUFTRAG)
-        self.assertEqual(ab.zahlungen.count(), 1)
+        self.assertEqual((ab.art, ab.zahlungen.count(), ab.positionen.get().menge), (Belegart.AUFTRAG, 1, Decimal("10")))
 
     def test_bestellung_mit_anzahlungsverrechnung_wird_kopiert(self):
         ab = self.beleg(Belegart.AUFTRAG)
@@ -354,9 +408,19 @@ class UmwandelnTest(TestCase):
         self.assertIn(f"Angebot {alt} in Bestellung (nicht gespeichert) umgewandelt", " ".join(self.meldungen(r)))
         self.assertNotIn("Rückstand", " ".join(self.meldungen(r)))
 
-    def test_meldung_bei_zahlung_neue_rechnung(self):
+    def test_meldung_bei_anzahlung_geht_als_teilzahlung_mit(self):
         ab = self.beleg(Belegart.AUFTRAG)
         Zahlung.objects.create(mandant=self.m, beleg=ab, betrag=Decimal("10"))
+        r = self.client.post(reverse("verkauf:beleg_folgebeleg", args=[ab.pk]), {"von_art": "AB", "art": "RE"}, follow=True)
+        self.assertIn("in der Rechnung als Teilzahlung", " ".join(self.meldungen(r)))
+        ab.refresh_from_db()
+        self.assertEqual((ab.art, ab.vorlaeufig, ab.zahlungen.count()), (Belegart.RECHNUNG, True, 1))
+
+    def test_meldung_bei_verrechneter_anzahlung_neue_rechnung(self):
+        ab = self.beleg(Belegart.AUFTRAG)
+        Zahlung.objects.create(mandant=self.m, beleg=ab, betrag=Decimal("10"))
+        andere = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde)
+        Anzahlungsverrechnung.objects.create(mandant=self.m, quelle=ab, rechnung=andere, betrag=Decimal("5"))
         r = self.client.post(reverse("verkauf:beleg_folgebeleg", args=[ab.pk]), {"von_art": "AB", "art": "RE"}, follow=True)
         self.assertIn("gibt es Zahlungen", " ".join(self.meldungen(r)))
         ab.refresh_from_db()
@@ -412,11 +476,20 @@ class UmwandelnTest(TestCase):
         self.assertEqual(re.pk, ab.pk)  # umgewandelt
         self.assertEqual(re.bezug_text, f"Bestellung {ab_nummer}")
 
-    def test_umwandeln_bricht_ab_wenn_inzwischen_zahlung_da_ist(self):
+    def test_umwandeln_nimmt_inzwischen_gebuchte_zahlung_mit(self):
         ab = self.beleg(Belegart.AUFTRAG)
         veraltet = Beleg.objects.get(pk=ab.pk)
         Zahlung.objects.create(mandant=self.m, beleg=ab, betrag=Decimal("10"))
-        with self.assertRaisesMessage(ValueError, "Zahlungen"):
+        veraltet._umwandeln(Belegart.RECHNUNG)
+        self.assertEqual(Beleg.objects.get(pk=ab.pk).art, Belegart.RECHNUNG)
+        self.assertEqual(Zahlung.objects.get().beleg_id, ab.pk)
+
+    def test_umwandeln_bricht_ab_wenn_inzwischen_verrechnet_wurde(self):
+        ab = self.beleg(Belegart.AUFTRAG)
+        veraltet = Beleg.objects.get(pk=ab.pk)
+        andere = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde)
+        Anzahlungsverrechnung.objects.create(mandant=self.m, quelle=ab, rechnung=andere, betrag=Decimal("5"))
+        with self.assertRaisesMessage(ValueError, "verrechnete Zahlungen"):
             veraltet._umwandeln(Belegart.RECHNUNG)
         self.assertEqual(Beleg.objects.get(pk=ab.pk).art, Belegart.AUFTRAG)
         self.assertEqual(BelegUmwandlung.objects.count(), 0)

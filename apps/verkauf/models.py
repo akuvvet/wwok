@@ -1030,8 +1030,10 @@ class Beleg(Zeitstempel):
 
     def umwandlung_moeglich(self, art, mengen, p_ids) -> bool:
         """Wird beim Übernehmen der Beleg selbst umgewandelt (Angebot -> Bestellung, Bestellung -> Rechnung) statt kopiert?
-        Nur bei vollständiger Übernahme; bei einer Teilübernahme (P-Artikel, Engpass/Teilmenge, schon vorhandene Folgebelege,
-        Zahlungen oder Anzahlungsverrechnungen) entsteht wie bisher ein neuer Beleg und der Rest bleibt im Ursprungsbeleg."""
+        Nur bei vollständiger Übernahme; bei einer Teilübernahme (P-Artikel, Engpass/Teilmenge, schon vorhandene Folgebelege
+        oder Anzahlungsverrechnungen) entsteht wie bisher ein neuer Beleg und der Rest bleibt im Ursprungsbeleg.
+        Zahlungen auf der Bestellung (Anzahlung) hindern nicht (Entscheidung 16.11.2026): Sie hängen am selben Datensatz und
+        sind nach der Umwandlung Teilzahlungen der Rechnung; es bleibt keine leere Bestellung zurück."""
         if (self.art, art) not in UMWANDELBAR or p_ids or not self.pk:
             return False
         if self.folgebelege.exists():  # auch stornierte Proforma und frühere Kopien: sonst zählten deren Positionen als übernommen
@@ -1039,7 +1041,7 @@ class Beleg(Zeitstempel):
         if BelegVorgang.objects.filter(quelle=self, quelle_abgeschlossen_durch_vorgang=True).exclude(beleg=self).exists():
             return False  # Kopie als Angebot noch offen: sie schließt dieses Angebot beim Speichern ab, also nicht umwandeln
         if art == Belegart.RECHNUNG:
-            if mengen is None or self.zahlungen.exists() or self.anzahlung_verrechnungen.exists():
+            if mengen is None or self.anzahlung_verrechnungen.exists():
                 return False
             for p in self.positionen.filter(pk__in=self.echte_hauptpositionen()):
                 if mengen.get(p.pk, Decimal("0")) != p.menge:
@@ -1058,9 +1060,10 @@ class Beleg(Zeitstempel):
             aktuell = Beleg.objects.select_for_update().get(pk=self.pk)
             if (aktuell.art, art) not in UMWANDELBAR or aktuell.art != self.art or aktuell.nummer != self.nummer:
                 raise ValueError(f"{self} wurde inzwischen umgewandelt – bitte den Beleg neu öffnen.")
-            # Bedingungen nach der Sperre erneut prüfen: zwischenzeitlich Folgebeleg/Zahlung -> nicht umwandeln
-            if (aktuell.folgebelege.exists() or aktuell.zahlungen.exists() or aktuell.anzahlung_verrechnungen.exists()):
-                raise ValueError(f"{self}: Inzwischen gibt es Folgebelege oder Zahlungen – bitte den Beleg neu öffnen und erneut übernehmen.")
+            # Bedingungen nach der Sperre erneut prüfen: zwischenzeitlich Folgebeleg/Verrechnung -> nicht umwandeln.
+            # Zahlungen (Anzahlung auf der Bestellung) gehen mit: sie hängen an diesem Datensatz
+            if aktuell.folgebelege.exists() or aktuell.anzahlung_verrechnungen.exists():
+                raise ValueError(f"{self}: Inzwischen gibt es Folgebelege oder verrechnete Zahlungen – bitte den Beleg neu öffnen und erneut übernehmen.")
             if BelegVorgang.objects.filter(quelle=aktuell, quelle_abgeschlossen_durch_vorgang=True).exclude(beleg=aktuell).exists():
                 raise ValueError(f"{self}: Eine nicht gespeicherte Kopie wird beim Speichern dieses Belegs abschließen – "
                                  "bitte die Kopie zuerst speichern oder verwerfen.")

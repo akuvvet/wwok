@@ -61,8 +61,26 @@ def abgegeben(beleg) -> Decimal:
 def angerechnet_im_druck(beleg) -> Decimal:
     """Anzahlungen, die beim Abschluss der Rechnung verrechnet wurden: Sie stehen unveränderlich im Ausdruck und in der
     E-Rechnung. Spätere Verrechnungen oder Aufhebungen ändern den ausgestellten Beleg nicht (wie Gutschriftverrechnungen)."""
-    return beleg.anzahlungen.filter(bei_abschluss=True, storno_zu__isnull=True).aggregate(
-        s=models.Sum("betrag"))["s"] or Decimal("0")
+    return (beleg.anzahlungen.filter(bei_abschluss=True, storno_zu__isnull=True).aggregate(
+        s=models.Sum("betrag"))["s"] or Decimal("0")) + anzahlung_bei_umwandlung(beleg)[0]
+
+
+def anzahlung_bei_umwandlung(beleg) -> tuple:
+    """Rechnung, die aus einer Bestellung umgewandelt wurde: (Betrag, Datum der letzten Zahlung, Umwandlung) der Anzahlungen,
+    die bis zur Umwandlung auf die Bestellung gebucht waren. Sie hängen am selben Datensatz und stehen im Ausdruck und in der
+    E-Rechnung als erhaltene Zahlung, höchstens bis zum Rechnungsbetrag (der Rest ist Guthaben). Spätere Zahlungen und Stornos
+    ändern den ausgestellten Beleg nicht (GoBD). Ohne Umwandlung oder ohne Anzahlung: (0, None, None)."""
+    leer = (Decimal("0"), None, None)
+    if beleg.art != Belegart.RECHNUNG or not beleg.pk:
+        return leer
+    umwandlung = beleg.umwandlungen.filter(von_art=Belegart.AUFTRAG, nach_art=Belegart.RECHNUNG).order_by("-pk").first()
+    if umwandlung is None:
+        return leer
+    vorher = Zahlung.objects.filter(beleg=beleg, erfasst_am__lte=umwandlung.am)
+    summe = min(vorher.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0"), beleg.summe_brutto)
+    if summe <= 0:
+        return leer
+    return summe, vorher.filter(betrag__gt=0).aggregate(d=models.Max("datum"))["d"], umwandlung
 
 
 def summen_je_beleg(belege) -> dict:
