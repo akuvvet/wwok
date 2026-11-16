@@ -828,6 +828,8 @@ def beleg_folgebeleg(request, beleg_id):
     if neu.pk == beleg.pk:  # der Beleg selbst wurde umgewandelt, es gibt keinen neuen
         messages.success(request, f"{vorher[1]} {vorher[2] or '(nicht abgeschlossen)'} in {neu.get_art_display()} "
                                   f"{neu.nummer or '(nicht gespeichert)'} umgewandelt – ohne „Speichern: abschließen & Nummer vergeben“ wird das verworfen.")
+        if vorher[0] == Belegart.AUFTRAG and neu.art == Belegart.RECHNUNG and neu.zahlungen.exists():
+            messages.info(request, "Die Anzahlung der Bestellung geht mit: Sie steht in der Rechnung als Teilzahlung.")
         return redirect("verkauf:beleg", beleg_id=neu.pk)
     if vorher[0] == Belegart.AUFTRAG and art == Belegart.RECHNUNG and (beleg.zahlungen.exists() or beleg.anzahlung_verrechnungen.exists()):
         messages.info(request, f"Zur Bestellung {vorher[2] or ''} gibt es Zahlungen: Es wurde eine neue Rechnung angelegt, "

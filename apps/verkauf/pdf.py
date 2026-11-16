@@ -36,6 +36,13 @@ def anzahlungen(beleg) -> list:
         if z["s"]:
             quelle = beleg.__class__.objects.get(pk=z["quelle"])
             zeilen.append((quelle, z["s"], quelle.zahlungen.filter(betrag__gt=0).aggregate(d=Max("datum"))["d"]))
+    # Aus einer Bestellung umgewandelt: ihre Anzahlungen hängen direkt an der Rechnung (Stand bei der Umwandlung, GoBD)
+    from apps.finanzen.services import anzahlung_bei_umwandlung
+    summe, datum, umwandlung = anzahlung_bei_umwandlung(beleg)
+    if summe:
+        from types import SimpleNamespace
+        frueher = SimpleNamespace(get_art_display=lambda: Belegart(umwandlung.von_art).label, nummer=umwandlung.von_nummer)
+        zeilen.append((frueher, summe, datum))
     return zeilen
 
 

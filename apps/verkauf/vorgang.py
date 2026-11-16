@@ -195,7 +195,9 @@ def verwerfhindernis(beleg, vorgang=None):
     mails = beleg.mails.filter(zeitpunkt__gte=vorgang.angelegt_am) if umwandlung else beleg.mails
     if mails.exists():
         return "Der Beleg wurde per E-Mail versendet; der Versandnachweis muss erhalten bleiben."
-    if beleg.zahlungen.exists():
+    # Ebenso die Anzahlung der Bestellung: Sie ging mit in die Rechnung und bleibt beim Zurückwandeln an der Bestellung.
+    zahlungen = beleg.zahlungen.filter(erfasst_am__gte=vorgang.angelegt_am) if umwandlung else beleg.zahlungen
+    if zahlungen.exists():
         return "Zum Beleg gibt es Zahlungen – bitte zuerst stornieren."
     if beleg.anzahlung_verrechnungen.exists():
         return "Zahlungen dieses Belegs sind mit einer Rechnung verrechnet – er muss erhalten bleiben."
