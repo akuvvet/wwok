@@ -751,6 +751,18 @@ class TeillieferungTest(VorlaeufigBasis):
         self.assertTrue(BelegUebernahme.objects.filter(zielposition=maus).exists())  # Verlauf des gelieferten Teils bleibt
         self.assertFalse(BelegUebernahme.objects.filter(zielposition=k).exists())
 
+    def test_bestellung_zeigt_bezeichnung_ohne_lagerbestand_in_rot(self):
+        ab = self.beleg()
+        self.pos(ab, menge="2")
+        self.pos(ab, self.knapp, menge="5", preis="8")
+        ab.berechne()
+        r = self.client.get(reverse("verkauf:beleg", args=[ab.pk]))
+        self.assertEqual([(p.bezeichnung, p.fehlt) for p in r.context["positionen"]], [("Maus", False), ("Knapp", True)])
+        self.assertContains(r, '<span class="gefahr-text" data-fehlt title="Nicht ausreichend auf Lager">Knapp</span>')
+        self.assertContains(r, "data-fehlt", count=1)  # die lieferbare Position bleibt normal
+        buche_manuell(self.m, self.knapp, Bewegungsart.WARENEINGANG, D("5"))  # Ware da: nicht mehr rot
+        self.assertNotContains(self.client.get(reverse("verkauf:beleg", args=[ab.pk])), "data-fehlt")
+
     def test_teillieferung_ueber_die_view_leitet_auf_die_bestellung(self):
         ab = self.beleg()
         self.pos(ab, menge="2")

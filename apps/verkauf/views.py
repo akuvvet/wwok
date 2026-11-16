@@ -288,6 +288,8 @@ def beleg_detail(request, beleg_id):
                 frei += sum((q.offen_menge for q in beleg.vorgaenger.positionen.filter(artikel=p.artikel)), Decimal("0"))
             if frei < (p.offen_menge if beleg.art == "AB" else p.menge):
                 p.knapp = max(frei, Decimal("0"))  # angezeigt wird nie ein Minusbestand
+        # Bezeichnung in Rot: der Bestand reicht nicht, oder (Bestellung) Preislistenartikel, der noch nicht im Lager ist
+        p.fehlt = p.knapp is not None or bool(beleg.art == "AB" and not beleg.abgeschlossen and p.preisliste_artikel_id)
         if beleg.art == "AB" and p.pk and not p.gruppe_id:  # Altdaten (Kopie): „5 von 10 geliefert, 5 offen“
             p.geliefert = p.uebernommen
             p.rueckstand = p.menge - p.geliefert if p.geliefert > 0 else None
