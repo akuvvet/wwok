@@ -26,6 +26,7 @@ urlpatterns = [
     path("datev/", views.datev_export, name="datev"),
     path("mahnwesen/", views.mahnwesen, name="mahnwesen"),
     path("mahnwesen/erstellen/", views.mahnungen_erstellen, name="mahnungen_erstellen"),
+    path("mahnwesen/sammel/", views.mahnungen_sammel, name="mahnungen_sammel"),
     path("mahnung/<int:mahnung_id>/pdf/", views.mahnung_pdf_ansicht, name="mahnung_pdf"),
     path("mahnung/<int:mahnung_id>/mail/", views.mahnung_mail, name="mahnung_mail"),
 ]

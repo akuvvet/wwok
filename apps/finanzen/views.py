@@ -12,13 +12,14 @@ from django.views.decorators.http import require_POST
 from apps.stammdaten.models import Kunde
 from apps.kern.rechte import nur_admin
 from apps.kern.seiten import blaettern
-from apps.verkauf.mail import MailFehler, senden
+from apps.verkauf.mail import SAMMELVERSAND_MAX, MailFehler
 from apps.verkauf.models import Beleg, Belegart
 from apps.verkauf.views import mit_mandant
 
 from . import bank as bankmodul
 from . import datev as datevmodul
 from . import anzahlung as anzahlungmodul
+from . import mahnversand
 from . import services
 from .mahntext import mail_fuer
 from . import lastschrift as lastschriftmodul
@@ -257,9 +258,12 @@ def kontoauszug(request, kunde_id):
 
 @mit_mandant
 def mahnwesen(request):
+    bisher = Mahnung.objects.filter(beleg__mandant=request.mandant).select_related("beleg", "beleg__kunde")
+    nur_offen = request.GET.get("nur") == "offen"  # weder gesendet noch gedruckt
+    if nur_offen:
+        bisher = bisher.filter(gesendet_am__isnull=True, gedruckt_am__isnull=True)
     return render(request, "finanzen/mahnwesen.html", {
-        "vorschlag": services.mahnvorschlag(request.mandant),
-        "bisher": Mahnung.objects.filter(beleg__mandant=request.mandant).select_related("beleg", "beleg__kunde")[:50]})
+        "vorschlag": services.mahnvorschlag(request.mandant), "bisher": bisher[:50], "nur_offen": nur_offen})
 
 
 @mit_mandant
@@ -299,22 +303,61 @@ def mahnung_pdf_ansicht(request, mahnung_id):
 
 @mit_mandant
 def mahnung_mail(request, mahnung_id):
-    from apps.verkauf.mail import adressen
     mahnung = mahnung_holen(request, mahnung_id)
-    beleg = mahnung.beleg
-    ap = beleg.ansprechpartner
-    an = ", ".join(dict.fromkeys(
-        a for a in [(ap.email if ap and ap.email else beleg.kunde.email)] + adressen(beleg.kunde.email_weitere) if a))
+    an = mahnversand.empfaenger(mahnung)
     betreff, text = mail_fuer(mahnung)
     if request.method == "POST":
         an, betreff, text = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
         try:
-            senden(beleg, an, betreff, text, mahnung_pdf(mahnung), f"Mahnung-{beleg.nummer}-{mahnung.stufe}.pdf", request.user)
+            mahnversand.mahnung_senden(mahnung, an, betreff, text, request.user)
             messages.success(request, f"{mahnung} versendet.")
             return redirect("finanzen:mahnwesen")
         except MailFehler as fehler:
             messages.error(request, str(fehler))
     return render(request, "finanzen/mahnung_mail.html", {"mahnung": mahnung, "an": an, "betreff": betreff, "text": text})
+
+
+@mit_mandant
+@require_POST
+def mahnungen_sammel(request):
+    """Mehrere Mahnungen auf einmal: ein gemeinsames PDF zum Drucken oder Sammelversand nach bestätigter Übersicht."""
+    ids = [int(i) for i in request.POST.getlist("mahnung") if i.isdigit()]
+    mahnungen = list(Mahnung.objects.filter(pk__in=ids, beleg__mandant=request.mandant)
+                     .select_related("beleg", "beleg__kunde", "beleg__mandant", "beleg__ansprechpartner").order_by("beleg__kunde__name1", "id"))
+    if not mahnungen:
+        messages.error(request, "Keine Mahnung ausgewählt.")
+        return redirect("finanzen:mahnwesen")
+    if request.POST.get("aktion") == "drucken":
+        antwort = HttpResponse(mahnversand.sammel_pdf(mahnungen), content_type="application/pdf")
+        antwort["Content-Disposition"] = f'inline; filename="Mahnungen-{timezone.localdate():%Y-%m-%d}.pdf"'
+        return antwort
+    if not request.POST.get("bestaetigt"):  # erst die Übersicht mit Empfängern zeigen
+        zeilen = [{"mahnung": m, "an": mahnversand.empfaenger(m), "betreff": mail_fuer(m)[0]} for m in mahnungen]
+        frei = SAMMELVERSAND_MAX  # vorausgewählt werden die ersten 15 noch nicht gesendeten mit Adresse
+        for z in zeilen:
+            z["gewaehlt"] = bool(z["an"]) and not z["mahnung"].gesendet_am and frei > 0
+            frei -= z["gewaehlt"]
+        return render(request, "finanzen/mahnung_sammelversand.html", {
+            "zeilen": zeilen, "sendbar": sum(1 for z in zeilen if z["an"]), "ohne": sum(1 for z in zeilen if not z["an"]),
+            "max": SAMMELVERSAND_MAX})
+    if sum(1 for m in mahnungen if mahnversand.empfaenger(m)) > SAMMELVERSAND_MAX:
+        messages.error(request, f"Höchstens {SAMMELVERSAND_MAX} Mahnungen je Versand – nichts gesendet. Bitte in mehreren Durchgängen senden.")
+        return redirect("finanzen:mahnwesen")
+    gesendet, ohne_adresse = 0, []
+    for m in mahnungen:
+        if not mahnversand.empfaenger(m):
+            ohne_adresse.append(f"{m.beleg.nummer} ({m.beleg.kunde.name1})")
+            continue
+        try:
+            mahnversand.mahnung_senden(m, benutzer=request.user)
+            gesendet += 1
+        except MailFehler as fehler:
+            messages.error(request, f"{m.beleg.nummer} ({m.beleg.kunde.name1}): {fehler}")
+    if gesendet:
+        messages.success(request, f"{gesendet} Mahnung(en) per E-Mail gesendet.")
+    if ohne_adresse:
+        messages.warning(request, "Ohne E-Mail-Adresse, nicht gesendet – bitte drucken: " + ", ".join(ohne_adresse))
+    return redirect("finanzen:mahnwesen")
 
 
 # ---- Lieferanten: dieselbe Liste wie Einkauf → Lieferantenrechnungen, nach Aufgabe getrennt -----------
