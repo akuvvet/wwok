@@ -211,6 +211,17 @@ class VergleichTest(TestCase):
         p.refresh_from_db()
         self.assertEqual(p.bezeichnung, "Maus")
 
+    def test_bezeichnung_schon_beim_uebernehmen_der_bestellposition(self):
+        b = services.bestellung_anlegen(self.m, self.kosa)
+        seite = self.client.get(reverse("einkauf:bestellung", args=[b.pk]))
+        self.assertContains(seite, "Bezeichnung (leer = wie Artikel)")
+        url = reverse("einkauf:bestellung_position", args=[b.pk])
+        self.client.post(url, {"artikel": "A1", "menge": "1", "bezeichnung": "Maus  Sondermodell"})
+        self.assertEqual(b.positionen.get().bezeichnung, "Maus Sondermodell")
+        zweite = services.bestellung_anlegen(self.m, self.api)
+        self.client.post(reverse("einkauf:bestellung_position", args=[zweite.pk]), {"artikel": "A1", "menge": "1"})
+        self.assertEqual(zweite.positionen.get().bezeichnung, "Maus")
+
     def test_position_menge_und_preis_nachtraeglich_aendern(self):
         b = services.bestellung_anlegen(self.m, self.kosa)
         p = services.bestellposition(b, self.a, D("1"), ek=D("15.6543"))

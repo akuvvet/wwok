@@ -183,7 +183,7 @@
         <div id="trefferliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:520px;max-height:320px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
     {% if gruppen %}<div><label>zu Gruppe</label><select name="gruppe"><option value="">–</option>{% for g in gruppen %}<option value="{{ g.pk }}"{% if g.pk == gruppe_vorgabe %} selected{% endif %}>{{ g.pos }} {{ g.bezeichnung }}</option>{% endfor %}</select>
       {% if gruppe_vorgabe %}<input type="hidden" name="gruppe_auto" id="gruppe_auto" value="1" data-vorgabe="{{ gruppe_vorgabe }}">{% endif %}</div>{% endif %}
-    <div><label>Bezeichnung (nur bei freier Position)</label><input name="bezeichnung" id="bezeichnung" size="24"></div>
+    <div><label>Bezeichnung (leer = wie Artikel)</label><input name="bezeichnung" id="bezeichnung" size="24" maxlength="255" title="Eigener Text für diese Position: gilt für alle Typen (A, P, L, G), wird so gedruckt und in alle Folgebelege übernommen. Leer = Bezeichnung des Artikels; bei einer freien Position Pflicht."></div>
     <div><label>Menge</label><input name="menge" value="1" size="5"></div>
     <div><label>Preis netto</label><input name="preis" id="preis" size="9"></div>
     <div><label>Rabatt %</label><input name="rabatt" size="5"></div>

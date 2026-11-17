@@ -88,6 +88,27 @@ def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None
                                           bezeichnung=artikel.bezeichnung, menge=menge, ek=ek if ek is not None else ek_runden(vorschlag))
 
 
+def bezeichnung_original(position) -> str:
+    """Bezeichnung laut Artikel bzw. Preisliste (Kunden- oder Bestellposition); leer bei freier Position."""
+    if position.artikel_id:
+        return position.artikel.bezeichnung[:255]
+    return position.preisliste_artikel.bezeichnung[:255] if position.preisliste_artikel_id else ""
+
+
+def bezeichnung_setzen(position, text):
+    """Vom Benutzer eingegebene Bezeichnung einer Bestellposition; leer = Bezeichnung des Artikels."""
+    text = (" ".join((text or "").split()) or bezeichnung_original(position))[:255]
+    if text and text != position.bezeichnung:
+        position.bezeichnung = text
+        position.save(update_fields=["bezeichnung"])
+
+
+def bezeichnung_uebernehmen(neu, quelle):
+    """Hat der Benutzer die Bezeichnung der Kundenposition geändert, gilt sie auch in der Lieferantenbestellung."""
+    if quelle.bezeichnung and quelle.bezeichnung != bezeichnung_original(quelle):
+        bezeichnung_setzen(neu, quelle.bezeichnung)
+
+
 def bestellen_pruefen(bestellung):
     """Vor dem Bestellen (und vor dem Versand der Bestellmail): Positionen vorhanden, Bestellung nicht storniert."""
     if bestellung.status == BestellStatus.STORNIERT:
@@ -358,11 +379,12 @@ def bestellungen_aus_beleg(beleg, modus=None, grund="", benutzer=None, wahl=None
         b = bestellung_anlegen(beleg.mandant, lieferant, bemerkung, aus_beleg=beleg, benutzer=benutzer)
         for p, menge, angebot in zeilen_:
             if angebot is None:
-                bestellposition(b, p.artikel, menge, preisliste_artikel=p.preisliste_artikel)
+                neu = bestellposition(b, p.artikel, menge, preisliste_artikel=p.preisliste_artikel)
             elif angebot["eintrag"] is not None:  # Typ P: die Preislistenzeile des gewählten Lieferanten
-                bestellposition(b, None, menge, preisliste_artikel=angebot["eintrag"])
+                neu = bestellposition(b, None, menge, preisliste_artikel=angebot["eintrag"])
             else:
-                bestellposition(b, p.artikel, menge, ek=angebot["ek"])
+                neu = bestellposition(b, p.artikel, menge, ek=angebot["ek"])
+            bezeichnung_uebernehmen(neu, p)
         ergebnis.append(b)
     if not ergebnis:
         raise ValueError("Keiner der Artikel hat einen Lieferanten in den Preislisten.")
