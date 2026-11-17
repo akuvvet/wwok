@@ -17,7 +17,7 @@ from django.utils import timezone
 from apps.kern.models import Mandant
 from apps.lager.models import Bewegungsart
 from apps.lager.services import buche_manuell
-from apps.stammdaten.models import Artikel, ArtikelBild, Hersteller, Kategorie, Steuersatz
+from apps.stammdaten.models import Artikel, ArtikelBild, GruppenKomponente, Hersteller, Kategorie, Steuersatz
 
 from . import services
 from .models import Shop, ShopArtikel, ShopBestellung, ShopKategorie, SyncProtokoll
@@ -162,7 +162,7 @@ class ArtikeldatenTest(Basis):
         c = self.client_fuer()
         services.artikeldaten_senden(self.shop, c, nummer="A2")
         self.assertEqual([e["productNumber"] for e in c.gesendet], ["A2"])
-        with self.assertRaisesRegex(ShopFehler, "nicht online"):
+        with self.assertRaisesRegex(ShopFehler, "gibt es nicht"):
             services.artikeldaten_senden(self.shop, c, nummer="GIBTSNICHT")
 
     def test_fehler_bei_einem_artikel_stoppt_die_anderen_nicht(self):
@@ -212,6 +212,47 @@ class ArtikeldatenTest(Basis):
             c = self.client_fuer()
             services.artikeldaten_senden(self.shop, c)
         self.assertEqual(c.gesendet[0]["stock"], 0)
+
+    def gruppe(self):
+        g = Artikel.objects.create(nummer="G1", typ="G", bezeichnung="Bundle", steuersatz=self.st, vk1=D("180"), online=True,
+                                   bezeichnung_erweitert="Komplettpaket")
+        self.ram = Artikel.objects.create(nummer="RAM", bezeichnung="Speicher 8 GB <DDR5>", steuersatz=self.st, vk1=D("40"))
+        GruppenKomponente.objects.create(gruppe=g, komponente=self.a, menge=D("1"))
+        GruppenKomponente.objects.create(gruppe=g, komponente=self.ram, menge=D("2.5"))
+        return g
+
+    def test_gruppe_zeigt_bestandteile_in_der_beschreibung(self):
+        self.gruppe()
+        c = self.client_fuer(G1="pg")
+        services.artikeldaten_senden(self.shop, c, nummer="G1")
+        self.assertEqual(c.gesendet[0]["description"], "<p>Komplettpaket</p>\n\n<p><strong>Bestandteile:</strong></p>\n"
+                         "<ul><li>1 × Notebook</li><li>2,5 × Speicher 8 GB &lt;DDR5&gt;</li></ul>")
+        self.assertNotIn("180", c.gesendet[0]["description"])
+
+    def test_gruppe_ohne_text_sendet_nur_die_bestandteile_und_lagerartikel_keine(self):
+        g = self.gruppe()
+        Artikel.objects.filter(pk=g.pk).update(bezeichnung_erweitert="")
+        c = self.client_fuer(G1="pg", A1="pa")
+        services.artikeldaten_senden(self.shop, c)
+        nach_id = {e["id"]: e for e in c.gesendet}
+        self.assertTrue(nach_id["pg"]["description"].startswith("<p><strong>Bestandteile:"))
+        self.assertNotIn("Bestandteile", nach_id["pa"]["description"])
+
+    def test_geaenderte_komponente_wird_neu_gesendet(self):
+        g = self.gruppe()
+        services.artikeldaten_senden(self.shop, self.client_fuer(G1="pg"), nummer="G1")
+        c = self.client_fuer(G1="pg")
+        self.assertEqual(services.artikeldaten_senden(self.shop, c, nummer="G1")["unveraendert"], 1)
+        g.komponenten.filter(komponente=self.ram).update(menge=D("4"))
+        d = self.client_fuer(G1="pg")
+        services.artikeldaten_senden(self.shop, d, nummer="G1")
+        self.assertIn("<li>4 × Speicher", d.gesendet[0]["description"])
+
+    def test_gruppe_ohne_komponenten_bleibt_ohne_liste(self):
+        Artikel.objects.create(nummer="G2", typ="G", bezeichnung="Leer", steuersatz=self.st, vk1=D("1"), online=True)
+        c = self.client_fuer(G2="pg")
+        services.artikeldaten_senden(self.shop, c, nummer="G2")
+        self.assertNotIn("description", c.gesendet[0])
 
     def test_steuersatz_fehlt_im_shop(self):
         self.a.steuersatz = Steuersatz.objects.create(bezeichnung="7", prozent=D("7.00"))
@@ -622,6 +663,52 @@ class OfflineTest(Basis):
         self.assertIs(e.gesendet[0]["active"], True)
         self.assertTrue(ShopArtikel.objects.get().im_shop_aktiv)
 
+    def test_artikeldaten_senden_mit_nummer_deaktiviert_den_offline_artikel(self):
+        self.melden()
+        self.a.online = False
+        self.a.save()
+        c = FakeClient(self.shop, produkte={"A1": "prod-1"})
+        erg = services.artikeldaten_senden(self.shop, c, nummer="A1")
+        self.assertEqual(c.gesendet, [{"id": "prod-1", "active": False}])
+        self.assertEqual(erg["deaktiviert"], 1)
+        self.assertIn("1 im Shop deaktiviert", services.artikeldaten_meldung(erg))
+        self.assertFalse(ShopArtikel.objects.get().im_shop_aktiv)
+        d = FakeClient(self.shop, produkte={"A1": "prod-1"})  # im Shop von Hand wieder eingeschaltet: erneut abschalten
+        services.artikeldaten_senden(self.shop, d, nummer="A1")
+        self.assertEqual(d.gesendet, [{"id": "prod-1", "active": False}])
+
+    def test_artikeldaten_senden_ohne_nummer_deaktiviert_ebenfalls(self):
+        Artikel.objects.create(nummer="A2", bezeichnung="x", steuersatz=self.st, vk1=D("1"), online=True)
+        services.abgleichen(self.shop, FakeClient(self.shop, produkte={"A1": "prod-1", "A2": "prod-2"}))
+        self.a.nicht_aktiv = True
+        self.a.save()
+        c = FakeClient(self.shop, produkte={"A1": "prod-1", "A2": "prod-2"})
+        erg = services.artikeldaten_senden(self.shop, c)
+        self.assertEqual(erg["deaktiviert"], 1)
+        self.assertEqual(c.gesendet[0], {"id": "prod-1", "active": False})
+        self.assertNotIn("prod-1", [e["id"] for e in c.gesendet[1:]])
+        self.assertFalse(ShopArtikel.objects.get(artikel=self.a).im_shop_aktiv)
+
+    def test_nie_gemeldeter_offline_artikel_bleibt_unberuehrt(self):
+        self.a.online = False
+        self.a.save()
+        c = FakeClient(self.shop, produkte={"A1": "fremd"})
+        with self.assertRaisesRegex(ShopFehler, "nie an diesen Shop gemeldet"):
+            services.artikeldaten_senden(self.shop, c, nummer="A1")
+        self.assertEqual(c.gesendet, [])
+
+    def test_fehler_beim_deaktivieren_haelt_die_artikeldaten_nicht_auf(self):
+        Artikel.objects.create(nummer="A2", bezeichnung="x", steuersatz=self.st, vk1=D("1"), online=True)
+        services.abgleichen(self.shop, FakeClient(self.shop, produkte={"A1": "prod-1", "A2": "prod-2"}))
+        self.a.online = False
+        self.a.save()
+        c = FakeClient(self.shop, produkte={"A1": "prod-1", "A2": "prod-2"})
+        c.produkt_vorhanden = mock.Mock(side_effect=ShopFehler("Shop antwortet mit 500"))
+        erg = services.artikeldaten_senden(self.shop, c)
+        self.assertEqual(erg["aktualisiert"], 1)
+        self.assertTrue(SyncProtokoll.objects.filter(art="artikeldaten", erfolgreich=False, meldung__contains="Deaktivieren").exists())
+        self.assertTrue(ShopArtikel.objects.get(artikel=self.a).im_shop_aktiv)
+
     def test_massenhaftes_abschalten_wird_gebremst(self):
         Artikel.objects.bulk_create([Artikel(nummer=f"M{i}", bezeichnung="x", steuersatz=self.st, vk1=D("1"), online=True) for i in range(51)])
         produkte = {f"M{i}": f"p{i}" for i in range(51)}
@@ -878,7 +965,11 @@ class MaskeTest(Basis):
             r = self.client.post(url, {"nummer": " A1 "}, follow=True)
             self.assertContains(r, "1 neu angelegt")
             r = self.client.post(url, {"nummer": "NEIN"}, follow=True)
-            self.assertContains(r, "nicht online")
+            self.assertContains(r, "Artikel NEIN gibt es nicht.")
+            Artikel.objects.filter(pk=self.a.pk).update(online=False)
+            with mock.patch.object(FakeClient, "produkt_vorhanden", return_value=True):
+                r = self.client.post(url, {"nummer": "A1"}, follow=True)
+            self.assertContains(r, "1 im Shop deaktiviert")
 
     def test_nur_fuer_admins(self):
         self.client.force_login(get_user_model().objects.create_user("t", password="x" * 14))
