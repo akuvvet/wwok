@@ -271,9 +271,12 @@ def bestellung_position(request, bestellung_id):
     menge, ek = zahl(request.POST.get("menge"), Decimal("1")), zahl(request.POST.get("ek"))
     if menge <= 0:
         raise ValueError("Die Menge muss größer als 0 sein.")
+    text = request.POST.get("bezeichnung", "").strip()
     if request.POST.get("pl"):  # in der Suche gewählter Artikel aus der Preisliste des Lieferanten
         eintrag = get_object_or_404(Preislistenartikel.objects.select_related("lieferant", "artikel"), pk=request.POST["pl"])
-        services.bestellposition(b, None, menge, ek, preisliste_artikel=eintrag)
+        neu = services.bestellposition(b, None, menge, ek, preisliste_artikel=eintrag)
+        if text:
+            services.bezeichnung_setzen(neu, text)
         return redirect("einkauf:bestellung", bestellung_id=b.pk)
     code = request.POST.get("artikel", "").strip()
     artikel = Artikel.objects.filter(nummer__iexact=code).first() or services.artikel_per_code(code, b.lieferant)
@@ -281,9 +284,11 @@ def bestellung_position(request, bestellung_id):
         eintrag = services.preislisten_treffer(code, b.lieferant)
         if eintrag is None:
             raise ValueError(f"Artikel '{code}' nicht gefunden.")
-        services.bestellposition(b, None, menge, ek, preisliste_artikel=eintrag)  # P-Position, kein eigener Artikel
-        return redirect("einkauf:bestellung", bestellung_id=b.pk)
-    services.bestellposition(b, artikel, menge, ek)
+        neu = services.bestellposition(b, None, menge, ek, preisliste_artikel=eintrag)  # P-Position, kein eigener Artikel
+    else:
+        neu = services.bestellposition(b, artikel, menge, ek)
+    if text:  # eingegebene Bezeichnung gilt, leer = wie Artikel
+        services.bezeichnung_setzen(neu, text)
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
 
 
@@ -353,12 +358,10 @@ def bestellung_position_aendern(request, bestellung_id, position_id):
         menge, ek = vergleich_menge(text) if text else pos.menge, zahl(request.POST.get("ek"), pos.ek)
         if ek < 0 or ek >= Decimal("100000000"):
             raise ValueError("Der Preis darf nicht negativ sein.")
-        bezeichnung = request.POST.get("bezeichnung")
-        if bezeichnung is not None:
-            original = pos.artikel.bezeichnung if pos.artikel_id else (pos.preisliste_artikel.bezeichnung if pos.preisliste_artikel_id else "")
-            pos.bezeichnung = (" ".join(bezeichnung.split()) or original)[:255] or pos.bezeichnung
         pos.menge, pos.ek = menge, services.ek_runden(ek)
-        pos.save(update_fields=["bezeichnung", "menge", "ek"])
+        pos.save(update_fields=["menge", "ek"])
+        if request.POST.get("bezeichnung") is not None:
+            services.bezeichnung_setzen(pos, request.POST["bezeichnung"])
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
 
 

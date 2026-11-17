@@ -53,6 +53,13 @@ class LieferantenkopieTest(TestCase):
 
     # ---- Service ----------------------------------------------------------------------------------
 
+    def test_geaenderte_bezeichnung_geht_in_die_lieferantenbestellung(self):
+        self.p_maus.bezeichnung = "Eingabegerät kabellos"  # vom Benutzer geändert
+        self.p_maus.save()
+        b = self.kopieren()[0]
+        texte = {p.artikel.nummer: p.bezeichnung for p in b.positionen.all()}
+        self.assertEqual(texte, {"M1": "Eingabegerät kabellos", "T1": "Tastatur"})  # unverändert: wie Artikel
+
     def test_erstes_kopieren_ohne_rueckfrage(self):
         self.assertFalse(services.rueckfrage_noetig(self.ab))
         b = self.kopieren()[0]
