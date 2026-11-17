@@ -165,7 +165,9 @@ class _Leer(dict):
 def verbindung(mandant):
     if not (mandant.smtp_host and mandant.absender_email):
         raise MailFehler(f"Für {mandant.kurzname} fehlen SMTP-Server oder Absenderadresse (Verwaltung → Mandanten).")
-    passwort = os.environ.get(f"SMTP_PASSWORD_{mandant.kurzname.upper()}", "")
+    passwort = mandant.smtp_passwort  # aus der Verwaltung (verschlüsselt gespeichert), sonst aus der .env
+    if mandant.smtp_benutzer and not passwort:
+        raise MailFehler(f"Für {mandant.kurzname} ist kein SMTP-Passwort hinterlegt (Verwaltung → Mandanten → E-Mail-Versand).")
     return get_connection(
         backend="django.core.mail.backends.smtp.EmailBackend", host=mandant.smtp_host, port=mandant.smtp_port,
         username=mandant.smtp_benutzer or None, password=passwort or None,

@@ -504,11 +504,13 @@ Die Pflege läuft zusätzlich über die Django-Verwaltungsoberfläche unter **`/
 
 ### 8.5 Konfiguration über `.env`
 
-Grundwerte stehen in `.env.example`. Zusätzlich liest das Programm Geheimnisse **nur aus der `.env` auf dem Server**, nie aus dem Repository und nie aus der Datenbank:
+Grundwerte stehen in `.env.example`. Zusätzlich liest das Programm Geheimnisse aus der `.env` auf dem Server, nie aus dem Repository. In der Datenbank stehen Geheimnisse nie im Klartext.
+
+**Ausnahme Mailversand:** Das Passwort des Mail-Postfachs wird je Mandant in der Verwaltung eingetragen (Verwaltung → Mandanten → E-Mail-Versand). Es wird verschlüsselt gespeichert (Schlüssel abgeleitet aus `DJANGO_SECRET_KEY`), nie wieder angezeigt und steht nicht im Änderungsprotokoll. „Testmail senden“ prüft den Versand. Wird `DJANGO_SECRET_KEY` geändert, muss das Passwort neu eingetragen werden.
 
 | Variable | Zweck |
 | --- | --- |
-| `SMTP_PASSWORD_<MANDANT>` | Passwort des Mail-Postfachs je Mandant (z. B. `SMTP_PASSWORD_OKAY`); Server, Benutzer und Absender stehen am Mandanten |
+| `SMTP_PASSWORD_<MANDANT>` | Nur noch Rückfall: Passwort des Mail-Postfachs je Mandant (z. B. `SMTP_PASSWORD_OKAY`), wenn in der Verwaltung keines hinterlegt ist |
 | `PREISLISTE_PW_<ID>` | Passwort für den Abruf einer Lieferanten-Preisliste (`<ID>` = Nummer des Importprofils, z. B. `PREISLISTE_PW_1`) |
 | `SHOP_SECRET_<ID>` | Zugangsschlüssel der Shopware-API je Shop |
 
@@ -1034,7 +1036,7 @@ Offene Posten aus Mention werden **nicht** importiert.
 
 ### 19.3 Geheimnisse und Rechte
 
-- Passwörter und Schlüssel stehen nur in `.env` auf dem Server (Abschnitt 8.5), Rechte `chmod 600`.
+- Passwörter und Schlüssel stehen in `.env` auf dem Server (Abschnitt 8.5), Rechte `chmod 600`. Ausnahme: das SMTP-Passwort je Mandant, verschlüsselt in der Verwaltung.
 - Wurde ein Passwort versehentlich ausgegeben oder in einen Chat kopiert: **sofort ändern**.
 - Shopware-Integration (Zugang je Shop in Verwaltung → Shops): braucht Lese- und Schreibrecht auf Produkte, Hersteller, Medien, Preise und **Kategorien** (`category`, für das Anlegen fehlender Kategorien, Issue 59) sowie Leserecht auf Verkaufskanäle.
 
