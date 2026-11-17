@@ -256,7 +256,10 @@ def preisvergleich_bestellen(request):
         raise ValueError("Der Preis darf nicht negativ sein.")
     ziel = vergleich.bestellen(request.mandant, int(lieferant) if lieferant.isdigit() else 0, menge, artikel, eintrag, position,
                                vergleich_entwurf(request, request.POST), ek)
-    messages.success(request, f"{'Verschoben nach' if position else 'Aufgenommen in'} Bestellung {ziel.nummer} ({ziel.lieferant.kurz}).")
+    meldung = f"{'Verschoben nach' if position else 'Aufgenommen in'} Bestellung {ziel.nummer} ({ziel.lieferant.kurz})."
+    if ziel.geloeschte_quelle:
+        meldung += f" Die Bestellung {ziel.geloeschte_quelle} hatte keine Position mehr und wurde gelöscht."
+    messages.success(request, meldung)
     return redirect("einkauf:bestellung", bestellung_id=ziel.pk)
 
 

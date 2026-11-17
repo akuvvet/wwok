@@ -6,7 +6,7 @@ der Vergleich sortiert und weist hin, er bestellt nichts selbst."""
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import ProtectedError, Q
 
 from apps.stammdaten.models import ArtikelLieferant, Lieferant, Preislistenartikel
 
@@ -133,7 +133,8 @@ def vergleich(mandant, menge, artikel=None, eintrag=None, ohne_position=None, be
 @transaction.atomic
 def bestellen(mandant, lieferant_id, menge, artikel=None, eintrag=None, position=None, bevorzugt=None, ek=None) -> Bestellung:
     """Legt das gewählte Angebot in den offenen Entwurf des Lieferanten (oder einen neuen) – mit dem Preis aus dem Vergleich.
-    Mit position wird eine Entwurfsposition zum neuen Lieferanten verschoben; ek ersetzt den Preis aus dem Vergleich."""
+    Mit position wird eine Entwurfsposition zum neuen Lieferanten verschoben; ek ersetzt den Preis aus dem Vergleich.
+    Bleibt die ursprüngliche Bestellung dadurch ohne Position, wird sie gelöscht (ziel.geloeschte_quelle nennt sie)."""
     if menge <= 0:
         raise ValueError("Die Menge muss größer als 0 sein.")
     angebot = next((a for a in angebote(artikel, eintrag, menge) if a["lieferant"].pk == lieferant_id), None)
@@ -155,8 +156,19 @@ def bestellen(mandant, lieferant_id, menge, artikel=None, eintrag=None, position
     if angebot["bestellnummer"] and neu.bestellnummer != angebot["bestellnummer"]:
         neu.bestellnummer = angebot["bestellnummer"]
         neu.save(update_fields=["bestellnummer"])
+    ziel.geloeschte_quelle = ""
     if position is not None:
+        quelle = position.bestellung
         position.delete()
+        # die leere Ursprungsbestellung (immer ein Entwurf, siehe Prüfung oben) nicht stehen lassen
+        if not quelle.positionen.exists() and not quelle.wareneingaenge.exists():
+            name = f"{quelle.nummer} ({quelle.lieferant.kurz})"
+            try:
+                with transaction.atomic():
+                    quelle.delete()
+                ziel.geloeschte_quelle = name
+            except ProtectedError:  # hängt noch an anderen Daten: bleibt leer stehen
+                pass
     return ziel
 
 
