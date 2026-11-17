@@ -4,10 +4,11 @@
 <div class="karte">
   <h1>Kategorien zuordnen · {{ shop.name }}</h1>
   <p style="opacity:.8">Vergleich der Online-Kategorien mit dem Shop. Zugeordnet wird über den Namen unter derselben Oberkategorie; was im Shop fehlt, legt „Artikeldaten senden“ an, sobald ein Online-Artikel der Kategorie gesendet wird. Gibt es eine Kategorie im Shop mehrfach, hier die richtige auswählen – danach gilt immer diese.</p>
-  <p class="zeile">
+  <div class="zeile" style="margin:10px 0">
     <a class="knopf" href="{% url 'shop:uebersicht' %}">Zurück zu Shops</a>
+    <form method="post" style="margin:0" data-frage="Alle Kategorien, die es im Shop eindeutig gibt, jetzt fest zuordnen? Im Shop wird nichts geändert, Artikel werden nicht gesendet.">{% csrf_token %}<input type="hidden" name="alle" value="1"><button type="submit">Vorhandene jetzt zuordnen</button></form>
     {% if nur_offene %}<a href="{% url 'shop:kategorien' shop.pk %}">alle {{ anzahl }} anzeigen</a>{% else %}<a href="?nur=offen">nur offene anzeigen ({{ offen }})</a>{% endif %}
-  </p>
+  </div>
   <table>
     <tr><th>Nr.</th><th>Kategorie</th><th>Stand</th><th>Im Shop</th><th>Zuordnen</th></tr>
     {% for z in zeilen %}
