@@ -106,6 +106,29 @@ class VergleichTest(TestCase):
         self.assertFalse(b.positionen.exists())
         self.assertEqual(Bestellung.objects.get(lieferant=self.kosa).positionen.get().menge, D("6"))
 
+    def test_leere_ursprungsbestellung_wird_nach_dem_verschieben_geloescht(self):
+        b = services.bestellung_anlegen(self.m, self.api)
+        p = services.bestellposition(b, self.a, D("6"))
+        nummer = b.nummer
+        r = self.client.post(reverse("einkauf:preisvergleich_bestellen"), {"position": p.pk, "lieferant": self.kosa.pk}, follow=True)
+        self.assertFalse(Bestellung.objects.filter(pk=b.pk).exists())
+        self.assertContains(r, f"Die Bestellung {nummer} (API) hatte keine Position mehr und wurde gelöscht.")
+        self.assertEqual(Bestellung.objects.get().lieferant, self.kosa)
+
+    def test_ursprungsbestellung_mit_weiteren_positionen_bleibt(self):
+        zweiter = Artikel.objects.create(nummer="A2", bezeichnung="Tastatur", steuersatz=self.a.steuersatz)
+        b = services.bestellung_anlegen(self.m, self.api)
+        p = services.bestellposition(b, self.a, D("6"))
+        services.bestellposition(b, zweiter, D("1"), D("5"))
+        r = self.client.post(reverse("einkauf:preisvergleich_bestellen"), {"position": p.pk, "lieferant": self.kosa.pk}, follow=True)
+        self.assertEqual(Bestellung.objects.get(pk=b.pk).positionen.get().artikel, zweiter)
+        self.assertNotContains(r, "wurde gelöscht")
+
+    def test_neu_aufnehmen_loescht_keine_leere_bestellung(self):
+        leer = services.bestellung_anlegen(self.m, self.api)  # leerer Entwurf, nichts wird verschoben
+        self.client.post(reverse("einkauf:preisvergleich_bestellen"), {"artikel": "A1", "menge": "6", "lieferant": self.kosa.pk})
+        self.assertTrue(Bestellung.objects.filter(pk=leer.pk).exists())
+
     def test_bestellte_position_bleibt_und_fremder_mandant_geht_nicht(self):
         b = services.bestellung_anlegen(self.m, self.api)
         p = services.bestellposition(b, self.a, D("1"))
