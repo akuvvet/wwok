@@ -102,11 +102,20 @@ def uebersicht(request):
     zeilen = []
     eks = ek_je_artikel(seite.object_list)
     reserviert_summen = reserviert_je_artikel(request.mandant, [a.pk for a in seite.object_list if summen.get(a.pk)])
+    offline_kategorien = Kategorie.offline_ids()  # dieselbe Regel wie Artikel.objects.shop_sichtbar()
     for a in seite.object_list:
         b = summen.get(a.pk, Decimal("0"))
         r = reserviert_summen.get(a.pk, Decimal("0")) if b else Decimal("0")
         ek, quelle = eks[a.pk]
-        zeilen.append({"artikel": a, "bestand": b, "reserviert": r, "verfuegbar": max(b - r, Decimal("0")), "reparatur": reparatur.get(a.pk, Decimal("0")),
+        if not a.online:
+            online = ("nein", "nicht online")
+        elif a.nicht_aktiv:
+            online = ("verdeckt", "online gesetzt, aber nicht im Shop: Artikel ist nicht aktiv")
+        elif a.kategorie_id in offline_kategorien:
+            online = ("verdeckt", "online gesetzt, aber nicht im Shop: Kategorie ist offline")
+        else:
+            online = ("ja", "online – im Shop sichtbar")
+        zeilen.append({"artikel": a, "online": online, "bestand": b, "reserviert": r, "verfuegbar": max(b - r, Decimal("0")), "reparatur": reparatur.get(a.pk, Decimal("0")),
                        "ek": ek, "ek_quelle": quelle})
     lagerwert = Decimal("0")  # mit demselben EK wie der VK: Import-EK, sonst manueller EK (README 18)
     mit_bestand = list(Artikel.objects.filter(pk__in=[k for k, s in summen.items() if s]))
