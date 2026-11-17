@@ -248,6 +248,18 @@ class ArtikeldatenTest(Basis):
         services.artikeldaten_senden(self.shop, d, nummer="G1")
         self.assertIn("<li>4 × Speicher", d.gesendet[0]["description"])
 
+    def test_gruppe_ist_im_shop_immer_bestellbar_lagerartikel_nur_mit_bestand(self):
+        self.gruppe()  # Komponenten ohne Bestand: gemeldeter Bestand 0
+        c = self.client_fuer()
+        services.artikeldaten_senden(self.shop, c)
+        neu = {e["productNumber"]: e for e in c.gesendet}
+        self.assertEqual((neu["G1"]["isCloseout"], neu["G1"]["stock"]), (False, 0))
+        self.assertIs(neu["A1"]["isCloseout"], True)
+        ShopArtikel.objects.filter(artikel__nummer="G1").update(daten_stand="alt")  # früher mit Abverkauf angelegt
+        d = self.client_fuer(G1=neu["G1"]["id"], A1=neu["A1"]["id"])
+        services.artikeldaten_senden(self.shop, d)
+        self.assertEqual([(e["id"], e["isCloseout"]) for e in d.gesendet], [(neu["G1"]["id"], False)])
+
     def test_gruppe_ohne_komponenten_bleibt_ohne_liste(self):
         Artikel.objects.create(nummer="G2", typ="G", bezeichnung="Leer", steuersatz=self.st, vk1=D("1"), online=True)
         c = self.client_fuer(G2="pg")

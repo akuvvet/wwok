@@ -483,6 +483,8 @@ def produktdaten(artikel) -> dict:
         "metaDescription": artikel.meta_description[:255], "keywords": artikel.meta_keywords[:255],
         "customSearchKeywords": [w.strip() for w in re.split(r"[,;\n]", artikel.keywords) if w.strip()],
     }
+    if artikel.typ == "G":  # Gruppenartikel sind im Shop immer bestellbar, unabhängig vom Bestand der Komponenten
+        werte["isCloseout"] = False
     if artikel.gewicht_kg is not None:
         werte["weight"] = float(artikel.gewicht_kg)
     for feld, wert in (("length", artikel.laenge_cm), ("width", artikel.breite_cm), ("height", artikel.hoehe_cm)):
@@ -742,7 +744,7 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
             raise ShopFehler(f"Steuersatz {a.steuersatz.prozent} % fehlt im Shop.")
         bestand_neu = meldebestand(shop, a) or 0
         eintrag.update({"productNumber": a.nummer, "taxId": steuer_id, "stock": bestand_neu, "active": True,
-                        "isCloseout": True,  # nur verfügbarer Bestand ist bestellbar, Schutz vor Doppelverkauf
+                        "isCloseout": a.typ != "G",  # Lagerartikel: nur verfügbarer Bestand bestellbar, Schutz vor Doppelverkauf
                         "price": preisliste(preis_netto, preis_brutto),
                         "visibilities": [{"id": feste_id(shop, "sichtbar", a.pk), "salesChannelId": client.verkaufskanal(), "visibility": 30}]})
         preis_kunde, brutto_kunde = kundenpreis(shop, a) if lauf["regel_ok"] else (None, None)
