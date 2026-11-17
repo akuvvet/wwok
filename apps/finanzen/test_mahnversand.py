@@ -50,16 +50,18 @@ class MahnversandTest(TestCase):
 
     def test_einzelversand_vermerkt_gesendet(self):
         m = self.mahnung(self.mit)
-        self.assertContains(self.client.get(reverse("finanzen:mahnwesen")), "noch nicht gesendet")
+        # als Symbol mit Tooltip: einmal in der Legende, einmal in der Zeile
+        self.assertContains(self.client.get(reverse("finanzen:mahnwesen")), 'aria-label="noch nicht gesendet"', count=2)
         with postfach():
             self.client.post(reverse("finanzen:mahnung_mail", args=[m.pk]), {"an": "x@example.test", "betreff": "B", "text": "T"})
         m.refresh_from_db()
         self.assertIsNotNone(m.gesendet_am)
         self.assertEqual(m.gesendet_an, "x@example.test")
         seite = self.client.get(reverse("finanzen:mahnwesen"))
-        self.assertContains(seite, "gesendet am")
-        self.assertContains(seite, "x@example.test")
-        self.assertNotContains(seite, "noch nicht gesendet")
+        self.assertContains(seite, 'data-tip="gesendet am ')
+        self.assertContains(seite, "#i-s-mail")
+        self.assertNotContains(seite, "x@example.test")  # die Adresse steht nur im Mailprotokoll
+        self.assertContains(seite, 'aria-label="noch nicht gesendet"', count=1)  # nur noch in der Legende
 
     def test_fehlgeschlagener_versand_wird_angezeigt_und_nach_erfolg_geloescht(self):
         m = self.mahnung(self.mit)
@@ -69,7 +71,7 @@ class MahnversandTest(TestCase):
         m.refresh_from_db()
         self.assertIsNone(m.gesendet_am)
         self.assertTrue(m.versand_fehler)
-        self.assertContains(self.client.get(reverse("finanzen:mahnwesen")), "Versand fehlgeschlagen")
+        self.assertContains(self.client.get(reverse("finanzen:mahnwesen")), 'data-tip="Versand fehlgeschlagen: ')
         self.m.smtp_host = "smtp.example.test"
         self.m.save()
         m = Mahnung.objects.select_related("beleg__mandant").get(pk=m.pk)
@@ -89,7 +91,9 @@ class MahnversandTest(TestCase):
         self.assertIsNotNone(a.gedruckt_am)
         self.assertIsNotNone(b.gedruckt_am)
         self.assertIsNone(a.gesendet_am)
-        self.assertContains(self.client.get(reverse("finanzen:mahnwesen")), "gedruckt am")
+        seite = self.client.get(reverse("finanzen:mahnwesen"))
+        self.assertContains(seite, 'data-tip="gedruckt am ', count=2)
+        self.assertContains(seite, "#i-s-drucker")
 
     def test_sammelversand_zeigt_erst_die_uebersicht(self):
         a, b = self.mahnung(self.mit), self.mahnung(self.ohne)

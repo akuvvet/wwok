@@ -62,6 +62,12 @@ STATUS = {
         "lager": ("artikel", "ok", "im Lager"),
         "verkauft": ("verkauf", "neutral", "verkauft"),
     },
+    "mahnversand": {
+        "offen": ("uhr", "hinweis", "noch nicht gesendet"),
+        "gesendet": ("mail", "ok", "per E-Mail gesendet"),
+        "fehler": ("alarm", "warn", "Versand fehlgeschlagen"),
+        "gedruckt": ("drucker", "ok", "gedruckt"),
+    },
     "esd": {
         "aktiv": ("schluessel", "ok", "vergeben"),
         "freigegeben": ("zurueck", "neutral", "zurück – Key freigegeben"),
