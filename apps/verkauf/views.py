@@ -628,7 +628,8 @@ def gruppenmenge_anpassen(gruppe, menge):
 @require_POST
 @sperr_schutz
 def position_aendern(request, beleg_id, position_id):
-    """Menge, Preis, Rabatt, Zusatztext und Gruppe einer Position ändern (Unterpositionen einer Gruppe: kein Preis und Rabatt)."""
+    """Bezeichnung, Menge, Preis, Rabatt, Zusatztext und Gruppe einer Position ändern (Unterpositionen einer Gruppe: kein Preis
+    und Rabatt). Die Bezeichnung gilt nur für diesen Beleg (und was daraus übernommen wird), der Artikel bleibt unverändert."""
     with transaction.atomic():
         return _position_aendern(request, beleg_id, position_id)
 
@@ -646,6 +647,12 @@ def _position_aendern(request, beleg_id, position_id):
         rabatt = dezimal(request.POST.get("rabatt"), Decimal("0"))
         if not 0 <= rabatt <= 100:
             raise ValueError("Der Rabatt muss zwischen 0 und 100 % liegen.")
+    bezeichnung = request.POST.get("bezeichnung")
+    if bezeichnung is not None:  # leer = wieder die Bezeichnung des Artikels
+        bezeichnung = " ".join(bezeichnung.split())[:255] or positions_original(p)
+        if not bezeichnung:
+            raise ValueError("Die Bezeichnung darf nicht leer sein.")
+        p.bezeichnung = bezeichnung
     meldungen = []
     if menge != p.menge and p.verschoben and not p.gruppe_id and not beleg.positionen_gesperrt:
         meldungen = _mitziehen(p, menge)  # Menge aus der Bestellung: Differenz geht zurück bzw. kommt aus dem Rest
@@ -668,6 +675,13 @@ def _position_aendern(request, beleg_id, position_id):
         getattr(messages, stufe)(request, text)
     messages.success(request, "Gespeichert.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
+
+
+def positions_original(p) -> str:
+    """Bezeichnung laut Artikel bzw. Preisliste; leer bei freier Position."""
+    if p.artikel_id:
+        return p.artikel.bezeichnung[:255]
+    return p.preisliste_artikel.bezeichnung[:255] if p.preisliste_artikel_id else ""
 
 
 def _mitziehen(p, menge) -> list:

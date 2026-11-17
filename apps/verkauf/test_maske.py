@@ -42,6 +42,37 @@ class MaskeTest(TestCase):
         self.pos.refresh_from_db()
         self.assertEqual(self.pos.menge, Decimal("5"))
 
+    def test_bezeichnung_der_position_frei_aenderbar(self):
+        url = reverse("verkauf:position_aendern", args=[self.beleg.pk, self.pos.pk])
+        seite = self.client.get(reverse("verkauf:beleg", args=[self.beleg.pk]))
+        self.assertContains(seite, 'name="bezeichnung" value="Maus" maxlength="255"')
+        self.client.post(url, {"menge": "2", "preis": "10", "rabatt": "0", "bezeichnung": "  Eingabegerät   kabellos "})
+        self.pos.refresh_from_db()
+        self.a.refresh_from_db()
+        self.assertEqual(self.pos.bezeichnung, "Eingabegerät kabellos")
+        self.assertEqual(self.pos.artikel, self.a)  # die Verknüpfung zum Artikel (Lager, Reservierung) bleibt
+        self.assertNotEqual(self.a.bezeichnung, "Eingabegerät kabellos")  # der Artikel selbst bleibt unverändert
+        seite = self.client.get(reverse("verkauf:beleg", args=[self.beleg.pk]))
+        self.assertContains(seite, f"Artikel: {self.a.bezeichnung}")  # intern bleibt das Original sichtbar
+        from .pdf import beleg_pdf
+        self.assertTrue(beleg_pdf(self.beleg).startswith(b"%PDF"))
+        self.client.post(url, {"menge": "2", "preis": "10", "rabatt": "0"})  # ohne Feld: bleibt
+        self.pos.refresh_from_db()
+        self.assertEqual(self.pos.bezeichnung, "Eingabegerät kabellos")
+        self.client.post(url, {"menge": "2", "preis": "10", "rabatt": "0", "bezeichnung": " "})  # leer: Artikelbezeichnung
+        self.pos.refresh_from_db()
+        self.assertEqual(self.pos.bezeichnung, self.a.bezeichnung)
+
+    def test_freie_position_braucht_eine_bezeichnung(self):
+        frei = Position.objects.create(beleg=self.beleg, bezeichnung="Anfahrt", einzelpreis=Decimal("30"))
+        url = reverse("verkauf:position_aendern", args=[self.beleg.pk, frei.pk])
+        self.client.post(url, {"menge": "1", "preis": "30", "rabatt": "0", "bezeichnung": ""})
+        frei.refresh_from_db()
+        self.assertEqual(frei.bezeichnung, "Anfahrt")
+        self.client.post(url, {"menge": "1", "preis": "30", "rabatt": "0", "bezeichnung": "Anfahrt Solingen"})
+        frei.refresh_from_db()
+        self.assertEqual(frei.bezeichnung, "Anfahrt Solingen")
+
     def test_gesperrte_rechnung_nicht_aenderbar(self):
         re = Beleg.objects.create(mandant=self.m, art=Belegart.RECHNUNG, kunde=self.kunde)
         p = Position.objects.create(beleg=re, bezeichnung="Dienst", einzelpreis=Decimal("100"))

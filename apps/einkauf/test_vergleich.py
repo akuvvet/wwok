@@ -195,6 +195,22 @@ class VergleichTest(TestCase):
             self.assertEqual(r.status_code, 302, menge)
         self.assertFalse(Bestellung.objects.exists())
 
+    def test_bezeichnung_der_bestellposition_frei_aenderbar(self):
+        b = services.bestellung_anlegen(self.m, self.kosa)
+        p = services.bestellposition(b, self.a, D("1"))
+        url = reverse("einkauf:bestellung_position_aendern", args=[b.pk, p.pk])
+        self.assertContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), 'name="bezeichnung" value="Maus"')
+        self.client.post(url, {"menge": "1", "ek": "25", "bezeichnung": " Maus  kabellos, schwarz "})
+        p.refresh_from_db()
+        self.a.refresh_from_db()
+        self.assertEqual((p.bezeichnung, p.artikel, self.a.bezeichnung), ("Maus kabellos, schwarz", self.a, "Maus"))
+        self.client.post(url, {"menge": "1", "ek": "25"})  # ohne Feld: bleibt
+        p.refresh_from_db()
+        self.assertEqual(p.bezeichnung, "Maus kabellos, schwarz")
+        self.client.post(url, {"menge": "1", "ek": "25", "bezeichnung": ""})  # leer: Artikelbezeichnung
+        p.refresh_from_db()
+        self.assertEqual(p.bezeichnung, "Maus")
+
     def test_position_menge_und_preis_nachtraeglich_aendern(self):
         b = services.bestellung_anlegen(self.m, self.kosa)
         p = services.bestellposition(b, self.a, D("1"), ek=D("15.6543"))
