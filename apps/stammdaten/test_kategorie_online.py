@@ -62,11 +62,14 @@ class KategorieOnlineTest(TestCase):
         self.artikel("U1", self.unter)
         self.artikel("H1", self.ober)
         self.assertEqual(ma.betroffene_artikel(self.ober), 2)
-        self.assertEqual(ma.shop_status(self.unter), "online")
+        self.assertIn('icon-yes.svg" alt="online"', ma.online_status(self.unter))
         self.ober.online = False
         self.ober.save()
-        self.assertEqual(ma.shop_status(self.unter), "offline (über Hardware)")
-        self.assertEqual(ma.shop_status(self.ober), "offline")
+        self.assertIn('icon-alert.svg" alt="offline über Hardware"', ma.online_status(self.unter))
+        self.assertTrue(ma.online_status(self.unter).endswith(" über Hardware"))
+        self.assertIn('icon-no.svg" alt="offline"', ma.online_status(self.ober))
+        self.assertNotIn("shop_status", ma.list_display)
+        self.assertNotIn("online", ma.list_display)
 
     def test_artikel_hinweis_bei_offline_kategorie(self):
         ma = admin.site._registry[Artikel]

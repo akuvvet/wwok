@@ -3,6 +3,7 @@ from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.template.response import TemplateResponse
+from django.templatetags.static import static
 from django.urls import path, reverse
 from django.utils.html import format_html
 
@@ -402,7 +403,7 @@ class OnlineStatusFilter(admin.SimpleListFilter):
 
 @admin.register(m.Kategorie)
 class KategorieAdmin(admin.ModelAdmin):
-    list_display = ["name", "nummer", "eltern", "online", "shop_status", "artikel_im_shop", "im_shop"]
+    list_display = ["name", "nummer", "eltern", "online_status", "artikel_im_shop", "im_shop"]
     list_filter = [OnlineStatusFilter, "online"]
     search_fields = ["name", "nummer"]
     list_select_related = ["eltern__eltern"]  # der Name zeigt die übergeordneten Ebenen
@@ -417,12 +418,18 @@ class KategorieAdmin(admin.ModelAdmin):
         return ", ".join(f"{z.shop.name}: {'angelegt' if z.angelegt else 'zugeordnet'} (Shop-ID {z.kategorie_id_extern})" for z in obj.shop_zuordnungen.all()) or "–"
     change_form_template = "admin/stammdaten/kategorie/change_form.html"
 
-    @admin.display(description="Shop")
-    def shop_status(self, obj):
+    @admin.display(description="Online", ordering="online")
+    def online_status(self, obj):
+        """Eine Spalte für Häkchen und Wirkung im Shop: grün = online, rot = offline, gelb = Häkchen gesetzt, aber
+        über eine übergeordnete Kategorie offline."""
         grund = obj.offline_grund()
         if grund is None:
-            return "online"
-        return "offline" if grund.pk == obj.pk else f"offline (über {grund.name})"
+            bild, text, zusatz = "yes", "online", ""
+        elif grund.pk == obj.pk:
+            bild, text, zusatz = "no", "offline", ""
+        else:
+            bild, text, zusatz = "alert", f"offline über {grund.name}", f" über {grund.name}"
+        return format_html('<img src="{}" alt="{}" title="{}">{}', static(f"admin/img/icon-{bild}.svg"), text, text, zusatz)
 
     def betroffene_artikel(self, obj):
         """Artikel, die im Shop stehen und beim Ausschalten dieser Kategorie (samt Unterkategorien) deaktiviert würden."""
