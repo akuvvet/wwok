@@ -67,6 +67,31 @@ class KategorienZuordnenTest(TestCase):
         self.assertEqual([(k["name"], k["parentId"]) for k in c.kategorien_geschrieben], [("Curved", "b1")])  # nur die Unterkategorie
         self.assertEqual(c.gesendet[0]["categories"], [{"id": ShopKategorie.objects.get(kategorie=self.unter).kategorie_id_extern}])
 
+    def test_erstabgleich_ordnet_nur_eindeutige_zu_und_aendert_im_shop_nichts(self):
+        c = self.shop_c(DOPPELT + [{"id": "dr", "name": "Drucker", "parentId": "wurzel"}, {"id": "las", "name": "Laser", "parentId": "dr"}])
+        laser = Kategorie.objects.create(name="Laser", eltern=self.neu, online=True)
+        erg = services.kategorien_uebernehmen(self.shop, c)
+        self.assertEqual(erg, {"zugeordnet": 3, "schon": 0, "fehlt": 0, "offen": 2})
+        self.assertEqual(dict(ShopKategorie.objects.values_list("kategorie__name", "kategorie_id_extern")),
+                         {"Zubehör": "zub", "Drucker": "dr", "Laser": "las"})
+        self.assertFalse(ShopKategorie.objects.filter(angelegt=True).exists())
+        self.assertFalse(hasattr(c, "kategorien_geschrieben"))
+        self.assertEqual(c.gesendet, [])  # keine Artikel
+        self.assertEqual(services.kategorien_uebernehmen(self.shop, c)["schon"], 3)
+        self.assertEqual(self.stand(c)[str(laser)]["stand"], "zugeordnet")
+
+    def test_erstabgleich_per_knopf(self):
+        self.client.force_login(get_user_model().objects.create_superuser("chef", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+        url = reverse("shop:kategorien", args=[self.shop.pk])
+        with mock.patch("apps.shop.services.ShopwareClient", lambda shop: self.shop_c()):
+            self.assertContains(self.client.get(url), "Vorhandene jetzt zuordnen")
+            r = self.client.post(url, {"alle": "1"}, follow=True)
+        self.assertContains(r, "1 Kategorien neu zugeordnet")
+        self.assertEqual(ShopKategorie.objects.get().kategorie, self.zub)
+
     def test_ungueltige_zuordnungen_werden_abgelehnt(self):
         for kategorie, ext, meldung in ((self.ober, "", "auswählen"), (self.ober, "gibtsnicht", "gibt es im Shop nicht"),
                                         (Kategorie.objects.get(name="Intern"), "b1", "nicht online")):

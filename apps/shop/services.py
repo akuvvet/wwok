@@ -640,6 +640,26 @@ def kategorien_stand(shop, client=None) -> list:
     return zeilen
 
 
+def kategorien_uebernehmen(shop, client=None) -> dict:
+    """Erstabgleich ohne Artikel: alle Online-Kategorien, die es im Shop eindeutig gibt, fest zuordnen. Im Shop wird
+    nichts angelegt und nichts geändert; fehlende und mehrfach vorhandene bleiben offen."""
+    karte = KategorieKarte(shop, client or ShopwareClient(shop), {})
+    karte.wurzel()
+    ergebnis = {"zugeordnet": 0, "schon": 0, "fehlt": 0, "offen": 0}
+    kategorien = sorted(Kategorie.objects.exclude(pk__in=karte.offline).select_related("eltern__eltern__eltern"), key=lambda k: str(k).casefold())
+    for k in kategorien:  # Oberkategorien stehen im Pfad vor ihren Unterkategorien
+        stand, ext, _ = karte.stand(k)
+        if stand == "eindeutig":
+            karte._merken(k, ext)
+            ergebnis["zugeordnet"] += 1
+        else:
+            ergebnis[{"zugeordnet": "schon", "fehlt": "fehlt"}.get(stand, "offen")] += 1
+    SyncProtokoll.objects.create(shop=shop, art="artikeldaten", meldung=(
+        f"Kategorien abgeglichen: {ergebnis['zugeordnet']} neu zugeordnet, {ergebnis['schon']} waren schon zugeordnet, "
+        f"{ergebnis['fehlt']} fehlen im Shop, {ergebnis['offen']} offen"))
+    return ergebnis
+
+
 def kategorie_zuordnen(shop, kategorie, ext, client=None):
     """Von Hand festlegen, welche Shop-Kategorie zu einer Kategorie gehört; danach gilt immer diese ID."""
     ext = (ext or "").strip()

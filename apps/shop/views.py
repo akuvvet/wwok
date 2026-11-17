@@ -71,6 +71,14 @@ def artikeldaten(request, shop_id):
 def kategorien(request, shop_id):
     """Welche Kategorie entspricht welcher Shop-Kategorie; bei mehreren gleichnamigen im Shop die richtige festlegen."""
     shop = get_object_or_404(Shop, pk=shop_id, mandant=request.mandant, aktiv=True)
+    if request.method == "POST" and request.POST.get("alle"):
+        try:
+            e = services.kategorien_uebernehmen(shop)
+            messages.success(request, f"{e['zugeordnet']} Kategorien neu zugeordnet, {e['schon']} waren schon zugeordnet. "
+                                      f"{e['fehlt']} fehlen im Shop (werden beim Senden eines Artikels angelegt), {e['offen']} sind offen.")
+        except ShopFehler as fehler:
+            messages.error(request, str(fehler))
+        return redirect("shop:kategorien", shop_id=shop.pk)
     if request.method == "POST":
         kategorie = get_object_or_404(Kategorie, pk=request.POST.get("kategorie"))
         try:
