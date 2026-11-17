@@ -99,7 +99,7 @@ class ShopwareClient:
             self.api("POST", "/api/_action/sync", {"write-products": {"entity": "product", "action": "upsert", "payload": payload[i:i + 100]}})
 
     def kategorien(self) -> list:
-        return self._alle("category", ["id", "name", "parentId"])
+        return self._alle("category", ["id", "name", "parentId", "active"])
 
     def navigationswurzel(self) -> str:
         """Hauptnavigation des Verkaufskanals: Unter ihr legt wwok fehlende Kategorien an."""

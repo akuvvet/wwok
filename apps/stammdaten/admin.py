@@ -406,6 +406,7 @@ class KategorieAdmin(admin.ModelAdmin):
     list_filter = [OnlineStatusFilter, "online"]
     search_fields = ["name", "nummer"]
     list_select_related = ["eltern__eltern"]  # der Name zeigt die übergeordneten Ebenen
+    readonly_fields = ["im_shop"]  # nur lesbar: festgelegt wird die Zuordnung unter Shops → „Kategorien zuordnen“
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related("shop_zuordnungen__shop")
@@ -413,7 +414,7 @@ class KategorieAdmin(admin.ModelAdmin):
     @admin.display(description="Kategorie im Shop")
     def im_shop(self, obj):
         """Je Shop: von wwok angelegt oder einer vorhandenen Shop-Kategorie zugeordnet (Issue 59)."""
-        return ", ".join(f"{z.shop.name}: {'angelegt' if z.angelegt else 'zugeordnet'}" for z in obj.shop_zuordnungen.all()) or "–"
+        return ", ".join(f"{z.shop.name}: {'angelegt' if z.angelegt else 'zugeordnet'} (Shop-ID {z.kategorie_id_extern})" for z in obj.shop_zuordnungen.all()) or "–"
     change_form_template = "admin/stammdaten/kategorie/change_form.html"
 
     @admin.display(description="Shop")

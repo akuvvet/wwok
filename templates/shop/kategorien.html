@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block titel %}Shop-Kategorien – wwok{% endblock %}
+{% block inhalt %}
+<div class="karte">
+  <h1>Kategorien zuordnen · {{ shop.name }}</h1>
+  <p style="opacity:.8">Vergleich der Online-Kategorien mit dem Shop. Zugeordnet wird über den Namen unter derselben Oberkategorie; was im Shop fehlt, legt „Artikeldaten senden“ an, sobald ein Online-Artikel der Kategorie gesendet wird. Gibt es eine Kategorie im Shop mehrfach, hier die richtige auswählen – danach gilt immer diese.</p>
+  <p class="zeile">
+    <a class="knopf" href="{% url 'shop:uebersicht' %}">Zurück zu Shops</a>
+    {% if nur_offene %}<a href="{% url 'shop:kategorien' shop.pk %}">alle {{ anzahl }} anzeigen</a>{% else %}<a href="?nur=offen">nur offene anzeigen ({{ offen }})</a>{% endif %}
+  </p>
+  <table>
+    <tr><th>Nr.</th><th>Kategorie</th><th>Stand</th><th>Im Shop</th><th>Zuordnen</th></tr>
+    {% for z in zeilen %}
+    <tr>
+      <td>{{ z.kategorie.nummer|default:"" }}</td>
+      <td>{{ z.kategorie }}</td>
+      <td>{% if z.stand == "zugeordnet" %}<span class="marke ok">zugeordnet</span>
+          {% elif z.stand == "eindeutig" %}<span class="marke ok">im Shop vorhanden</span>
+          {% elif z.stand == "fehlt" %}<span class="marke">fehlt im Shop</span>
+          {% elif z.stand == "doppelt" %}<span class="marke gesperrt">im Shop mehrfach</span>
+          {% else %}<span class="marke gesperrt">Oberkategorie offen</span>{% endif %}</td>
+      <td>{% if z.pfad %}<a href="{{ shop.url }}/admin#/sw/category/index/{{ z.ext }}" target="_blank" rel="noopener">{{ z.pfad }}</a>{% if z.stand == "eindeutig" %}<br><small>wird beim nächsten Senden zugeordnet</small>{% endif %}
+          {% elif z.stand == "fehlt" %}<small>wird beim Senden eines Artikels angelegt</small>
+          {% elif z.stand == "doppelt" %}{% for k in z.kandidaten %}<a href="{{ shop.url }}/admin#/sw/category/index/{{ k.id }}" target="_blank" rel="noopener">{{ k.pfad }}</a>{% if k.inaktiv %} (inaktiv){% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+          {% else %}<small>erst die Oberkategorie zuordnen</small>{% endif %}</td>
+      <td><form method="post" class="zeile" style="margin:0">{% csrf_token %}<input type="hidden" name="kategorie" value="{{ z.kategorie.pk|stringformat:'d' }}">
+          {% if z.kandidaten %}<select name="ext" aria-label="Shop-Kategorie für {{ z.kategorie }}"><option value="">– auswählen –</option>
+            {% for k in z.kandidaten %}<option value="{{ k.id }}">{{ forloop.counter }}. {{ k.pfad }}{% if k.inaktiv %} (inaktiv){% endif %}</option>{% endfor %}</select>{% endif %}
+          <input name="ext_frei" size="20" maxlength="64" placeholder="Shop-Kategorie-ID" aria-label="ID der Shop-Kategorie für {{ z.kategorie }}" title="ID aus Shopware: steht in der Adresse, wenn die Kategorie dort geöffnet ist">
+          <button type="submit">zuordnen</button></form></td>
+    </tr>
+    {% empty %}<tr><td colspan="5">{% if nur_offene %}Nichts offen: Alle Kategorien sind eindeutig.{% else %}Keine Online-Kategorien.{% endif %}</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

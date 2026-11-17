@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.kern.rechte import nur_admin
+from apps.stammdaten.models import Kategorie
 from apps.verkauf.views import mit_mandant
 
 from . import services
@@ -63,3 +64,27 @@ def artikeldaten(request, shop_id):
     except ShopFehler as fehler:
         messages.error(request, str(fehler))
     return redirect("shop:uebersicht")
+
+
+@mit_mandant
+@nur_admin
+def kategorien(request, shop_id):
+    """Welche Kategorie entspricht welcher Shop-Kategorie; bei mehreren gleichnamigen im Shop die richtige festlegen."""
+    shop = get_object_or_404(Shop, pk=shop_id, mandant=request.mandant, aktiv=True)
+    if request.method == "POST":
+        kategorie = get_object_or_404(Kategorie, pk=request.POST.get("kategorie"))
+        try:
+            pfad = services.kategorie_zuordnen(shop, kategorie, request.POST.get("ext") or request.POST.get("ext_frei"))
+            messages.success(request, f"„{kategorie}“ gehört jetzt zur Shop-Kategorie „{pfad}“. Die Artikel folgen beim nächsten „Artikeldaten senden“.")
+        except ShopFehler as fehler:
+            messages.error(request, str(fehler))
+        return redirect("shop:kategorien", shop_id=shop.pk)
+    try:
+        zeilen = services.kategorien_stand(shop)
+    except ShopFehler as fehler:
+        messages.error(request, str(fehler))
+        zeilen = []
+    nur_offene = request.GET.get("nur") == "offen"
+    offen = [z for z in zeilen if z["stand"] in ("doppelt", "eltern")]
+    return render(request, "shop/kategorien.html", {
+        "shop": shop, "zeilen": offen if nur_offene else zeilen, "anzahl": len(zeilen), "offen": len(offen), "nur_offene": nur_offene})
