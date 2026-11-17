@@ -1,3 +1,4 @@
+from collections import Counter
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
@@ -8,6 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.kern.models import Mandant
+from apps.shop.models import Shop, ShopArtikel
 from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie, _ek_quelle, ek_je_artikel, keine_leistung
 from apps.stammdaten.preise import gruppen_kalkulation
 from apps.verkauf.views import mit_mandant
@@ -104,6 +106,9 @@ def uebersicht(request):
     reserviert_summen = reserviert_je_artikel(request.mandant, [a.pk for a in seite.object_list if summen.get(a.pk)])
     vk_feld = f"vk{request.mandant.standard_vk}"  # Standard-VK des Mandanten (Verwaltung → Mandanten)
     offline_kategorien = Kategorie.offline_ids()  # dieselbe Regel wie Artikel.objects.shop_sichtbar()
+    shops = list(Shop.objects.filter(mandant=request.mandant, aktiv=True).values_list("pk", flat=True))
+    im_shop = Counter(ShopArtikel.objects.filter(shop_id__in=shops, im_shop_aktiv=True, artikel__in=list(seite.object_list))
+                      .values_list("artikel_id", flat=True))  # in wie vielen Shops des Mandanten schon gemeldet
     for a in seite.object_list:
         b = summen.get(a.pk, Decimal("0"))
         r = reserviert_summen.get(a.pk, Decimal("0")) if b else Decimal("0")
@@ -114,6 +119,8 @@ def uebersicht(request):
             online = ("verdeckt", "online gesetzt, aber nicht im Shop: Artikel ist nicht aktiv")
         elif a.kategorie_id in offline_kategorien:
             online = ("verdeckt", "online gesetzt, aber nicht im Shop: Kategorie ist offline")
+        elif a.typ in ("A", "G") and im_shop[a.pk] < len(shops):  # nur diese Typen gehen an den Shop
+            online = ("verdeckt", "online gesetzt, aber noch nicht im Shop sichtbar: noch nicht mit dem Shop abgeglichen")
         else:
             online = ("ja", "online – im Shop sichtbar")
         zeilen.append({"artikel": a, "online": online, "vk": getattr(a, vk_feld), "bestand": b, "reserviert": r, "verfuegbar": max(b - r, Decimal("0")), "reparatur": reparatur.get(a.pk, Decimal("0")),
