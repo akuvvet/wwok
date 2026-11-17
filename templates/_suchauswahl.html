@@ -20,7 +20,7 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
   .suchauswahl li.sa-leer { cursor:default; opacity:.7; font-style:italic; }
   .suchauswahl li .sa-marke { margin-left:6px; font-size:11px; padding:0 5px; border-radius:8px; border:1px solid currentColor; opacity:.65; }
   .suchauswahl li mark { background:none; color:inherit; font-weight:700; }
-  /* Tabellensuche („*“ + Enter): Artikelnr. | Bezeichnung | Bestand | VK3 */
+  /* Tabellensuche („*“ + Enter): Artikelnr. | Bezeichnung | Bestand | Standard-VK des Mandanten */
   dialog.sa-tabelle { width:min(860px, 96vw); max-height:86vh; padding:0; border:1px solid var(--rand, #ccc); border-radius:8px;
     background:var(--karte, #fff); color:var(--text, #222); display:flex; flex-direction:column; }
   dialog.sa-tabelle:not([open]) { display:none; }
@@ -218,10 +218,10 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
       feld.addEventListener('blur', function () { if (!liste.hidden) schliessen(true); });
       leeren.addEventListener('click', function () { waehlen(null); feld.focus(); });
 
-      function tabelleOeffnen(q) {  // Tabelle mit Bestand und VK3 (wwokTabelle), Auswahl übernimmt den Eintrag
+      function tabelleOeffnen(q) {  // Tabelle mit Bestand und Standard-VK (wwokTabelle), Auswahl übernimmt den Eintrag
         wwokTabelle({q: q, zurueck: feld, spalten: [
           {titel: 'Artikelnr.', feld: 'nummer'}, {titel: 'Bezeichnung', feld: 'bezeichnung'},
-          {titel: 'Bestand', feld: 'bestand', zahl: true}, {titel: 'VK3 netto', feld: 'vk3', zahl: true}],
+          {titel: 'Bestand', feld: 'bestand', zahl: true}, {titel: 'VK{{ aktiver_mandant.standard_vk|default:3 }} netto', feld: 'vk', zahl: true}],
           laden: function (text) {
             var adresse = sel.dataset.tabelle + (sel.dataset.tabelle.indexOf('?') < 0 ? '?' : '&') + 'q=' + encodeURIComponent(text || '*');
             return fetch(adresse, {credentials: 'same-origin'}).then(function (a) { return a.json(); })

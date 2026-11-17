@@ -62,6 +62,11 @@ STATUS = {
         "lager": ("artikel", "ok", "im Lager"),
         "verkauft": ("verkauf", "neutral", "verkauft"),
     },
+    "artikel_online": {
+        "ja": ("haken", "ok", "online – im Shop sichtbar"),
+        "verdeckt": ("storno", "warn", "online gesetzt, aber nicht im Shop sichtbar"),
+        "nein": ("storno", "warn", "nicht online"),
+    },
     "mahnversand": {
         "offen": ("uhr", "hinweis", "noch nicht gesendet"),
         "gesendet": ("mail", "ok", "per E-Mail gesendet"),
