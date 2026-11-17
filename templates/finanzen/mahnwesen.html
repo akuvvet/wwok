@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load status %}
 {% block titel %}Mahnwesen – wwok{% endblock %}
 {% block inhalt %}
 <div class="karte">
@@ -37,12 +38,12 @@
   <p>{% if nur_offen %}<a href="{% url 'finanzen:mahnwesen' %}">Alle anzeigen</a> · <strong>Nur noch nicht versendete</strong>{% else %}<strong>Alle</strong> · <a href="?nur=offen">Nur noch nicht versendete</a>{% endif %}</p>
   <form method="post" action="{% url 'finanzen:mahnungen_sammel' %}" id="sammelform">{% csrf_token %}
   <table>
-    <tr><th><input type="checkbox" id="sammelalle" title="alle / keine" aria-label="alle auswählen"></th><th>Datum</th><th>Rechnung</th><th>Kunde</th><th>Stufe</th><th class="zahl">offen</th><th>zahlbar bis</th><th>Versand</th><th></th></tr>
+    <tr><th><input type="checkbox" id="sammelalle" title="alle / keine" aria-label="alle auswählen"></th><th>Datum</th><th>Rechnung</th><th>Kunde</th><th>Stufe</th><th class="zahl">offen</th><th>zahlbar bis</th><th>Versand{% status_legende "mahnversand" %}</th><th></th></tr>
     {% for m in bisher %}
     <tr><td><input type="checkbox" name="mahnung" value="{{ m.pk }}" aria-label="{{ m }} auswählen"></td>
         <td>{{ m.datum|date:"d.m.Y" }}</td><td>{{ m.beleg.nummer }}</td><td>{{ m.beleg.kunde.name1 }}</td><td>{{ m.bezeichnung }}</td>
         <td class="zahl">{{ m.offener_betrag|floatformat:"2g" }}</td><td>{{ m.frist|date:"d.m.Y" }}</td>
-        <td>{% if m.gesendet_am %}<span style="color:var(--ok)">gesendet am {{ m.gesendet_am|date:"d.m.Y H:i" }}</span> an {{ m.gesendet_an }}{% elif m.versand_fehler %}<span style="color:var(--warn)" title="{{ m.versand_fehler }}">Versand fehlgeschlagen</span>{% elif not m.gedruckt_am %}noch nicht gesendet{% endif %}{% if m.gedruckt_am %}{% if m.gesendet_am or m.versand_fehler %}<br>{% endif %}gedruckt am {{ m.gedruckt_am|date:"d.m.Y H:i" }}{% endif %}</td>
+        <td>{% for code, text in m.versandstand %}{% status_symbol "mahnversand" code text %} {% endfor %}</td>
         <td><a href="{% url 'finanzen:mahnung_pdf' m.pk %}" target="_blank">PDF</a> · <a href="{% url 'finanzen:mahnung_mail' m.pk %}">E-Mail</a></td></tr>
     {% empty %}<tr><td colspan="9">{% if nur_offen %}Alle Mahnungen sind gesendet oder gedruckt.{% else %}Noch keine Mahnungen.{% endif %}</td></tr>{% endfor %}
   </table>

@@ -176,6 +176,21 @@ class Mahnung(models.Model):
     def __str__(self):
         return f"{self.bezeichnung} zu {self.beleg}"
 
+    @property
+    def versandstand(self) -> list:
+        """(Status, Text) für die Symbole in der Liste; die Empfängeradresse steht im Mailprotokoll, nicht hier."""
+        zeit = lambda t: timezone.localtime(t).strftime("%d.%m.%Y %H:%M")
+        stand = []
+        if self.gesendet_am:
+            stand.append(("gesendet", f"gesendet am {zeit(self.gesendet_am)}"))
+        elif self.versand_fehler:
+            stand.append(("fehler", f"Versand fehlgeschlagen: {self.versand_fehler}"))
+        elif not self.gedruckt_am:
+            stand.append(("offen", "noch nicht gesendet"))
+        if self.gedruckt_am:
+            stand.append(("gedruckt", f"gedruckt am {zeit(self.gedruckt_am)}"))
+        return stand
+
 
 class Bankumsatz(models.Model):
     """Zeile eines importierten Kontoauszugs (CSV oder CAMT.053)."""
