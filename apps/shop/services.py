@@ -508,8 +508,9 @@ class KategorieKarte:
 
     def __init__(self, shop, client, ergebnis):
         self.shop, self.client, self.ergebnis = shop, client, ergebnis
-        self.eintraege = {e["id"]: {"name": (e.get("name") or "").strip(), "eltern": e.get("parentId") or ""}
-                          for e in client.kategorien()}
+        liste = client.kategorien()
+        self.eintraege = {e["id"]: {"name": (e.get("name") or "").strip(), "eltern": e.get("parentId") or ""} for e in liste}
+        self.inaktiv = {e["id"] for e in liste if e.get("active") is False}
         self.zuordnung = {z.kategorie_id: z for z in ShopKategorie.objects.filter(shop=shop)}
         self.offline = Kategorie.offline_ids()
         self._wurzel, self.fertig = None, {}
@@ -552,10 +553,7 @@ class KategorieKarte:
         eltern_ext = self.id_fuer(eltern, tiefe + 1) if eltern else self.wurzel()
         if eltern and not eltern_ext:
             return ""
-        treffer = self._kinder(eltern_ext, name)
-        if not treffer and not eltern:  # Hauptkategorie: wie bisher auch anderswo im Shop, wenn der Name dort eindeutig ist;
-            anderswo = self._ueberall(name)  # mehrere gleichnamige anderswo (z. B. „Kabel“ unter Audio und Netzwerk):
-            treffer = anderswo if len(anderswo) == 1 else []  # eigene Hauptkategorie anlegen statt raten
+        treffer = self._treffer(k, eltern_ext)
         if len(treffer) == 1:
             self._merken(k, treffer[0])
             return treffer[0]
@@ -574,6 +572,45 @@ class KategorieKarte:
         self.ergebnis["kategorie_neu"].append(str(k))
         return ext
 
+    def _treffer(self, k, eltern_ext) -> list:
+        """Gleichnamige Shop-Kategorien unter der Elternkategorie."""
+        name = k.name.strip()
+        treffer = self._kinder(eltern_ext, name)
+        if not treffer and not k.eltern_id:  # Hauptkategorie: wie bisher auch anderswo im Shop, wenn der Name dort eindeutig ist;
+            anderswo = self._ueberall(name)  # mehrere gleichnamige anderswo (z. B. „Kabel“ unter Audio und Netzwerk):
+            treffer = anderswo if len(anderswo) == 1 else []  # eigene Hauptkategorie anlegen statt raten
+        return treffer
+
+    def stand(self, k, tiefe=0) -> tuple:
+        """(Stand, Shop-ID, Kandidaten), ohne etwas zu schreiben. Stand: zugeordnet, eindeutig (wird beim Senden
+        zugeordnet), fehlt (wird beim Senden angelegt), doppelt (Auswahl nötig), eltern (erst die Oberkategorie klären)."""
+        z = self.zuordnung.get(k.pk)
+        if z and z.kategorie_id_extern in self.eintraege:
+            return "zugeordnet", z.kategorie_id_extern, []
+        if tiefe > 10:
+            return "eltern", "", []
+        if k.eltern_id:
+            stand_eltern, eltern_ext, _ = self.stand(k.eltern, tiefe + 1)
+            if stand_eltern == "fehlt":  # wird samt Oberkategorie angelegt
+                return "fehlt", "", []
+            if not eltern_ext:
+                return "eltern", "", []
+        else:
+            eltern_ext = self.wurzel()
+        treffer = self._treffer(k, eltern_ext)
+        if len(treffer) == 1:
+            return "eindeutig", treffer[0], []
+        return ("doppelt", "", treffer) if treffer else ("fehlt", "", [])
+
+    def pfad(self, ext) -> str:
+        """Pfad der Shop-Kategorie ab der Hauptnavigation, z. B. „Hardware › Notebooks“."""
+        namen, gesehen = [], set()
+        while ext in self.eintraege and ext not in gesehen and ext != self._wurzel:
+            gesehen.add(ext)
+            namen.append(self.eintraege[ext]["name"] or "(ohne Namen)")
+            ext = self.eintraege[ext]["eltern"]
+        return " › ".join(reversed(namen))
+
     def _nachziehen(self, k, ext, eltern, tiefe):
         """Von wwok angelegte Kategorie: Name und Elternkategorie wie in wwok."""
         eltern_ext = self.id_fuer(eltern, tiefe + 1) if eltern else self.wurzel()
@@ -589,6 +626,37 @@ class KategorieKarte:
             return
         self.eintraege[ext] = soll
         self.ergebnis["kategorie_geaendert"].append(str(k))
+
+
+def kategorien_stand(shop, client=None) -> list:
+    """Für die Seite „Shop-Kategorien“: jede wirksam online Kategorie und was ihr im Shop entspricht. Schreibt nichts."""
+    karte = KategorieKarte(shop, client or ShopwareClient(shop), {})
+    karte.wurzel()
+    zeilen = []
+    for k in sorted(Kategorie.objects.exclude(pk__in=karte.offline).select_related("eltern__eltern__eltern"), key=lambda k: str(k).casefold()):
+        stand, ext, kandidaten = karte.stand(k)
+        zeilen.append({"kategorie": k, "stand": stand, "ext": ext, "pfad": karte.pfad(ext) if ext else "",
+                       "kandidaten": [{"id": i, "pfad": karte.pfad(i), "inaktiv": i in karte.inaktiv} for i in kandidaten]})
+    return zeilen
+
+
+def kategorie_zuordnen(shop, kategorie, ext, client=None):
+    """Von Hand festlegen, welche Shop-Kategorie zu einer Kategorie gehört; danach gilt immer diese ID."""
+    ext = (ext or "").strip()
+    if not ext:
+        raise ShopFehler("Bitte eine Shop-Kategorie auswählen oder ihre ID eintragen.")
+    karte = KategorieKarte(shop, client or ShopwareClient(shop), {})
+    if kategorie.pk in karte.offline:
+        raise ShopFehler(f"Die Kategorie „{kategorie}“ ist nicht online.")
+    if ext not in karte.eintraege:
+        raise ShopFehler(f"Eine Kategorie mit der ID {ext} gibt es im Shop nicht.")
+    andere = ShopKategorie.objects.filter(shop=shop, kategorie_id_extern=ext).exclude(kategorie=kategorie).select_related("kategorie").first()
+    if andere:
+        raise ShopFehler(f"Diese Shop-Kategorie ist schon „{andere.kategorie}“ zugeordnet.")
+    karte.wurzel()
+    ShopKategorie.objects.update_or_create(shop=shop, kategorie=kategorie, defaults={
+        "kategorie_id_extern": ext, "angelegt": ext == feste_id(shop, "kategorie", kategorie.pk)})
+    return karte.pfad(ext)
 
 
 def _hersteller_id(shop, client, karte, name) -> str:
@@ -811,8 +879,8 @@ def artikeldaten_meldung(e: dict) -> str:
     if e.get("deaktiviert"):
         teile.append(f"{e['deaktiviert']} im Shop deaktiviert, weil nicht mehr online")
     if e["kategorie_fehlt"]:
-        teile.append("Kategorie nicht angelegt, weil sie im Shop auf derselben Ebene doppelt vorkommt (im Shop eine umbenennen "
-                     "oder löschen): " + ", ".join(sorted(e["kategorie_fehlt"])))
+        teile.append("Kategorie nicht zugeordnet, weil es sie im Shop auf derselben Ebene mehrfach gibt (unter Shops → "
+                     "„Kategorien zuordnen“ die richtige auswählen): " + ", ".join(sorted(e["kategorie_fehlt"])))
     if e["fehler"]:
         teile.append(f"{len(e['fehler'])} Probleme: " + "; ".join(e["fehler"][:3]))
     return ", ".join(teile)
