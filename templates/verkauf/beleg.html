@@ -133,6 +133,7 @@
       <td>
         {% if p.gruppe_id %}<span style="padding-left:18px">↳ </span>{% endif %}
         {% if p.artikelnummer %}<span style="opacity:.7">{{ p.artikelnummer }}</span> {% endif %}{% if p.preisliste_artikel %}<span class="marke" title="Artikel aus der Preisliste des Lieferanten">{{ p.preisliste_artikel.lieferant.kurz }}</span> {% if beleg.art == 'AB' or beleg.art == 'LS' or beleg.art == 'RE' %}<span class="marke gesperrt" title="Preislistenartikel: gilt nur als Angebot, bis der Artikel im Lager ist">Angebot</span> {% endif %}{% endif %}{% if p.fehlt %}<span class="gefahr-text" data-fehlt title="Nicht ausreichend auf Lager">{% endif %}{% if p.typ == 'G' and not p.gruppe_id %}<strong>{{ p.bezeichnung }}</strong>{% else %}{{ p.bezeichnung }}{% endif %}{% if p.fehlt %}</span>{% endif %}
+        {% if p.artikel_id and p.bezeichnung != p.artikel.bezeichnung %}<br><small style="opacity:.75" title="Nur hier sichtbar, wird nicht gedruckt">Artikel: {{ p.artikel.bezeichnung }}</small>{% endif %}
         {% if p.zusatztext %}<br><small style="opacity:.75;white-space:pre-line">{{ p.zusatztext }}</small>{% endif %}
         {% if p.letzter %}<br><small style="opacity:.75" title="Netto je Stück nach Rabatten, aus der letzten Rechnung an diesen Kunden">Zuletzt bezahlt: <strong>{{ p.letzter.preis|floatformat:"2g" }} €</strong> am {{ p.letzter.datum|date:"d.m.Y" }} (<a href="{% url 'verkauf:beleg' p.letzter.beleg_id %}">{{ p.letzter.nummer }}</a>)</small>{% endif %}
         {% if p.lieferschein and not p.gruppe_id %}<br><small style="opacity:.75">Lieferschein {{ p.lieferschein.nummer }} vom {{ p.lieferschein.belegdatum|date:"d.m.Y" }}</small>{% endif %}
@@ -149,6 +150,7 @@
         {% if not beleg.positionen_gesperrt %}
         <details><summary style="cursor:pointer;opacity:.8">bearbeiten</summary>
           <form method="post" action="{% url 'verkauf:position_aendern' beleg.pk p.pk %}" class="zeile" style="margin-top:6px">{% csrf_token %}
+            <div style="flex-basis:100%"><label>Bezeichnung (frei änderbar, wird so gedruckt{% if p.artikel_id or p.preisliste_artikel_id %}; leer = Bezeichnung des Artikels{% endif %})</label><input name="bezeichnung" value="{{ p.bezeichnung }}" maxlength="255" style="width:100%"></div>
             <div><label>Menge</label><input name="menge" value="{{ p.menge|floatformat:'-3' }}" size="6"></div>
             {% if not p.gruppe_id %}<div><label>Preis netto</label><input name="preis" value="{{ p.einzelpreis }}" size="8"></div>
             <div><label>Rabatt %</label><input name="rabatt" value="{{ p.rabatt_prozent|floatformat:'-2' }}" size="5"></div>{% endif %}

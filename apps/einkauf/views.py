@@ -340,7 +340,8 @@ def preislistenartikel(request):
 @require_POST
 @schutz("einkauf:bestellung", "bestellung_id")
 def bestellung_position_aendern(request, bestellung_id, position_id):
-    """Menge und Preis einer Position nachträglich ändern – bis zur ersten Lieferung dieser Position."""
+    """Bezeichnung, Menge und Preis einer Position nachträglich ändern – bis zur ersten Lieferung dieser Position.
+    Die Bezeichnung gilt nur für diese Bestellung; leer = wieder die Bezeichnung des Artikels."""
     b = bestellung_holen(request, bestellung_id)
     with transaction.atomic():  # Sperre: ein gleichzeitig gebuchter Wareneingang darf nicht überschrieben werden
         pos = get_object_or_404(BestellPosition.objects.select_for_update(), pk=position_id, bestellung=b)
@@ -352,8 +353,12 @@ def bestellung_position_aendern(request, bestellung_id, position_id):
         menge, ek = vergleich_menge(text) if text else pos.menge, zahl(request.POST.get("ek"), pos.ek)
         if ek < 0 or ek >= Decimal("100000000"):
             raise ValueError("Der Preis darf nicht negativ sein.")
+        bezeichnung = request.POST.get("bezeichnung")
+        if bezeichnung is not None:
+            original = pos.artikel.bezeichnung if pos.artikel_id else (pos.preisliste_artikel.bezeichnung if pos.preisliste_artikel_id else "")
+            pos.bezeichnung = (" ".join(bezeichnung.split()) or original)[:255] or pos.bezeichnung
         pos.menge, pos.ek = menge, services.ek_runden(ek)
-        pos.save(update_fields=["menge", "ek"])
+        pos.save(update_fields=["bezeichnung", "menge", "ek"])
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
 
 
