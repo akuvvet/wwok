@@ -619,9 +619,15 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
     bilder_stand = hashlib.sha256(json.dumps([(b.pk, b.bild.name) for b in a.bilder.all()]).encode()).hexdigest()
     teilstand = "~" + bilder_stand[:63]  # Zeitlimit mitten in den Bildern: Der nächste Lauf lädt nur den Rest
     bilder_neu = alle or not z or anderes_produkt or z.bilder_stand != bilder_stand
-    if produkt_id and z and z.daten_stand == stand and not bilder_neu:
-        return "unveraendert"
     preis_netto, preis_brutto = verkaufspreis(shop, a)
+    werte_senden = False  # Bestand und Preise eines vorhandenen Produkts, nach denselben Regeln wie „Bestand & Preise senden“
+    if produkt_id:
+        bestand_da = meldebestand(shop, a)
+        preis_kunde, brutto_kunde = kundenpreis(shop, a) if lauf["regel_ok"] else (None, z.gemeldeter_kundenpreis if z else None)
+        werte_senden = alle or not z or anderes_produkt or z.gemeldeter_bestand != bestand_da or z.gemeldeter_preis != preis_brutto \
+            or z.gemeldeter_kundenpreis != brutto_kunde or (preis_kunde is not None and z.gemeldete_regel != shop.regel_kunden_id)
+    if produkt_id and z and z.daten_stand == stand and not bilder_neu and not werte_senden:
+        return "unveraendert"
     if not produkt_id and not preis_brutto:  # ohne Preis oder mit 0 € nicht sichtbar anlegen
         return "ohne_preis"
     eintrag = {**daten, "id": produkt_id or feste_id(shop, "produkt", a.pk)}
@@ -642,6 +648,16 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
         preis_kunde, brutto_kunde = kundenpreis(shop, a) if lauf["regel_ok"] else (None, None)
         if preis_kunde:
             eintrag["prices"] = [preis_kunde]
+    belegt = False
+    if werte_senden:
+        if bestand_da is not None:
+            eintrag["stock"] = bestand_da
+        if preis_brutto is not None:
+            eintrag["price"] = preisliste(preis_netto, preis_brutto)
+        if preis_kunde:  # fremder Preis mit Regel im Shop bleibt unberührt, dann kein Kundenpreis von wwok
+            belegt = any(p["id"] != preis_kunde["id"] for p in client.produktpreise([produkt_id]))
+            if not belegt:
+                eintrag["prices"] = [preis_kunde]
     bisher = list(z.bild_ids) if z and not anderes_produkt else []
     neue_bilder, hinweise = bisher, []
     bilder_erledigt, teilweise = True, False
@@ -684,14 +700,21 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
     if not produkt_id:
         werte.update(gemeldeter_bestand=bestand_neu, gemeldeter_preis=preis_brutto, gemeldeter_kundenpreis=brutto_kunde,
                      gemeldete_regel=shop.regel_kunden_id if brutto_kunde is not None else "")
+    elif werte_senden:
+        werte.update(gemeldeter_bestand=bestand_da, gemeldeter_preis=preis_brutto)
+        if brutto_kunde is None and z and z.gemeldeter_kundenpreis is not None:  # VK der Stufe entfallen: alten Kundenpreis entfernen
+            client.kundenpreise_loeschen([feste_id(shop, "kundenpreis", a.pk)])
+            werte.update(gemeldeter_kundenpreis=None, gemeldete_regel="")
+        elif not belegt:
+            werte.update(gemeldeter_kundenpreis=brutto_kunde, gemeldete_regel=shop.regel_kunden_id if brutto_kunde is not None else "")
     ShopArtikel.objects.update_or_create(shop=shop, artikel=a, defaults=werte)
     lauf["ergebnis"]["fehler"] += [f"{a.nummer}: {h}" for h in hinweise]
     return "aktualisiert" if produkt_id else "neu"
 
 
 def artikeldaten_senden(shop, client=None, alle=False, nummer="", zeitlimit=ZEITLIMIT_TAKT) -> dict:
-    """Texte, Maße, Hersteller, Kategorie und Bilder der Online-Artikel senden und fehlende Artikel sichtbar anlegen.
-    Ohne 'alle' nur Geänderte. Nach dem Zeitlimit endet der Lauf; der nächste macht beim Rest weiter."""
+    """Texte, Maße, Hersteller, Kategorie, Bilder, Bestand und Preise der Online-Artikel senden und fehlende Artikel
+    sichtbar anlegen. Ohne 'alle' nur Geänderte. Nach dem Zeitlimit endet der Lauf; der nächste macht beim Rest weiter."""
     client = client or ShopwareClient(shop)
     client.wartezeit = min(zeitlimit, client.wartezeit)
     ende = time.monotonic() + zeitlimit

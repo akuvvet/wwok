@@ -58,8 +58,42 @@ class ArtikeldatenTest(Basis):
         services.artikeldaten_senden(self.shop, c)
         e = c.gesendet[0]
         self.assertEqual(e["id"], "prod-1")
-        for feld in ("productNumber", "stock", "price", "active", "taxId", "visibilities", "ean", "metaTitle", "manufacturerNumber", "media"):
+        for feld in ("productNumber", "active", "taxId", "visibilities", "ean", "metaTitle", "manufacturerNumber", "media"):
             self.assertNotIn(feld, e)
+
+    def test_vorhandener_artikel_bekommt_preis_und_bestand(self):
+        buche_manuell(self.m, self.a, Bewegungsart.WARENEINGANG, D("3"))
+        c = self.client_fuer(A1="prod-1")
+        services.artikeldaten_senden(self.shop, c, nummer="A1")
+        self.assertEqual((c.gesendet[0]["stock"], c.gesendet[0]["price"][0]["gross"]), (3, 119.0))
+        z = ShopArtikel.objects.get()
+        self.assertEqual((z.gemeldeter_bestand, z.gemeldeter_preis), (3, D("119.00")))
+
+    def test_preisaenderung_allein_wird_gesendet_und_danach_nicht_nochmal(self):
+        services.artikeldaten_senden(self.shop, self.client_fuer(A1="prod-1"))
+        self.a.vk1 = D("120")
+        self.a.save()
+        c = self.client_fuer(A1="prod-1")
+        self.assertEqual(services.artikeldaten_senden(self.shop, c, nummer="A1")["aktualisiert"], 1)
+        self.assertEqual((c.gesendet[0]["price"][0]["net"], c.gesendet[0]["price"][0]["gross"]), (120.0, 142.8))
+        d = self.client_fuer(A1="prod-1")
+        self.assertEqual(services.artikeldaten_senden(self.shop, d)["unveraendert"], 1)
+        self.assertEqual(services.abgleichen(self.shop, d)["gesendet"], 0)  # der Abgleich sendet denselben Preis nicht doppelt
+        self.assertEqual(d.gesendet, [])
+
+    def test_bestandsaenderung_allein_wird_gesendet(self):
+        services.artikeldaten_senden(self.shop, self.client_fuer(A1="prod-1"))
+        buche_manuell(self.m, self.a, Bewegungsart.WARENEINGANG, D("2"))
+        c = self.client_fuer(A1="prod-1")
+        services.artikeldaten_senden(self.shop, c)
+        self.assertEqual(c.gesendet[0]["stock"], 2)
+
+    def test_nach_abgleich_unveraenderter_preis_wird_nicht_mitgesendet(self):
+        services.abgleichen(self.shop, self.client_fuer(A1="prod-1"))
+        c = self.client_fuer(A1="prod-1")
+        services.artikeldaten_senden(self.shop, c)  # erster Lauf: nur Texte
+        self.assertNotIn("price", c.gesendet[0])
+        self.assertNotIn("stock", c.gesendet[0])
 
     def test_nur_aenderungen_und_alle(self):
         services.artikeldaten_senden(self.shop, self.client_fuer(A1="prod-1"))
@@ -250,7 +284,7 @@ class ArtikeldatenRandfaelle(Basis):
         erg = services.artikeldaten_senden(self.shop, c)
         self.assertEqual(erg["aktualisiert"], 1)
         self.assertEqual((c.gesendet[0]["id"], c.gesendet[0]["productNumber"]), ("p1", "A1-NEU"))
-        self.assertNotIn("stock", c.gesendet[0])
+        self.assertNotIn("stock", c.gesendet[0])  # Bestand unverändert seit dem ersten Lauf
 
     def test_im_shop_geloeschtes_produkt_wird_neu_angelegt(self):
         services.artikeldaten_senden(self.shop, self.client_fuer(A1="p1"))
@@ -448,6 +482,27 @@ class KundenpreisTest(Basis):
         self.assertEqual(c.gesendet[0]["prices"][0]["price"][0]["net"], 80.0)
         d = self.client_fuer(A1=ShopArtikel.objects.get().produkt_id)
         self.assertEqual(services.abgleichen(self.shop, d)["gesendet"], 0)
+
+    def test_artikeldaten_senden_kundenpreis_bei_vorhandenem_artikel(self):
+        c = self.client_fuer(A1="p")
+        services.artikeldaten_senden(self.shop, c)
+        self.assertEqual(c.gesendet[0]["prices"][0]["price"][0]["net"], 80.0)
+        self.assertEqual(ShopArtikel.objects.get().gemeldeter_kundenpreis, D("95.20"))
+        self.a.vk3 = None
+        self.a.save()
+        d = self.client_fuer(A1="p")
+        services.artikeldaten_senden(self.shop, d)
+        self.assertNotIn("prices", d.gesendet[0])
+        self.assertEqual(d.preis_weg, [services.feste_id(self.shop, "kundenpreis", self.a.pk)])
+        self.assertIsNone(ShopArtikel.objects.get().gemeldeter_kundenpreis)
+
+    def test_artikeldaten_lassen_fremden_preis_mit_regel_stehen(self):
+        c = self.client_fuer(A1="p")
+        c.shop_preise = [{"id": "fremd", "productId": "p"}]
+        services.artikeldaten_senden(self.shop, c)
+        self.assertNotIn("prices", c.gesendet[0])
+        self.assertEqual(c.gesendet[0]["price"][0]["gross"], 119.0)
+        self.assertIsNone(ShopArtikel.objects.get().gemeldeter_kundenpreis)
 
     def test_stufe_ohne_gueltige_regel_wird_abgelehnt(self):
         for wert in ("", "regel1", "A" * 32):
