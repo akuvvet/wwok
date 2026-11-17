@@ -72,7 +72,9 @@ class Mandant(Zeitstempel):
                                    help_text="Nur bei „Eigene Farbe je Bereich“. Leer = neutral.")
     logo = models.ImageField("Logo", upload_to="logos/", blank=True,
                              help_text="PNG oder JPG, am besten quer und mit transparentem oder weißem Hintergrund (max. 2 MB). Erscheint oben rechts auf Belegen.")
-    # E-Mail-Versand (das Passwort steht nicht hier, sondern in der .env als SMTP_PASSWORD_<KURZNAME>)
+    # E-Mail-Versand. Das Passwort wird in der Verwaltung eingetragen und verschlüsselt gespeichert (kern/geheim.py);
+    # nicht editierbar = erscheint weder im Formular noch im Änderungsprotokoll. Rückfall: .env SMTP_PASSWORD_<KURZNAME>.
+    smtp_passwort_geheim = models.TextField("SMTP-Passwort (verschlüsselt)", blank=True, editable=False)
     smtp_host = models.CharField("SMTP-Server", max_length=100, blank=True)
     smtp_port = models.PositiveIntegerField("SMTP-Port", default=587)
     smtp_sicherheit = models.CharField(
@@ -99,6 +101,31 @@ class Mandant(Zeitstempel):
 
     def __str__(self):
         return self.kurzname
+
+    def smtp_passwort_setzen(self, klartext: str):
+        """Speichert das Passwort verschlüsselt; leer = entfernen (dann gilt wieder die .env)."""
+        from .geheim import verschluesseln
+
+        self.smtp_passwort_geheim = verschluesseln(klartext)
+
+    @property
+    def smtp_passwort_quelle(self) -> str:
+        """"verwaltung", "env" oder "" (kein Passwort hinterlegt)."""
+        import os
+
+        from .geheim import entschluesseln
+
+        if entschluesseln(self.smtp_passwort_geheim):
+            return "verwaltung"
+        return "env" if os.environ.get(f"SMTP_PASSWORD_{self.kurzname.upper()}") else ""
+
+    @property
+    def smtp_passwort(self) -> str:
+        import os
+
+        from .geheim import entschluesseln
+
+        return entschluesseln(self.smtp_passwort_geheim) or os.environ.get(f"SMTP_PASSWORD_{self.kurzname.upper()}", "")
 
     @property
     def flaechen_css(self):
