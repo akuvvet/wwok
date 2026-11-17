@@ -102,6 +102,7 @@ def uebersicht(request):
     zeilen = []
     eks = ek_je_artikel(seite.object_list)
     reserviert_summen = reserviert_je_artikel(request.mandant, [a.pk for a in seite.object_list if summen.get(a.pk)])
+    vk_feld = f"vk{request.mandant.standard_vk}"  # Standard-VK des Mandanten (Verwaltung → Mandanten)
     offline_kategorien = Kategorie.offline_ids()  # dieselbe Regel wie Artikel.objects.shop_sichtbar()
     for a in seite.object_list:
         b = summen.get(a.pk, Decimal("0"))
@@ -115,7 +116,7 @@ def uebersicht(request):
             online = ("verdeckt", "online gesetzt, aber nicht im Shop: Kategorie ist offline")
         else:
             online = ("ja", "online – im Shop sichtbar")
-        zeilen.append({"artikel": a, "online": online, "bestand": b, "reserviert": r, "verfuegbar": max(b - r, Decimal("0")), "reparatur": reparatur.get(a.pk, Decimal("0")),
+        zeilen.append({"artikel": a, "online": online, "vk": getattr(a, vk_feld), "bestand": b, "reserviert": r, "verfuegbar": max(b - r, Decimal("0")), "reparatur": reparatur.get(a.pk, Decimal("0")),
                        "ek": ek, "ek_quelle": quelle})
     lagerwert = Decimal("0")  # mit demselben EK wie der VK: Import-EK, sonst manueller EK (README 18)
     mit_bestand = list(Artikel.objects.filter(pk__in=[k for k, s in summen.items() if s]))

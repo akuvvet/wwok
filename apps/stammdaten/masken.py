@@ -99,7 +99,7 @@ ARTIKELTABELLE_MAX = 300
 @mit_mandant
 def artikel_tabelle(request):
     """Artikelliste für die Tabellensuche der Suchfelder (z. B. Nachfolger, „*“ + Enter): Nummer, Bezeichnung,
-    Lagerbestand des Mandanten und VK3 netto. „*“ allein = alle; sonst muss jedes Wort vorkommen (Sterne werden ignoriert)."""
+    Lagerbestand des Mandanten und Standard-VK des Mandanten netto. „*“ allein = alle; sonst muss jedes Wort vorkommen (Sterne werden ignoriert)."""
     from django.db.models import Sum
 
     from apps.lager.models import Lagerbewegung
@@ -123,7 +123,7 @@ def artikel_tabelle(request):
 
     return JsonResponse({"mehr": mehr, "treffer": [
         {"pk": a.pk, "nummer": a.nummer, "bezeichnung": a.bezeichnung,
-         "bestand": "" if a.typ != Artikeltyp.A else zahl(b := bestaende.get(a.pk) or Decimal("0"), 0 if b == b.to_integral() else 3), "vk3": zahl(stufenpreis(a, 3), 2)}
+         "bestand": "" if a.typ != Artikeltyp.A else zahl(b := bestaende.get(a.pk) or Decimal("0"), 0 if b == b.to_integral() else 3), "vk": zahl(stufenpreis(a, request.mandant.standard_vk), 2)}
         for a in artikel]})
 
 

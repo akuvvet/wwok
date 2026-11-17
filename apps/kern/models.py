@@ -53,6 +53,10 @@ class Mandant(Zeitstempel):
     bic = models.CharField("BIC", max_length=11, blank=True)
     glaeubiger_id = models.CharField("Gläubiger-ID (SEPA)", max_length=35, blank=True)
     aktiv = models.BooleanField("aktiv", default=True)
+    standard_vk = models.PositiveSmallIntegerField(
+        "Standard-VK", default=3, choices=[(1, "VK1 – Endkunden"), (2, "VK2 – gewerbliche Endkunden"), (3, "VK3 – Händler")],
+        help_text="Diese Preisstufe zeigen die Artikellisten dieses Mandanten (Artikel & Bestand, Artikelsuche, Verwaltung). "
+                  "Der Preis in Belegen richtet sich weiterhin nach der Preisstufe des Kunden.")
     farbe = models.CharField(
         "Layoutfarbe", max_length=7, blank=True, validators=[FARBPRUEFER],
         help_text="Akzentfarbe der Oberfläche für diesen Mandanten (Menü, Knöpfe, Links, Kopfleiste), z. B. Grün für ZONE, Blau für OKAY. "

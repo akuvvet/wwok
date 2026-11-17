@@ -160,8 +160,22 @@ class AuffaelligFilter(admin.SimpleListFilter):
         return queryset.filter(pk__in=ids)
 
 
+class StandardVkMixin:
+    """Die Preisspalte der Liste zeigt den Standard-VK des gewählten Mandanten (Verwaltung → Mandanten)."""
+
+    def get_list_display(self, request):
+        from apps.kern.kontext import mandant_oder_none
+        mandant = mandant_oder_none(request)
+        feld = f"vk{mandant.standard_vk if mandant else 3}"
+
+        @admin.display(description=feld.upper(), ordering=feld)
+        def standard_vk(obj):
+            return getattr(obj, feld)
+        return [standard_vk if spalte == "vk1" else spalte for spalte in super().get_list_display(request)]
+
+
 @admin.register(m.Artikel)
-class ArtikelAdmin(admin.ModelAdmin):
+class ArtikelAdmin(StandardVkMixin, admin.ModelAdmin):
     form = VkVorschlagForm
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "radar_ampel", "online", "aktiv"]
     list_filter = [AuffaelligFilter, "typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
@@ -275,7 +289,7 @@ class LeistungskategorieAdmin(admin.ModelAdmin):
 
 
 @admin.register(m.Leistungsartikel)
-class LeistungsartikelAdmin(admin.ModelAdmin):
+class LeistungsartikelAdmin(StandardVkMixin, admin.ModelAdmin):
     """Leistungen (Typ L) mit eigenen Kategorien und Kosten, dazu der Import aus CSV oder Excel."""
 
     list_display = ["nummer", "bezeichnung", "leistungskategorie", "kosten", "vk1", "mengeneinheit", "aktiv"]

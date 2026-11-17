@@ -116,7 +116,7 @@ class ArtikelTabelleTest(TestCase):
     def test_stern_liefert_alle_aktiven_mit_bestand_und_vk3(self):
         daten = self.client.get(self.url, {"q": "*"}).json()
         self.assertEqual([z["nummer"] for z in daten["treffer"]], ["N1", "N2"])
-        self.assertEqual((daten["treffer"][0]["bestand"], daten["treffer"][0]["vk3"]), ("7", "1.234,50"))
+        self.assertEqual((daten["treffer"][0]["bestand"], daten["treffer"][0]["vk"]), ("7", "1.234,50"))
         self.assertFalse(daten["mehr"])
 
     def test_woerter_und_ohne_den_artikel_selbst(self):

@@ -135,6 +135,7 @@ class MandantAdmin(admin.ModelAdmin):
             '(sonst an die Absenderadresse). Geänderte Felder vorher speichern.</span>')
     fieldsets = [
         ("Firma", {"fields": ["kurzname", "firmenname", "logo", "logo_vorschau", "strasse", "plz", "ort", "land", "telefon", "email", "aktiv"]}),
+        ("Artikel und Preise", {"fields": ["standard_vk"]}),
         ("Aussehen", {"fields": ["farbe", "flaechenmodus", "farbe_kopf", "farbe_leiste", "farbe_karte", "aussehen_zuruecksetzen_knopf"],
                       "description": "Layoutfarbe = Akzent (Links, Knöpfe, aktive Menüzeile). Flächenfarben = Hintergrund von Kopfbereich, "
                                      "Seitenleiste und Karten – neutral, in gleicher Tonart oder je Bereich frei gewählt."}),
