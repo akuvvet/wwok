@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block titel %}Mahnungen senden – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'finanzen:mahnwesen' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Mahnungen per E-Mail senden · Mandant {{ request.mandant }}</h1>
+  <p>Jede Mahnung geht mit dem Standardtext und der Mahnung als PDF an den genannten Empfänger.
+     Je Durchgang gehen höchstens {{ max }} Mails raus (Vorgabe des Mailanbieters); weitere danach erneut auswählen.
+     {% if ohne %}Mahnungen ohne E-Mail-Adresse werden nicht gesendet – bitte drucken.{% endif %}</p>
+  <form method="post" action="{% url 'finanzen:mahnungen_sammel' %}">{% csrf_token %}
+    <input type="hidden" name="aktion" value="senden"><input type="hidden" name="bestaetigt" value="1">
+    <table>
+      <tr><th></th><th>Rechnung</th><th>Kunde</th><th>Stufe</th><th>Empfänger</th><th>Betreff</th><th>Hinweis</th></tr>
+      {% for z in zeilen %}
+      <tr><td><input type="checkbox" name="mahnung" value="{{ z.mahnung.pk }}" aria-label="{{ z.mahnung }} senden"{% if not z.an %} disabled{% elif z.gewaehlt %} checked{% endif %}></td>
+          <td>{{ z.mahnung.beleg.nummer }}</td><td>{{ z.mahnung.beleg.kunde.name1 }}</td><td>{{ z.mahnung.bezeichnung }}</td>
+          <td>{% if z.an %}{{ z.an }}{% else %}<span style="color:var(--warn)">keine E-Mail-Adresse</span>{% endif %}</td>
+          <td>{{ z.betreff }}</td>
+          <td>{% if not z.an %}wird nicht gesendet{% elif z.mahnung.gesendet_am %}bereits gesendet am {{ z.mahnung.gesendet_am|date:"d.m.Y H:i" }} – Haken setzen für erneuten Versand{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+    <p class="zeile">{% if sendbar %}<button type="submit" id="sendeknopf">Jetzt senden</button> <span id="sendezahl"></span>{% endif %}<a class="knopf leise" href="{% url 'finanzen:mahnwesen' %}">Abbrechen (Esc)</a></p>
+  </form>
+  {% if sendbar %}<script>
+  (function () {
+    var f = document.getElementById('sendeknopf').form, max = {{ max }};
+    function zaehlen() {
+      var n = f.querySelectorAll('input[name=mahnung]:checked').length;
+      document.getElementById('sendeknopf').disabled = n === 0 || n > max;
+      document.getElementById('sendezahl').textContent = n > max ? n + ' ausgewählt – höchstens ' + max + ' je Durchgang' : n + ' von höchstens ' + max + ' ausgewählt';
+    }
+    f.addEventListener('change', zaehlen); zaehlen();
+  })();
+  </script>{% endif %}
+</div>
+{% endblock %}

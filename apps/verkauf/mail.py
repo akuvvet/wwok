@@ -162,6 +162,9 @@ class _Leer(dict):
         return "{" + key + "}"
 
 
+SAMMELVERSAND_MAX = 15  # mehr Mails auf einmal lehnt der Mailanbieter ab; gilt für jeden Sammelversand (Mahnungen, Belege)
+
+
 def verbindung(mandant):
     if not (mandant.smtp_host and mandant.absender_email):
         raise MailFehler(f"Für {mandant.kurzname} fehlen SMTP-Server oder Absenderadresse (Verwaltung → Mandanten).")

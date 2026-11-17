@@ -161,6 +161,11 @@ class Mahnung(models.Model):
     gebuehr = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     frist = models.DateField("zahlbar bis")
     benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    # Versandstand für die Liste im Mahnwesen; der unveränderliche Nachweis je Mail steht im Mailprotokoll (verkauf.MailVersand)
+    gesendet_am = models.DateTimeField("gesendet am", null=True, blank=True)
+    gesendet_an = models.CharField("gesendet an", max_length=500, blank=True)
+    versand_fehler = models.CharField("Fehler beim letzten Versand", max_length=500, blank=True)
+    gedruckt_am = models.DateTimeField("gedruckt am", null=True, blank=True)
 
     class Meta:
         verbose_name = "Mahnung"
