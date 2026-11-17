@@ -9,7 +9,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
 from django.utils import timezone
-from django.utils.html import linebreaks
+from django.utils.html import escape, linebreaks
 
 from apps.finanzen.models import Zahlart
 from apps.finanzen.services import zahlung_buchen
@@ -324,11 +324,13 @@ def regel_pruefen(shop, client) -> bool:
     return False
 
 
-def nicht_mehr_online(shop, client, alle=False) -> list:
+def nicht_mehr_online(shop, client, alle=False, nummer="") -> list:
     """Zuvor gemeldete Artikel, die offline sind, im Shop deaktivieren. Gelöscht wird nichts; Artikel, die wwok nie
-    gemeldet hat, bleiben unberührt, auch wenn sie im Shop stehen."""
-    sichtbar = Artikel.objects.shop_sichtbar().values("pk")
-    zuordnungen = list(ShopArtikel.objects.filter(shop=shop, im_shop_aktiv=True).exclude(artikel__in=sichtbar).select_related("artikel"))
+    gemeldet hat, bleiben unberührt, auch wenn sie im Shop stehen. Mit 'nummer' nur dieser Artikel, und zwar auch dann
+    erneut, wenn er schon als deaktiviert gilt (im Shop kann er von Hand wieder eingeschaltet worden sein)."""
+    sichtbar = Artikel.objects.shop_sichtbar().filter(typ__in=["A", "G"]).values("pk")
+    zuordnungen = ShopArtikel.objects.filter(shop=shop).exclude(artikel__in=sichtbar).select_related("artikel")
+    zuordnungen = list(zuordnungen.filter(artikel__nummer=nummer) if nummer else zuordnungen.filter(im_shop_aktiv=True))
     if not zuordnungen:
         return []
     offline = Kategorie.offline_ids()
@@ -460,7 +462,17 @@ def feste_id(shop, art: str, schluessel) -> str:
 def beschreibung(artikel) -> str:
     """Shopware erwartet HTML; reiner Text bekommt Absätze."""
     text = artikel.bezeichnung_erweitert or artikel.kurzbeschreibung
-    return text if re.search(r"<[a-zA-Z]", text) else linebreaks(text, autoescape=True) if text else ""
+    html = text if re.search(r"<[a-zA-Z]", text) else linebreaks(text, autoescape=True) if text else ""
+    return "\n\n".join(teil for teil in (html, bestandteile(artikel)) if teil)
+
+
+def bestandteile(artikel) -> str:
+    """Komponenten eines Gruppenartikels als Liste für die Shop-Beschreibung: Menge und Bezeichnung, ohne Einzelpreise."""
+    if artikel.typ != "G":
+        return ""
+    zeilen = [f"<li>{f'{k.menge.normalize():f}'.replace('.', ',')} × {escape(k.komponente.bezeichnung)}</li>"
+              for k in sorted(artikel.komponenten.all(), key=lambda k: k.pk)]
+    return "<p><strong>Bestandteile:</strong></p>\n<ul>" + "".join(zeilen) + "</ul>" if zeilen else ""
 
 
 def produktdaten(artikel) -> dict:
@@ -712,6 +724,25 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
     return "aktualisiert" if produkt_id else "neu"
 
 
+def _offline_einzeln(shop, client, nummer) -> dict:
+    """„Artikeldaten senden“ für einen Artikel, der nicht (mehr) im Shop stehen soll: dort deaktivieren."""
+    if not Artikel.objects.filter(nummer=nummer).exists():
+        raise ShopFehler(f"Artikel {nummer} gibt es nicht.")
+    if not ShopArtikel.objects.filter(shop=shop, artikel__nummer=nummer).exists():
+        raise ShopFehler(f"Artikel {nummer} ist nicht online. wwok hat ihn nie an diesen Shop gemeldet; steht er dort, bitte im Shop deaktivieren.")
+    try:
+        vorhanden = nicht_mehr_online(shop, client, nummer=nummer)
+    except ShopFehler as fehler:
+        SyncProtokoll.objects.create(shop=shop, art="artikeldaten", erfolgreich=False, meldung=f"Deaktivieren fehlgeschlagen: {fehler}"[:500])
+        raise
+    if not vorhanden:
+        raise ShopFehler(f"Artikel {nummer} ist nicht online; im Shop gibt es das Produkt nicht mehr.")
+    ergebnis = {"neu": 0, "aktualisiert": 0, "unveraendert": 0, "ohne_preis": 0, "offen": 0, "fehler": [], "kategorie_fehlt": set(),
+                "kategorie_neu": [], "kategorie_geaendert": [], "deaktiviert": 1}
+    SyncProtokoll.objects.create(shop=shop, art="artikeldaten", meldung=f"Artikel {nummer} ist nicht online: im Shop deaktiviert")
+    return ergebnis
+
+
 def artikeldaten_senden(shop, client=None, alle=False, nummer="", zeitlimit=ZEITLIMIT_TAKT) -> dict:
     """Texte, Maße, Hersteller, Kategorie, Bilder, Bestand und Preise der Online-Artikel senden und fehlende Artikel
     sichtbar anlegen. Ohne 'alle' nur Geänderte. Nach dem Zeitlimit endet der Lauf; der nächste macht beim Rest weiter."""
@@ -721,12 +752,18 @@ def artikeldaten_senden(shop, client=None, alle=False, nummer="", zeitlimit=ZEIT
     shop.letzter_artikelabgleich = timezone.now()  # gleich zu Beginn, damit der nächste Zeitplan-Aufruf nicht parallel startet
     shop.save(update_fields=["letzter_artikelabgleich"])
     artikel = Artikel.objects.shop_sichtbar().filter(typ__in=["A", "G"]) \
-        .select_related("steuersatz", "kategorie", "hersteller").prefetch_related("bilder")
+        .select_related("steuersatz", "kategorie", "hersteller").prefetch_related("bilder", "komponenten__komponente")
     if nummer:
         artikel = artikel.filter(nummer=nummer)
         if not artikel:
-            raise ShopFehler(f"Artikel {nummer} gibt es nicht oder er ist nicht online.")
+            return _offline_einzeln(shop, client, nummer)
     artikel = list(artikel)
+    deaktiviert = []
+    if not nummer:  # wie bei „Bestand & Preise senden“: was offline gesetzt wurde, im Shop abschalten
+        try:
+            deaktiviert = nicht_mehr_online(shop, client, alle)
+        except ShopFehler as fehler:  # die Artikeldaten müssen trotzdem raus; der nächste Lauf versucht es erneut
+            SyncProtokoll.objects.create(shop=shop, art="artikeldaten", erfolgreich=False, meldung=f"Deaktivieren fehlgeschlagen: {fehler}"[:500])
     zuordnungen = {z.artikel_id: z for z in ShopArtikel.objects.filter(shop=shop)}
     if alle:  # zuletzt Gesendete ans Ende, damit wiederholte Läufe mit Zeitlimit alle Artikel erreichen
         def zuletzt(a):
@@ -736,7 +773,7 @@ def artikeldaten_senden(shop, client=None, alle=False, nummer="", zeitlimit=ZEIT
     try:
         ids = client.produkt_ids([a.nummer for a in artikel])
         ergebnis = {"neu": 0, "aktualisiert": 0, "unveraendert": 0, "ohne_preis": 0, "offen": 0, "fehler": [], "kategorie_fehlt": set(),
-                    "kategorie_neu": [], "kategorie_geaendert": []}
+                    "kategorie_neu": [], "kategorie_geaendert": [], "deaktiviert": len(deaktiviert)}
         lauf = {"kategorien": KategorieKarte(shop, client, ergebnis), "hersteller": _nach_name(client.hersteller()), "ergebnis": ergebnis,
                 "steuern": {Decimal(str(s["taxRate"])).normalize(): s["id"] for s in client.steuern()}, "ende": ende,
                 "regel_ok": regel_pruefen(shop, client)}
@@ -771,6 +808,8 @@ def artikeldaten_meldung(e: dict) -> str:
         teile.append(f"{len(e['kategorie_neu'])} Kategorie(n) im Shop angelegt: " + ", ".join(e["kategorie_neu"]))
     if e.get("kategorie_geaendert"):
         teile.append("Kategorie im Shop angepasst: " + ", ".join(e["kategorie_geaendert"]))
+    if e.get("deaktiviert"):
+        teile.append(f"{e['deaktiviert']} im Shop deaktiviert, weil nicht mehr online")
     if e["kategorie_fehlt"]:
         teile.append("Kategorie nicht angelegt, weil sie im Shop auf derselben Ebene doppelt vorkommt (im Shop eine umbenennen "
                      "oder löschen): " + ", ".join(sorted(e["kategorie_fehlt"])))
