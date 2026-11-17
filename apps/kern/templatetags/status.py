@@ -64,7 +64,7 @@ STATUS = {
     },
     "artikel_online": {
         "ja": ("haken", "ok", "online – im Shop sichtbar"),
-        "verdeckt": ("storno", "warn", "online gesetzt, aber nicht im Shop sichtbar"),
+        "verdeckt": ("minus", "hinweis", "online gesetzt, aber nicht im Shop sichtbar"),
         "nein": ("storno", "warn", "nicht online"),
     },
     "mahnversand": {

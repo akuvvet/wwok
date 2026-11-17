@@ -38,4 +38,9 @@ class OnlineSpalteTest(TestCase):
         self.assertContains(r, 'class="status-symbol ton-ok" role="img" tabindex="0" aria-label="online – im Shop sichtbar"', count=3)
         self.assertContains(r, 'aria-label="nicht online"', count=2)  # A4 und Legende
         self.assertContains(r, 'data-tip="online gesetzt, aber nicht im Shop: Kategorie ist offline"')
-        self.assertContains(r, "status-symbol ton-warn")
+        self.assertContains(r, "status-symbol ton-warn")  # nicht online: rot
+        # online gesetzt, aber nicht sichtbar: gelb mit waagerechtem Strich (Zeile A3 und Legende)
+        self.assertContains(r, '<span class="status-symbol ton-hinweis" role="img" tabindex="0" '
+                               'aria-label="online gesetzt, aber nicht im Shop: Kategorie ist offline"')
+        self.assertContains(r, "#i-s-minus", count=2)
+        self.assertContains(r, 'id="i-s-minus"')
