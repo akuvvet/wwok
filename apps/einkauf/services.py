@@ -424,27 +424,48 @@ def offen_bestellt(mandant, artikel, mit_entwurf=False) -> Decimal:
         s=Sum(models.F("menge") - models.F("geliefert")))["s"] or Decimal("0")
 
 
+def kundenbedarf(mandant) -> dict:
+    """{artikel_id: [Beleg, …]} – Artikel mit offener Menge in Kundenbestellungen (und Proforma), auch ohne Haken „R“."""
+    from apps.lager.models import reservierende_positionen
+    from apps.verkauf.models import mit_offener_menge
+    bedarf = defaultdict(list)
+    for p in mit_offener_menge(reservierende_positionen(mandant, mit_wartenden=True).filter(artikel__isnull=False)) \
+            .filter(offen__gt=0).select_related("beleg__kunde").order_by("beleg__belegdatum", "beleg_id"):
+        if p.beleg not in bedarf[p.artikel_id]:
+            bedarf[p.artikel_id].append(p.beleg)
+    return bedarf
+
+
 def bestellvorschlag(mandant) -> list:
     """Artikel unter Mindestbestand (verfügbar + bereits bestellt). Ohne festen Mindestbestand: ein Monat Reichweite
-    aus dem Verkaufsverlauf der letzten 90 Tage."""
+    aus dem Verkaufsverlauf der letzten 90 Tage. Dazu kommt immer die Fehlmenge aus offenen Kundenbestellungen
+    (Wunsch des Nutzers 18.11.2026): 4 bestellt, 2 am Lager, nichts unterwegs → 2 vorschlagen, auch ohne Mindestbestand."""
     seit = timezone.localdate() - timedelta(days=90)
     verkauft = {s["artikel"]: -s["m"] for s in Lagerbewegung.objects.filter(
         mandant=mandant, art=Bewegungsart.VERKAUF, zeitpunkt__date__gte=seit).values("artikel").annotate(m=Sum("menge"))}
     fest = {d.artikel_id: d.mindestbestand for d in ArtikelMandant.objects.filter(mandant=mandant, mindestbestand__isnull=False)}
+    bedarf = kundenbedarf(mandant)
     vorschlag = []
-    for artikel_id in set(fest) | set(verkauft):
+    for artikel_id in set(fest) | set(verkauft) | set(bedarf):
         artikel = Artikel.objects.filter(pk=artikel_id, typ__in=["A", "P"], nicht_aktiv=False).first()
         if not artikel:
             continue
         if artikel_id in fest:
             ziel, grund = Decimal(fest[artikel_id]), "Mindestbestand"
-        else:
+        elif artikel_id in verkauft:
             ziel, grund = (verkauft[artikel_id] / 3).to_integral_value(rounding="ROUND_CEILING"), "Verkaufsverlauf (1 Monat)"
-        # Bedarf sind alle offenen Kundenbestellungen, auch Positionen ohne Haken „R“ (sie warten auf genau diese Ware)
-        haben = bestand(mandant, artikel) - reserviert(mandant, artikel, mit_wartenden=True) + offen_bestellt(mandant, artikel, mit_entwurf=True)
-        if ziel > 0 and haben < ziel:
+        else:
+            ziel, grund = Decimal("0"), ""
+        # Bedarf sind alle offenen Kundenbestellungen, auch Positionen ohne Haken „R“ (sie warten auf genau diese Ware):
+        # sie stehen in „haben“ als Abzug, die Fehlmenge kommt so zum Ziel dazu
+        offen_kunde = reserviert(mandant, artikel, mit_wartenden=True)
+        lager = bestand(mandant, artikel)
+        haben = lager - offen_kunde + offen_bestellt(mandant, artikel, mit_entwurf=True)
+        if haben < ziel:
+            gruende = [g for g in (grund, "Kundenbestellung" if offen_kunde > lager else "") if g]
             al = guenstigster_lieferant(artikel)
-            vorschlag.append({"artikel": artikel, "ziel": ziel, "haben": haben, "menge": ziel - haben, "grund": grund,
+            vorschlag.append({"artikel": artikel, "ziel": ziel, "haben": haben, "menge": ziel - haben, "grund": " + ".join(gruende),
+                              "lager": lager, "kundenbedarf": offen_kunde, "kundenbelege": bedarf.get(artikel_id, []),
                               "lieferant": al.lieferant if al else None, "ek": al.ek if al else None})
     return sorted(vorschlag, key=lambda z: z["artikel"].nummer)
 
