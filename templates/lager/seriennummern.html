@@ -5,7 +5,7 @@
 <div class="karte">
   <h1>Seriennummer suchen · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile" data-livefilter>
-    <div><label for="q">Seriennummer (Teil genügt)</label><input id="q" name="q" value="{{ q }}" autofocus size="30"></div>
+    <div><label for="q">Seriennummer (Teil genügt)</label><input id="q" name="q" value="{{ q }}" autofocus size="30" data-scan></div>
     <noscript><button type="submit">Suchen</button></noscript>
   </form>
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
