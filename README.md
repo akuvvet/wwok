@@ -226,7 +226,7 @@ Aufbau **wie der Verkauf**, nur mit Lieferanten: Lieferantensuche, „Neuer Lief
 - **E-Rechnungen empfangen:** ZUGFeRD/XRechnung einlesen und als Lieferantenrechnung anlegen
 - **Rücksendung an Lieferanten** mit Gutschrift
 - **RMA/Garantiefälle:** RMA-Nummer, Status bis Ersatz/Gutschrift, verknüpft mit der Werkstatt
-- **Bestellvorschlag:** fester Mindestbestand pro Artikel, sonst automatisch aus dem Verkaufsverlauf; per Klick Bestellung beim **günstigsten Lieferanten**
+- **Bestellvorschlag:** fester Mindestbestand pro Artikel, sonst automatisch aus dem Verkaufsverlauf; per Klick Bestellung beim **günstigsten Lieferanten**. Die Fehlmenge aus offenen Kundenbestellungen kommt immer dazu, auch ohne Mindestbestand (4 bestellt, 2 am Lager, nichts unterwegs → 2; Wunsch des Nutzers 18.11.2026)
 
 ### 4.7 Lieferantenprodukte und Preise
 
