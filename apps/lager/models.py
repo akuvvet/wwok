@@ -25,6 +25,7 @@ class Bewegungsart(models.TextChoices):
     WERKSTATT = "WV", "Werkstatt (Garantie-Teile)"
     KORREKTUR = "KO", "Korrektur"
     REPARATUR = "RP", "Aus Reparaturbestand"
+    RUECKSENDUNG = "RL", "Rücksendung an Lieferant"
 
 
 class BestandReichtNicht(ValueError):
@@ -158,12 +159,12 @@ def reparaturbestand(mandant, artikel) -> Decimal:
 class Seriennummer(models.Model):
     """Seriennummer eines Artikels vom Wareneingang bis zum Verkauf (und zurück bei Retoure)."""
 
-    IM_LAGER, VERKAUFT = "lager", "verkauft"
+    IM_LAGER, VERKAUFT, ZURUECK = "lager", "verkauft", "retour"
 
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="seriennummern")
     artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT, related_name="seriennummern")
     nummer = models.CharField("Seriennummer", max_length=100, db_index=True)
-    status = models.CharField(max_length=8, default=IM_LAGER, choices=[(IM_LAGER, "im Lager"), (VERKAUFT, "verkauft")])
+    status = models.CharField(max_length=8, default=IM_LAGER, choices=[(IM_LAGER, "im Lager"), (VERKAUFT, "verkauft"), (ZURUECK, "an Lieferant zurück")])
     eingang = models.DateTimeField("Wareneingang", default=timezone.now)
     eingang_bemerkung = models.CharField(max_length=200, blank=True)
     # Herkunft für Reklamationen: der Wareneingang nennt den Lieferanten (bleibt bei Retoure und Umbuchung erhalten)

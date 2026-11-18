@@ -20,8 +20,8 @@ from apps.verkauf.views import mit_mandant
 from apps.werkstatt.models import Reparatur
 
 from . import erechnung, sepa, services, vergleich
-from .models import (BestellPosition, BestellStatus, Bestellung, Bestpreisplan, Lieferantenrechnung, Rma, RmaStatus, RechnungStatus,
-                     Wareneingang, WareneingangPosition)
+from .models import (RUECKSENDUNG_OFFEN, BestellPosition, BestellStatus, Bestellung, Bestpreisplan, Lieferantenrechnung, Rma, RmaStatus,
+                     RechnungStatus, Ruecksendung, RuecksendungArt, Wareneingang, WareneingangPosition)
 from .pdf import bestellung_pdf
 
 
@@ -774,8 +774,10 @@ def rechnung_detail(request, rechnung_id):
             messages.error(request, "Die Rechnung ist bezahlt – die Verknüpfung lässt sich nicht mehr ändern.")
             return redirect("einkauf:rechnung", rechnung_id=r.pk)
         ids = request.POST.getlist("wareneingang")
+        bisher = set(r.wareneingaenge.values_list("pk", flat=True))
         frei = Wareneingang.objects.filter(pk__in=ids, mandant=request.mandant, lieferant=r.lieferant).exclude(
-            rechnungen__in=Lieferantenrechnung.objects.exclude(pk=r.pk))  # ein Wareneingang gehört zu höchstens einer Rechnung
+            rechnungen__in=Lieferantenrechnung.objects.exclude(pk=r.pk)) \
+            .filter(Q(ersatz_fuer__isnull=True) | Q(pk__in=bisher))  # ein WE je Rechnung; Ersatz aus einer Rücksendung gehört zu keiner
         if frei.count() < len(set(ids)):
             messages.warning(request, "Wareneingänge, die schon zu einer anderen Rechnung gehören, wurden nicht verknüpft.")
         r.wareneingaenge.set(frei)
@@ -783,7 +785,8 @@ def rechnung_detail(request, rechnung_id):
         return redirect("einkauf:rechnung", rechnung_id=r.pk)
     verknuepft = set(r.wareneingaenge.values_list("pk", flat=True))
     kandidaten = Wareneingang.objects.filter(mandant=request.mandant, lieferant=r.lieferant, gebucht=True) \
-        .filter(Q(rechnungen__isnull=True) | Q(pk__in=verknuepft)).distinct()
+        .filter(Q(rechnungen__isnull=True) | Q(pk__in=verknuepft)).distinct() \
+        .filter(Q(ersatz_fuer__isnull=True) | Q(pk__in=verknuepft))  # Ersatz aus einer Rücksendung gehört zu keiner Rechnung
     return render(request, "einkauf/rechnung.html", {
         "r": r, "abgleich": r.abgleich(), "zahlbetrag": r.zahlbetrag(), "kandidaten": kandidaten, "verknuepft": verknuepft,
         "heute": date.today().isoformat()})
@@ -1066,3 +1069,85 @@ def bestpreise_ansicht(request):
     ergebnis = bestpreis.bestpreise()
     return render(request, "einkauf/bestpreise.html", {"e": ergebnis, "beispiele": ergebnis["aenderungen"][:100],
                                                        "plan": Bestpreisplan.holen()})
+
+
+# ---- WE-Rücksendung -----------------------------------------------------------------------------------
+
+@mit_mandant
+def ruecksendungen(request):
+    """Liste der WE-Rücksendungen (Standard: offene) und Start aus einem gebuchten Wareneingang."""
+    filter_ = request.GET.get("filter") or "offen"
+    qs = Ruecksendung.objects.filter(mandant=request.mandant).select_related("lieferant", "wareneingang").prefetch_related("positionen")
+    if filter_ == "offen":
+        qs = qs.filter(status__in=RUECKSENDUNG_OFFEN)
+    seite, parameter = blaettern(request, qs)
+    gebuchte = Wareneingang.objects.filter(mandant=request.mandant, gebucht=True).select_related("lieferant").order_by("-datum", "-id")[:300]
+    return render(request, "einkauf/ruecksendungen.html", {"liste": seite, "seite": seite, "parameter": parameter,
+                                                            "filter": filter_, "gebuchte": gebuchte})
+
+
+@mit_mandant
+def ruecksendung_neu(request, we_id):
+    """Rücksendung aus einem gebuchten Wareneingang: je Position Menge (höchstens noch Zurücksendbares) und bei
+    Seriennummern die Nummern wählen, dazu „zur Gutschrift“ oder „zum Austausch“ und der Grund."""
+    we = we_holen(request, we_id)
+    if not we.gebucht:
+        messages.error(request, "Zurücksenden geht nur aus einem gebuchten Wareneingang.")
+        return redirect("einkauf:wareneingang", we_id=we.pk)
+    positionen = list(we.positionen.select_related("artikel"))
+    for p in positionen:
+        p.rest = services.ruecksendbar(p)
+        p.sn_frei = services.seriennummern_im_lager(p)
+        p.mit_sn = bool(services.zeilen(p.seriennummern))
+        p.eingabe = request.POST.get(f"menge_{p.pk}", "")
+        p.sn_gewaehlt = request.POST.getlist(f"sn_{p.pk}")
+    if request.method == "POST":
+        try:
+            auswahl = []
+            for p in positionen:
+                menge = zahl(request.POST.get(f"menge_{p.pk}"), None)
+                sn = request.POST.getlist(f"sn_{p.pk}")
+                if sn and not menge:  # nur Seriennummern angehakt: die Menge ergibt sich daraus
+                    menge = Decimal(len(sn))
+                if menge:
+                    auswahl.append((p, menge, sn))
+            r = services.ruecksendung_anlegen(we, auswahl, request.POST.get("art", ""), request.POST.get("grund", ""), request.user)
+        except ValueError as fehler:
+            messages.error(request, str(fehler))
+        else:
+            messages.success(request, f"Rücksendung {r.nummer} angelegt: Die Ware ist aus dem Lager gebucht. "
+                                      "Die Bestellung beim Lieferanten bleibt unverändert.")
+            return redirect("einkauf:ruecksendung", ruecksendung_id=r.pk)
+    return render(request, "einkauf/ruecksendung_neu.html", {
+        "we": we, "positionen": positionen, "arten": RuecksendungArt.choices,
+        "art": request.POST.get("art", ""), "grund": request.POST.get("grund", ""),
+        "bisher": we.ruecksendungen.order_by("-id")})
+
+
+@mit_mandant
+def ruecksendung_detail(request, ruecksendung_id):
+    r = get_object_or_404(Ruecksendung.objects.select_related("lieferant", "wareneingang", "ersatz_wareneingang"),
+                          pk=ruecksendung_id, mandant=request.mandant)
+    if request.method == "POST":
+        aktion = request.POST.get("aktion")
+        try:
+            if aktion == "versendet":
+                services.ruecksendung_versendet(r, request.user)
+                messages.success(request, f"{r.nummer}: als versendet vermerkt.")
+            elif aktion == "gutschrift":
+                services.ruecksendung_gutschrift(r, zahl(request.POST.get("betrag"), None), request.user)
+                messages.success(request, f"{r.nummer}: Gutschrift erhalten.")
+            elif aktion == "ersatz":
+                we = services.ruecksendung_ersatz(r, request.user)
+                messages.success(request, f"{r.nummer}: Ersatz-Wareneingang {we.nummer} angelegt – bitte prüfen und buchen "
+                                          "(neue Seriennummern dort erfassen).")
+                return redirect("einkauf:wareneingang", we_id=we.pk)
+            elif aktion == "abgelehnt":
+                services.ruecksendung_abgelehnt(r, request.POST.get("grund", ""), request.user)
+                messages.warning(request, f"{r.nummer}: abgelehnt – die Ware ist wieder im Lager.")
+            else:
+                raise ValueError("Unbekannte Aktion.")
+        except ValueError as fehler:
+            messages.error(request, str(fehler))
+        return redirect("einkauf:ruecksendung", ruecksendung_id=r.pk)
+    return render(request, "einkauf/ruecksendung.html", {"r": r, "positionen": r.positionen.select_related("artikel", "we_position")})

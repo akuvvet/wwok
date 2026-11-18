@@ -14,8 +14,9 @@ from apps.stammdaten.ekkalk import ek_import as import_ek_von, plausibilitaet_we
 from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel, keine_leistung
 from apps.verkauf.models import Belegart, Nummernkreis, Position
 
-from .models import (BestellPosition, BestellStatus, Bestellung, Lieferantenrechnung, Rma, RmaStatus,
-                     RechnungStatus, Wareneingang, WareneingangPosition)
+from .models import (RUECKSENDUNG_OFFEN, BestellPosition, BestellStatus, Bestellung, Lieferantenrechnung, Rma, RmaStatus,
+                     RechnungStatus, Ruecksendung, RuecksendungArt, RuecksendungPosition, RuecksendungStatus, Wareneingang,
+                     WareneingangPosition)
 
 
 def nummer(mandant, art: str) -> str:
@@ -850,6 +851,11 @@ def wareneingang_loeschen(we) -> str:
         if w.rechnungen.exists():
             raise ValueError("Der Wareneingang ist einer Lieferantenrechnung zugeordnet – bitte erst die Zuordnung aufheben.")
         nummer_ = w.nummer
+        r = Ruecksendung.objects.select_for_update().filter(ersatz_wareneingang=w).first()
+        if r is not None:  # Ersatz doch nicht da: die Rücksendung ist wieder offen (versendet)
+            r.status, r.erledigt_am, r.ersatz_wareneingang = RuecksendungStatus.VERSENDET, None, None
+            r.historie_eintrag(f"Ersatz-Wareneingang {nummer_} gelöscht – Rücksendung wieder offen")
+            r.save()
         w.delete()
     return nummer_
 
@@ -938,3 +944,156 @@ def rma_anlegen(mandant, lieferant, bezeichnung, fehler, artikel=None, seriennum
         reparatur.status = Status.RMA
         reparatur.save()
     return rma
+
+
+# ---- WE-Rücksendung -----------------------------------------------------------------------------
+
+def ruecksendbar(we_position) -> Decimal:
+    """Was aus einer Wareneingangsposition noch zurückgehen kann: Menge minus schon zurückgesendet (abgelehnte zählen nicht,
+    die Ware ist wieder im Lager)."""
+    weg = RuecksendungPosition.objects.filter(we_position=we_position).exclude(
+        ruecksendung__status=RuecksendungStatus.ABGELEHNT).aggregate(s=Sum("menge"))["s"] or Decimal("0")
+    return max(we_position.menge - weg, Decimal("0"))
+
+
+def seriennummern_im_lager(we_position) -> list:
+    """Seriennummern dieser Wareneingangsposition, die noch im Lager sind (nur diese können zurückgehen)."""
+    from apps.lager.models import Seriennummer
+    nummern = zeilen(we_position.seriennummern)
+    if not nummern:
+        return []
+    we = we_position.wareneingang
+    return list(Seriennummer.objects.filter(mandant=we.mandant, artikel=we_position.artikel, nummer__in=nummern,
+                                            status=Seriennummer.IM_LAGER).order_by("nummer").values_list("nummer", flat=True))
+
+
+@transaction.atomic
+def ruecksendung_anlegen(we, auswahl, art, grund, benutzer=None) -> Ruecksendung:
+    """auswahl: [(WareneingangPosition, Menge, [Seriennummern])]. Bucht den Bestand sofort ab (nie unter 0), Seriennummern
+    gehen auf „an Lieferant zurück“. Die Lieferantenbestellung und die Lieferantenrechnung bleiben unverändert."""
+    from apps.lager.models import Seriennummer
+    # frisch und gesperrt lesen: zwei Rücksendungen gleichzeitig werden nacheinander geprüft
+    we = Wareneingang.objects.select_for_update().select_related("lieferant").get(pk=we.pk)
+    if not we.gebucht:
+        raise ValueError("Zurücksenden geht nur aus einem gebuchten Wareneingang.")
+    if art not in RuecksendungArt.values:
+        raise ValueError("Bitte wählen: zur Gutschrift oder zum Austausch.")
+    grund = " ".join((grund or "").split())
+    if not grund:
+        raise ValueError("Bitte den Grund der Rücksendung angeben (z. B. Überlieferung, falsche Ware).")
+    zeilen_ = [(p, m, sn) for p, m, sn in auswahl if m]
+    if not zeilen_:
+        raise ValueError("Bitte bei mindestens einer Position eine Menge eintragen.")
+    for p, menge, sn in zeilen_:
+        if p.wareneingang_id != we.pk:
+            raise ValueError("Die Position gehört nicht zu diesem Wareneingang.")
+        if not menge.is_finite() or menge <= 0:
+            raise ValueError(f"{p.artikel.nummer}: Die Menge muss größer als 0 sein.")
+        rest = ruecksendbar(p)
+        if menge > rest:
+            raise ValueError(f"{p.artikel.nummer}: Höchstens {rest.normalize():f} können noch zurückgehen "
+                             f"(geliefert {p.menge.normalize():f}).")
+        if p.artikel.esd_key:
+            raise ValueError(f"{p.artikel.nummer}: ESD-Keys lassen sich nicht als Ware zurücksenden.")
+        if len(set(sn)) != len(sn):
+            raise ValueError(f"{p.artikel.nummer}: Eine Seriennummer ist doppelt gewählt.")
+        if zeilen(p.seriennummern):  # mit Seriennummern eingegangen: genau die zurückgehenden Nummern wählen
+            if menge != menge.to_integral_value() or len(sn) != menge:
+                raise ValueError(f"{p.artikel.nummer}: Bitte genau {menge.normalize():f} Seriennummer(n) auswählen "
+                                 f"({len(sn)} gewählt).")
+            list(Seriennummer.objects.select_for_update().filter(mandant=we.mandant, artikel=p.artikel, nummer__in=sn)
+                 .values_list("pk", flat=True))  # Sperre: nicht gleichzeitig verkaufen und zurücksenden
+            frei = set(seriennummern_im_lager(p))
+            fehlt = [n for n in sn if n not in frei]
+            if fehlt:
+                raise ValueError(f"{p.artikel.nummer}: Seriennummer {fehlt[0]} ist nicht (mehr) im Lager.")
+        elif sn:
+            raise ValueError(f"{p.artikel.nummer}: Zu dieser Position gibt es keine Seriennummern.")
+    r = Ruecksendung.objects.create(mandant=we.mandant, lieferant=we.lieferant, wareneingang=we, nummer=nummer(we.mandant, "WR"),
+                                    art=art, grund=grund[:1000], benutzer=benutzer)
+    for p, menge, sn in zeilen_:
+        RuecksendungPosition.objects.create(ruecksendung=r, we_position=p, artikel=p.artikel, menge=menge, ek=p.ek,
+                                            seriennummern="\n".join(sn))
+        Lagerbewegung.objects.create(mandant=we.mandant, artikel=p.artikel, art=Bewegungsart.RUECKSENDUNG, menge=-menge,
+                                     bemerkung=f"{r.nummer} an {we.lieferant.name1}"[:200], benutzer=benutzer)  # prüft Bestand ≥ 0
+        if sn and Seriennummer.objects.filter(mandant=we.mandant, artikel=p.artikel, nummer__in=sn, status=Seriennummer.IM_LAGER) \
+                .update(status=Seriennummer.ZURUECK, position=None) != len(sn):
+            raise ValueError(f"{p.artikel.nummer}: Eine gewählte Seriennummer ist inzwischen nicht mehr im Lager – bitte neu wählen.")
+    r.historie_eintrag(f"angelegt ({r.get_art_display()}), {len(zeilen_)} Position(en) aus dem Lager gebucht – {grund}", benutzer)
+    r.save(update_fields=["historie"])
+    return r
+
+
+def _ruecksendung_offen(r):
+    r = Ruecksendung.objects.select_for_update().get(pk=r.pk)
+    if r.status not in RUECKSENDUNG_OFFEN:
+        raise ValueError(f"Die Rücksendung {r.nummer} ist schon erledigt ({r.get_status_display()}).")
+    return r
+
+
+@transaction.atomic
+def ruecksendung_versendet(r, benutzer=None) -> Ruecksendung:
+    r = _ruecksendung_offen(r)
+    if r.status != RuecksendungStatus.ANGELEGT:
+        raise ValueError("Die Rücksendung ist schon als versendet vermerkt.")
+    r.status, r.versendet_am = RuecksendungStatus.VERSENDET, timezone.localdate()
+    r.historie_eintrag("an den Lieferanten versendet", benutzer)
+    r.save()
+    return r
+
+
+@transaction.atomic
+def ruecksendung_gutschrift(r, betrag, benutzer=None) -> Ruecksendung:
+    """Gutschrift des Lieferanten erhalten (Betrag netto, Pflicht). Auch nach einer Rücksendung zum Austausch möglich,
+    wenn der Lieferant keinen Ersatz liefert."""
+    r = _ruecksendung_offen(r)
+    if betrag is None or not betrag.is_finite() or betrag < 0:
+        raise ValueError("Bitte den Betrag der Gutschrift (netto) eintragen.")
+    if betrag >= Decimal("10000000000"):
+        raise ValueError("Der Betrag der Gutschrift ist zu groß.")
+    r.status, r.gutschrift_betrag, r.erledigt_am = RuecksendungStatus.GUTSCHRIFT, betrag.quantize(Decimal("0.01")), timezone.localdate()
+    r.versendet_am = r.versendet_am or r.erledigt_am
+    r.historie_eintrag(f"Gutschrift erhalten: {r.gutschrift_betrag} € netto (erwartet {r.summe_netto} €)", benutzer)
+    r.save()
+    return r
+
+
+@transaction.atomic
+def ruecksendung_ersatz(r, benutzer=None) -> Wareneingang:
+    """Ersatz kommt: legt einen (noch nicht gebuchten) Wareneingang mit denselben Artikeln, Mengen und EK an. Gebucht wird er
+    wie jeder Wareneingang (dort auch die neuen Seriennummern); zur Lieferantenrechnung gehört er nicht."""
+    r = _ruecksendung_offen(r)
+    if r.lieferant.gesperrt:
+        raise ValueError(f"Lieferant {r.lieferant.name1} ist gesperrt – bitte erst entsperren.")
+    we = wareneingang_anlegen(r.mandant, r.lieferant, benutzer=benutzer)
+    we.lieferschein = f"Ersatz zu {r.nummer}"
+    we.save(update_fields=["lieferschein"])
+    for p in r.positionen.select_related("artikel"):
+        WareneingangPosition.objects.create(wareneingang=we, artikel=p.artikel, menge=p.menge, ek=p.ek)
+    r.status, r.ersatz_wareneingang, r.erledigt_am = RuecksendungStatus.ERSATZ, we, timezone.localdate()
+    r.versendet_am = r.versendet_am or r.erledigt_am
+    r.historie_eintrag(f"Ersatz erhalten: Wareneingang {we.nummer} angelegt (noch zu buchen)", benutzer)
+    r.save()
+    return we
+
+
+@transaction.atomic
+def ruecksendung_abgelehnt(r, grund, benutzer=None) -> Ruecksendung:
+    """Der Lieferant nimmt nicht zurück: Die Ware kommt wieder ins Lager, die Seriennummern sind wieder im Lager."""
+    from apps.lager.models import Seriennummer
+    r = _ruecksendung_offen(r)
+    grund = " ".join((grund or "").split())
+    if not grund:
+        raise ValueError("Bitte angeben, warum der Lieferant ablehnt.")
+    for p in r.positionen.select_related("artikel"):
+        Lagerbewegung.objects.create(mandant=r.mandant, artikel=p.artikel, art=Bewegungsart.RUECKSENDUNG, menge=p.menge,
+                                     bemerkung=f"{r.nummer} abgelehnt, Ware zurück"[:200], benutzer=benutzer)
+        sn = zeilen(p.seriennummern)
+        if sn and Seriennummer.objects.filter(mandant=r.mandant, artikel=p.artikel, nummer__in=sn, status=Seriennummer.ZURUECK) \
+                .update(status=Seriennummer.IM_LAGER, position=None) != len(sn):
+            raise ValueError(f"{p.artikel.nummer}: Eine Seriennummer der Rücksendung ist inzwischen wieder im Lager oder verkauft – "
+                             "bitte am Artikel prüfen, bevor die Ware zurückgebucht wird.")
+    r.status, r.erledigt_am = RuecksendungStatus.ABGELEHNT, timezone.localdate()
+    r.historie_eintrag(f"abgelehnt – Ware wieder im Lager: {grund}", benutzer)
+    r.save()
+    return r

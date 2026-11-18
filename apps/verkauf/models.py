@@ -115,8 +115,9 @@ class Nummernkreis(models.Model):
     # Reihenfolge der Verwaltungsseite; Einkauf und Werkstatt zählen über denselben Kreis, ihre Belege liegen in eigenen Tabellen
     ARTEN = {"RE": "Rechnungen", "GS": "Gutschriften", "LS": "Lieferscheine", "AN": "Angebote", "PF": "Proforma-Rechnungen", "SP": "Stornos zu Proforma-Rechnungen",
              "WS": "Werkstattaufträge", "AB": "Bestellungen", "NL": "Nachlieferscheine", "BE": "Lieferantenbestellungen",
-             "WE": "Wareneingänge", "RM": "RMA"}
-    QUELLEN = {"WS": "werkstatt.Reparatur", "BE": "einkauf.Bestellung", "WE": "einkauf.Wareneingang", "RM": "einkauf.Rma"}
+             "WE": "Wareneingänge", "WR": "WE-Rücksendungen", "RM": "RMA"}
+    QUELLEN = {"WS": "werkstatt.Reparatur", "BE": "einkauf.Bestellung", "WE": "einkauf.Wareneingang", "WR": "einkauf.Ruecksendung",
+               "RM": "einkauf.Rma"}
     NUR_VOR_DEM_START = {"RE", "GS"}  # steuerlich lückenlos: einstellbar nur, solange im Jahr noch keine Nummer vergeben ist
     HOECHSTWERT = 999_999_999
 

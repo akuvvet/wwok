@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block titel %}Rücksendung aus {{ we.nummer }} – wwok{% endblock %}
+{% block lieferantenmenue %}{% include "einkauf/lieferant_menue.html" with lieferant=we.lieferant %}{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:wareneingang' we.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Ware zurücksenden · Wareneingang <a href="{% url 'einkauf:wareneingang' we.pk %}">{{ we.nummer }}</a></h1>
+  <p>Lieferant <a href="{% url 'einkauf:lieferant' we.lieferant_id %}">{{ we.lieferant.name1 }}</a> · {{ we.datum|date:"d.m.Y" }}{% if we.lieferschein %} · Lieferschein {{ we.lieferschein }}{% endif %}{% if we.bestellung %} · Bestellung <a href="{% url 'einkauf:bestellung' we.bestellung_id %}">{{ we.bestellung.nummer }}</a>{% endif %}</p>
+  <p class="fein">Mit „Rücksendung anlegen“ wird die Menge sofort aus dem Lager gebucht (der Bestand fällt nie unter 0). Die Bestellung beim Lieferanten und die Lieferantenrechnung bleiben unverändert; was zurückkommt (Gutschrift oder Ersatz), wird an der Rücksendung vermerkt.</p>
+  <form method="post">{% csrf_token %}
+    <div class="scroll"><table>
+      <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">geliefert</th><th class="zahl">noch zurücksendbar</th><th class="zahl">EK netto</th><th>Menge zurück</th><th>Seriennummern</th></tr></thead>
+      <tbody>
+      {% for p in positionen %}<tr>
+        <td>{{ p.artikel.nummer }}</td><td>{{ p.artikel.bezeichnung }}</td><td class="zahl">{{ p.menge|floatformat:"-3" }}</td>
+        <td class="zahl">{{ p.rest|floatformat:"-3" }}</td><td class="zahl">{{ p.ek|floatformat:"2g" }}</td>
+        <td>{% if p.rest > 0 and not p.artikel.esd_key %}<input name="menge_{{ p.pk }}" value="{{ p.eingabe }}" size="5" inputmode="decimal" aria-label="Menge zurück {{ p.artikel.nummer }}"{% if p.mit_sn %} placeholder="aus Auswahl"{% endif %}>{% elif p.artikel.esd_key %}<small class="fein">ESD – nicht möglich</small>{% else %}–{% endif %}</td>
+        <td>{% if p.mit_sn %}{% for n in p.sn_frei %}<label style="display:block;font-size:13px;opacity:1"><input type="checkbox" name="sn_{{ p.pk }}" value="{{ n }}"{% if n in p.sn_gewaehlt %} checked{% endif %}> {{ n }}</label>{% empty %}<small class="fein">keine im Lager</small>{% endfor %}{% endif %}</td>
+      </tr>{% endfor %}
+      </tbody>
+    </table></div>
+    <fieldset style="margin-top:12px;border:1px solid var(--rand);border-radius:8px;padding:10px 14px">
+      <legend>Zurück an den Lieferanten …</legend>
+      {% for wert, name in arten %}<label style="display:inline-flex;gap:6px;align-items:center;margin-right:18px;font-size:15px;opacity:1"><input type="radio" name="art" value="{{ wert }}" required{% if art == wert %} checked{% endif %}> {{ name }}</label>{% endfor %}
+      <p class="fein" style="margin:6px 0 0">Gutschrift: Der Lieferant erstattet den Betrag. Austausch: z. B. falsche Ware – der Lieferant schickt Ersatz, der dann als Wareneingang gebucht wird.</p>
+    </fieldset>
+    <div style="margin-top:10px"><label for="grund">Grund (Pflicht)</label><textarea id="grund" name="grund" rows="2" cols="60" required maxlength="1000" placeholder="z. B. 10 statt 5 geliefert, Rest geht zurück">{{ grund }}</textarea></div>
+    <p><button type="submit" data-frage="Rücksendung anlegen? Die Menge wird sofort aus dem Lager gebucht.">Rücksendung anlegen</button>
+       <a class="knopf leise" href="{% url 'einkauf:wareneingang' we.pk %}">Abbrechen</a></p>
+  </form>
+  {% if bisher %}<h2 style="margin-top:14px">Bisherige Rücksendungen zu diesem Wareneingang</h2>
+  <p>{% for r in bisher %}<a href="{% url 'einkauf:ruecksendung' r.pk %}">{{ r.nummer }}</a> ({{ r.get_status_display }}){% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+</div>
+{% endblock %}

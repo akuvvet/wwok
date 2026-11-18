@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block titel %}{{ r.nummer }} – wwok{% endblock %}
+{% block lieferantenmenue %}{% include "einkauf/lieferant_menue.html" with lieferant=r.lieferant %}{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:ruecksendungen' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>WE-Rücksendung {{ r.nummer }} – <a href="{% url 'einkauf:lieferant' r.lieferant_id %}">{{ r.lieferant.name1 }}</a></h1>
+  <p>{{ r.datum|date:"d.m.Y" }} · aus Wareneingang <a href="{% url 'einkauf:wareneingang' r.wareneingang_id %}">{{ r.wareneingang.nummer }}</a>{% if r.wareneingang.lieferschein %} (Lieferschein {{ r.wareneingang.lieferschein }}){% endif %}
+     · <strong>{{ r.get_art_display }}</strong> · {% status_symbol "ruecksendung" r.status r.get_status_display mit_text=True %}</p>
+  <p><strong>Grund:</strong> {{ r.grund }}</p>
+  <dl class="infoblock">
+    <dt>Wert netto (EK):</dt><dd>{{ r.summe_netto|floatformat:"2g" }} €</dd>
+    {% if r.versendet_am %}<dt>Versendet am:</dt><dd>{{ r.versendet_am|date:"d.m.Y" }}</dd>{% endif %}
+    {% if r.gutschrift_betrag is not None %}<dt>Gutschrift:</dt><dd>{{ r.gutschrift_betrag|floatformat:"2g" }} € netto{% if r.gutschrift_betrag != r.summe_netto %} <span style="color:var(--hinweis)">(erwartet {{ r.summe_netto|floatformat:"2g" }} €)</span>{% endif %}</dd>{% endif %}
+    {% if r.ersatz_wareneingang %}<dt>Ersatz:</dt><dd><a href="{% url 'einkauf:wareneingang' r.ersatz_wareneingang.pk %}">{{ r.ersatz_wareneingang.nummer }}</a> {% if r.ersatz_wareneingang.gebucht %}(gebucht){% else %}<span style="color:var(--hinweis)">(noch zu buchen)</span>{% endif %}</dd>{% endif %}
+    {% if r.erledigt_am %}<dt>Erledigt am:</dt><dd>{{ r.erledigt_am|date:"d.m.Y" }}</dd>{% endif %}
+  </dl>
+  <div class="scroll" style="margin-top:10px"><table>
+    <thead><tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">EK netto</th><th class="zahl">Wert</th><th>Seriennummern</th></tr></thead>
+    <tbody>{% for p in positionen %}<tr><td><a href="{% url 'lager:artikel' p.artikel_id %}">{{ p.artikel.nummer }}</a></td><td>{{ p.artikel.bezeichnung }}</td>
+      <td class="zahl">{{ p.menge|floatformat:"-3" }}</td><td class="zahl">{{ p.ek|floatformat:"2g" }}</td><td class="zahl">{{ p.netto|floatformat:"2g" }}</td><td>{{ p.seriennummern|linebreaksbr }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+
+{% if r.offen %}
+<div class="karte">
+  <h2>Wie geht es weiter?</h2>
+  <div class="zeile" style="align-items:flex-start;gap:16px">
+    {% if r.status == 'angelegt' %}<form method="post">{% csrf_token %}<input type="hidden" name="aktion" value="versendet"><button type="submit">An Lieferanten versendet</button></form>{% endif %}
+    <form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="aktion" value="gutschrift">
+      <div><label for="betrag">Gutschrift netto (€)</label><input id="betrag" name="betrag" size="9" inputmode="decimal" value="{{ r.summe_netto|floatformat:'2' }}" required></div>
+      <button type="submit"{% if r.art == 'austausch' %} class="leise"{% endif %}>Gutschrift erhalten</button></form>
+    <form method="post">{% csrf_token %}<input type="hidden" name="aktion" value="ersatz">
+      <button type="submit"{% if r.art == 'gutschrift' %} class="leise"{% endif %} data-frage="Ersatz erhalten? Es wird ein Wareneingang mit denselben Artikeln und Mengen angelegt, den du prüfst und buchst.">Ersatz erhalten → Wareneingang</button></form>
+    <form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="aktion" value="abgelehnt">
+      <div><label for="ablehnung">Lieferant lehnt ab – Grund</label><input id="ablehnung" name="grund" size="24" required></div>
+      <button type="submit" class="gefahr" data-frage="Rücksendung abgelehnt? Die Ware wird wieder ins Lager gebucht.">Abgelehnt – zurück ins Lager</button></form>
+  </div>
+</div>
+{% endif %}
+
+{% if r.historie %}<div class="karte"><h2>Verlauf</h2><p class="fein" style="white-space:pre-line">{{ r.historie }}</p></div>{% endif %}
+{% endblock %}
