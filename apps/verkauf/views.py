@@ -786,8 +786,12 @@ def beleg_abschliessen(request, beleg_id):
             return render(request, "verkauf/nachlieferung_frage.html", {"beleg": beleg})
     from apps.esd.services import KeysFehlen, fehlende_keys
     ohne_key = request.POST.get("esd_ohne_key") == "1"
+    p_info = None
     try:
-        beleg.abschliessen(esd_ohne_key=ohne_key, ueber_grund=request.POST.get("ueber_grund", ""))
+        with transaction.atomic():  # P-Positionen der Bestellung wandern ins Angebot; scheitert der Abschluss, bleibt alles wie es war
+            p_info = beleg.p_beim_speichern_auslagern()
+            if not (p_info and p_info["nur_p"]):
+                beleg.abschliessen(esd_ohne_key=ohne_key, ueber_grund=request.POST.get("ueber_grund", ""))
     except GutschriftUeberRechnung as fehler:  # Rückfrage: Gutschriften über dem Rechnungsbetrag nur mit Begründung
         beleg = beleg_holen(request, beleg_id)
         return render(request, "verkauf/gutschrift_ueber_rechnung.html", {
@@ -804,6 +808,15 @@ def beleg_abschliessen(request, beleg_id):
             return render(request, "verkauf/teillieferung.html", {
                 "beleg": beleg, "lieferbar": lieferbar, "knapp": knapp, "meldung": str(fehler)})
         raise
+    if p_info:
+        angebot = p_info["angebot"]
+        if p_info["nur_p"]:
+            messages.warning(request, f"Die Bestellung enthielt nur Preislistenartikel (P) und wurde als Angebot {angebot.nummer or ''} gespeichert. "
+                                      "P gibt es nur im Angebot, bis sie als eigene Artikel (A) angelegt sind.")
+            return redirect("verkauf:beleg", beleg_id=angebot.pk)
+        messages.warning(request, f"{p_info['anzahl']} Preislistenartikel (P) wurden in das Angebot {angebot.nummer or ''} verschoben; "
+                                  f"die Bestellung {beleg.nummer or ''} ist ohne sie gespeichert. "
+                                  "P gibt es nur im Angebot, bis sie als eigene Artikel (A) angelegt sind.")
     messages.success(request, f"{beleg} abgeschlossen.")
     if ohne_key:
         offen = ", ".join(f"{p.artikel.nummer} ({anzahl}×)" for p, anzahl in fehlende_keys(beleg))

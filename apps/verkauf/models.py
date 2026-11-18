@@ -455,6 +455,10 @@ class Beleg(Zeitstempel):
         if self.art != Belegart.AUFTRAG and self.abgeschlossen:
             return ""
         if self.p_positionen().exists():
+            if self.art == Belegart.AUFTRAG:
+                return ("Bestellung enthält Preislistenartikel (P): diese Positionen gelten nur als Angebot. "
+                        "Beim Speichern werden sie in ein Angebot verschoben, die Bestellung wird ohne sie gespeichert – "
+                        "nach dem Wareneingang sind es eigene Artikel (A).")
             return (f"{self.get_art_display()} enthält Preislistenartikel (P): diese Positionen gelten nur als Angebot. "
                     "Drucken, Abschließen und Versenden geht erst, wenn alle Positionen eigene Artikel (A) sind – "
                     "nach dem Wareneingang werden sie automatisch umgestellt.")
@@ -528,6 +532,42 @@ class Beleg(Zeitstempel):
                 neu.p_info["abgeschlossen"] = True
             elif neu.art != Belegart.PROFORMA and self.abgeschlossen:
                 neu.p_info["abgeschlossen"] = True
+
+    @transaction.atomic
+    def p_beim_speichern_auslagern(self):
+        """Regel des Nutzers (18.11.2026): Eine Bestellung mit Preislistenartikeln (P) lässt sich speichern – die P-Positionen
+        wandern dabei in ein neues Angebot desselben Kunden, damit nachvollziehbar bleibt, was angeboten wurde. Die Bestellung
+        wird danach ohne sie abgeschlossen (Aufrufer). Enthält sie nur P, wird alles zum Angebot: Eine neue, noch nicht
+        gespeicherte Bestellung verschwindet, eine Bestellung mit Nummer bleibt leer als erledigt stehen.
+        Rückgabe: None (nichts zu tun) oder {"anzahl", "angebot", "nur_p"}."""
+        if self.art != Belegart.AUFTRAG or self.abgeschlossen:
+            return None
+        Beleg.objects.select_for_update().filter(pk=self.pk).first()  # wie abschliessen(): Doppelklick darf nicht zweimal verschieben
+        ids = self.p_hauptpositionen()
+        if not ids:
+            return None
+        anzahl = len(ids)
+        nur_p = not (self.echte_hauptpositionen() - ids)
+        vorgang = BelegVorgang.objects.filter(beleg=self).first()
+        if nur_p:
+            if self.vorlaeufig and (vorgang is None or vorgang.weg != Vorgangsweg.NEU):
+                raise ValueError(f"{self.get_art_display()} enthält nur Preislistenartikel (P) – nur als Angebot möglich. "
+                                 "Bitte diesen Beleg verwerfen und die Artikel im Angebot führen.")
+            if self.zahlungen.exists():
+                raise ValueError(f"{self.get_art_display()} enthält nur Preislistenartikel (P), hat aber schon Zahlungen – "
+                                 "sie kann nicht zum Angebot werden. Bitte die Zahlung zuerst klären.")
+            ids = set(self.positionen.filter(gruppe__isnull=True).values_list("pk", flat=True))  # auch freie Textzeilen gehen mit
+        angebot = self._p_ins_angebot_verschieben(ids)
+        if nur_p:
+            if self.vorlaeufig:  # neu angelegt, ohne Nummer: es bleibt nur das Angebot (keine Lücke im Nummernkreis)
+                Beleg.objects.filter(pk=angebot.pk).update(vorgaenger=None)
+                angebot.vorgaenger = None
+                from . import vorgang as vorgaenge
+                vorgaenge.beleg_verwerfen(self, grund="nur Preislistenartikel: als Angebot gespeichert")
+            else:
+                from .uebernahme import erledigt_wenn_leer
+                erledigt_wenn_leer(self)
+        return {"anzahl": anzahl, "angebot": angebot, "nur_p": nur_p}
 
     def positionen_pruefen(self, art=None):
         """Ein Beleg ohne Position darf nicht abgeschlossen, versendet oder weitergeführt werden. Eine Bestellung, deren
