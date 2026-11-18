@@ -862,6 +862,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Dashboard als Startseite (`/`): offene Kundenbestellungen, offene Posten, Umsatz netto (Rechnungen minus Gutschriften) mit Vorzeitraum, Lieferanten, Zeitraumvergleich, Umsatzverlauf, Top Kunden/Artikel/Lieferanten, Kanäle, Arbeitsliste; Zeitraum 7/30/90/365 Tage
 - [x] Einkauf: Bestellungen, Wareneingang, Lieferantenrechnungen, RMA, Bestellvorschlag, SEPA-Export, Preislisten-Import (Typ P als eigene Tabelle)
 - [x] Lager: Bestand je Mandant, Bewegungen, Inventur, Seriennummern, Bestandsregel (nie unter 0)
+- [x] Rückverfolgung für Reklamationen: Seriennummer merkt sich den Wareneingang und damit den Lieferanten (Seriennummern-Suche, Artikelseite), Karte „Wareneingänge“ am Artikel, Knopf „RMA“ belegt Lieferant, Artikel und Seriennummer vor
 - [x] Finanzen: Offene Posten, Zahlungen mit Storno, Mahnwesen, Bankimport, Kassenbuch, DATEV
 - [x] Werkstatt, ESD-Keys, Shopware-Anbindung
 - [x] „In Lieferantenbestellung kopieren“: Lieferantenwahl mit Preisvergleich bei mehreren Positionen (günstigste Aufteilung, „Alles bei …“, Auswahl je Position)

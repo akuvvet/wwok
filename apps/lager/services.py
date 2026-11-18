@@ -262,16 +262,19 @@ def zeilen(text: str) -> list:
 
 
 @transaction.atomic
-def seriennummern_einlagern(mandant, artikel, text, bemerkung=""):
+def seriennummern_einlagern(mandant, artikel, text, bemerkung="", wareneingang=None):
+    """Mit ``wareneingang`` bleibt nachvollziehbar, von welchem Lieferanten das Stück stammt (Reklamation)."""
     neu = []
     for nr in zeilen(text):
         sn, angelegt = Seriennummer.objects.get_or_create(
-            mandant=mandant, artikel=artikel, nummer=nr, defaults={"eingang_bemerkung": bemerkung})
+            mandant=mandant, artikel=artikel, nummer=nr, defaults={"eingang_bemerkung": bemerkung, "wareneingang": wareneingang})
         if not angelegt:
             if sn.status == Seriennummer.IM_LAGER:
                 raise ValueError(f"Seriennummer {nr} ist bereits im Lager.")
             sn.status, sn.position = Seriennummer.IM_LAGER, None  # Retoure: wieder eingelagert
             sn.eingang_bemerkung = bemerkung
+            if wareneingang is not None:  # Retoure ohne Wareneingang: die ursprüngliche Herkunft bleibt stehen
+                sn.wareneingang = wareneingang
             sn.save()
         neu.append(sn)
     return neu
@@ -338,6 +341,7 @@ def umbuchen(von_mandant, nach_mandant, artikel, menge, benutzer=None, seriennum
             raise ValueError(f"Seriennummer {nr} ist bei {nach_mandant.kurzname} bereits im Lager.")
         if vorhanden is not None:  # früher von dort verkauft oder umgebucht: die Nummer ist wieder im Lager
             vorhanden.status, vorhanden.position, vorhanden.eingang_bemerkung = Seriennummer.IM_LAGER, None, text
+            vorhanden.wareneingang = sn.wareneingang or vorhanden.wareneingang  # Herkunft wandert mit
             vorhanden.save()
             sn.delete()
         else:
