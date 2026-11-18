@@ -400,7 +400,7 @@ def rest_schliessen(bestellung) -> list:
     b = Bestellung.objects.select_for_update().get(pk=bestellung.pk)
     if b.status != BestellStatus.TEIL:
         raise ValueError("Nur eine teilweise gelieferte Bestellung lässt sich so abschließen.")
-    if b.wareneingaenge.filter(gebucht=False).exists():
+    if b.alle_wareneingaenge().filter(gebucht=False).exists():
         raise ValueError("Zur Bestellung gibt es einen offenen Wareneingang – bitte erst buchen oder löschen.")
     weg = []
     for p in b.positionen.select_for_update():
@@ -502,8 +502,12 @@ def wareneingang_anlegen(mandant, lieferant, bestellung=None, benutzer=None) -> 
         raise ValueError(f"Lieferant {lieferant.name1} ist gesperrt – es lässt sich kein Wareneingang anlegen.")
     if bestellung is not None and bestellung.status == BestellStatus.STORNIERT:
         raise ValueError(f"Die Bestellung {bestellung.nummer} ist storniert – dazu lässt sich kein Wareneingang erfassen.")
-    we =Wareneingang.objects.create(mandant=mandant, lieferant=lieferant, bestellung=bestellung,
+    erster = bestellung is not None and not bestellung.wareneingaenge.exists()
+    we = Wareneingang.objects.create(mandant=mandant, lieferant=lieferant, bestellung=bestellung,
                                      nummer=nummer(mandant, "WE"), benutzer=benutzer)
+    if erster and bestellung.nebenkosten:  # erwartete Nebenkosten der Bestellung: nur beim ersten Wareneingang, dort änderbar
+        we.versandkosten, we.verpackung, we.versicherung = bestellung.versandkosten, bestellung.verpackung, bestellung.versicherung
+        we.save(update_fields=["versandkosten", "verpackung", "versicherung"])
     return we
 
 
@@ -788,9 +792,13 @@ def wareneingang_buchen(we, benutzer=None, bestaetigt=False) -> int:
         raise ValueError("Der Wareneingang ist bereits gebucht.")
     if we.bestellung_id and we.bestellung.status == BestellStatus.STORNIERT:
         raise ValueError(f"Die Bestellung {we.bestellung.nummer} ist storniert – der Wareneingang lässt sich nicht buchen.")
-    positionen = list(we.positionen.select_related("artikel", "bestellposition"))
+    positionen = list(we.positionen.select_related("artikel", "bestellposition__bestellung"))
     if not positionen:
         raise ValueError("Keine Positionen erfasst.")
+    for p in positionen:  # Positionen aus weiteren Bestellungen (Tab „Bestellungen“): auch die dürfen nicht storniert sein
+        if p.bestellposition_id and p.bestellposition.bestellung.status == BestellStatus.STORNIERT:
+            raise ValueError(f"Die Bestellung {p.bestellposition.bestellung.nummer} ist storniert – "
+                             f"{p.artikel.nummer} lässt sich nicht aus ihr buchen.")
     for p in positionen:  # vorab prüfen, damit nichts halb gebucht wird
         keine_leistung(p.artikel)
         if p.menge <= 0 or p.ek < 0:
@@ -836,8 +844,9 @@ def wareneingang_buchen(we, benutzer=None, bestaetigt=False) -> int:
             BestellPosition.objects.filter(pk=p.bestellposition_id).update(geliefert=F("geliefert") + p.menge)
     we.gebucht = True
     we.save()
-    if we.bestellung_id:
-        we.bestellung.status_aktualisieren()
+    # Positionen können aus mehreren laufenden Bestellungen des Lieferanten stammen (Tab „Bestellungen“): alle nachziehen
+    for b in Bestellung.objects.filter(positionen__in=[p.bestellposition_id for p in positionen if p.bestellposition_id]).distinct():
+        b.status_aktualisieren()
     return len(positionen)
 
 
@@ -1097,3 +1106,163 @@ def ruecksendung_abgelehnt(r, grund, benutzer=None) -> Ruecksendung:
     r.historie_eintrag(f"abgelehnt – Ware wieder im Lager: {grund}", benutzer)
     r.save()
     return r
+
+
+# ---- Tabs der Lieferantenbestellung und des Wareneingangs (Wunsch des Nutzers 18.11.2026) ----------------
+
+BESTELLUNG_OFFEN_FUER_WE = (BestellStatus.BESTELLT, BestellStatus.TEIL)
+
+
+def bedarf_fuer_lieferant(bestellung, alle=False) -> list:
+    """Tab „Bedarf“: der Bestellvorschlag (Mindestbestand, Verkaufsverlauf, Fehlmenge aus Kundenbestellungen) für diese
+    Bestellung. Standard: nur Artikel, die der Lieferant laut Preisliste führt; alle=True zeigt auch die übrigen."""
+    zeilen_ = []
+    vorschlag = bestellvorschlag(bestellung.mandant)
+    preise = {al.artikel_id: al for al in ArtikelLieferant.objects.filter(
+        lieferant=bestellung.lieferant, artikel__in=[z["artikel"] for z in vorschlag])}
+    for z in vorschlag:
+        al = preise.get(z["artikel"].pk)
+        if al is None and not alle:
+            continue
+        z["fuehrt"] = al is not None
+        z["ek_hier"] = al.ek if al else None
+        z["bestellnr_hier"] = al.bestellnummer if al else ""
+        z["bestand_hier"] = al.bestand if al else None
+        z["guenstiger"] = (z["lieferant"] is not None and z["lieferant"] != bestellung.lieferant and z["ek"] is not None
+                           and (z["ek_hier"] is None or z["ek"] < z["ek_hier"]))
+        zeilen_.append(z)
+    return zeilen_
+
+
+@transaction.atomic
+def bedarf_uebernehmen(bestellung, auswahl) -> int:
+    """auswahl: [(Artikel, Menge)] aus dem Tab „Bedarf“ als Positionen in die Bestellung (Preis des Lieferanten)."""
+    if not auswahl:
+        raise ValueError("Bitte mindestens einen Artikel auswählen.")
+    for artikel, menge in auswahl:
+        bestellposition(bestellung, artikel, menge)
+    return len(auswahl)
+
+
+def bestellung_kopf_speichern(bestellung, daten):
+    """Tabs „Versand & Konditionen“ und „Texte & Notizen“. daten: Werte als Text (aus dem Formular); nur übergebene Felder."""
+    from datetime import date
+    if bestellung.status == BestellStatus.STORNIERT:
+        raise ValueError("Die Bestellung ist storniert.")
+    felder = []
+    if "liefertermin" in daten:
+        text = (daten.get("liefertermin") or "").strip()
+        try:
+            bestellung.liefertermin = date.fromisoformat(text) if text else None
+        except ValueError:
+            raise ValueError("Bitte den Liefertermin als Datum angeben.")
+        felder.append("liefertermin")
+    for feld, laenge in (("bezugnahme", 100), ("versandart", 60)):
+        if feld in daten:
+            setattr(bestellung, feld, " ".join((daten.get(feld) or "").split())[:laenge])
+            felder.append(feld)
+    for feld, name in (("versandkosten", "Versandkosten"), ("verpackung", "Verpackung"), ("versicherung", "Versicherung")):
+        if feld in daten:
+            wert = daten.get(feld)
+            if not isinstance(wert, Decimal):
+                raise ValueError(f"{name}: bitte einen Betrag angeben.")
+            if not wert.is_finite() or not Decimal("0") <= wert < Decimal("100000000"):
+                raise ValueError(f"{name} dürfen nicht negativ sein.")
+            setattr(bestellung, feld, wert.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+            felder.append(feld)
+    for feld in ("bemerkung", "notiz"):
+        if feld in daten:
+            setattr(bestellung, feld, (daten.get(feld) or "").strip()[:5000])
+            felder.append(feld)
+    if felder:
+        bestellung.save(update_fields=felder)
+
+
+def _in_offenen_wareneingaengen(bestellpositionen, ausser=None) -> dict:
+    """{Bestellposition-ID: Menge} in noch nicht gebuchten Wareneingängen (ohne ausser)."""
+    qs = WareneingangPosition.objects.filter(bestellposition__in=bestellpositionen, wareneingang__gebucht=False)
+    if ausser is not None:
+        qs = qs.exclude(wareneingang=ausser)
+    menge = {}
+    for bp_id, m in qs.values_list("bestellposition_id", "menge"):
+        menge[bp_id] = menge.get(bp_id, Decimal("0")) + m
+    return menge
+
+
+def laufende_bestellungen(we) -> list:
+    """Tab „Bestellungen“ im Wareneingang (wie „Lfd. Belege zu WE“): offene Positionen aller bestellten oder teilweise
+    gelieferten Bestellungen dieses Lieferanten. Je Position: offen, schon in diesem bzw. einem anderen offenen Wareneingang,
+    noch übernehmbar. [{"bestellung", "positionen": [...]}], die Bestellung des Wareneingangs zuerst."""
+    bps = list(BestellPosition.objects.filter(
+        bestellung__mandant=we.mandant, bestellung__lieferant=we.lieferant, bestellung__status__in=BESTELLUNG_OFFEN_FUER_WE)
+        .select_related("bestellung", "artikel", "preisliste_artikel").order_by("bestellung__datum", "bestellung_id", "id"))
+    bps = [bp for bp in bps if bp.offen > 0 and not (bp.artikel_id and bp.artikel.typ == "L")]
+    anderswo = _in_offenen_wareneingaengen(bps, ausser=we)
+    hier = _in_offenen_wareneingaengen(bps)
+    for k, m in anderswo.items():
+        hier[k] = hier.get(k, Decimal("0")) - m
+    gruppen = {}
+    for bp in bps:
+        bp.im_we = hier.get(bp.pk, Decimal("0"))
+        bp.anderswo = anderswo.get(bp.pk, Decimal("0"))
+        bp.rest = max(bp.offen - bp.im_we - bp.anderswo, Decimal("0"))
+        bp.ist_p = bp.artikel_id is None and bp.preisliste_artikel_id is not None
+        gruppen.setdefault(bp.bestellung_id, {"bestellung": bp.bestellung, "positionen": []})["positionen"].append(bp)
+    liste = list(gruppen.values())
+    for g in liste:
+        g["rest"] = sum((bp.rest for bp in g["positionen"]), Decimal("0"))
+    liste.sort(key=lambda g: (g["bestellung"].pk != we.bestellung_id,))
+    return liste
+
+
+@transaction.atomic
+def wareneingang_uebernehmen(we, auswahl, p_anlegen=False) -> int:
+    """auswahl: [(Bestellposition, Menge)] aus laufenden Bestellungen des Lieferanten – komplett oder einzelne Positionen,
+    bei Teillieferung mit kleinerer Menge. Höchstens, was noch offen und nicht schon in einem offenen Wareneingang ist.
+    Preislistenpositionen ohne eigenen Artikel nur mit p_anlegen (nach Rückfrage, nie still)."""
+    we = Wareneingang.objects.select_for_update().get(pk=we.pk)
+    if we.gebucht:
+        raise ValueError("Der Wareneingang ist bereits gebucht.")
+    zeilen_ = [(bp, m) for bp, m in auswahl if m]
+    if not zeilen_:
+        raise ValueError("Bitte mindestens eine Position mit Menge auswählen.")
+    list(BestellPosition.objects.select_for_update().filter(pk__in=[bp.pk for bp, _ in zeilen_]).order_by("pk")
+         .values_list("pk", flat=True))  # alle gewählten Positionen sperren: zwei Nutzer übernehmen nie dieselbe Menge doppelt
+    anderswo = _in_offenen_wareneingaengen([bp for bp, _ in zeilen_], ausser=we)
+    gewaehlt = {}
+    for bp, menge in zeilen_:
+        if menge.is_finite():
+            gewaehlt[bp.pk] = gewaehlt.get(bp.pk, Decimal("0")) + menge
+    for bp, menge in zeilen_:
+        bp.refresh_from_db()
+        b = bp.bestellung
+        if b.mandant_id != we.mandant_id or b.lieferant_id != we.lieferant_id:
+            raise ValueError("Die Position gehört nicht zu einer Bestellung dieses Lieferanten.")
+        if b.status not in BESTELLUNG_OFFEN_FUER_WE:
+            raise ValueError(f"Die Bestellung {b.nummer} ist nicht (mehr) offen.")
+        if not menge.is_finite() or menge <= 0:
+            raise ValueError(f"{bp.bezeichnung[:40]}: Die Menge muss größer als 0 sein.")
+        schon = sum((p.menge for p in we.positionen.filter(bestellposition=bp)), Decimal("0"))
+        rest = bp.offen - anderswo.get(bp.pk, Decimal("0")) - schon
+        if gewaehlt[bp.pk] > rest:
+            raise ValueError(f"{bp.bezeichnung[:40]}: Höchstens {max(rest, Decimal('0')).normalize():f} noch offen "
+                             f"(bestellt {bp.menge.normalize():f}, geliefert {bp.geliefert.normalize():f}).")
+        if bp.artikel_id is None and bp.preisliste_artikel_id and not p_anlegen:
+            raise ValueError(f"{bp.bezeichnung[:40]} ist ein Preislistenartikel ohne eigenen Artikel – bitte bestätigen, "
+                             "dass er als eigener Artikel (A) angelegt wird.")
+        if bp.artikel_id and bp.artikel.typ == "L":
+            raise ValueError(f"{bp.bezeichnung[:40]} ist eine Leistung und kommt nicht ins Lager.")
+    for bp, menge in zeilen_:
+        if bp.artikel_id is None:
+            bp.artikel = artikel_aus_preisliste(bp.preisliste_artikel)
+            bp.save(update_fields=["artikel"])
+        vorhanden = we.positionen.filter(bestellposition=bp, seriennummern="", esd_keys="").first()
+        if vorhanden:
+            vorhanden.menge += menge
+            vorhanden.save(update_fields=["menge"])
+        else:
+            WareneingangPosition.objects.create(wareneingang=we, bestellposition=bp, artikel=bp.artikel, menge=menge, ek=bp.ek)
+    if we.bestellung_id is None:  # ohne Bestellung angelegt: die erste übernommene Bestellung gilt als Bezug (Teillieferung, Anzeige)
+        we.bestellung = zeilen_[0][0].bestellung
+        we.save(update_fields=["bestellung"])
+    return len(zeilen_)

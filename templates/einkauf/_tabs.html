@@ -1,0 +1,18 @@
+<script>
+  // Tabs wie in der Kundenbestellung: Knöpfe .tab[data-tab], Inhalte .tabinhalt#tab-<name>; der Tab steht in der Adresse (#name),
+  // so führt ein Speichern zurück in denselben Tab.
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs .tab[data-tab]'));
+    if (!tabs.length) return;
+    function zeige(name, merken) {
+      if (!document.getElementById('tab-' + name)) name = tabs[0].dataset.tab;
+      tabs.forEach(function (t) { var an = t.dataset.tab === name; t.classList.toggle('aktiv', an); t.setAttribute('aria-selected', String(an)); });
+      document.querySelectorAll('.tabinhalt').forEach(function (p) { p.hidden = p.id !== 'tab-' + name; });
+      if (merken) { try { history.replaceState(null, '', '#' + name); } catch (e) {} }
+      var erstes = document.querySelector('#tab-' + name + ' [autofocus]'); if (erstes && merken) erstes.focus();
+    }
+    tabs.forEach(function (t) { t.addEventListener('click', function () { zeige(t.dataset.tab, true); }); });
+    zeige((location.hash || '').replace('#', '') || tabs[0].dataset.tab, false);
+    window.addEventListener('hashchange', function () { zeige((location.hash || '').replace('#', ''), false); });
+  })();
+</script>

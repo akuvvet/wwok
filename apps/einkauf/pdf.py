@@ -34,6 +34,12 @@ def bestellung_pdf(bestellung) -> bytes:
     daten = [["Bestellnummer", bestellung.nummer], ["Datum", bestellung.datum.strftime("%d.%m.%Y")]]
     if kundennr:
         daten.append(["Unsere Kundennr.", kundennr])
+    if bestellung.bezugnahme:
+        daten.append(["Bezugnahme", bestellung.bezugnahme])
+    if bestellung.liefertermin:
+        daten.append(["Liefertermin", bestellung.liefertermin.strftime("%d.%m.%Y")])
+    if bestellung.versandart:
+        daten.append(["Versandart", bestellung.versandart])
     rechts = Table([[absatz(a, klein), absatz(b, normal)] for a, b in daten], colWidths=[30 * mm, 40 * mm])
     kopf = Table([[absatz(anschrift, normal), rechts]], colWidths=[100 * mm, 70 * mm])
     kopf.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))

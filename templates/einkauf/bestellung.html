@@ -95,11 +95,17 @@
       {% if b.status != 'storniert' %}<form method="post" action="{% url 'einkauf:bestellung_stornieren' b.pk %}" data-frage="Bestellung stornieren?">{% csrf_token %}<button class="gefahr" type="submit">Stornieren</button></form>{% endif %}
       <form method="post" action="{% url 'einkauf:bestellung_loeschen' b.pk %}" data-frage="Bestellung wirklich löschen?">{% csrf_token %}<button class="gefahr" type="submit">Löschen</button></form>
     </div></details>{% endif %}
-  {% if wareneingaenge %}<span class="fein">Wareneingänge: {% for w in wareneingaenge %}<a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</span>{% endif %}
 </div>
 
-<div class="karte">
-  <h2>Positionen</h2>
+<div class="tabs" role="tablist">
+  <button type="button" class="tab aktiv" data-tab="positionen" role="tab">Positionen <span class="zaehler">{{ positionen|length }}</span></button>
+  {% if offen_fuer_positionen %}<button type="button" class="tab" data-tab="bedarf" role="tab" title="Bestellvorschlag für diesen Lieferanten: Mindestbestand, Verkaufsverlauf und Fehlmenge aus Kundenbestellungen">Bedarf <span class="zaehler">{{ bedarf|length }}</span></button>{% endif %}
+  <button type="button" class="tab" data-tab="versand" role="tab">Versand &amp; Konditionen</button>
+  <button type="button" class="tab" data-tab="texte" role="tab">Texte &amp; Notizen</button>
+  <button type="button" class="tab" data-tab="wareneingaenge" role="tab">Wareneingänge <span class="zaehler">{{ wareneingaenge|length }}</span></button>
+</div>
+
+<div class="karte tabinhalt" id="tab-positionen">
   <div class="scroll"><table>
     <thead><tr><th>Artikel</th><th class="zahl">Menge</th>{% if mit_lieferung %}<th class="zahl">geliefert</th>{% endif %}<th class="zahl">EK netto</th><th class="zahl">Netto</th><th></th></tr></thead>
     <tbody>{% for p in positionen %}
@@ -116,10 +122,8 @@
       <td style="white-space:nowrap">{% if p.aenderbar %}<button form="pos{{ p.pk }}" type="submit" class="leise" title="Bezeichnung, Menge und Preis speichern">OK</button> {% endif %}{% if not p.geliefert and b.status != 'storniert' %}<form method="post" action="{% url 'einkauf:bestellung_position_loeschen' b.pk p.pk %}" style="display:inline">{% csrf_token %}<button class="gefahr" type="submit" title="Position löschen">×</button></form>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="6" style="padding:16px;text-align:center;opacity:.7">Noch keine Positionen.</td></tr>{% endfor %}</tbody>
   </table></div>
-</div>
-
 {% if b.status != 'storniert' and b.status != 'geliefert' %}
-<div class="karte">
+<div class="erfassung-block" style="margin-top:14px">
   <h2>Artikel hinzufügen</h2>
   <form method="post" action="{% url 'einkauf:bestellung_position' b.pk %}" class="zeile erfassung" id="positionsform" autocomplete="off">{% csrf_token %}
     <div><label>Artikel suchen (Wörter in beliebiger Reihenfolge)</label>
@@ -135,4 +139,85 @@
   <div id="vergleich"></div>
 </div>
 {% endif %}
+</div>
+
+{% if offen_fuer_positionen %}
+<div class="karte tabinhalt" id="tab-bedarf" hidden>
+  <p class="fein" style="margin-top:0">Was gebraucht wird: Mindestbestand bzw. Monatsreichweite aus dem Verkaufsverlauf, dazu immer die Fehlmenge aus offenen Kundenbestellungen. Schon bestellte Mengen (auch in dieser Bestellung) sind abgezogen.
+    {% if bedarf_alle %}Angezeigt: alle Artikel mit Bedarf · <a href="?#bedarf">nur Artikel, die {{ b.lieferant.kurz }} führt</a>{% else %}Angezeigt: nur Artikel, die {{ b.lieferant.kurz }} laut Preisliste führt · <a href="?bedarf=alle#bedarf">alle Artikel mit Bedarf</a>{% endif %}</p>
+  <form method="post" action="{% url 'einkauf:bestellung_bedarf' b.pk %}">{% csrf_token %}
+  <div class="scroll"><table>
+    <thead><tr><th></th><th>Artikel</th><th>Bezeichnung</th><th class="zahl" title="Lagerbestand">Lager</th><th class="zahl" title="Offen in Kundenbestellungen">Kunden</th><th class="zahl" title="Ziel aus Mindestbestand bzw. Verkaufsverlauf">Ziel</th><th class="zahl" title="Lager − Kunden + schon bestellt">vorhanden</th><th>Menge</th><th class="zahl">EK bei {{ b.lieferant.kurz }}</th><th>Grund</th></tr></thead>
+    <tbody>
+    {% for z in bedarf %}<tr>
+      <td><input type="checkbox" name="auswahl" value="{{ z.artikel.pk }}" aria-label="{{ z.artikel.nummer }} übernehmen"{% if z.fuehrt %} checked{% endif %}></td>
+      <td><a href="{% url 'lager:artikel' z.artikel.pk %}">{{ z.artikel.nummer }}</a></td><td>{{ z.artikel.bezeichnung }}</td>
+      <td class="zahl">{{ z.lager|floatformat:"-3" }}</td><td class="zahl">{% if z.kundenbedarf %}{{ z.kundenbedarf|floatformat:"-3" }}{% else %}–{% endif %}</td>
+      <td class="zahl">{{ z.ziel|floatformat:"-3" }}</td><td class="zahl">{{ z.haben|floatformat:"-3" }}</td>
+      <td><input name="menge_{{ z.artikel.pk }}" value="{{ z.menge|floatformat:'-3' }}" size="5" inputmode="decimal" aria-label="Menge {{ z.artikel.nummer }}"></td>
+      <td class="zahl">{% if z.ek_hier is not None %}{{ z.ek_hier|floatformat:"2g" }}{% if z.bestand_hier is not None %}<br><small class="fein">Bestand {{ z.bestand_hier }}</small>{% endif %}{% else %}<small class="fein">nicht in der Preisliste</small>{% endif %}
+        {% if z.guenstiger %}<br><small style="color:var(--hinweis)">günstiger bei {{ z.lieferant.kurz }}: {{ z.ek|floatformat:"2g" }}</small>{% endif %}</td>
+      <td>{{ z.grund }}{% if z.kundenbelege %}<br><small>{% for kb in z.kundenbelege %}<a href="{% url 'verkauf:beleg' kb.pk %}" title="{{ kb.kunde.name1 }}">{{ kb.nummer|default:"(nicht gespeichert)" }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</small>{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="10" style="padding:14px;opacity:.75">Kein Bedarf{% if not bedarf_alle %} bei Artikeln, die {{ b.lieferant.kurz }} führt{% endif %}.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% if bedarf %}<p style="margin-bottom:0"><button type="submit">Ausgewählte in die Bestellung übernehmen</button></p>{% endif %}
+  </form>
+</div>
+{% endif %}
+
+<div class="karte tabinhalt" id="tab-versand" hidden>
+  <form method="post" action="{% url 'einkauf:bestellung_kopf' b.pk %}">{% csrf_token %}<input type="hidden" name="tab" value="versand">
+    <fieldset {% if b.status == 'storniert' %}disabled{% endif %} style="border:0;padding:0;margin:0">
+    <div class="raster">
+      <div><label for="liefertermin">Liefertermin</label><input type="date" id="liefertermin" name="liefertermin" value="{{ b.liefertermin|date:'Y-m-d' }}"></div>
+      <div><label for="bezugnahme">Bezugnahme (z. B. Angebot des Lieferanten)</label><input id="bezugnahme" name="bezugnahme" value="{{ b.bezugnahme }}" maxlength="100"></div>
+      <div><label for="versandart">Versandart</label><input id="versandart" name="versandart" value="{{ b.versandart }}" maxlength="60" placeholder="z. B. DHL, Spedition, Abholung"></div>
+    </div>
+    <h2 style="margin-top:14px">Erwartete Nebenkosten (netto)</h2>
+    <div class="raster">
+      <div><label for="versandkosten">Versandkosten</label><input id="versandkosten" name="versandkosten" value="{{ b.versandkosten|floatformat:2 }}" inputmode="decimal"></div>
+      <div><label for="verpackung">Verpackung</label><input id="verpackung" name="verpackung" value="{{ b.verpackung|floatformat:2 }}" inputmode="decimal"></div>
+      <div><label for="versicherung">Versicherung</label><input id="versicherung" name="versicherung" value="{{ b.versicherung|floatformat:2 }}" inputmode="decimal"></div>
+    </div>
+    <p class="fein">Die Nebenkosten gehen in den ersten Wareneingang zu dieser Bestellung (dort änderbar) und werden dort auf den Kalkulations-EK verteilt. Liefertermin, Bezugnahme und Versandart stehen auf dem PDF.</p>
+    <p><button type="submit">Speichern</button></p>
+    </fieldset>
+  </form>
+  <table class="summentabelle" style="margin-top:0">
+    <tr><td>Ware netto</td><td class="zahl">{{ netto|floatformat:"2g" }} €</td></tr>
+    <tr><td>Nebenkosten</td><td class="zahl">{{ b.nebenkosten|floatformat:"2g" }} €</td></tr>
+  </table>
+  {% with l=b.lieferant %}
+  <h2>Konditionen von {{ l.name1 }}</h2>
+  <dl class="infoblock">
+    <dt>Mindestbestellwert:</dt><dd>{% if l.mindestbestellwert %}{{ l.mindestbestellwert|floatformat:"2g" }} €{% else %}–{% endif %}</dd>
+    <dt>Versand je Bestellung:</dt><dd>{% if l.versandkosten is not None %}{{ l.versandkosten|floatformat:"2g" }} €{% else %}–{% endif %}</dd>
+    <dt>Versandfrei ab:</dt><dd>{% if l.versandkostenfrei_ab %}{{ l.versandkostenfrei_ab|floatformat:"2g" }} €{% else %}–{% endif %}</dd>
+    <dt>Lieferzeit:</dt><dd>{% if l.lieferzeit_tage %}{{ l.lieferzeit_tage }} Tage{% else %}–{% endif %}</dd>
+    <dt>Zahlung:</dt><dd>{{ l.zahlungsbedingung|default:"–" }}</dd>
+  </dl>
+  {% endwith %}
+</div>
+
+<div class="karte tabinhalt" id="tab-texte" hidden>
+  <form method="post" action="{% url 'einkauf:bestellung_kopf' b.pk %}">{% csrf_token %}<input type="hidden" name="tab" value="texte">
+    <div><label for="bemerkung">Text für den Lieferanten (steht auf dem PDF)</label><textarea id="bemerkung" name="bemerkung" rows="4" style="width:100%">{{ b.bemerkung }}</textarea></div>
+    <div style="margin-top:10px"><label for="notiz">Interne Notiz (nur in wwok)</label><textarea id="notiz" name="notiz" rows="3" style="width:100%">{{ b.notiz }}</textarea></div>
+    <p><button type="submit"{% if b.status == 'storniert' %} disabled{% endif %}>Speichern</button></p>
+  </form>
+</div>
+
+<div class="karte tabinhalt" id="tab-wareneingaenge" hidden>
+  {% if b.status == 'bestellt' or b.status == 'teil' %}<form method="post" action="{% url 'einkauf:wareneingang_neu' %}" style="margin-bottom:10px">{% csrf_token %}<input type="hidden" name="bestellung" value="{{ b.pk }}"><button type="submit">Wareneingang erfassen</button></form>{% endif %}
+  <div class="scroll"><table>
+    <thead><tr><th>Wareneingang</th><th>Datum</th><th>Lieferschein</th><th class="zahl">Positionen</th><th class="zahl">Netto</th><th>Status{% status_legende "wareneingang" %}</th><th>Rücksendungen</th></tr></thead>
+    <tbody>{% for w in wareneingaenge %}<tr><td><a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a></td><td>{{ w.datum|date:"d.m.Y" }}</td><td>{{ w.lieferschein|default:"–" }}</td>
+      <td class="zahl">{{ w.positionen.count }}</td><td class="zahl">{{ w.summe_netto|floatformat:"2g" }}</td>
+      <td>{% if w.gebucht %}{% status_symbol "wareneingang" "gebucht" "ins Lager gebucht" %}{% else %}{% status_symbol "wareneingang" "offen" "noch nicht gebucht" %}{% endif %}</td>
+      <td>{% for r in w.ruecksendungen.all %}<a href="{% url 'einkauf:ruecksendung' r.pk %}">{{ r.nummer }}</a>{% if not forloop.last %}, {% endif %}{% empty %}–{% endfor %}</td></tr>
+    {% empty %}<tr><td colspan="7" style="padding:14px;opacity:.75">Noch kein Wareneingang zu dieser Bestellung.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% include "einkauf/_tabs.html" %}
 {% endblock %}
