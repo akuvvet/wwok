@@ -806,7 +806,7 @@ def wareneingang_buchen(we, benutzer=None, bestaetigt=False) -> int:
             a.typ = "A"
         a.save()
         if p.seriennummern.strip():
-            seriennummern_einlagern(we.mandant, a, p.seriennummern, we.nummer)
+            seriennummern_einlagern(we.mandant, a, p.seriennummern, we.nummer, wareneingang=we)
         if a.esd_key:
             for key, anzahl in esd_zeilen(p.esd_keys):
                 ESDKey.objects.create(mandant=we.mandant, artikel=a, key=key, max_vergaben=anzahl or 1)

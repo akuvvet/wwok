@@ -166,6 +166,9 @@ class Seriennummer(models.Model):
     status = models.CharField(max_length=8, default=IM_LAGER, choices=[(IM_LAGER, "im Lager"), (VERKAUFT, "verkauft")])
     eingang = models.DateTimeField("Wareneingang", default=timezone.now)
     eingang_bemerkung = models.CharField(max_length=200, blank=True)
+    # Herkunft für Reklamationen: der Wareneingang nennt den Lieferanten (bleibt bei Retoure und Umbuchung erhalten)
+    wareneingang = models.ForeignKey("einkauf.Wareneingang", on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name="seriennummern_im_eingang", verbose_name="Wareneingang (Herkunft)")
     position = models.ForeignKey("verkauf.Position", on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name="seriennummern")
 

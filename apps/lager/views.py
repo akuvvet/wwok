@@ -164,7 +164,12 @@ def artikel_detail(request, artikel_id):
         "reparatur": reparaturbestand(request.mandant, artikel),
         "reparaturbewegungen": Reparaturbewegung.objects.filter(mandant=request.mandant, artikel=artikel).select_related("beleg", "benutzer")[:100],
         "arten": [(a.value, a.label) for a in MANUELL],
-        "seriennummern": Seriennummer.objects.filter(mandant=request.mandant, artikel=artikel).select_related("position__beleg")[:200],
+        "seriennummern": Seriennummer.objects.filter(mandant=request.mandant, artikel=artikel).select_related(
+            "position__beleg", "wareneingang__lieferant")[:200],
+        # Rückverfolgung ohne Seriennummer: von welchem Lieferanten kam der Artikel zuletzt
+        "wareneingaenge": WareneingangPosition.objects.filter(
+            artikel=artikel, wareneingang__mandant=request.mandant, wareneingang__gebucht=True
+        ).select_related("wareneingang__lieferant").order_by("-wareneingang__datum", "-id")[:20],
         "andere_mandanten": Mandant.objects.filter(aktiv=True).exclude(pk=request.mandant.pk)})
 
 
@@ -285,7 +290,7 @@ def seriennummer_einlagern(request, seriennummer_id):
 def seriennummer_suche(request):
     q = request.GET.get("q", "").strip()
     treffer = Seriennummer.objects.filter(mandant=request.mandant, nummer__icontains=q).select_related(
-        "artikel", "position__beleg__kunde")[:100] if q else []
+        "artikel", "position__beleg__kunde", "wareneingang__lieferant")[:100] if q else []
     from apps.werkstatt.models import Reparatur
     reparaturen = Reparatur.objects.filter(mandant=request.mandant, seriennummer__icontains=q).select_related("kunde")[:50] if q else []
     return render(request, "lager/seriennummern.html", {"q": q, "treffer": treffer, "reparaturen": reparaturen})

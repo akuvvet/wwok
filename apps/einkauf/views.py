@@ -888,9 +888,21 @@ def sepa_export(request):
 
 @mit_mandant
 def rma_liste(request):
+    # Vorbelegung aus der Rückverfolgung (Seriennummer bzw. Wareneingang am Artikel): Lieferant, Artikel, Seriennummer
+    vor = {name: request.GET.get(name, "").strip()[:100] for name in ("lieferant", "artikel", "seriennummer")}
+    vor_artikel = Artikel.objects.filter(nummer__iexact=vor["artikel"]).first() if vor["artikel"] else None
+    vor["bezeichnung"] = vor_artikel.bezeichnung if vor_artikel else ""
+    vorbelegt = any(vor.values())
+    lieferanten = list(lieferanten_auswahl())
+    vor_lieferant = Lieferant.objects.filter(pk=vor["lieferant"]).first() if vor["lieferant"].isdigit() else None
+    if vor_lieferant and vor_lieferant not in lieferanten:  # inzwischen gesperrt: die Ware kam trotzdem von ihm
+        lieferanten.insert(0, vor_lieferant)
+    vor["lieferant"] = str(vor_lieferant.pk) if vor_lieferant else ""
     return render(request, "einkauf/rma_liste.html", {
         "liste": Rma.objects.filter(mandant=request.mandant).select_related("lieferant"),
-        "lieferanten": lieferanten_auswahl()})
+        "lieferanten": lieferanten, "vor": vor, "vorbelegt": vorbelegt,
+        # Herkunft unbekannt: nicht still den ersten Lieferanten der Liste vorwählen
+        "lieferant_waehlen": vorbelegt and vor_lieferant is None})
 
 
 @mit_mandant

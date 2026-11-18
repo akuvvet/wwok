@@ -4,12 +4,13 @@
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
   <h1>RMA / Rücksendungen · Mandant {{ request.mandant }}</h1>
+  {% if vorbelegt %}<p class="meldung">Reklamation vorbelegt{% if vor.seriennummer %} für Seriennummer {{ vor.seriennummer }}{% endif %}: {% if lieferant_waehlen %}Der Lieferant ist nicht hinterlegt – bitte wählen, den Fehler beschreiben und anlegen.{% else %}bitte den Fehler beschreiben und anlegen.{% endif %}</p>{% endif %}
   <form method="post" action="{% url 'einkauf:rma_neu' %}" class="zeile">{% csrf_token %}
-    <div><label>Lieferant</label><select name="lieferant">{% for l in lieferanten %}<option value="{{ l.pk }}">{{ l.kurz }} – {{ l.name1 }}</option>{% endfor %}</select></div>
-    <div><label>Artikelnr.</label><input name="artikel" size="12"></div>
-    <div><label>Bezeichnung</label><input name="bezeichnung" size="22"></div>
-    <div><label>Seriennummer</label><input name="seriennummer" size="14"></div>
-    <div><label>Fehler</label><input name="fehler" size="30"></div>
+    <div><label>Lieferant</label><select name="lieferant"{% if lieferant_waehlen %} required{% endif %}>{% if lieferant_waehlen %}<option value="" selected>– bitte wählen –</option>{% endif %}{% for l in lieferanten %}<option value="{{ l.pk }}"{% if l.pk|stringformat:"s" == vor.lieferant %} selected{% endif %}>{{ l.kurz }} – {{ l.name1 }}</option>{% endfor %}</select></div>
+    <div><label>Artikelnr.</label><input name="artikel" size="12" value="{{ vor.artikel }}"></div>
+    <div><label>Bezeichnung</label><input name="bezeichnung" size="22" value="{{ vor.bezeichnung }}"></div>
+    <div><label>Seriennummer</label><input name="seriennummer" size="14" value="{{ vor.seriennummer }}"></div>
+    <div><label>Fehler</label><input name="fehler" size="30"{% if vorbelegt %} autofocus{% endif %}></div>
     <button type="submit">Anlegen</button>
   </form>
   <table style="margin-top:12px">
