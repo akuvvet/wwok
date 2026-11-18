@@ -226,6 +226,8 @@ Aufbau **wie der Verkauf**, nur mit Lieferanten: Lieferantensuche, „Neuer Lief
 - **E-Rechnungen empfangen:** ZUGFeRD/XRechnung einlesen und als Lieferantenrechnung anlegen
 - **Rücksendung an Lieferanten** mit Gutschrift
 - **RMA/Garantiefälle:** RMA-Nummer, Status bis Ersatz/Gutschrift, verknüpft mit der Werkstatt
+- **WE-Rücksendung (Wunsch des Nutzers 18.11.2026):** gebuchte Ware aus einem Wareneingang geht an den Lieferanten zurück, wahlweise zur Gutschrift oder zum Austausch (z. B. 10 statt 5 geliefert, falsche Ware). Beleg mit eigener Nummer (WR), kein PDF. Beim Anlegen wird der Bestand abgebucht (nie unter 0), Seriennummern gehen auf „an Lieferant zurück“; die Lieferantenbestellung und die Lieferantenrechnung bleiben unverändert, der Ø-EK auch. Danach: versendet → Gutschrift erhalten (Betrag) oder Ersatz erhalten (legt einen Wareneingang an, der wie jeder gebucht wird und zu keiner Rechnung gehört) oder abgelehnt (Ware zurück ins Lager). Wird der Ersatz-Wareneingang ungebucht gelöscht, ist die Rücksendung wieder offen
+- **Seitenleiste Einkauf:** unter „Lieferant“ stehen wie beim Kunden „+ Bestellung“ und „+ Wareneingang“ (mit Auswahl der offenen Bestellung), sobald ein Lieferant, eine Bestellung, ein Wareneingang oder eine Rücksendung offen ist
 - **Bestellvorschlag:** fester Mindestbestand pro Artikel, sonst automatisch aus dem Verkaufsverlauf; per Klick Bestellung beim **günstigsten Lieferanten**. Die Fehlmenge aus offenen Kundenbestellungen kommt immer dazu, auch ohne Mindestbestand (4 bestellt, 2 am Lager, nichts unterwegs → 2; Wunsch des Nutzers 18.11.2026)
 
 ### 4.7 Lieferantenprodukte und Preise

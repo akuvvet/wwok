@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block titel %}WE-Rücksendungen – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:wareneingaenge' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>WE-Rücksendungen · Mandant {{ request.mandant }}</h1>
+  <p class="fein">Gebuchte Ware geht an den Lieferanten zurück – zur Gutschrift oder zum Austausch (z. B. Überlieferung, falsche Ware). Der Bestand wird beim Anlegen abgebucht, die Bestellung beim Lieferanten bleibt unverändert. Defekte Einzelgeräte laufen über die <a href="{% url 'einkauf:rma_liste' %}">RMA</a>.</p>
+  <form method="get" action="" class="zeile" id="rs-start">
+    <div><label for="rs-we">Neue Rücksendung aus Wareneingang</label>
+      <select id="rs-we" data-suchauswahl="ruecksendung_we" required><option value="">– Wareneingang wählen –</option>
+        {% for w in gebuchte %}<option value="{% url 'einkauf:ruecksendung_neu' w.pk %}" data-suche="{{ w.lieferant.name1 }} {{ w.lieferschein }}">{{ w.nummer }} · {{ w.datum|date:"d.m.Y" }} · {{ w.lieferant.kurz }}{% if w.lieferschein %} · LS {{ w.lieferschein }}{% endif %}</option>{% endfor %}</select></div>
+    <button type="submit">Weiter</button>
+  </form>
+  <script>
+    document.getElementById('rs-start').addEventListener('submit', function (e) {
+      e.preventDefault(); var ziel = document.getElementById('rs-we').value; if (ziel) location.href = ziel;
+    });
+  </script>
+</div>
+<div class="karte">
+  <form method="get" class="zeile" style="margin-bottom:8px">
+    <div><label for="filter">Anzeigen</label><select id="filter" name="filter" onchange="this.form.submit()">
+      <option value="offen"{% if filter == 'offen' %} selected{% endif %}>offene (noch nicht erledigt)</option>
+      <option value="alle"{% if filter == 'alle' %} selected{% endif %}>alle</option></select></div>
+  </form>
+  <div class="scroll"><table>
+    <thead><tr><th>Nr.</th><th>Datum</th><th>Lieferant</th><th>Wareneingang</th><th>Art</th><th>Status{% status_legende "ruecksendung" %}</th><th class="zahl">Wert netto</th><th class="zahl">Gutschrift</th></tr></thead>
+    <tbody>
+    {% for r in liste %}<tr><td><a href="{% url 'einkauf:ruecksendung' r.pk %}">{{ r.nummer }}</a></td><td>{{ r.datum|date:"d.m.Y" }}</td>
+      <td><a href="{% url 'einkauf:lieferant' r.lieferant_id %}" title="{{ r.lieferant.nummer }} – {{ r.lieferant.name1 }}">{{ r.lieferant.kurz }}</a></td>
+      <td><a href="{% url 'einkauf:wareneingang' r.wareneingang_id %}">{{ r.wareneingang.nummer }}</a></td><td>{{ r.get_art_display }}</td>
+      <td>{% status_symbol "ruecksendung" r.status r.get_status_display %}</td><td class="zahl">{{ r.summe_netto|floatformat:"2g" }}</td>
+      <td class="zahl">{% if r.gutschrift_betrag is not None %}{{ r.gutschrift_betrag|floatformat:"2g" }}{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="8">{% if filter == 'offen' %}Keine offenen Rücksendungen.{% else %}Noch keine Rücksendungen.{% endif %}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% include "seiten.html" %}
+</div>
+{% endblock %}

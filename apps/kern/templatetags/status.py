@@ -49,6 +49,13 @@ STATUS = {
         "abgelehnt": ("storno", "warn", "abgelehnt/zurück"),
         "abgeschlossen": ("haken", "neutral", "abgeschlossen"),
     },
+    "ruecksendung": {
+        "angelegt": ("stift", "hinweis", "gebucht, noch nicht versendet"),
+        "versendet": ("lkw", "info", "an Lieferanten versendet"),
+        "gutschrift": ("plus", "ok", "Gutschrift erhalten"),
+        "ersatz": ("haken", "ok", "Ersatz erhalten"),
+        "abgelehnt": ("storno", "warn", "abgelehnt – Ware zurück im Lager"),
+    },
     "werkstatt": {
         "angenommen": ("eingang", "info", "angenommen"),
         "in_reparatur": ("werkstatt", "info", "in Reparatur"),
@@ -61,6 +68,7 @@ STATUS = {
     "seriennummer": {
         "lager": ("artikel", "ok", "im Lager"),
         "verkauft": ("verkauf", "neutral", "verkauft"),
+        "retour": ("zurueck", "neutral", "an Lieferant zurück"),
     },
     "artikel_online": {
         "ja": ("haken", "ok", "online – im Shop sichtbar"),

@@ -550,3 +550,81 @@ class Bestpreisplan(Zeitstempel):
             if termin > jetzt:
                 termin -= datetime.timedelta(days=7)
         return self.letzter_lauf is None or self.letzter_lauf < termin
+
+
+class RuecksendungArt(models.TextChoices):
+    GUTSCHRIFT = "gutschrift", "zur Gutschrift"
+    AUSTAUSCH = "austausch", "zum Austausch"
+
+
+class RuecksendungStatus(models.TextChoices):
+    ANGELEGT = "angelegt", "gebucht, noch nicht versendet"
+    VERSENDET = "versendet", "an Lieferanten versendet"
+    GUTSCHRIFT = "gutschrift", "Gutschrift erhalten"
+    ERSATZ = "ersatz", "Ersatz erhalten"
+    ABGELEHNT = "abgelehnt", "abgelehnt – Ware zurück im Lager"
+
+
+RUECKSENDUNG_OFFEN = (RuecksendungStatus.ANGELEGT, RuecksendungStatus.VERSENDET)
+
+
+class Ruecksendung(Zeitstempel):
+    """WE-Rücksendung (Wunsch des Nutzers 18.11.2026): schon gebuchte Ware aus einem Wareneingang geht an den Lieferanten
+    zurück, zur Gutschrift oder zum Austausch (z. B. Überlieferung oder falsche Ware). Mit dem Anlegen wird der Bestand
+    abgebucht; die Lieferantenbestellung bleibt unverändert. Defekte Einzelgeräte laufen weiter über die RMA."""
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="ruecksendungen")
+    lieferant = models.ForeignKey(Lieferant, on_delete=models.PROTECT, related_name="ruecksendungen")
+    wareneingang = models.ForeignKey(Wareneingang, on_delete=models.PROTECT, related_name="ruecksendungen")
+    nummer = models.CharField("Rücksendung-Nr.", max_length=20, db_index=True)
+    datum = models.DateField(default=timezone.localdate)
+    art = models.CharField("Rücksendung", max_length=10, choices=RuecksendungArt.choices)
+    status = models.CharField(max_length=10, choices=RuecksendungStatus.choices, default=RuecksendungStatus.ANGELEGT, db_index=True)
+    grund = models.TextField("Grund")
+    versendet_am = models.DateField(null=True, blank=True)
+    erledigt_am = models.DateField(null=True, blank=True)
+    gutschrift_betrag = models.DecimalField("Gutschrift netto", **GELD, null=True, blank=True)
+    ersatz_wareneingang = models.OneToOneField(Wareneingang, on_delete=models.SET_NULL, null=True, blank=True,
+                                               related_name="ersatz_fuer", verbose_name="Wareneingang der Ersatzlieferung")
+    historie = models.TextField("Verlauf", blank=True)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    class Meta:
+        verbose_name = "WE-Rücksendung"
+        verbose_name_plural = "WE-Rücksendungen"
+        ordering = ["-datum", "-id"]
+        constraints = [models.UniqueConstraint(fields=["mandant", "nummer"], name="ruecksendung_nummer_eindeutig")]
+
+    def __str__(self):
+        return f"Rücksendung {self.nummer}"
+
+    @property
+    def summe_netto(self) -> Decimal:
+        """Erwartete Gutschrift: EK des Wareneingangs × zurückgesendete Menge."""
+        return sum((p.netto for p in self.positionen.all()), Decimal("0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @property
+    def offen(self) -> bool:
+        return self.status in RUECKSENDUNG_OFFEN
+
+    def historie_eintrag(self, text, benutzer=None):
+        zeile = f"{timezone.localtime():%d.%m.%Y %H:%M} {benutzer or '-'}: {text}"
+        self.historie = (self.historie + chr(10) + zeile).strip()
+
+
+class RuecksendungPosition(models.Model):
+    ruecksendung = models.ForeignKey(Ruecksendung, on_delete=models.CASCADE, related_name="positionen")
+    we_position = models.ForeignKey(WareneingangPosition, on_delete=models.PROTECT, related_name="ruecksendungen")
+    artikel = models.ForeignKey(Artikel, on_delete=models.PROTECT)
+    menge = models.DecimalField(max_digits=10, decimal_places=3)
+    ek = models.DecimalField("EK netto", **EK)
+    seriennummern = models.TextField("Seriennummern (eine pro Zeile)", blank=True)
+
+    class Meta:
+        verbose_name = "Rücksendungsposition"
+        verbose_name_plural = "Rücksendungspositionen"
+        ordering = ["id"]
+
+    @property
+    def netto(self) -> Decimal:
+        return self.menge * self.ek

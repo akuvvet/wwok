@@ -1,0 +1,7 @@
+{% load einkauf_menue %}{% if lieferant.gesperrt %}<small style="color:var(--warn)">Lieferant gesperrt</small>{% else %}{% offene_lieferantenbestellungen lieferant as offene %}<small style="opacity:.7">Neuer Beleg für {{ lieferant.kurz|truncatechars:22 }}</small>
+<form method="post" action="{% url 'einkauf:bestellung_neu' %}">{% csrf_token %}<input type="hidden" name="lieferant" value="{{ lieferant.pk }}">
+  <button type="submit" class="leise" title="Neue Bestellung bei {{ lieferant.name1 }}">+ Bestellung</button></form>
+<form method="post" action="{% url 'einkauf:wareneingang_neu' %}">{% csrf_token %}<input type="hidden" name="lieferant" value="{{ lieferant.pk }}">
+  {% if offene %}<select name="bestellung" aria-label="Wareneingang zu Bestellung" style="font-size:12px;padding:2px 4px"><option value="">ohne Bestellung</option>
+    {% for b in offene %}<option value="{{ b.pk }}">zu {{ b.nummer }}</option>{% endfor %}</select>{% endif %}
+  <button type="submit" class="leise" title="Neuer Wareneingang von {{ lieferant.name1 }}">+ Wareneingang</button></form>{% endif %}

@@ -6,12 +6,12 @@ from django.utils import timezone
 
 from apps.stammdaten.models import lieferanten_auswahl
 
-from .models import BestellStatus, Bestellung, Lieferantenrechnung, RechnungStatus, Rma, RmaStatus, Wareneingang
+from .models import RUECKSENDUNG_OFFEN, BestellStatus, Bestellung, Lieferantenrechnung, RechnungStatus, Rma, RmaStatus, Ruecksendung, Wareneingang
 
 LIEFERANTENSUCHE_FELDER = ["nummer", "kurzname", "name1", "name2", "name3", "ort",
                            "ansprechpartner__vorname", "ansprechpartner__nachname"]
 
-ARTEN = [("BE", "Bestellung"), ("WE", "Wareneingang"), ("LR", "Lieferantenrechnung"), ("RMA", "RMA")]
+ARTEN = [("BE", "Bestellung"), ("WE", "Wareneingang"), ("WR", "WE-Rücksendung"), ("LR", "Lieferantenrechnung"), ("RMA", "RMA")]
 BESTELLUNG_OFFEN = (BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL)
 RMA_OFFEN = (RmaStatus.ANGELEGT, RmaStatus.EINGESENDET)
 
@@ -65,6 +65,15 @@ def belege(mandant, lieferant=None, nur_offen=True, art="", ab=None):
                            "datum": r.datum, "lieferant": r.lieferant, "bereich": "lieferantenrechnung", "status": r.status,
                            "status_text": r.get_status_display(), "betrag": r.brutto, "betrag_art": "brutto",
                            "faellig": r.faellig, "skonto_bis": r.skonto_bis, "pk": r.pk})
+    if art in ("", "WR"):
+        qs = filtern(Ruecksendung.objects.select_related("wareneingang").prefetch_related("positionen"))
+        if nur_offen:
+            qs = qs.filter(status__in=RUECKSENDUNG_OFFEN)
+        for r in qs:
+            zeilen.append({"art": "WR", "art_text": "Rücksendung", "nummer": r.nummer, "url": reverse("einkauf:ruecksendung", args=[r.pk]),
+                           "datum": r.datum, "lieferant": r.lieferant, "bereich": "ruecksendung", "status": r.status,
+                           "status_text": r.get_status_display(), "betrag": r.summe_netto, "betrag_art": "netto",
+                           "bezug": r.wareneingang.nummer, "pk": r.pk})
     if art in ("", "RMA"):
         qs = filtern(Rma.objects.all(), "angelegt_am__date")
         if nur_offen:
