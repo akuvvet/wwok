@@ -1258,7 +1258,9 @@ def api_artikel(request):
     alle = any(z in q for z in "*>%") or request.GET.get("tabelle") == "1"
     if len(q) < 2 and not alle:
         return JsonResponse({"treffer": []})
-    grenze = 300 if request.GET.get("tabelle") == "1" else (60 if alle else 20)
+    tabelle = request.GET.get("tabelle") == "1"
+    grenze = 2000 if tabelle else (60 if alle else 20)  # Tabelle („*“ + Enter): alle eigenen Artikel, nicht nur die ersten 300
+    pl_grenze = 300 if tabelle else (grenze if alle else 15)  # Preislisten sind sehr groß: dort bleibt es bei der Eingrenzung
     artikel = Artikel.objects.filter(nicht_aktiv=False)
     if typ in ("L", "G"):
         artikel = artikel.filter(typ=typ)
@@ -1273,7 +1275,7 @@ def api_artikel(request):
         "nummer", "bezeichnung", "herstellernummer", "bezeichnung_erweitert", "hersteller__name", "ean"))
     pl = preisliste_filtern(pl, q)
     artikel = artikel.select_related("steuersatz").order_by("nummer")[:grenze]
-    preisliste = list(pl.order_by("bezeichnung")[:(grenze if alle else 15)])
+    preisliste = list(pl.order_by("bezeichnung")[:pl_grenze])
     treffer = []
     artikel = list(artikel)
     letzte = letzte_preise(request.mandant, kunde, [a.pk for a in artikel], [e.pk for e in preisliste]) if kunde else {}
@@ -1308,7 +1310,7 @@ def api_artikel(request):
                         "preis": f"{preis:.2f}" if preis is not None else "", "letzter": letzter(("p", e.pk)), "pl": e.pk, "ek": str(e.ek),
                         "lieferant": e.lieferant.kurz,
                         "lieferant_bestand": e.bestand})
-    return JsonResponse({"treffer": treffer})
+    return JsonResponse({"treffer": treffer, "mehr": len(artikel) >= grenze or len(preisliste) >= pl_grenze})
 
 
 @mit_mandant

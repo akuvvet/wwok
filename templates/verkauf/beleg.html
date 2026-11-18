@@ -180,7 +180,22 @@
       <select name="typ"><option>A</option><option>P</option><option>L</option><option>G</option></select></div>
     <div><label>Artikel (Nr. oder Suchwörter)</label>
       <div style="position:relative"><input name="artikel" id="artikel" size="30" autofocus><input type="hidden" name="pl" id="pl">
-        <div id="trefferliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:520px;max-height:320px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
+        <style>
+          /* Trefferliste der Artikelsuche als Tabelle: Nummer | Bezeichnung | Lager | VK der Preisstufe des Kunden */
+          #trefferliste { display:none; position:absolute; z-index:25; left:0; top:100%; width:min(980px, calc(100vw - 48px)); max-height:360px; overflow:auto;
+            background:var(--karte); border:1px solid var(--rand); border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,.18); }
+          #trefferliste table { width:100%; border-collapse:collapse; }
+          #trefferliste th { position:sticky; top:0; z-index:1; background:var(--karte); box-shadow:0 1px 0 var(--rand); white-space:nowrap; }
+          #trefferliste th, #trefferliste td { padding:5px 10px; border-bottom:1px solid var(--rand); vertical-align:top; }
+          #trefferliste td.nr { white-space:nowrap; }
+          #trefferliste td.zahl { white-space:nowrap; }
+          #trefferliste tbody tr { cursor:pointer; }
+          #trefferliste tr.lagernd > td { background:var(--toenung, rgba(11,92,173,.09)); }  /* eigener Artikel mit Bestand: hellster Farbton des Mandanten */
+          #trefferliste tr.fremd > td { color:color-mix(in srgb, var(--akzent) 72%, var(--text)); }  /* Lieferantenartikel (Typ P) */
+          #trefferliste tbody tr.gewaehlt > td, #trefferliste tbody tr:hover > td { background:color-mix(in srgb, var(--akzent) 24%, var(--karte)); }
+          #trefferliste .lief { font-size:11px; opacity:.8; margin-right:4px; }
+        </style>
+        <div id="trefferliste" data-keine-ansicht role="listbox" aria-label="Artikel-Treffer" data-vk="VK{{ beleg.kunde.preisstufe }}"></div></div></div>
     {% if gruppen %}<div><label>zu Gruppe</label><select name="gruppe"><option value="">–</option>{% for g in gruppen %}<option value="{{ g.pk }}"{% if g.pk == gruppe_vorgabe %} selected{% endif %}>{{ g.pos }} {{ g.bezeichnung }}</option>{% endfor %}</select>
       {% if gruppe_vorgabe %}<input type="hidden" name="gruppe_auto" id="gruppe_auto" value="1" data-vorgabe="{{ gruppe_vorgabe }}">{% endif %}</div>{% endif %}
     <div><label>Bezeichnung (leer = wie Artikel)</label><input name="bezeichnung" id="bezeichnung" size="24" maxlength="255" title="Eigener Text für diese Position: gilt für alle Typen (A, P, L, G), wird so gedruckt und in alle Folgebelege übernommen. Leer = Bezeichnung des Artikels; bei einer freien Position Pflicht."></div>
@@ -478,14 +493,42 @@
     ['menge', 'preis', 'rabatt'].forEach(function (n) { document.getElementById('positionsform')[n].addEventListener('input', ekErfassung); });
     function zeige() {
       box.innerHTML = '';
-      liste.forEach(function (t, i) {
-        var d = document.createElement('div');
-        d.style.cssText = 'padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--rand);' + (i === aktiv ? 'background:var(--grund)' : '');
-        d.textContent = (t.lieferant ? '[' + t.lieferant + '] ' : '') + t.nummer + ' – ' + t.bezeichnung + (t.preis ? '  (' + t.preis + ' €' + (t.sonderpreis ? ', Sonderpreis' : '') + ')' : '') + (t.verfuegbar !== null ? '  · verfügbar ' + parseFloat(t.verfuegbar) : '') + (t.lieferant && t.lieferant_bestand !== null && t.lieferant_bestand !== undefined ? '  · beim Lieferanten ' + t.lieferant_bestand : '');
-        d.addEventListener('mousedown', function (e) { e.preventDefault(); waehle(i); });
-        box.appendChild(d);
-      });
+      if (liste.length) {
+        var tabelle = document.createElement('table'), kopf = tabelle.createTHead().insertRow(), rumpf = tabelle.createTBody();
+        [['Nummer', ''], ['Bezeichnung', ''], ['Lager', 'zahl'], [box.dataset.vk + ' netto', 'zahl']].forEach(function (s) {
+          var th = document.createElement('th'); th.textContent = s[0]; th.className = s[1]; kopf.appendChild(th);
+        });
+        liste.forEach(function (t, i) {
+          var tr = rumpf.insertRow(), fremd = !!t.lieferant, lager = lagerText(t);
+          tr.setAttribute('role', 'option'); tr.setAttribute('aria-selected', String(i === aktiv));
+          tr.className = (fremd ? 'fremd' : (zahl(t.bestand) > 0 ? 'lagernd' : '')) + (i === aktiv ? ' gewaehlt' : '');
+          var nr = tr.insertCell(); nr.className = 'nr';
+          if (fremd) { var l = document.createElement('span'); l.className = 'lief'; l.textContent = t.lieferant; l.title = 'Lieferantenartikel (Typ P)'; nr.appendChild(l); }
+          nr.appendChild(document.createTextNode(t.nummer));
+          tr.insertCell().textContent = t.bezeichnung;
+          var lz = tr.insertCell(); lz.className = 'zahl'; lz.textContent = lager.text; lz.title = lager.tipp;
+          var pz = tr.insertCell(); pz.className = 'zahl'; pz.textContent = t.preis ? t.preis.replace('.', ',') + (t.sonderpreis ? ' *' : '') : '';
+          if (t.sonderpreis) pz.title = 'Sonderpreis dieses Kunden';
+          tr.addEventListener('mousedown', function (e) { e.preventDefault(); waehle(i); });
+        });
+        box.appendChild(tabelle);
+      }
       box.style.display = liste.length ? 'block' : 'none';
+      if (liste.length) {  // nie über den rechten Fensterrand hinaus
+        box.style.width = Math.max(320, Math.min(980, document.documentElement.clientWidth - feld.getBoundingClientRect().left - 24)) + 'px';
+        var a = box.querySelector('tr.gewaehlt'); if (a) a.scrollIntoView({block: 'nearest'});
+      }
+    }
+    function lagerText(t) {  // eigener Artikel: Lagerbestand (frei, wenn reserviert); Lieferantenartikel: Bestand des Lieferanten
+      if (t.lieferant) {
+        var lb = t.lieferant_bestand === null || t.lieferant_bestand === undefined ? '' : String(t.lieferant_bestand);
+        return {text: lb, tipp: lb === '' ? '' : 'Bestand beim Lieferanten ' + t.lieferant};
+      }
+      if (t.bestand === null || t.bestand === undefined) {  // Gruppe: so viele lassen sich aus den Komponenten bilden
+        return t.verfuegbar === null ? {text: '', tipp: ''} : {text: String(parseFloat(t.verfuegbar)), tipp: 'aus den Komponenten lieferbar'};
+      }
+      var b = parseFloat(t.bestand), frei = t.verfuegbar === null ? b : parseFloat(t.verfuegbar);
+      return frei !== b ? {text: b + ' (frei ' + frei + ')', tipp: 'Lagerbestand ' + b + ', davon reserviert ' + (b - frei)} : {text: String(b), tipp: 'Lagerbestand'};
     }
     function waehle(i) {
       var t = liste[i]; if (!t) return;
@@ -520,10 +563,11 @@
         {titel: 'Bezeichnung', feld: 'bezeichnung'},
         {titel: 'Bestand', zahl: true, feld: function (t) { return t.lieferant ? (t.lieferant_bestand === null || t.lieferant_bestand === undefined ? '' : t.lieferant_bestand + ' (Lief.)') : (t.bestand === null ? '' : t.bestand); }},
         {titel: 'verfügbar', zahl: true, feld: function (t) { return t.verfuegbar === null ? '' : parseFloat(t.verfuegbar); }},
-        {titel: 'Preis netto', zahl: true, feld: function (t) { return t.preis ? t.preis.replace('.', ',') + (t.sonderpreis ? ' (Sonderpreis)' : '') : ''; }}],
+        {titel: 'Preis netto', zahl: true, feld: function (t) { return t.preis ? t.preis.replace('.', ',') + (t.sonderpreis ? ' (Sonderpreis)' : '') : ''; }},
+        {titel: 'EK netto', zahl: true, feld: function (t) { return t.ek === undefined || t.ek === null || t.ek === '' ? '' : zahl(t.ek).toFixed(2).replace('.', ','); }}],
         laden: function (text) {
           return fetch("{% url 'verkauf:api_artikel' %}?tabelle=1&kunde={{ beleg.kunde.pk }}&typ=" + encodeURIComponent(typ.value) + "&q=" + encodeURIComponent(text), {credentials: 'same-origin'})
-            .then(function (r) { return r.json(); }).then(function (d) { return {zeilen: d.treffer, mehr: d.treffer.length >= 300}; });
+            .then(function (r) { return r.json(); }).then(function (d) { return {zeilen: d.treffer, mehr: d.mehr}; });
         },
         waehlen: function (t) { liste = [t]; waehle(0); }});
     }
