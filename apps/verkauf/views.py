@@ -1278,13 +1278,22 @@ def api_artikel(request):
     preisliste = list(pl.order_by("bezeichnung")[:pl_grenze])
     treffer = []
     artikel = list(artikel)
-    letzte = letzte_preise(request.mandant, kunde, [a.pk for a in artikel], [e.pk for e in preisliste]) if kunde else {}
+    # Gleiche Herstellernummer wie ein eigener Lagerartikel: Die Maske fragt dann, welcher von beiden in den Beleg soll
+    from django.db.models.functions import Upper
+    hnr = {e.herstellernummer.strip().upper() for e in preisliste if e.herstellernummer.strip()}
+    eigene = {}
+    if hnr:
+        for a in (Artikel.objects.filter(typ="A", nicht_aktiv=False).exclude(herstellernummer="")
+                  .annotate(hnr=Upper("herstellernummer")).filter(hnr__in=hnr).select_related("steuersatz").order_by("nummer")):
+            eigene.setdefault(a.hnr.strip(), a)
+    letzte = letzte_preise(request.mandant, kunde, [a.pk for a in artikel] + [a.pk for a in eigene.values()],
+                           [e.pk for e in preisliste]) if kunde else {}
 
     def letzter(schluessel):
         z = letzte.get(schluessel)
         return {"preis": f"{z['preis']:.2f}".replace(".", ","), "datum": z["datum"].strftime("%d.%m.%Y"), "nummer": z["nummer"]} if z else None
 
-    for a in artikel:
+    def eigener_treffer(a):
         from apps.stammdaten.preise import verkaufspreis
         preis, quelle = verkaufspreis(a, kunde)
         frei = None
@@ -1298,18 +1307,25 @@ def api_artikel(request):
         ek = a.ek_errechnet
         from apps.lager.models import bestand as lagerbestand
         lager = lagerbestand(request.mandant, a) if a.typ == "A" else None
-        treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "typ": a.typ, "verfuegbar": frei,
-                        "bestand": f"{lager.normalize():f}" if lager is not None else None,
-                        "ek": str(ek) if ek is not None else "",
-                        "preis": f"{preis:.2f}" if preis is not None else "", "sonderpreis": quelle == "sonderpreis",
-                        "letzter": letzter(("a", a.pk))})
+        return {"nummer": a.nummer, "bezeichnung": a.bezeichnung, "typ": a.typ, "verfuegbar": frei,
+                "bestand": f"{lager.normalize():f}" if lager is not None else None,
+                "ek": str(ek) if ek is not None else "",
+                "preis": f"{preis:.2f}" if preis is not None else "", "sonderpreis": quelle == "sonderpreis",
+                "letzter": letzter(("a", a.pk))}
+
+    treffer.extend(eigener_treffer(a) for a in artikel)
     from apps.stammdaten.preise import preislistenpreis
     for e in preisliste:  # Lieferantenartikel (Typ P) mit Kurzname des Lieferanten
         preis = preislistenpreis(e, kunde)
-        treffer.append({"nummer": e.nummer, "bezeichnung": e.bezeichnung, "typ": "P", "verfuegbar": None, "sonderpreis": False,
-                        "preis": f"{preis:.2f}" if preis is not None else "", "letzter": letzter(("p", e.pk)), "pl": e.pk, "ek": str(e.ek),
-                        "lieferant": e.lieferant.kurz,
-                        "lieferant_bestand": e.bestand})
+        zeile = {"nummer": e.nummer, "bezeichnung": e.bezeichnung, "typ": "P", "verfuegbar": None, "sonderpreis": False,
+                 "preis": f"{preis:.2f}" if preis is not None else "", "letzter": letzter(("p", e.pk)), "pl": e.pk, "ek": str(e.ek),
+                 "lieferant": e.lieferant.kurz,
+                 "lieferant_bestand": e.bestand}
+        eigen = eigene.get(e.herstellernummer.strip().upper()) if e.herstellernummer.strip() else None
+        if eigen is not None:
+            zeile["herstellernummer"] = e.herstellernummer.strip()
+            zeile["eigener"] = eigener_treffer(eigen)
+        treffer.append(zeile)
     return JsonResponse({"treffer": treffer, "mehr": len(artikel) >= grenze or len(preisliste) >= pl_grenze})
 
 

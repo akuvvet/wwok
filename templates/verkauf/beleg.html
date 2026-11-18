@@ -530,8 +530,23 @@
       var b = parseFloat(t.bestand), frei = t.verfuegbar === null ? b : parseFloat(t.verfuegbar);
       return frei !== b ? {text: b + ' (frei ' + frei + ')', tipp: 'Lagerbestand ' + b + ', davon reserviert ' + (b - frei)} : {text: String(b), tipp: 'Lagerbestand'};
     }
-    function waehle(i) {
+    function waehle(i, entschieden) {
       var t = liste[i]; if (!t) return;
+      if (t.eigener && !entschieden) {  // Preislistenartikel, dessen Herstellernummer es schon als eigenen Lagerartikel gibt: nachfragen
+        var e = t.eigener, euro = function (p) { return p ? ', VK ' + p.replace('.', ',') + ' €' : ''; };
+        liste = []; aktiv = -1; zeige();
+        wwokDialog('Achtung: Die Herstellernummer ' + t.herstellernummer + ' gibt es bereits als eigenen Artikel.\n\n' +
+          'Eigener Artikel: ' + e.nummer + ' – ' + e.bezeichnung + ' (Lager ' + lagerText(e).text + euro(e.preis) + ')\n' +
+          'Preislistenartikel: [' + t.lieferant + '] ' + t.nummer + ' – ' + t.bezeichnung + ' (beim Lieferanten ' + (lagerText(t).text || '?') + euro(t.preis) + ')\n\n' +
+          'Welcher Artikel soll in den Beleg?',
+          [{text: 'Eigenen Artikel ' + e.nummer, wert: 'eigen', haupt: true}, {text: 'Preislistenartikel', wert: 'pl'}, {text: 'Abbrechen', wert: null}])
+          .then(function (wahl) {
+            if (wahl === 'eigen') { liste = [e]; waehle(0, true); }
+            else if (wahl === 'pl') { liste = [t]; waehle(0, true); }
+            else { feld.focus(); }
+          });
+        return;
+      }
       feld.value = t.nummer; preis.value = t.preis; typ.value = t.typ; document.getElementById('pl').value = t.pl || ''; gruppeAbgleichen();
       aktuellerEk = t.ek === undefined ? '' : t.ek; ekErfassung();
       info.textContent = t.bezeichnung + (t.letzter ? ' · zuletzt bezahlt: ' + t.letzter.preis + ' € netto am ' + t.letzter.datum + ' (' + t.letzter.nummer + ')' : '');
