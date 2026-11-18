@@ -18,7 +18,7 @@
   .seite { display:flex; align-items:flex-start; }
   .seite > main { flex:1; min-width:0; }
   .seitenleiste { flex:none; width:240px; box-sizing:border-box; display:flex; flex-direction:column; gap:2px; padding:10px; background:var(--karte);
-    border-right:1px solid var(--rand); position:sticky; top:58px; min-height:calc(100vh - 58px); max-height:calc(100vh - 58px); overflow-y:auto; overflow-x:hidden; }
+    border-right:1px solid var(--rand); position:sticky; top:58px; min-height:calc(100vh - var(--kopfhoehe, 58px)); max-height:calc(100vh - var(--kopfhoehe, 58px)); overflow-y:auto; overflow-x:hidden; }
   .sl-link, .gruppe > summary { display:flex; align-items:center; gap:0; padding:7px 10px; border-radius:6px; color:var(--text); text-decoration:none; cursor:pointer; }
   .sl-link:hover, .gruppe > summary:hover { background:var(--grund); }
   .sl-link:focus-visible, .gruppe > summary:focus-visible, .leistenknopf:focus-visible { outline:2px solid var(--akzent); outline-offset:-2px; }
@@ -83,7 +83,7 @@
   .knopf { padding:6px 12px; border:1px solid var(--akzent); border-radius:6px; text-decoration:none; line-height:1.3; }
   .knopf:not(.leise) { color:#fff; }
   .menue { display:flex; gap:6px; flex-wrap:wrap; }
-  .scroll { max-height:62vh; overflow:auto; border:1px solid var(--rand); border-radius:6px; }
+  .scroll { max-height:var(--scrollhoehe, 62vh); overflow:auto; border:1px solid var(--rand); border-radius:6px; }
   .scroll thead th { position:sticky; top:0; background:var(--karte); z-index:1; box-shadow:0 1px 0 var(--rand); }
   [hidden] { display:none !important; }
   dialog.modal { border:1px solid var(--rand); border-radius:10px; padding:0; width:min(940px,96vw); height:min(640px,92vh); overflow:hidden; margin:auto; background:var(--karte); color:var(--text); }
@@ -909,6 +909,31 @@
       if (e.key === 'Escape' && document.body.classList.contains('leiste-offen')) { schublade(false); if (menueKnopf) menueKnopf.focus(); }
     });
     window.addEventListener('resize', function () { if (window.innerWidth > 900) schublade(false); });
+  })();
+</script>
+<script>
+  // Fensterhöhe nutzen: hat eine Seite genau eine Liste (.scroll), reicht sie bis zum unteren Fensterrand – die Seite selbst muss dann nicht rollen.
+  (function () {
+    var main = document.getElementById('inhalt'), kopf = document.querySelector('.kopfbereich'); if (!main) return;
+    function anpassen() {
+      var kopfhoehe = kopf ? Math.ceil(kopf.getBoundingClientRect().height) : 0;
+      if (kopfhoehe) document.documentElement.style.setProperty('--kopfhoehe', kopfhoehe + 'px');  /* Seitenleiste endet genau am Fensterrand */
+      var listen = Array.prototype.filter.call(main.querySelectorAll('.scroll'), function (s) {
+        return !s.style.maxHeight && !s.closest('dialog') && s.offsetParent !== null;
+      });
+      Array.prototype.forEach.call(main.querySelectorAll('.scroll'), function (s) { if (listen.length !== 1 || s !== listen[0]) s.style.removeProperty('--scrollhoehe'); });
+      if (listen.length !== 1 || window.innerWidth <= 900) { if (listen[0]) listen[0].style.removeProperty('--scrollhoehe'); return; }
+      var s = listen[0], stil = getComputedStyle(main);
+      var rest = main.offsetHeight - s.offsetHeight + parseFloat(stil.marginTop) + parseFloat(stil.marginBottom);
+      var frei = window.innerHeight - kopfhoehe - rest;
+      s.style.setProperty('--scrollhoehe', Math.max(260, Math.floor(frei)) + 'px');
+    }
+    var wartet = false;
+    function gleich() { if (wartet) return; wartet = true; requestAnimationFrame(function () { wartet = false; anpassen(); }); }
+    anpassen();
+    window.addEventListener('resize', gleich);
+    window.addEventListener('load', gleich);
+    if (window.ResizeObserver) new ResizeObserver(gleich).observe(main);
   })();
 </script>
 {% block skript %}{% endblock %}
