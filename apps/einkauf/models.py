@@ -35,6 +35,15 @@ class Bestellung(Zeitstempel):
                                   help_text="Angebot oder Kundenbestellung, aus dem die Lieferantenbestellung kopiert wurde")
     angelegt_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name="+", verbose_name="angelegt von", editable=False)
+    # Tab „Versand & Konditionen“ (Wunsch des Nutzers 18.11.2026, wie die Kundenbestellung): erwartete Nebenkosten gehen in den
+    # ersten Wareneingang zur Bestellung (dort änderbar); Liefertermin, Bezugnahme und Versandart stehen auf dem PDF.
+    liefertermin = models.DateField("Liefertermin", null=True, blank=True)
+    bezugnahme = models.CharField("Bezugnahme (z. B. Angebot des Lieferanten)", max_length=100, blank=True)
+    versandart = models.CharField("Versandart", max_length=60, blank=True)
+    versandkosten = models.DecimalField("Versandkosten netto", **GELD, default=Decimal("0"))
+    verpackung = models.DecimalField("Verpackung netto", **GELD, default=Decimal("0"))
+    versicherung = models.DecimalField("Versicherung netto", **GELD, default=Decimal("0"))
+    notiz = models.TextField("Interne Notiz", blank=True, help_text="Nur intern, nicht auf PDF und E-Mail")
 
     class Meta:
         verbose_name = "Lieferantenbestellung"
@@ -48,6 +57,15 @@ class Bestellung(Zeitstempel):
     @property
     def summe_netto(self) -> Decimal:
         return sum((p.netto for p in self.positionen.all()), Decimal("0"))
+
+    @property
+    def nebenkosten(self) -> Decimal:
+        return self.versandkosten + self.verpackung + self.versicherung
+
+    def alle_wareneingaenge(self):
+        """Wareneingänge zu dieser Bestellung: mit ihr als Bezug oder mit übernommenen Positionen (Tab „Bestellungen“ im
+        Wareneingang kann Positionen mehrerer Bestellungen eines Lieferanten zusammenfassen)."""
+        return Wareneingang.objects.filter(models.Q(bestellung=self) | models.Q(positionen__bestellposition__bestellung=self)).distinct()
 
     def status_aktualisieren(self):
         """Nach Wareneingängen: teilweise oder vollständig geliefert."""

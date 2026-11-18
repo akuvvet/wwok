@@ -166,9 +166,49 @@ def bestellung_detail(request, bestellung_id):
             konditionen.append(("Bis versandfrei", f"noch {vergleich.eur(l.versandkostenfrei_ab - netto)} €"))
         if vergleich.versand(l, netto):
             konditionen.append(("Versand", f"{vergleich.eur(vergleich.versand(l, netto))} €"))
+    bedarf_alle = request.GET.get("bedarf") == "alle"
+    offen_fuer_positionen = b.status in (BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL)
     return render(request, "einkauf/bestellung.html", {
         "b": b, "positionen": positionen, "netto": netto, "konditionen": konditionen, "mit_lieferung": any(p.geliefert for p in positionen),
-        "wareneingaenge": b.wareneingaenge.all(), "aus_beleg": b.aus_beleg})
+        "wareneingaenge": b.alle_wareneingaenge().prefetch_related("positionen", "ruecksendungen"), "aus_beleg": b.aus_beleg,
+        "bedarf": services.bedarf_fuer_lieferant(b, alle=bedarf_alle) if offen_fuer_positionen else [], "bedarf_alle": bedarf_alle,
+        "offen_fuer_positionen": offen_fuer_positionen})
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:bestellung", "bestellung_id")
+def bestellung_bedarf(request, bestellung_id):
+    """Tab „Bedarf“: gewählte Artikel mit Menge als Positionen übernehmen."""
+    b = bestellung_holen(request, bestellung_id)
+    auswahl = []
+    for artikel_id in request.POST.getlist("auswahl"):
+        if not artikel_id.isdigit():
+            raise ValueError("Ungültige Artikelauswahl.")
+        artikel = get_object_or_404(Artikel, pk=artikel_id)
+        auswahl.append((artikel, zahl(request.POST.get(f"menge_{artikel_id}"), None)))
+    anzahl = services.bedarf_uebernehmen(b, auswahl)
+    messages.success(request, f"{anzahl} Artikel aus dem Bedarf übernommen.")
+    return redirect(reverse("einkauf:bestellung", args=[b.pk]) + "#positionen")
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:bestellung", "bestellung_id")
+def bestellung_kopf(request, bestellung_id):
+    """Tabs „Versand & Konditionen“ und „Texte & Notizen“ speichern."""
+    b = bestellung_holen(request, bestellung_id)
+    daten = {}
+    for feld in ("liefertermin", "bezugnahme", "versandart", "bemerkung", "notiz"):
+        if feld in request.POST:
+            daten[feld] = request.POST[feld]
+    for feld in ("versandkosten", "verpackung", "versicherung"):
+        if feld in request.POST:
+            daten[feld] = zahl(request.POST[feld], Decimal("0"))
+    services.bestellung_kopf_speichern(b, daten)
+    messages.success(request, "Gespeichert.")
+    tab = request.POST.get("tab") if request.POST.get("tab") in ("versand", "texte") else "versand"
+    return redirect(reverse("einkauf:bestellung", args=[b.pk]) + "#" + tab)
 
 
 def vergleich_menge(text):
@@ -399,8 +439,8 @@ def bestellung_rest_schliessen(request, bestellung_id):
 @require_POST
 def bestellung_stornieren(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
-    if b.wareneingaenge.exists():
-        if b.wareneingaenge.filter(gebucht=True).exists():
+    if b.alle_wareneingaenge().exists():
+        if b.alle_wareneingaenge().filter(gebucht=True).exists():
             messages.error(request, "Es gibt schon Wareneingänge – nicht stornierbar.")
         else:
             messages.error(request, "Es gibt noch einen offenen Wareneingang – bitte ihn zuerst im Wareneingang löschen.")
@@ -414,8 +454,8 @@ def bestellung_stornieren(request, bestellung_id):
 @require_POST
 def bestellung_loeschen(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
-    if b.wareneingaenge.exists():
-        if b.wareneingaenge.filter(gebucht=True).exists():
+    if b.alle_wareneingaenge().exists():
+        if b.alle_wareneingaenge().filter(gebucht=True).exists():
             messages.error(request, "Zur Bestellung gibt es Wareneingänge – sie kann nicht gelöscht werden.")
         else:
             messages.error(request, "Es gibt noch einen offenen Wareneingang – bitte ihn zuerst im Wareneingang löschen.")
@@ -545,7 +585,7 @@ def we_holen(request, we_id):
 def wareneingang_detail(request, we_id):
     we = we_holen(request, we_id)
     kalkulation = we.kalkulation()
-    positionen = list(we.positionen.select_related("artikel", "bestellposition"))
+    positionen = list(we.positionen.select_related("artikel", "bestellposition__bestellung"))
     for p in positionen:
         p.kalk = p.kalk_ek if we.gebucht and p.kalk_ek is not None else kalkulation[p.pk]
     p_rueckfrage = None
@@ -558,9 +598,39 @@ def wareneingang_detail(request, we_id):
     p_offen = [] if we.gebucht else services.offene_p_positionen(we)
     for bp in p_offen:  # „Im Formular anlegen …“: Artikelmaske mit den Lieferantendaten, nach dem Speichern übernommen
         bp.formular_url = artikel_formular_url(bp.preisliste_artikel, we, we_bp=bp.pk)
+    laufende = [] if we.gebucht else services.laufende_bestellungen(we)
     return render(request, "einkauf/wareneingang.html", {
         "we": we, "positionen": positionen, "netto": we.summe_netto, "bleibt_offen": services.bleibt_offen(we),
-        "p_offen": p_offen, "p_rueckfrage": p_rueckfrage})
+        "p_offen": p_offen, "p_rueckfrage": p_rueckfrage, "laufende": laufende,
+        "laufende_anzahl": sum(1 for g in laufende for bp in g["positionen"] if bp.rest > 0)})
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:wareneingang", "we_id")
+def wareneingang_uebernehmen(request, we_id):
+    """Tab „Bestellungen“: ganze laufende Bestellung (komplett=ID) oder gewählte Positionen mit Menge übernehmen."""
+    we = we_holen(request, we_id)
+    gruppen = {g["bestellung"].pk: g for g in services.laufende_bestellungen(we)}
+    p_anlegen = request.POST.get("p_anlegen") == "1"
+    auswahl = []
+    if request.POST.get("komplett", "").isdigit():
+        g = gruppen.get(int(request.POST["komplett"]))
+        if g is None:
+            raise ValueError("Die Bestellung ist nicht (mehr) offen.")
+        auswahl = [(bp, bp.rest) for bp in g["positionen"] if bp.rest > 0 and (p_anlegen or not bp.ist_p)]
+        if not auswahl:
+            raise ValueError(f"Aus {g['bestellung'].nummer} ist nichts mehr zu übernehmen"
+                             + (" (nur Preislistenartikel – bitte das Anlegen bestätigen)." if any(bp.ist_p and bp.rest > 0 for bp in g["positionen"]) else "."))
+    else:
+        nach_id = {bp.pk: bp for g in gruppen.values() for bp in g["positionen"]}
+        for bp_id in dict.fromkeys(request.POST.getlist("bp")):  # doppelt geschickte Position nur einmal
+            if not bp_id.isdigit() or int(bp_id) not in nach_id:
+                raise ValueError("Die Position ist nicht (mehr) offen.")
+            auswahl.append((nach_id[int(bp_id)], zahl(request.POST.get(f"menge_{bp_id}"), None)))
+    anzahl = services.wareneingang_uebernehmen(we, auswahl, p_anlegen=p_anlegen)
+    messages.success(request, f"{anzahl} Position(en) aus der Bestellung übernommen – bitte Mengen prüfen und buchen.")
+    return redirect(reverse("einkauf:wareneingang", args=[we.pk]) + "#positionen")
 
 
 def artikel_formular_url(eintrag, we, **bezug):
@@ -679,7 +749,7 @@ def wareneingang_buchen(request, we_id):
         we.save(update_fields=felder)
         if request.POST.get("aktion") == "kosten":
             messages.success(request, "Nebenkosten gespeichert, Kalkulations-EK neu berechnet.")
-            return redirect("einkauf:wareneingang", we_id=we.pk)
+            return redirect(reverse("einkauf:wareneingang", args=[we.pk]) + "#versand")
         bestaetigt = bool(request.POST.get("preis_bestaetigt"))
         if not bestaetigt:  # Plausibilität: Nebenkosten bleiben gespeichert, gebucht wird erst nach Bestätigung
             rueckfragen = services.mengen_rueckfragen(we) + services.preis_rueckfragen(we)
