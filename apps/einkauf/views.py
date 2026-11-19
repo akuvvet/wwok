@@ -166,12 +166,12 @@ def bestellung_detail(request, bestellung_id):
             konditionen.append(("Bis versandfrei", f"noch {vergleich.eur(l.versandkostenfrei_ab - netto)} €"))
         if vergleich.versand(l, netto):
             konditionen.append(("Versand", f"{vergleich.eur(vergleich.versand(l, netto))} €"))
-    bedarf_alle = request.GET.get("bedarf") == "alle"
+    bedarf_nur = request.GET.get("bedarf") == "lieferant"  # Standard: der gesamte Bedarf
     offen_fuer_positionen = b.status in (BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL)
     return render(request, "einkauf/bestellung.html", {
         "b": b, "positionen": positionen, "netto": netto, "konditionen": konditionen, "mit_lieferung": any(p.geliefert for p in positionen),
         "wareneingaenge": b.alle_wareneingaenge().prefetch_related("positionen", "ruecksendungen"), "aus_beleg": b.aus_beleg,
-        "bedarf": services.bedarf_fuer_lieferant(b, alle=bedarf_alle) if offen_fuer_positionen else [], "bedarf_alle": bedarf_alle,
+        "bedarf": services.bedarf_fuer_lieferant(b, nur_lieferant=bedarf_nur) if offen_fuer_positionen else [], "bedarf_nur": bedarf_nur,
         "offen_fuer_positionen": offen_fuer_positionen})
 
 
