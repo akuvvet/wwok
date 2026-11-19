@@ -299,8 +299,8 @@ def _verlauf_entfernen(beleg):
 
 def positionen_unveraendert(beleg, positionen_json) -> bool:
     """Hat der Beleg noch genau die Positionen des gesicherten Stands (Artikel, Menge, Preis, Rabatt, Steuer, Texte, Gruppen)?"""
-    felder = ("artikel_id", "preisliste_artikel_id", "typ", "bezeichnung", "zusatztext", "menge", "einzelpreis", "rabatt_prozent",
-              "steuer_prozent", "gruppe_id")
+    felder = ("artikel_id", "preisliste_artikel_id", "typ", "bezeichnung", "zusatztext", "menge", "einzelpreis", "preiseinheit",
+              "rabatt_prozent", "steuer_prozent", "gruppe_id")
     alt = {e.object.pk: tuple(getattr(e.object, f) for f in felder)
            for e in serializers.deserialize("json", positionen_json, ignorenonexistent=True)}
     aktuell = {p.pk: tuple(getattr(p, f) for f in felder) for p in Position.objects.filter(beleg=beleg)}

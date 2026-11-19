@@ -437,7 +437,13 @@ class KategorieAdmin(admin.ModelAdmin):
 
     def betroffene_artikel(self, obj):
         """Artikel, die im Shop stehen und beim Ausschalten dieser Kategorie (samt Unterkategorien) deaktiviert würden."""
-        return m.Artikel.objects.shop_sichtbar().filter(kategorie_id__in=obj.mit_unterkategorien()).count()
+        # betroffen: sichtbare Artikel dieser Kategorie (Haupt- oder weitere), die danach keine Online-Kategorie mehr hätten
+        from django.db.models import Q
+        ids = obj.mit_unterkategorien()
+        kandidaten = m.Artikel.objects.shop_sichtbar().filter(Q(kategorie_id__in=ids) | Q(weitere_kategorien__in=ids)).distinct()
+        offline = set(m.Kategorie.offline_ids()) | set(ids)
+        return sum(1 for a in kandidaten.prefetch_related("weitere_kategorien")
+                   if all(k in offline for k in [a.kategorie_id, *[w.pk for w in a.weitere_kategorien.all()]] if k))
 
     @admin.display(description="Artikel im Shop")
     def artikel_im_shop(self, obj):

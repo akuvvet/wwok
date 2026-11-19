@@ -128,13 +128,15 @@
   <div class="scroll" id="positionsliste"><table>
     <thead><tr><th>Pos.</th><th>Artikel / Bezeichnung</th><th class="zahl">Menge</th><th class="zahl">Preis</th><th class="zahl">Rabatt</th><th class="zahl">Netto</th>{% if beleg.art == 'GS' %}<th title="Bestand: R = Reparaturbestand, B = Lagerbestand, – = keine Ware zurück">B</th>{% endif %}{% if beleg.art == 'AB' %}<th title="Reservieren: Mit Haken hält die Position ihren Lagerbestand fest. Ohne Haken wartet sie auf den Wareneingang, der Bestand ist für andere Bestellungen frei.">R</th>{% endif %}<th></th></tr></thead>
     <tbody>{% for p in positionen %}
-    <tr data-ekstk="{% with ek=p.ek_stueck %}{% if ek is not None %}{{ ek|unlocalize }}{% endif %}{% endwith %}" data-preis="{{ p.einzelpreis|unlocalize }}" data-sub="{{ p.gruppe_id|default_if_none:'' }}"{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}>
+    <tr data-ekstk="{% with ek=p.ek_stueck %}{% if ek is not None %}{{ ek|unlocalize }}{% endif %}{% endwith %}" data-preis="{{ p.einzelpreis|unlocalize }}" data-einheit="{{ p.preiseinheit }}" data-sub="{{ p.gruppe_id|default_if_none:'' }}"{% if p.gruppe_id %} style="opacity:.85"{% elif p.typ == 'G' %} style="background:var(--grund)"{% endif %}>
       <td>{{ p.pos }}</td>
       <td>
         {% if p.gruppe_id %}<span style="padding-left:18px">↳ </span>{% endif %}
         {% if p.artikelnummer %}<span style="opacity:.7">{{ p.artikelnummer }}</span> {% endif %}{% if p.preisliste_artikel %}<span class="marke" title="Artikel aus der Preisliste des Lieferanten">{{ p.preisliste_artikel.lieferant.kurz }}</span> {% if beleg.art == 'AB' or beleg.art == 'LS' or beleg.art == 'RE' %}<span class="marke gesperrt" title="Preislistenartikel: gilt nur als Angebot, bis der Artikel im Lager ist">Angebot</span> {% endif %}{% endif %}{% if p.fehlt %}<span class="gefahr-text" data-fehlt title="Nicht ausreichend auf Lager">{% endif %}{% if p.typ == 'G' and not p.gruppe_id %}<strong>{{ p.bezeichnung }}</strong>{% else %}{{ p.bezeichnung }}{% endif %}{% if p.fehlt %}</span>{% endif %}
         {% if p.artikel_id and p.bezeichnung != p.artikel.bezeichnung %}<br><small style="opacity:.75" title="Nur hier sichtbar, wird nicht gedruckt">Artikel: {{ p.artikel.bezeichnung }}</small>{% endif %}
         {% if p.zusatztext %}<br><small style="opacity:.75;white-space:pre-line">{{ p.zusatztext }}</small>{% endif %}
+        {% if beleg.art != 'GS' and beleg.art != 'LS' and beleg.art != 'NL' and p.grundpreis_text %}<br><small style="opacity:.75" title="Grundpreis nach Preisangabenverordnung (brutto je Stück nach Rabatt), steht im Ausdruck">Grundpreis: {{ p.grundpreis_text }}</small>{% endif %}
+        {% if not beleg.positionen_gesperrt and beleg.art != 'GS' and p.preisgrenzen_warnung %}<br><small class="preiswarnung" style="color:var(--warn);font-weight:600" title="Nur ein Hinweis, der Preis lässt sich trotzdem speichern. Steht nicht im Ausdruck.">Achtung: {{ p.preisgrenzen_warnung }}</small>{% endif %}
         {% if p.letzter %}<br><small style="opacity:.75" title="Netto je Stück nach Rabatten, aus der letzten Rechnung an diesen Kunden">Zuletzt bezahlt: <strong>{{ p.letzter.preis|floatformat:"2g" }} €</strong> am {{ p.letzter.datum|date:"d.m.Y" }} (<a href="{% url 'verkauf:beleg' p.letzter.beleg_id %}">{{ p.letzter.nummer }}</a>)</small>{% endif %}
         {% if p.lieferschein and not p.gruppe_id %}<br><small style="opacity:.75">Lieferschein {{ p.lieferschein.nummer }} vom {{ p.lieferschein.belegdatum|date:"d.m.Y" }}</small>{% endif %}
         {% if p.uebernahme_text %}<br><small style="color:var(--warn)" title="Die übernommene Menge ist aus der Bestellung herausgenommen; hier steht nur der Rest. Reserviert wird der Rest.">{{ p.uebernahme_text }}</small>{% endif %}
@@ -164,7 +166,7 @@
       <td class="zahl">{% if p.gruppe_id %}<span style="opacity:.6">{{ p.einzelpreis }}</span>{% elif p.typ == 'G' and not beleg.positionen_gesperrt %}
         <form method="post" action="{% url 'verkauf:gruppenpreis' beleg.pk p.pk %}" style="display:flex;gap:4px;justify-content:flex-end">{% csrf_token %}
           <input name="preis" value="{{ p.einzelpreis }}" size="8" title="Gruppenpreis netto; leer lassen = Summe der Unterpositionen">
-          <button type="submit" class="leise" title="Gruppenpreis speichern (leer = Summe der Unterpositionen)">OK</button></form>{% else %}{{ p.einzelpreis }}{% endif %}</td>
+          <button type="submit" class="leise" title="Gruppenpreis speichern (leer = Summe der Unterpositionen)">OK</button></form>{% else %}{{ p.einzelpreis }}{% if p.preiseinheit > 1 %}<br><small style="opacity:.75">je {{ p.preiseinheit }} Stück</small>{% endif %}{% endif %}</td>
       <td class="zahl">{% if not p.gruppe_id and p.rabatt_prozent %}{{ p.rabatt_prozent|floatformat:"-2" }} %{% endif %}</td>
       <td class="zahl">{% if not p.gruppe_id %}{{ p.netto_gesamt|floatformat:"2g" }}{% endif %}</td>
       {% if beleg.art == 'GS' %}<td>{% if p.artikel and p.artikel.typ == 'A' %}{% if beleg.positionen_gesperrt %}<span title="{{ p.get_ruecknahme_display }}">{% if p.ruecknahme == 'K' %}–{% else %}{{ p.ruecknahme }}{% endif %}</span>{% else %}<form method="post" action="{% url 'verkauf:position_ruecknahme' beleg.pk p.pk %}">{% csrf_token %}<button class="leise" type="submit" title="{{ p.get_ruecknahme_display|default:'Noch nicht gewählt' }} – klicken zum Wechseln">{% if p.ruecknahme == 'K' %}–{% else %}{{ p.ruecknahme|default:"?" }}{% endif %}</button></form>{% endif %}{% endif %}</td>{% endif %}
@@ -292,7 +294,7 @@
       if (fragt || laeuft) return;
       fragt = true;
       wwokDialog('Dieser Beleg ist noch nicht gespeichert. Ohne Abschließen wird er verworfen und alles, was daraus entstanden ist, zurückgenommen.', [
-        {text: 'Abschließen & Nummer vergeben', wert: 'abschliessen', haupt: true}{% if not beleg.offenes_ziel %}, {text: 'Verwerfen', wert: 'verwerfen'}{% else %}, {text: 'Verlassen (Angebot bleibt nicht gespeichert)', wert: 'verlassen'}{% endif %}, {text: 'Zurück zum Beleg', wert: null}
+        {text: 'Abschließen', wert: 'abschliessen', haupt: true}{% if not beleg.offenes_ziel %}, {text: 'Verwerfen', wert: 'verwerfen'}{% else %}, {text: 'Verlassen', wert: 'verlassen'}{% endif %}, {text: 'Zurück', wert: null}
       ]).then(function (wert) {
         fragt = false;
         if (wert === 'verlassen') { durchlassen = true; if (ziel) location.href = ziel; return; }
@@ -338,7 +340,7 @@
         e.stopImmediatePropagation();
         var knopf = e.submitter;
         wwokDialog('Erst abschließen & Nummer vergeben? Der Beleg ist noch nicht gespeichert; erst danach kann daraus übernommen oder kopiert werden.', [
-          {text: 'Abschließen & Nummer vergeben, dann übernehmen', wert: true, haupt: true}, {text: 'Zurück zum Beleg', wert: false}
+          {text: 'Abschließen & Nummer vergeben, dann übernehmen', wert: true, haupt: true}, {text: 'Zurück', wert: false}
         ]).then(function (ja) {
           if (!ja) return;
           var h = document.createElement('input'); h.type = 'hidden'; h.name = 'erst_abschliessen'; h.value = '1'; f.appendChild(h);
@@ -383,7 +385,7 @@
       var m = tr.querySelector('input[name=menge]'), p = tr.querySelector('input[name=preis]'), r = tr.querySelector('input[name=rabatt]');
       var menge = zahl(m ? m.value : tr.cells[2].textContent), preis = p ? zahl(p.value) : zahl(tr.dataset.preis);
       var rabatt = r ? zahl(r.value) : 0;
-      window.ekZeigen(tr.dataset.ekstk, menge, menge * preis * (100 - rabatt) / 100);
+      window.ekZeigen(tr.dataset.ekstk, menge, menge * preis / (zahl(tr.dataset.einheit) || 1) * (100 - rabatt) / 100);
     }
     function markieren(e) { var tr = e.target.closest && e.target.closest('tr[data-ekstk]'); if (tr) zeile(tr); }
     document.addEventListener('focusin', markieren);
@@ -584,6 +586,7 @@
           return fetch("{% url 'verkauf:api_artikel' %}?tabelle=1&kunde={{ beleg.kunde.pk }}&typ=" + encodeURIComponent(typ.value) + "&q=" + encodeURIComponent(text), {credentials: 'same-origin'})
             .then(function (r) { return r.json(); }).then(function (d) { return {zeilen: d.treffer, mehr: d.mehr}; });
         },
+        details: wwokArtikelDetails,  // unteres Drittel: Bild, Herstellernummer, Hersteller, EAN, Kategorie, Online (_suchauswahl.html)
         waehlen: function (t) { liste = [t]; waehle(0); }});
     }
     feld.addEventListener('keydown', function (e) {

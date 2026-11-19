@@ -206,14 +206,19 @@ def eintrag(artikel, mandant, bestand=None, offen=None, einst=None, jetzt=None, 
         vorschlag = vk_vorschlag_aus(ek_kalk, marge, auf_99)
         vk_fix = am.vk_fix1 if am else False
     ek_avg = am.ek_avg if am else None
+    # Preiseinheit (VK je n Stück): verglichen wird je Stück wie der EK, Vorschlag und Übernahme gelten je Preiseinheit
+    einheit = Decimal(getattr(artikel, "preiseinheit", 1) or 1)
+    vk_stueck = artikel.vk1 / einheit if artikel.vk1 is not None else None
     basis, basis_quelle, befunde = bewerte(
-        bestand=bestand, ek_avg=ek_avg, ek_import_wert=imp, ek_kalk=ek_kalk, quelle=quelle, vk=artikel.vk1, vorschlag=vorschlag,
+        bestand=bestand, ek_avg=ek_avg, ek_import_wert=imp, ek_kalk=ek_kalk, quelle=quelle, vk=vk_stueck, vorschlag=vorschlag,
         vk_fix=vk_fix, ziel_marge=marge, einst=einst, ek2=am.ek2 if am else None,
         ek2_datum=am.ek2_datum if am else None, ek_we=am.ek_we if am else None, jetzt=jetzt)
     g = RadarGesehen.objects.filter(artikel=artikel, mandant=mandant).first() if gesehen_zeile is LADEN else gesehen_zeile
     gesehen = g is not None and not any(_geaendert(a, n, einst) for a, n in ((g.ek_kalk, ek_kalk), (g.ek_avg, ek_avg), (g.vk, artikel.vk1)))
     senkung = (artikel.typ != Artikeltyp.L and not vk_fix and artikel.vk1 is not None
-               and vk_uebernahme(artikel.vk1, vorschlag, False) == "senkung_pruefen")
+               and vk_uebernahme(vk_stueck, vorschlag, False) == "senkung_pruefen")
+    if vorschlag is not None and einheit != 1:
+        vorschlag = (vorschlag * einheit).quantize(Decimal("0.01"))
     return Eintrag(artikel=artikel, bestand=bestand, menge=menge, ek_kalk=ek_kalk, ek_avg=ek_avg, quelle=quelle, basis=basis,
                    basis_quelle=basis_quelle, vk=artikel.vk1, vorschlag=vorschlag, befunde=befunde,
                    warnungen_aus=bool(am and am.warnungen_aus), gesehen=gesehen, senkung_pruefen=senkung)

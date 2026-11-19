@@ -336,28 +336,40 @@ def bestellung_position(request, bestellung_id):
 
 @mit_mandant
 def api_bestellartikel(request, bestellung_id):
-    """Suche für die Bestellposition: mehrere Wörter in beliebiger Reihenfolge, eigene Artikel und Preisliste des Lieferanten."""
+    """Suche für die Bestellposition, dieselbe Syntax wie in der Belegmaske (apps/stammdaten/suche.py, Wunsch des Nutzers
+    19.11.2026): Wörter in beliebiger Reihenfolge, „*“ = alle, „%“ wie LIKE, „>5“ = Lagerbestand über 5 (bei Preislistenartikeln:
+    Bestand beim Lieferanten). Eigene Artikel und die Preisliste des Lieferanten; tabelle=1 liefert mehr Zeilen (Auswahlfenster)."""
+    from apps.lager.models import reserviert_je_artikel
+    from apps.stammdaten.suche import artikel_filtern, mit_bestand, preisliste_filtern
     b = bestellung_holen(request, bestellung_id)
     q = request.GET.get("q", "").strip()
-    if len(q) < 2:
+    tabelle = request.GET.get("tabelle") == "1"
+    alle = any(z in q for z in "*>%") or tabelle
+    if len(q) < 2 and not alle:
         return JsonResponse({"treffer": []})
-    artikel = Artikel.objects.filter(nicht_aktiv=False, typ="A")
-    eintraege = Preislistenartikel.objects.filter(lieferant=b.lieferant, artikel__isnull=True)
-    for wort in q.split():
-        artikel = artikel.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
-                                 | Q(hersteller__name__icontains=wort) | kennungen_filter(wort))
-        eintraege = eintraege.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
-                                     | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))
+    grenze = 2000 if tabelle else (60 if alle else 15)
+    artikel = artikel_filtern(Artikel.objects.filter(nicht_aktiv=False, typ="A"), q, b.mandant)
+    eintraege = preisliste_filtern(Preislistenartikel.objects.filter(lieferant=b.lieferant, artikel__isnull=True), q)
+    artikel = list(mit_bestand(artikel, b.mandant).order_by("nummer")[:grenze + 1])
+    eintraege = list(eintraege.order_by("bezeichnung")[:grenze + 1])
+    mehr = len(artikel) > grenze or len(eintraege) > grenze
     treffer = []
-    for a in artikel.order_by("nummer")[:15]:
-        ek, bestellnr = services.ek_vorschlag(b.mandant, b.lieferant, a)
+    artikel = artikel[:grenze]
+    preise = services.ek_vorschlaege(b.mandant, b.lieferant, artikel)  # wenige Abfragen statt drei je Zeile
+    reserviert = reserviert_je_artikel(b.mandant, [a.pk for a in artikel])
+    for a in artikel:
+        ek, bestellnr = preise[a.pk]
+        lager = a.lagerbestand
+        frei = max(lager - (reserviert.get(a.pk) or Decimal("0")), Decimal("0"))  # wie lager.models.verfuegbar: nie unter 0
         treffer.append({"nummer": a.nummer, "bezeichnung": a.bezeichnung, "ek": vergleich.eur(ek), "bestellnummer": bestellnr,
-                        "pl": None, "lieferant": "", "eigener": True})
+                        "pl": None, "lieferant": "", "eigener": True, "bestand": f"{lager.normalize():f}",
+                        "verfuegbar": f"{frei.normalize():f}"})
     kurz = b.lieferant.kurz  # alle Treffer gehören zum Lieferanten der Bestellung
-    for e in eintraege.order_by("bezeichnung")[:15]:
+    for e in eintraege[:grenze]:
         treffer.append({"nummer": e.nummer, "bezeichnung": e.bezeichnung, "ek": vergleich.eur(e.ek), "bestellnummer": e.bestellnummer,
-                        "pl": e.pk, "lieferant": kurz, "bestand": e.bestand, "eigener": False})
-    return JsonResponse({"treffer": treffer})
+                        "pl": e.pk, "lieferant": kurz, "lieferant_bestand": e.bestand, "bestand": None, "verfuegbar": None,
+                        "eigener": False})
+    return JsonResponse({"treffer": treffer, "mehr": mehr})
 
 
 @mit_mandant

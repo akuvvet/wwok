@@ -802,7 +802,7 @@ class Beleg(Zeitstempel):
             teile = list(kopf.unterpositionen.all())
             if not teile:
                 continue
-            summe = sum((u.menge * u.einzelpreis for u in teile), Decimal("0"))
+            summe = sum((u.betrag_roh for u in teile), Decimal("0"))
             preis = (summe / kopf.menge).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if kopf.menge else Decimal("0")
             if preis != kopf.einzelpreis:
                 Position.objects.filter(pk=kopf.pk).update(einzelpreis=preis)
@@ -1657,7 +1657,8 @@ def kopiere_positionen(quelle, ziel, mengen=None, ausser=()):
                     continue
         neu[p.pk] = Position.objects.create(
             beleg=ziel, gruppe=neu.get(p.gruppe_id), typ=p.typ, artikel=p.artikel, bezeichnung=p.bezeichnung,
-            preisliste_artikel=p.preisliste_artikel, menge=menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent,
+            preisliste_artikel=p.preisliste_artikel, menge=menge, einzelpreis=p.einzelpreis, preiseinheit=p.preiseinheit,
+            rabatt_prozent=p.rabatt_prozent,
             steuer_prozent=p.steuer_prozent, zusatztext=p.zusatztext, lieferschein=lieferschein or p.lieferschein,
             quellposition=p, preis_fest=p.preis_fest)  # reservieren wird nicht kopiert: eine Kopie startet mit Haken „R“
 
@@ -1734,6 +1735,9 @@ class Position(Zeitstempel):
     zusatztext = models.TextField("Zusatztext", blank=True)
     menge = models.DecimalField("Menge", max_digits=10, decimal_places=3, default=Decimal("1"))
     einzelpreis = models.DecimalField("Einzelpreis netto", max_digits=12, decimal_places=2)
+    preiseinheit = models.PositiveIntegerField(
+        "Preiseinheit", default=1, validators=[MinValueValidator(1)],
+        help_text="Der Einzelpreis gilt je n Stück (z. B. 100 = Preis je 100 Stück). Kommt aus dem Artikel; Betrag = Menge × Preis ÷ n.")
     rabatt_prozent = models.DecimalField("Rabatt %", max_digits=5, decimal_places=2, default=Decimal("0"))
     preis_fest = models.BooleanField("Gruppenpreis fest", default=False,
                                      help_text="Nur bei Gruppen (Typ G): ein von Hand eingetragener Preis wird nicht aus den Unterpositionen berechnet.")
@@ -1798,10 +1802,48 @@ class Position(Zeitstempel):
         return None
 
     @property
+    def betrag_roh(self) -> Decimal:
+        """Menge × Einzelpreis ÷ Preiseinheit, ungerundet und ohne Rabatt (Gruppen-Unterpositionen eingeschlossen)."""
+        return self.menge * self.einzelpreis / (self.preiseinheit or 1)
+
+    @property
     def netto_gesamt(self) -> Decimal:
         if self.gruppe_id:  # Unterartikel einer Gruppe: der Preis steht an der Gruppenposition
             return Decimal("0.00")
-        return runden(self.menge * self.einzelpreis * (Decimal("100") - self.rabatt_prozent) / 100)
+        return runden(self.betrag_roh * (Decimal("100") - self.rabatt_prozent) / 100)
+
+    @property
+    def einzelpreis_netto_nach_rabatt(self) -> Decimal:
+        """Netto-Preis je Preiseinheit nach Positionsrabatt (ungerundet)."""
+        return self.einzelpreis * (Decimal("100") - self.rabatt_prozent) / 100
+
+    @property
+    def stueckpreis_brutto(self) -> Decimal:
+        """Brutto-Preis je Stück nach Positionsrabatt (Grundlage des Grundpreises nach Preisangabenverordnung)."""
+        return self.einzelpreis_netto_nach_rabatt / (self.preiseinheit or 1) * (1 + self.steuer_prozent / 100)
+
+    @property
+    def grundpreis_text(self) -> str:
+        """z. B. „12,50 € / kg“, leer wenn der Artikel keinen Grundpreis hat (nur Positionen mit Artikel)."""
+        if not self.artikel_id or self.typ == "G":
+            return ""
+        return self.artikel.grundpreis_text(self.stueckpreis_brutto)
+
+    @property
+    def preisgrenzen_warnung(self) -> str:
+        """Hinweis, wenn der Netto-Preis je Preiseinheit (nach Positionsrabatt) die Preisgrenzen des Artikels verletzt.
+        Die Grenzen stehen im Artikel wie der VK je Preiseinheit; verglichen wird daher der Preis je Preiseinheit (nicht je Stück),
+        gerundet auf Cent. Nur Warnung, keine Sperre."""
+        if not self.artikel_id or self.gruppe_id or self.typ == "G" or self.einzelpreis is None:
+            return ""
+        art = self.artikel
+        preis = self.einzelpreis_netto_nach_rabatt.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        text = lambda w: f"{w:.2f}".replace(".", ",")
+        if art.vk_min is not None and preis < art.vk_min:
+            return f"unter Mindest-VK {text(art.vk_min)} €"
+        if art.vk_max is not None and preis > art.vk_max:
+            return f"über Höchst-VK {text(art.vk_max)} €"
+        return ""
 
     def save(self, *args, **kwargs):
         if self.beleg.positionen_gesperrt:
@@ -1940,7 +1982,7 @@ class Abo(Zeitstempel):
 
     @property
     def netto(self):
-        return sum((menge * p.einzelpreis * (1 - p.rabatt_prozent / 100) for p, menge, _ in self.zeilen()), Decimal("0"))
+        return sum((menge * p.einzelpreis / (p.preiseinheit or 1) * (1 - p.rabatt_prozent / 100) for p, menge, _ in self.zeilen()), Decimal("0"))
 
     def offener_beleg(self):
         """Der Beleg des laufenden Abo-Zeitraums, solange er nicht erledigt ist: Bestellung mit offenen Mengen, nicht abgeschlossene
@@ -2005,16 +2047,17 @@ class Abo(Zeitstempel):
                 from apps.verkauf.views import vorschlag_preis
                 kopf = Position.objects.create(
                     beleg=beleg, typ="G", artikel=p.artikel, bezeichnung=p.bezeichnung, zusatztext=zusatztext, menge=menge,
-                    einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent, preis_fest=True)
+                    einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent, preis_fest=True)  # Gruppenkopf: Preiseinheit 1
                 for k in p.artikel.komponenten.select_related("komponente__steuersatz"):
                     Position.objects.create(
                         beleg=beleg, gruppe=kopf, typ=k.komponente.typ, artikel=k.komponente, bezeichnung=k.komponente.bezeichnung,
                         menge=menge * k.menge, einzelpreis=vorschlag_preis(k.komponente, self.kunde) or Decimal("0"),
-                        steuer_prozent=k.komponente.steuersatz.prozent)
+                        preiseinheit=k.komponente.preiseinheit, steuer_prozent=k.komponente.steuersatz.prozent)
                 continue
             Position.objects.create(
                 beleg=beleg, typ=("L" if not p.artikel_id or p.artikel.typ == "L" else "A"), artikel=p.artikel, bezeichnung=p.bezeichnung,
-                zusatztext=zusatztext, menge=menge, einzelpreis=p.einzelpreis, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent)
+                zusatztext=zusatztext, menge=menge, einzelpreis=p.einzelpreis, preiseinheit=p.preiseinheit,
+                rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent)
         beleg.berechne()
         self.letzter_lauf, self.letzte_rechnung = heute, beleg
         self._termin_weiter(termin)
@@ -2051,6 +2094,14 @@ class AboPosition(models.Model):
     nur_monatsende = models.BooleanField("nur am Monatsende", default=False,
                                          help_text="Nur beim Rhythmus „an Stichtagen“: Zeitraum ist der ganze Kalendermonat; die Position steht in der Rechnung, in deren Zeitraum der Monatsletzte fällt.")
     einzelpreis = models.DecimalField("Einzelpreis netto", max_digits=12, decimal_places=2)
+    preiseinheit = models.PositiveIntegerField("Preiseinheit", default=1, validators=[MinValueValidator(1)],
+                                               help_text="Der Einzelpreis gilt je n Stück. Neue Positionen übernehmen sie aus dem Artikel.")
+
+    def save(self, *args, **kwargs):
+        if not self.pk and self.artikel_id and (self.preiseinheit or 1) == 1:  # neu angelegt: Preiseinheit wie beim Artikel
+            self.preiseinheit = self.artikel.preiseinheit or 1
+        self.preiseinheit = max(self.preiseinheit or 1, 1)  # nie 0: der Betrag teilt durch die Preiseinheit
+        super().save(*args, **kwargs)
     rabatt_prozent = models.DecimalField("Rabatt %", max_digits=5, decimal_places=2, default=Decimal("0"))
     steuer_prozent = models.DecimalField("Steuer %", max_digits=5, decimal_places=2, default=Decimal("19"))
 
@@ -2115,7 +2166,7 @@ def letzte_preise(mandant, kunde, artikel_ids=(), preisliste_ids=(), ohne_beleg=
     zeilen = Position.objects.filter(
         models.Q(artikel_id__in=artikel_ids) | models.Q(preisliste_artikel_id__in=preisliste_ids, artikel__isnull=True),
         beleg__mandant=mandant, beleg__kunde=kunde, beleg__art=Belegart.RECHNUNG, beleg__abgeschlossen=True,
-        gruppe__isnull=True, menge__gt=0).select_related("beleg")
+        gruppe__isnull=True, menge__gt=0).select_related("beleg", "artikel")
     if ohne_beleg:
         zeilen = zeilen.exclude(beleg_id=ohne_beleg)
     ergebnis = {}
@@ -2130,7 +2181,10 @@ def letzte_preise(mandant, kunde, artikel_ids=(), preisliste_ids=(), ohne_beleg=
                 continue
         if schluessel not in ergebnis:
             faktor = (100 - p.rabatt_prozent) * (100 - p.beleg.rabatt_prozent) / 10000
-            ergebnis[schluessel] = {"preis": (p.einzelpreis * faktor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            preis = p.einzelpreis * faktor
+            if p.artikel_id and p.preiseinheit != p.artikel.preiseinheit:  # Preis in der heutigen Preiseinheit des Artikels angeben
+                preis = preis / (p.preiseinheit or 1) * (p.artikel.preiseinheit or 1)
+            ergebnis[schluessel] = {"preis": preis.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
                                     "datum": p.beleg.belegdatum, "nummer": p.beleg.nummer, "beleg_id": p.beleg_id}
     return ergebnis
 

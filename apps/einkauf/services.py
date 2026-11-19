@@ -42,6 +42,28 @@ def ek_vorschlag(mandant, lieferant, artikel):
     return (am.letzter_ek if am else ersatz), (al.bestellnummer if al else "")
 
 
+def ek_vorschlaege(mandant, lieferant, artikel_liste) -> dict:
+    """{Artikel-ID: (EK, Bestellnummer)} für viele Artikel mit wenigen Abfragen – dieselbe Regel wie ek_vorschlag()
+    (Auswahlfenster der Lieferantenbestellung mit Hunderten Zeilen)."""
+    ids = [a.pk for a in artikel_liste]
+    preise = {al.artikel_id: al for al in ArtikelLieferant.objects.filter(lieferant=lieferant, artikel_id__in=ids)}
+    eigen, fremd = {}, {}
+    for am in ArtikelMandant.objects.filter(artikel_id__in=ids, letzter_ek__isnull=False).order_by("artikel_id", "-letzter_ek_datum", "-id"):
+        if am.mandant_id == mandant.pk:
+            eigen.setdefault(am.artikel_id, am)
+        fremd.setdefault(am.artikel_id, am)
+    ergebnis = {}
+    for a in artikel_liste:
+        al = preise.get(a.pk)
+        if al and al.ek is not None:
+            ergebnis[a.pk] = (al.ek, al.bestellnummer)
+            continue
+        am = eigen.get(a.pk) or fremd.get(a.pk)
+        ersatz = a.durchschnitts_ek or a.ek_manuell or Decimal("0")
+        ergebnis[a.pk] = ((am.letzter_ek if am else ersatz), (al.bestellnummer if al else ""))
+    return ergebnis
+
+
 @transaction.atomic
 def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None, benutzer=None) -> Bestellung:
     if lieferant.gesperrt:  # wie in der Oberfläche: bei gesperrten Lieferanten entstehen keine neuen Belege
@@ -1173,17 +1195,28 @@ def bedarf_fuer_lieferant(bestellung, nur_lieferant=False) -> list:
                            and (z["ek_hier"] is None or z["ek"] < z["ek_hier"]))
         z["guenstigste"] = [{"lieferant": g.lieferant, "ek": g.ek, "bestand": g.bestand, "hier": g.lieferant_id == bestellung.lieferant_id}
                             for g in guenstigste.get(z["artikel"].pk, [])]
+        # ohne Preis bei diesem Lieferanten: der günstigste EK überhaupt wird übernommen (Wunsch des Nutzers 19.11.2026)
+        ersatz = z["guenstigste"][0] if z["ek_hier"] is None and z["guenstigste"] else None
+        z["ek_ersatz"], z["ek_ersatz_von"] = (ersatz["ek"], ersatz["lieferant"]) if ersatz else (None, None)
         zeilen_.append(z)
     return zeilen_
 
 
 @transaction.atomic
 def bedarf_uebernehmen(bestellung, auswahl) -> int:
-    """auswahl: [(Artikel, Menge)] aus dem Tab „Bedarf“ als Positionen in die Bestellung (Preis des Lieferanten)."""
+    """auswahl: [(Artikel, Menge)] aus dem Tab „Bedarf“ als Positionen in die Bestellung. Preis: der des Lieferanten laut Preisliste;
+    führt er den Artikel nicht (oder ohne Preis), der günstigste EK aus allen Preislisten – auch eines anderen Lieferanten
+    (Wunsch des Nutzers 19.11.2026). Dessen Bestellnummer wird nicht übernommen, sie gilt beim gewählten Lieferanten nicht."""
     if not auswahl:
         raise ValueError("Bitte mindestens einen Artikel auswählen.")
+    eigene = set(ArtikelLieferant.objects.filter(lieferant=bestellung.lieferant, artikel__in=[a for a, _ in auswahl], ek__isnull=False)
+                 .values_list("artikel_id", flat=True))
     for artikel, menge in auswahl:
-        bestellposition(bestellung, artikel, menge)
+        ek = None
+        if artikel.pk not in eigene:
+            guenstig = guenstigster_lieferant(artikel)
+            ek = guenstig.ek if guenstig else None
+        bestellposition(bestellung, artikel, menge, ek=ek)
     return len(auswahl)
 
 

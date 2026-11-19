@@ -106,9 +106,12 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
             kind(produkt, "ram", "SellerAssignedID", p.artikelnummer)
         kind(produkt, "ram", "Name", p.bezeichnung[:200] or "Position")
         gesamt = p.netto_gesamt
-        stueckpreis = (gesamt / p.menge) if p.menge else Decimal("0")
-        kind(kind(kind(zeile, "ram", "SpecifiedLineTradeAgreement"), "ram", "NetPriceProductTradePrice"),
-             "ram", "ChargeAmount", _betrag(stueckpreis, 4))
+        einheit = p.preiseinheit or 1
+        stueckpreis = (gesamt / p.menge * einheit) if p.menge else Decimal("0")  # Preis je Preiseinheit (BT-146), nach Rabatt
+        preis = kind(kind(zeile, "ram", "SpecifiedLineTradeAgreement"), "ram", "NetPriceProductTradePrice")
+        kind(preis, "ram", "ChargeAmount", _betrag(stueckpreis, 4))
+        if einheit > 1:  # Preis gilt je n Stück: Preisbasismenge (BT-149) mit Einheit wie die Menge
+            kind(preis, "ram", "BasisQuantity", _betrag(Decimal(einheit), 3), unitCode="C62")
         kind(kind(zeile, "ram", "SpecifiedLineTradeDelivery"), "ram", "BilledQuantity", _betrag(p.menge, 3), unitCode="C62")
         abrechnung = kind(zeile, "ram", "SpecifiedLineTradeSettlement")
         steuer = kind(abrechnung, "ram", "ApplicableTradeTax")

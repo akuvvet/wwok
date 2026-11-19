@@ -922,7 +922,7 @@ class OberflaecheTest(VorlaeufigBasis):
         self.assertIn(">Verwerfen</button>", html)
         self.assertNotIn(reverse("verkauf:beleg_loeschen", args=[b.pk]), html)  # „Löschen“ wird „Verwerfen“
         self.assertIn("(nicht gespeichert)", html)
-        for text in ("Abschließen & Nummer vergeben", "Zurück zum Beleg", "erst_abschliessen"):
+        for text in ("Abschließen & Nummer vergeben", "{text: 'Abschließen', wert: 'abschliessen'", "{text: 'Zurück', wert: null}", "erst_abschliessen"):
             self.assertIn(text, html)
         self.assertNotIn("(nicht abgeschlossen)", html)
 

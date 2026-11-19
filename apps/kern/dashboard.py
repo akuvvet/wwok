@@ -277,7 +277,7 @@ def top_artikel(mandant, von, bis, anzahl=10) -> list:
     Die Summe weicht von den Belegsummen um Rundung und Nebenkosten ab."""
     hundert = Value(Decimal("100"))
     vorzeichen = Case(When(beleg__art=Belegart.GUTSCHRIFT, then=Value(Decimal("-1"))), default=Value(Decimal("1")), output_field=GELD)
-    netto = ExpressionWrapper(F("menge") * F("einzelpreis") * (hundert - F("rabatt_prozent")) * (hundert - F("beleg__rabatt_prozent"))
+    netto = ExpressionWrapper(F("menge") * F("einzelpreis") / F("preiseinheit") * (hundert - F("rabatt_prozent")) * (hundert - F("beleg__rabatt_prozent"))
                               * Value(Decimal("0.0001")) * vorzeichen, output_field=GELD)
     return list(Position.objects.filter(beleg__mandant=mandant, beleg__abgeschlossen=True, beleg__art__in=UMSATZ_ARTEN,
                                         beleg__belegdatum__gte=von, beleg__belegdatum__lte=bis,

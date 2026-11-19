@@ -210,7 +210,7 @@ class AboPositionInline(admin.TabularInline):
     formset = AboPositionFormset
     extra = 1
     autocomplete_fields = ["artikel"]
-    fields = ["artikel", "bezeichnung", "regel", "menge", "nur_monatsende", "einzelpreis", "rabatt_prozent", "steuer_prozent"]
+    fields = ["artikel", "bezeichnung", "regel", "menge", "nur_monatsende", "einzelpreis", "preiseinheit", "rabatt_prozent", "steuer_prozent"]
 
 
 @admin.register(Abo)

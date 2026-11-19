@@ -23,6 +23,20 @@
   dialog.palette a.pal-zeile:focus-visible { outline:2px solid var(--akzent); outline-offset:-2px; }
   .pal-titel { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .pal-zusatz { margin-left:auto; flex:none; max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--leise, var(--text)); opacity:.85; }
+  .pal-liste[hidden], .pal-antwort[hidden] { display:none; }
+  dialog.palette a.pal-zeile.pal-hilfe .pal-titel { white-space:normal; overflow:visible; }
+  .pal-antwort { flex:1 1 auto; min-height:0; overflow-y:auto; padding:12px 16px 14px; overscroll-behavior:contain; }
+  .pal-antwort:focus { outline:none; }
+  .pal-antwort h2 { margin:0 0 8px; font-size:16px; line-height:1.35; }
+  .pal-weg { margin:0 0 12px; padding:8px 10px; border:1px solid var(--rand); border-radius:calc(var(--radius, 10px) - 3px); }
+  .pal-weg h3 { margin:0 0 4px; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--leise, var(--text)); }
+  .pal-pfad { list-style:none; margin:0; padding:0; line-height:1.6; }
+  .pal-pfad li { display:inline; }
+  .pal-pfad li:not(:last-child)::after { content:" \2192 "; color:var(--leise, var(--text)); }
+  .pal-pfad li:last-child { font-weight:600; }
+  .pal-hinweis { margin:6px 0 0; font-size:13px; color:var(--leise, var(--text)); }
+  .pal-aktionen { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:4px; }
+  .pal-ziel { font-size:12px; color:var(--leise, var(--text)); }
   .pal-status { flex:none; padding:6px 16px; font-size:13px; color:var(--leise, var(--text)); }
   .pal-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; padding:0; }
   .pal-fuss { flex:none; display:flex; gap:14px; flex-wrap:wrap; padding:8px 16px; border-top:1px solid var(--rand); font-size:12px; color:var(--leise, var(--text)); background:var(--grund); }
@@ -41,8 +55,9 @@
     <button type="button" class="pal-zu" id="palette-zu" aria-label="Schnellbedienung schließen">×</button>
   </div>
   <div class="pal-liste" id="palette-liste" role="listbox" aria-label="Treffer"></div>
+  <div class="pal-antwort" id="palette-antwort" role="region" tabindex="-1" aria-label="Antwort" hidden></div>
   <div class="pal-status" id="palette-status" role="status" aria-live="polite"></div>
-  <div class="pal-fuss" aria-hidden="true"><span><kbd>↑</kbd> <kbd>↓</kbd> wählen</span><span><kbd>Enter</kbd> öffnen</span><span><kbd>Strg</kbd>+<kbd>Enter</kbd> neuer Tab</span><span><kbd>Esc</kbd> schließen</span></div>
+  <div class="pal-fuss" aria-hidden="true"><span><kbd>↑</kbd> <kbd>↓</kbd> wählen</span><span><kbd>Enter</kbd> öffnen</span><span><kbd>Strg</kbd>+<kbd>Enter</kbd> neuer Tab</span><span><kbd>Esc</kbd> <span id="palette-esc-text">schließen</span></span></div>
 </dialog>
 <script>
   // Schnellbedienung: Strg+K / Cmd+K öffnet ein Befehlsfenster; Menüpunkte kommen aus der Seitenleiste, Kunden, Artikel, Belege usw. vom Server
@@ -50,8 +65,10 @@
     var dialog = document.getElementById('palette');
     if (!dialog || typeof dialog.showModal !== 'function') return;
     var eingabe = document.getElementById('palette-eingabe'), liste = document.getElementById('palette-liste'), status = document.getElementById('palette-status');
+    var antwortFeld = document.getElementById('palette-antwort'), escText = document.getElementById('palette-esc-text');
     var ADRESSE = dialog.getAttribute('data-url'), SPEICHER = 'wwok_palette_zuletzt', MAX_ZULETZT = 6, MAX_LOKAL = 8, VERZOEGERUNG = 150;
     var alle = [], eintraege = [], servertreffer = [], aktiv = -1, bewegt = false, laedt = false, fehler = false, timer = null, abbruch = null, vorherFokus = null;
+    var istFrage = false, antwort = null;  // Hilfe: Server meldet, ob der Text wie eine Frage aussieht; antwort = geöffneter Hilfe-Eintrag
 
     function text(s) { return (s || '').replace(/\s+/g, ' ').trim(); }
     function sicherePfad(url) { return typeof url === 'string' && url.charAt(0) === '/' && url.charAt(1) !== '/'; }
@@ -117,9 +134,14 @@
     }
 
     function zeichnen() {
-      var q = text(eingabe.value), alter = bewegt && eintraege[aktiv] ? eintraege[aktiv] : null;
+      if (antwort) return;  // die Antwort bleibt stehen; die Liste wird beim Zurückgehen neu gezeichnet
+      var q =text(eingabe.value), alter = bewegt && eintraege[aktiv] ? eintraege[aktiv] : null;
       eintraege = q ? lokalFiltern(q) : zuletztLesen().concat(alle);
-      if (q.length >= 2) eintraege = eintraege.concat(servertreffer);
+      if (q.length >= 2) {
+        // Bei einer Frage steht die Hilfe ganz oben (der Server liefert sie dann auch zuerst), sonst nach den übrigen Treffern
+        var hilfe = servertreffer.filter(function (t) { return t.hilfe; }), uebrige = servertreffer.filter(function (t) { return !t.hilfe; });
+        eintraege = istFrage ? hilfe.concat(eintraege, uebrige) : eintraege.concat(uebrige, hilfe);
+      }
       aktiv = eintraege.length ? 0 : -1;
       if (alter) { var pos = eintraege.findIndex(function (e) { return e.url === alter.url && e.titel === alter.titel; }); if (pos >= 0) aktiv = pos; }
       liste.textContent = '';
@@ -134,6 +156,7 @@
         var a = document.createElement('a');
         a.className = 'pal-zeile'; a.id = 'pal-o-' + i; a.setAttribute('role', 'option'); a.setAttribute('data-i', i); a.tabIndex = -1;
         a.href = e.url || '#';
+        if (e.hilfe) a.classList.add('pal-hilfe');
         var t = document.createElement('span'); t.className = 'pal-titel'; t.textContent = e.titel; a.appendChild(t);
         if (e.zusatz) { var z = document.createElement('span'); z.className = 'pal-zusatz'; z.textContent = e.zusatz; a.appendChild(z); }
         block.appendChild(a);
@@ -168,8 +191,9 @@
         .then(function (d) {
           if (abbruch !== steuerung) return;  // veraltete Antwort verwerfen
           servertreffer = (d.treffer || []).filter(function (t) { return sicherePfad(t.url); }).map(function (t) {
-            return { gruppe: String(t.gruppe || ''), titel: String(t.titel || ''), zusatz: String(t.zusatz || ''), url: t.url };
+            return { gruppe: String(t.gruppe || ''), titel: String(t.titel || ''), zusatz: String(t.zusatz || ''), url: t.url, hilfe: t.hilfe && Array.isArray(t.hilfe.wege) ? t.hilfe : null };
           });
+          istFrage = d.frage === true;
           laedt = false; zeichnen();
         })
         .catch(function (f) {
@@ -178,10 +202,54 @@
         });
     }
 
+    // Hilfe: Die Antwort ersetzt die Trefferliste; Esc oder „Zurück“ führt zur Liste zurück
+    function antwortZeigen(e) {
+      antwort = e;
+      antwortFeld.textContent = '';
+      var titel = document.createElement('h2'); titel.id = 'pal-a-titel'; titel.textContent = e.titel; antwortFeld.appendChild(titel);
+      antwortFeld.setAttribute('aria-labelledby', 'pal-a-titel'); antwortFeld.removeAttribute('aria-label');
+      e.hilfe.wege.forEach(function (w) {
+        var abschnitt = document.createElement('section'); abschnitt.className = 'pal-weg';
+        var kopf = document.createElement('h3'); kopf.textContent = String(w.titel || ''); abschnitt.appendChild(kopf);
+        var pfad = document.createElement('ol'); pfad.className = 'pal-pfad';
+        (w.schritte || []).forEach(function (s) { var li = document.createElement('li'); li.textContent = String(s); pfad.appendChild(li); });
+        abschnitt.appendChild(pfad);
+        if (w.hinweis) { var h = document.createElement('p'); h.className = 'pal-hinweis'; h.textContent = String(w.hinweis); abschnitt.appendChild(h); }
+        antwortFeld.appendChild(abschnitt);
+      });
+      if (e.hilfe.hinweis) { var hinweis = document.createElement('p'); hinweis.className = 'pal-hinweis'; hinweis.textContent = 'Hinweis: ' + String(e.hilfe.hinweis); antwortFeld.appendChild(hinweis); }
+      var zeile = document.createElement('div'); zeile.className = 'pal-aktionen';
+      var hin = null;
+      if (sicherePfad(e.url)) {
+        hin = document.createElement('a'); hin.className = 'knopf pal-hin'; hin.href = e.url; hin.textContent = 'Hingehen';
+        if (e.hilfe.ziel) hin.setAttribute('aria-label', 'Hingehen: ' + String(e.hilfe.ziel));
+        zeile.appendChild(hin);
+      }
+      var zurueck = document.createElement('button'); zurueck.type = 'button'; zurueck.className = 'leise pal-zurueck'; zurueck.textContent = 'Zurück';
+      zurueck.addEventListener('click', function () { antwortSchliessen(); });
+      zeile.appendChild(zurueck);
+      if (e.hilfe.ziel) { var ziel = document.createElement('span'); ziel.className = 'pal-ziel'; ziel.textContent = 'Ziel: ' + String(e.hilfe.ziel); zeile.appendChild(ziel); }
+      antwortFeld.appendChild(zeile);
+      liste.hidden = true; antwortFeld.hidden = false;
+      eingabe.setAttribute('aria-expanded', 'false'); eingabe.removeAttribute('aria-activedescendant');
+      escText.textContent = 'zurück zur Liste';
+      status.textContent = 'Antwort: ' + e.titel; status.className = 'pal-status pal-sr';
+      antwortFeld.scrollTop = 0;
+      (hin || zurueck).focus();  // Enter führt direkt zum Ziel, Esc zurück zur Liste
+    }
+    function antwortSchliessen(ohneFokus) {
+      if (!antwort) return;
+      antwort = null; antwortFeld.hidden = true; antwortFeld.textContent = ''; liste.hidden = false;
+      escText.textContent = 'schließen';
+      zeichnen();
+      if (!ohneFokus) eingabe.focus();
+    }
+
     function eingegeben() {
       clearTimeout(timer);
+      if (antwort) antwortSchliessen(true);
       if (abbruch && abbruch.abort) abbruch.abort();
-      abbruch = null; servertreffer = []; fehler = false; bewegt = false;
+      abbruch = null; servertreffer = []; istFrage = false; fehler = false; bewegt = false;
       var q = text(eingabe.value);
       if (q.length < 2) { laedt = false; zeichnen(); return; }
       laedt = true; zeichnen();
@@ -191,6 +259,7 @@
     function waehlen(i, neuerTab) {
       var e = eintraege[i];
       if (!e) return;
+      if (e.hilfe) { if (neuerTab && sicherePfad(e.url)) { window.open(e.url, '_blank', 'noopener'); schliessen(); } else antwortZeigen(e); return; }
       if (e.aktion) { schliessen(true); e.aktion(); return; }
       if (!sicherePfad(e.url) && !/^https?:/i.test(e.url)) return;
       merken(e);
@@ -202,7 +271,8 @@
       if (dialog.open || document.querySelector('dialog[open]')) return;  // nicht über einem anderen Dialog
       vorherFokus = document.activeElement;
       sammeln();
-      eingabe.value = ''; servertreffer = []; laedt = false; fehler = false; bewegt = false;
+      eingabe.value = ''; servertreffer = []; istFrage = false; antwort = null; antwortFeld.hidden = true; liste.hidden = false; escText.textContent = 'schließen';
+      laedt = false; fehler = false; bewegt = false;
       dialog.showModal();
       zeichnen();
       eingabe.focus();
@@ -222,13 +292,13 @@
     // Escape gilt nur der Palette: Ereignis hier abfangen, damit die Handler in base.html (Maske verlassen, Menüs schließen) nichts davon sehen
     dialog.addEventListener('keydown', function (e) {
       if (e.isComposing) return;
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); schliessen(); return; }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (antwort) antwortSchliessen(); else schliessen(); return; }  // in der Antwort führt Esc zur Trefferliste zurück
       if (e.target !== eingabe) return;
       if (e.key === 'ArrowDown') { e.preventDefault(); bewegen(1); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); bewegen(-1); }
       else if (e.key === 'Enter') { e.preventDefault(); waehlen(aktiv, e.ctrlKey || e.metaKey); }
     });
-    dialog.addEventListener('cancel', function (e) { e.preventDefault(); schliessen(); });  // Escape ist oben schon erledigt; Sicherheitsnetz
+    dialog.addEventListener('cancel', function (e) { e.preventDefault(); if (antwort) antwortSchliessen(); else schliessen(); });  // Escape ist oben schon erledigt; Sicherheitsnetz
     dialog.addEventListener('click', function (e) { if (e.target === dialog) schliessen(); });  // Klick auf den abgedunkelten Rand
     document.getElementById('palette-zu').addEventListener('click', function () { schliessen(); });
     eingabe.addEventListener('input', eingegeben);
@@ -244,6 +314,10 @@
       if (!a) return;
       var eintrag = eintraege[parseInt(a.getAttribute('data-i'), 10)];
       if (!eintrag) return;
+      if (eintrag.hilfe) {  // Klick öffnet die Antwort in der Palette; Strg/Umschalt+Klick folgt dem Link zum Ziel
+        if (e.ctrlKey || e.metaKey || e.shiftKey) { schliessen(true); return; }
+        e.preventDefault(); antwortZeigen(eintrag); return;
+      }
       if (eintrag.aktion) { e.preventDefault(); waehlen(parseInt(a.getAttribute('data-i'), 10), false); return; }
       merken(eintrag);  // normaler Link: der Browser navigiert selbst (auch Strg+Klick, mittlere Taste)
       if (e.ctrlKey || e.metaKey || e.shiftKey) schliessen(true);

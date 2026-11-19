@@ -36,15 +36,13 @@ def zahl(text, standard=None):
     return wert
 
 
-def suche(q, artikel=None):
-    """Jedes Wort muss in Nummer, Bezeichnung, Herstellernummer, Hersteller oder einer Kennung (EAN, ASIN, SKU, FNSKU, ISBN, UPC, eBay-ID)
-    vorkommen (Reihenfolge egal)."""
+def suche(q, artikel=None, mandant=None):
+    """Artikelsuche der Listen (Artikel & Bestand, Inventur): dieselbe Syntax wie in der Belegmaske (apps/stammdaten/suche.py):
+    Wörter in beliebiger Reihenfolge in Nummer, Bezeichnung, Herstellernummer, Hersteller oder einer Kennung (EAN, ASIN, SKU,
+    FNSKU, ISBN, UPC, eBay-ID), „*“ = alle, „%“ wie LIKE, „>5“ = Lagerbestand des Mandanten über 5."""
+    from apps.stammdaten.suche import artikel_filtern
     artikel = Artikel.objects.filter(nicht_aktiv=False) if artikel is None else artikel
-    for wort in q.split():
-        artikel = artikel.filter(
-            Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
-            | Q(hersteller__name__icontains=wort) | kennungen_filter(wort))
-    return artikel
+    return artikel_filtern(artikel, q, mandant)
 
 
 SEITENGROESSEN = (25, 50, 100, 200)
@@ -99,7 +97,7 @@ def uebersicht(request):
     reparatur = {s["artikel"]: s["s"] for s in Reparaturbewegung.objects.filter(mandant=request.mandant)
                  .values("artikel").annotate(s=Sum("menge"))}
     basis = Artikel.objects.filter(nicht_aktiv=nicht_aktiv)
-    artikel = nach_kategorie(suche(q, basis) if q else basis, kategorie)
+    artikel = nach_kategorie(suche(q, basis, request.mandant) if q else basis, kategorie)
     if nur_bestand:
         artikel = artikel.filter(pk__in=[a for a, s in (*summen.items(), *reparatur.items()) if s])
     seite = Paginator(artikel.select_related("steuersatz").prefetch_related("bilder").order_by("nummer"), pro_seite).get_page(request.GET.get("seite"))
@@ -107,7 +105,8 @@ def uebersicht(request):
     eks = ek_je_artikel(seite.object_list)
     reserviert_summen = reserviert_je_artikel(request.mandant, [a.pk for a in seite.object_list if summen.get(a.pk)])
     vk_feld = f"vk{request.mandant.standard_vk}"  # Standard-VK des Mandanten (Verwaltung → Mandanten)
-    offline_kategorien = Kategorie.offline_ids()  # dieselbe Regel wie Artikel.objects.shop_sichtbar()
+    # dieselbe Regel wie Artikel.objects.shop_sichtbar(): verdeckt nur, wenn alle Kategorien (Haupt- und weitere) offline sind
+    wegen_kategorie = set(Artikel.objects.wegen_kategorie_offline().filter(pk__in=[a.pk for a in seite.object_list]).values_list("pk", flat=True))
     shops = list(Shop.objects.filter(mandant=request.mandant, aktiv=True).values_list("pk", flat=True))
     im_shop = Counter(ShopArtikel.objects.filter(shop_id__in=shops, im_shop_aktiv=True, artikel__in=list(seite.object_list))
                       .values_list("artikel_id", flat=True))  # in wie vielen Shops des Mandanten schon gemeldet
@@ -119,7 +118,7 @@ def uebersicht(request):
             online = ("nein", "nicht online")
         elif a.nicht_aktiv:
             online = ("verdeckt", "online gesetzt, aber nicht im Shop: Artikel ist nicht aktiv")
-        elif a.kategorie_id in offline_kategorien:
+        elif a.pk in wegen_kategorie:
             online = ("verdeckt", "online gesetzt, aber nicht im Shop: Kategorie ist offline")
         elif a.typ in ("A", "G") and im_shop[a.pk] < len(shops):  # nur diese Typen gehen an den Shop
             online = ("verdeckt", "online gesetzt, aber noch nicht im Shop sichtbar: noch nicht mit dem Shop abgeglichen")
@@ -159,12 +158,13 @@ def artikel_detail(request, artikel_id):
     from apps.stammdaten import historie as artikel_historie
     from apps.stammdaten.preise import stufenpreis
     eingabe_am, eingabe_von = artikel_historie.eingabe(artikel)
-    vk1 = stufenpreis(artikel, 1)  # wirksamer VK1 netto (fest oder aus EK + Aufschlag)
-    brutto = vk1 * (1 + artikel.steuersatz.prozent / 100) if vk1 is not None else None
+    vk1 = stufenpreis(artikel, 1)  # wirksamer VK1 netto (fest oder aus EK + Aufschlag), je Preiseinheit
+    stueck = vk1 / Decimal(artikel.preiseinheit or 1) if vk1 is not None else None  # Grundpreis wie im Beleg aus dem Stückpreis
+    brutto = stueck * (1 + artikel.steuersatz.prozent / 100) if stueck is not None else None
     return render(request, "lager/artikel.html", {
         "eingabe_am": eingabe_am, "eingabe_von": eingabe_von, "historie": artikel_historie.historie(artikel, request.mandant),
         "historie_max": artikel_historie.HISTORIE_MAX, "weitere_kategorien": artikel.weitere_kategorien.order_by("name"),
-        "grundpreis_netto": artikel.grundpreis_text(vk1), "grundpreis_brutto": artikel.grundpreis_text(brutto),
+        "grundpreis_netto": artikel.grundpreis_text(stueck), "grundpreis_brutto": artikel.grundpreis_text(brutto),
         "ek": ek, "ek_quelle": ek_quelle, "ek_datum": artikel.ek_datum(ek_quelle),
         "bestellt": offen_bestellt(request.mandant, artikel), "letzter_we": letzter_we,
         "lieferanten": artikel.lieferanten.select_related("lieferant").order_by("ek"),
@@ -365,7 +365,7 @@ def inventur_liste(request):
                     messages.error(request, f"{a.nummer}: {fehler}")
         messages.success(request, f"{gebucht} Differenzbuchung(en) erstellt.")
         return redirect(request.get_full_path())
-    artikel = nach_kategorie(suche(q, lagerartikel) if q else alle, kategorie).filter(nicht_aktiv=nicht_aktiv)
+    artikel = nach_kategorie(suche(q, lagerartikel, request.mandant) if q else alle, kategorie).filter(nicht_aktiv=nicht_aktiv)
     zeilen_ = sorted(({"artikel": a, "soll": summen.get(a.pk) or Decimal("0"), "platz": plaetze.get(a.pk, "")}
                       for a in artikel.select_related("kategorie")),
                      key=lambda z: (z["artikel"].nummer.lower() != q.lower(), z["platz"], z["artikel"].nummer))
@@ -374,3 +374,36 @@ def inventur_liste(request):
         zeilen_ = zeilen_[:INVENTUR_SUCHE_MAX]
     return render(request, "lager/inventur.html", {
         "zeilen": zeilen_, "gekuerzt": gekuerzt, "q": q, "kategorie": kategorie, "nicht_aktiv": nicht_aktiv, "kategorien": kategorien_baum()})
+
+
+@mit_mandant
+def artikel_details(request):
+    """Angaben für den Detailbereich des Auswahlfensters (Wunsch des Nutzers 19.11.2026): Hauptbild, Herstellernummer, Hersteller,
+    EAN, Kategorie und Online-Status. Eigener Artikel über ?nummer=…, Preislistenartikel über ?pl=…"""
+    from django.http import JsonResponse
+    from apps.stammdaten.models import Preislistenartikel
+    pl = request.GET.get("pl", "")
+    if pl.isdigit():
+        e = get_object_or_404(Preislistenartikel.objects.select_related("lieferant"), pk=pl)
+        return JsonResponse({"bild": "", "felder": [
+            ["Herstellernummer", e.herstellernummer], ["Hersteller", e.hersteller], ["EAN", e.ean],
+            ["Kategorie", e.kategorie and f"{e.kategorie} (laut {e.lieferant.kurz})"], ["Online", "– (Preislistenartikel)"],
+            ["Lieferant", f"{e.lieferant.kurz}, Bestand {e.bestand if e.bestand is not None else 'unbekannt'}"]]})
+    a = get_object_or_404(Artikel.objects.select_related("hersteller", "kategorie"), nummer=request.GET.get("nummer", ""))
+    bild = a.bilder.order_by("position", "pk").first()
+    url = ""
+    if bild is not None:
+        datei = bild.vorschau or bild.bild
+        url = datei.url if datei else ""
+    if a.nicht_aktiv:
+        online = "nicht aktiv"
+    elif not a.online:
+        online = "offline"
+    elif Artikel.objects.filter(pk=a.pk).shop_sichtbar().exists():
+        online = "online"
+    else:
+        online = "online-Haken gesetzt, aber alle Kategorien offline"
+    kategorien = [str(k) for k in ([a.kategorie] if a.kategorie_id else []) + list(a.weitere_kategorien.all())]
+    return JsonResponse({"bild": url, "felder": [
+        ["Herstellernummer", a.herstellernummer], ["Hersteller", a.hersteller.name if a.hersteller_id else ""], ["EAN", a.ean],
+        ["Kategorie", " · ".join(kategorien)], ["Online", online]]})

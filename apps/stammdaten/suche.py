@@ -2,7 +2,7 @@
 
 - Wörter: jedes Wort muss irgendwo vorkommen (Nummer, Bezeichnung, Herstellernummer, Hersteller, EAN, ASIN, SKU, FNSKU, ISBN, UPC, eBay-ID …), Reihenfolge egal
 - ``*`` allein: alle Artikel
-- ``>5``: Lagerbestand des Mandanten größer als 5 (auch ``> 5``, Komma oder Punkt als Dezimaltrenner)
+- ``>5``: Lagerbestand des Mandanten größer als 5, bei Preislistenartikeln Bestand beim Lieferanten (auch ``> 5``, Komma oder Punkt)
 - ``%`` wie SQL-LIKE: ``Netz%`` beginnt mit „Netz“, ``%750W%`` enthält „750W“, ``%Gold`` endet mit „Gold“
   (gilt für Nummer, Bezeichnung und Herstellernummer; ohne ``%`` am Rand ist der Text dort verankert)
 """
@@ -34,9 +34,17 @@ def zerlegen(q: str):
     return woerter, muster, mindest
 
 
+LIKE_MAX_PROZENT, LIKE_MAX_LAENGE = 4, 60  # Schutz vor sehr langsamen Mustern (Rückverfolgung bei vielen „%“)
+
+
 def like_regex(muster: str) -> str:
-    """SQL-LIKE (nur %) als regulärer Ausdruck, am Anfang und Ende verankert."""
-    return "^" + ".*".join(re.escape(teil) for teil in muster.split("%")) + "$"
+    """SQL-LIKE (nur %) als regulärer Ausdruck, am Anfang und Ende verankert. Höchstens LIKE_MAX_PROZENT Platzhalter und
+    LIKE_MAX_LAENGE Zeichen: Weitere „%“ werden zu einem zusammengefasst bzw. das Muster gekürzt (Gesamtsuche bleibt schnell)."""
+    muster = re.sub("%+", "%", muster[:LIKE_MAX_LAENGE])
+    teile = muster.split("%")
+    if len(teile) > LIKE_MAX_PROZENT + 1:  # ab dem vierten Platzhalter wird der Rest als „enthält“ an den letzten Teil gehängt
+        teile = teile[:LIKE_MAX_PROZENT] + ["".join(teile[LIKE_MAX_PROZENT:])]
+    return "^" + ".*".join(re.escape(teil) for teil in teile) + "$"
 
 
 def mit_bestand(qs, mandant):
@@ -71,10 +79,11 @@ def artikel_filtern(qs, q: str, mandant, wort_felder=("nummer", "bezeichnung", "
 
 
 def preisliste_filtern(qs, q: str):
-    """Dieselbe Syntax für Preislistenartikel (Typ P). Ein Bestandsfilter (>) schließt sie aus: P-Artikel liegen nicht im eigenen Lager."""
+    """Dieselbe Syntax für Preislistenartikel (Typ P). Ein Bestandsfilter (>5) gilt hier für den Bestand beim Lieferanten
+    (Wunsch des Nutzers 19.11.2026); Einträge ohne Bestandsangabe fallen dann heraus."""
     woerter, muster, mindest = zerlegen(q)
     if mindest is not None:
-        return qs.none()
+        qs = qs.filter(bestand__gt=mindest)
     for wort in woerter:
         qs = qs.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
                        | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))

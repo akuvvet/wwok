@@ -18,13 +18,10 @@ RMA_OFFEN = (RmaStatus.ANGELEGT, RmaStatus.EINGESENDET)
 
 def lieferanten_suchen(q):
     """Wie die Kundensuche: jedes Wort in Nummer, Kurzname, Name, Ort oder Ansprechpartner; Reihenfolge egal,
-    „*“ allein = alle, Stern am Ende = Wortanfang. Gesperrte Lieferanten werden mit gefunden."""
-    filt = Q()
-    if q != "*":
-        vergleich = "istartswith" if q.endswith("*") else "icontains"
-        for wort in q.rstrip("*").split():
-            filt &= Q(*[Q(**{f"{feld}__{vergleich}": wort}) for feld in LIEFERANTENSUCHE_FELDER], _connector=Q.OR)
-    return lieferanten_auswahl(gesperrte=True).filter(filt).distinct()
+    „*“ allein = alle, Stern am Ende = Wortanfang, „%“ wie LIKE. Gesperrte Lieferanten werden mit gefunden.
+    Dieselbe Syntax wie bei Kunden: apps/stammdaten/partnersuche.py."""
+    from apps.stammdaten.partnersuche import partner_filter
+    return lieferanten_auswahl(gesperrte=True).filter(partner_filter(q, LIEFERANTENSUCHE_FELDER)).distinct()
 
 
 def belege(mandant, lieferant=None, nur_offen=True, art="", ab=None):
