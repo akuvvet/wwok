@@ -264,9 +264,9 @@ HILFE = (
     # ---- Einkauf ------------------------------------------------------------------------------------------------
     _h("lieferantenbestellung", "Wie bestelle ich Ware bei einem Lieferanten?",
        "lieferantenbestellung, bestellung beim lieferanten, ware bestellen, einkauf bestellen, nachbestellen, ek bestellung, bestellung lieferant, nachbestellung, lieferant bestellen",
-       [_weg("Neue Bestellung", "Einkauf → Bestellungen → Neue Bestellung bei … (Lieferant wählen) → Anlegen → Artikel suchen, Menge, EK netto (leer = Preisliste) → Position übernehmen → Als bestellt markieren oder Per E-Mail bestellen",
-             "Eine Bestellung ohne Position wird nicht gespeichert. Als bestellt gilt eine Menge erst ab Status „bestellt“; Entwürfe und Stornos zählen nicht. Eine Code-Eingabe ergibt eine Preislistenposition (P), keinen Artikel."),
-        _weg("Über den Lieferanten", "Einkauf → Lieferant → Lieferant wählen → + Bestellung → Positionen erfassen → Als bestellt markieren")],
+       [_weg("Neue Bestellung", "Einkauf → Bestellungen → Neue Bestellung bei … (Lieferant wählen) → Anlegen → Artikel suchen, Menge, EK netto (leer = Preisliste) → Position übernehmen → Speichern: abschließen & Nummer vergeben → Als bestellt markieren oder Per E-Mail bestellen",
+             "Eine neue Bestellung ist vorläufig und hat noch keine Nummer: „Speichern: abschließen & Nummer vergeben“ vergibt sie (ohne Position nicht möglich); beim Verlassen fragt das Programm Abschließen, Verwerfen oder Zurück. Als bestellt gilt eine Menge erst ab Status „bestellt“; Entwürfe und Stornos zählen nicht. Eine Code-Eingabe ergibt eine Preislistenposition (P), keinen Artikel."),
+        _weg("Über den Lieferanten", "Einkauf → Lieferant → Lieferant wählen → + Bestellung → Positionen erfassen → Speichern: abschließen & Nummer vergeben → Als bestellt markieren")],
        "einkauf:bestellungen", "Einkauf → Bestellungen"),
     _h("bestellung_aus_beleg", "Wie bestelle ich die Ware einer Kundenbestellung beim Lieferanten?",
        "in lieferantenbestellung kopieren, kundenbestellung bestellen, ware nachbestellen für kunde, fehlende ware bestellen, günstigste aufteilung, streckengeschäft, bestellung aus beleg",

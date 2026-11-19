@@ -83,7 +83,8 @@ def entwurf(mandant, lieferant, bevorzugt=None):
     """Offener Entwurf des Lieferanten: die gerade bearbeitete Bestellung, sonst der neueste."""
     if bevorzugt is not None and bevorzugt.lieferant_id == lieferant.pk and bevorzugt.status == BestellStatus.ENTWURF:
         return bevorzugt
-    return Bestellung.objects.filter(mandant=mandant, lieferant=lieferant, status=BestellStatus.ENTWURF).order_by("-id").first()
+    # eine vorläufige Bestellung gehört zur offenen Seite eines Benutzers und wird nur genommen, wenn sie die bearbeitete ist
+    return Bestellung.objects.filter(mandant=mandant, lieferant=lieferant, status=BestellStatus.ENTWURF, vorlaeufig=False).order_by("-id").first()
 
 
 def entwurfswert(bestellung, ohne_position=None) -> Decimal:
@@ -119,7 +120,7 @@ def vergleich(mandant, menge, artikel=None, eintrag=None, ohne_position=None, be
         elif l.versandkostenfrei_ab is not None and nachher < l.versandkostenfrei_ab:
             hinweise.append(f"noch {eur(l.versandkostenfrei_ab - nachher)} € bis versandfrei")
         if vorher:
-            hinweise.append(f"kommt in Bestellung {b.nummer} (nicht abgeschlossen)")
+            hinweise.append(f"kommt in Bestellung {b.nummer_text} (nicht abgeschlossen)")
         zeilen.append({**a, "ware": ware, "versand": zusatz, "versand_offen": offen, "gesamt": ware + zusatz, "versandfrei": not offen and not v_neu,
                        "je_stueck": ((ware + zusatz) / menge).quantize(CENT, rounding=ROUND_HALF_UP), "fehlt": fehlt, "lieferbar": lieferbar,
                        "hinweise": hinweise, "entwurf": b})
@@ -162,7 +163,7 @@ def bestellen(mandant, lieferant_id, menge, artikel=None, eintrag=None, position
         position.delete()
         # die leere Ursprungsbestellung (immer ein Entwurf, siehe Prüfung oben) nicht stehen lassen
         if not quelle.positionen.exists() and not quelle.wareneingaenge.exists():
-            name = f"{quelle.nummer} ({quelle.lieferant.kurz})"
+            name = f"{quelle.nummer_text} ({quelle.lieferant.kurz})"
             try:
                 with transaction.atomic():
                     quelle.delete()

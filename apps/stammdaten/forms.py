@@ -160,6 +160,14 @@ class SuchAuswahl(forms.Select):
         return option
 
 
+class SuchAuswahlMehrfach(SuchAuswahl):
+    """Mehrfachauswahl als Suchfeld: gewählte Einträge stehen als Kästchen mit × darüber (Wunsch des Nutzers 19.11.2026,
+    weitere Kategorien des Artikels). Im Browser templates/_suchauswahl.html; ohne JavaScript bleibt die normale Mehrfachliste."""
+    allow_multiple_selected = True
+    value_from_datadict = forms.SelectMultiple.value_from_datadict
+    value_omitted_from_data = forms.SelectMultiple.value_omitted_from_data
+
+
 def kategorie_suchauswahl(form):
     """Kategoriefeld als Suchauswahl: Pfad und Nummer durchsuchbar, Offline-Kategorien markiert."""
     from .models import Kategorie
@@ -361,10 +369,13 @@ class ArtikelForm(VkVorschlagForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         datum_felder(self)
-        if "weitere_kategorien" in self.fields:  # Mehrfachauswahl (Strg/Cmd + Klick); die Hauptkategorie bleibt das Feld darüber
+        if "weitere_kategorien" in self.fields:  # Suchfeld mit Kästchen je gewählter Kategorie; die Hauptkategorie bleibt das Feld darüber
             feld = self.fields["weitere_kategorien"]
             feld.queryset = Kategorie.objects.order_by("name")
-            feld.widget = forms.SelectMultiple(attrs={"size": 5})
+            feld.widget = SuchAuswahlMehrfach(attrs={"size": 5}, schluessel="kategorie",
+                                              suche=dict(Kategorie.objects.exclude(nummer=None).values_list("pk", "nummer")),
+                                              offline=Kategorie.offline_ids())
+            feld.widget.choices = feld.choices
         if not self.instance.pk and not self.is_bound and not self.instance.steuersatz_id:
             # neuer Artikel: Steuersatz 19 % vorbelegen (Entscheidung 19.11.2026); eine Kopie bringt ihren eigenen mit
             standard = Steuersatz.objects.filter(prozent=Decimal("19")).order_by("pk").first()

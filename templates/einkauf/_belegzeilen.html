@@ -2,7 +2,7 @@
   <thead><tr><th>Beleg</th><th>Datum</th>{% if mit_lieferant %}<th>Lieferant</th>{% endif %}<th>Bezug</th><th>Status</th><th class="zahl">Betrag</th></tr></thead>
   <tbody>
   {% for z in zeilen %}<tr>
-    <td><a href="{{ z.url }}" title="{{ z.art_text }}">{% if z.nummer %}{{ z.nummer }}{% else %}{{ z.art_text }}{% endif %}</a></td>
+    <td><a href="{{ z.url }}" title="{{ z.art_text }}">{% if z.vorlaeufig %}{{ z.art_text }} <span class="marke gesperrt" title="Nicht gespeichert: wird verworfen, wenn sie nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>{% elif z.nummer %}{{ z.nummer }}{% else %}{{ z.art_text }}{% endif %}</a></td>
     <td>{{ z.datum|date:"d.m.Y" }}</td>
     {% if mit_lieferant %}<td><a href="{% url 'einkauf:lieferant' z.lieferant.pk %}" title="{{ z.lieferant.nummer }} – {{ z.lieferant.name1 }}">{{ z.lieferant.kurz }}</a></td>{% endif %}
     <td>{% if z.bezug %}{{ z.bezug }}{% elif z.faellig %}fällig {{ z.faellig|date:"d.m.Y" }}{% endif %}</td>

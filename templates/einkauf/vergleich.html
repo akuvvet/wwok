@@ -4,7 +4,7 @@
 <a href="{% if position %}{% url 'einkauf:bestellung' position.bestellung_id %}{% else %}{% url 'einkauf:bestellungen' %}{% endif %}" data-escape style="display:none">zurück</a>
 <div class="karte">
   <h1>Lieferantenvergleich</h1>
-  {% if position %}<p>Position aus Bestellung <a href="{% url 'einkauf:bestellung' position.bestellung_id %}">{{ position.bestellung.nummer }}</a></p>
+  {% if position %}<p>Position aus Bestellung <a href="{% url 'einkauf:bestellung' position.bestellung_id %}">{{ position.bestellung.nummer_text }}</a></p>
   {% else %}
   <form method="get" class="zeile" autocomplete="off">
     {% if artikel %}<input type="hidden" name="artikel" value="{{ artikel.nummer }}">{% elif eintrag %}<input type="hidden" name="pl" value="{{ eintrag.pk }}">{% endif %}

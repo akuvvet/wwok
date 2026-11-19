@@ -406,4 +406,5 @@ def artikel_details(request):
     kategorien = [str(k) for k in ([a.kategorie] if a.kategorie_id else []) + list(a.weitere_kategorien.all())]
     return JsonResponse({"bild": url, "felder": [
         ["Herstellernummer", a.herstellernummer], ["Hersteller", a.hersteller.name if a.hersteller_id else ""], ["EAN", a.ean],
-        ["Kategorie", " · ".join(kategorien)], ["Online", online]]})
+        ["Kategorie", " · ".join(kategorien)], ["Online", online],
+        ["Erweiterte Bezeichnung", a.bezeichnung_erweitert.strip()]]})  # Wunsch des Nutzers 19.11.2026

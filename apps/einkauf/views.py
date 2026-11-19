@@ -9,6 +9,7 @@ from django.db.models import Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel, kennungen_filter, lieferanten_auswahl
@@ -96,7 +97,8 @@ def lieferant_detail(request, lieferant_id):
     from . import lieferantenkonto
     lieferant = get_object_or_404(Lieferant, pk=lieferant_id)
     services.leere_bestellungen_entfernen(request.mandant, lieferant)  # Bestellungen ohne Position werden nicht gespeichert
-    art = request.GET.get("art") or "offen"  # beim Öffnen: nur offene Belege; „alle“ schickt art=alle (der Live-Filter lässt leere Werte weg)
+    services.vorlaeufige_bestellungen_verwerfen(request.mandant, lieferant)  # nicht gespeichert und ohne Lebenszeichen: verworfen
+    art =request.GET.get("art") or "offen"  # beim Öffnen: nur offene Belege; „alle“ schickt art=alle (der Live-Filter lässt leere Werte weg)
     nur_offen = art == "offen"
     belegart = art if art in dict(lieferantenkonto.ARTEN) else ""
     ab = request.GET.get("ab", "")
@@ -120,7 +122,8 @@ def lieferant_detail(request, lieferant_id):
 @mit_mandant
 def bestellungen(request):
     services.leere_bestellungen_entfernen(request.mandant)  # Bestellungen ohne Position werden nicht gespeichert
-    status = request.GET.get("status", "offen")
+    services.vorlaeufige_bestellungen_verwerfen(request.mandant)  # nicht gespeichert und ohne Lebenszeichen: verworfen
+    status =request.GET.get("status", "offen")
     liste = Bestellung.objects.filter(mandant=request.mandant).select_related("lieferant", "aus_beleg").prefetch_related("positionen")
     if status == "offen":
         liste = liste.filter(status__in=[BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL])
@@ -138,12 +141,30 @@ def bestellungen(request):
 @schutz("einkauf:bestellungen")
 def bestellung_neu(request):
     lieferant = get_object_or_404(Lieferant, pk=request.POST.get("lieferant"))
-    b = services.bestellung_anlegen(request.mandant, lieferant)
+    # „+ Bestellung“: vorläufig, ohne Nummer – die Nummer vergibt erst „Speichern: abschließen & Nummer vergeben“ (Wunsch des Nutzers 19.11.2026)
+    b = services.bestellung_anlegen(request.mandant, lieferant, benutzer=request.user, vorlaeufig=True)
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
 
 
 def bestellung_holen(request, bestellung_id):
-    return get_object_or_404(Bestellung.objects.select_related("lieferant", "mandant"), pk=bestellung_id, mandant=request.mandant)
+    """Jeder Aufruf einer Bestellung (Seite, Position, Kopf, Suche) zählt bei einer vorläufigen als Aktivität (Lebenszeichen)."""
+    b = get_object_or_404(Bestellung.objects.select_related("lieferant", "mandant"), pk=bestellung_id, mandant=request.mandant)
+    if b.vorlaeufig:
+        b.zuletzt_aktiv = timezone.now()
+        Bestellung.objects.filter(pk=b.pk, vorlaeufig=True).update(zuletzt_aktiv=b.zuletzt_aktiv)
+    return b
+
+
+def _erst_abschliessen(request, b, aktion):
+    """Mail, PDF, „Als bestellt markieren“ und Wareneingang gibt es erst nach dem Abschluss: bei einer vorläufigen Bestellung die
+    Rückfrage „Erst abschließen & Nummer vergeben?“ (Bestätigen schließt ab und führt dann die Aktion aus, siehe bestellung_abschliessen).
+    Rückgabe: None (weiter) oder die Rückfrage-Seite."""
+    if not b.vorlaeufig:
+        return None
+    return render(request, "einkauf/erst_abschliessen_frage.html", {"b": b, "aktion": aktion, "aktion_text": ERST_AKTIONEN[aktion]})
+
+
+ERST_AKTIONEN = {"mail": "per E-Mail bestellen", "pdf": "das PDF ansehen", "bestellen": "als bestellt markieren", "wareneingang": "einen Wareneingang erfassen"}
 
 
 @mit_mandant
@@ -298,7 +319,7 @@ def preisvergleich_bestellen(request):
         raise ValueError("Der Preis darf nicht negativ sein.")
     ziel = vergleich.bestellen(request.mandant, int(lieferant) if lieferant.isdigit() else 0, menge, artikel, eintrag, position,
                                vergleich_entwurf(request, request.POST), ek)
-    meldung = f"{'Verschoben nach' if position else 'Aufgenommen in'} Bestellung {ziel.nummer} ({ziel.lieferant.kurz})."
+    meldung = f"{'Verschoben nach' if position else 'Aufgenommen in'} Bestellung {ziel.nummer_text} ({ziel.lieferant.kurz})."
     if ziel.geloeschte_quelle:
         meldung += f" Die Bestellung {ziel.geloeschte_quelle} hatte keine Position mehr und wurde gelöscht."
     messages.success(request, meldung)
@@ -434,6 +455,9 @@ def bestellung_position_loeschen(request, bestellung_id, position_id):
 @schutz("einkauf:bestellung", "bestellung_id")
 def bestellung_bestellen(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
+    frage = _erst_abschliessen(request, b, "bestellen")
+    if frage:
+        return frage
     services.bestellen(b)
     messages.success(request, "Als bestellt markiert.")
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
@@ -447,6 +471,85 @@ def bestellung_rest_schliessen(request, bestellung_id):
     weg = services.rest_schliessen(b)
     messages.success(request, "Bestellung abgeschlossen, Rest gestrichen: " + ", ".join(weg))
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:bestellung", "bestellung_id")
+def bestellung_abschliessen(request, bestellung_id):
+    """„Speichern: abschließen & Nummer vergeben“. Mit danach (nach der Rückfrage „Erst abschließen?“) wird anschließend die gewünschte
+    Aktion ausgeführt: mail, pdf, bestellen oder wareneingang."""
+    b = bestellung_holen(request, bestellung_id)
+    if services.bestellung_abschliessen(b):
+        messages.success(request, f"Bestellung {b.nummer} gespeichert – Nummer vergeben.")
+    danach = request.POST.get("danach", "")
+    if danach == "mail":
+        return redirect("einkauf:bestellung_mail", bestellung_id=b.pk)
+    if danach == "pdf":
+        return redirect("einkauf:bestellung_pdf", bestellung_id=b.pk)
+    if danach == "bestellen":
+        services.bestellen(b)
+        messages.success(request, "Als bestellt markiert.")
+    elif danach == "wareneingang":
+        we = services.wareneingang_anlegen(request.mandant, b.lieferant, b, request.user)
+        services.wareneingang_aus_bestellung(we)
+        return redirect("einkauf:wareneingang", we_id=we.pk)
+    return redirect("einkauf:bestellung", bestellung_id=b.pk)
+
+
+@mit_mandant
+@require_POST
+def bestellung_verwerfen(request, bestellung_id):
+    """Nicht gespeicherte Bestellung verwerfen (samt Positionen). Mit Kopfzeile X-Wwok-Stand (Fenster beim Verlassen, per fetch)
+    antwortet die View mit JSON {ok, weiter}, sonst mit Meldung und Weiterleitung zum Lieferanten."""
+    als_json = bool(request.headers.get("X-Wwok-Stand"))
+    b = Bestellung.objects.filter(pk=bestellung_id, mandant=request.mandant).select_related("lieferant").first()
+    if b is None:  # schon verworfen (z. B. von der Bereinigung)
+        weiter = reverse("einkauf:bestellungen")
+        if als_json:
+            return JsonResponse({"ok": True, "weiter": weiter})
+        messages.info(request, "Die Bestellung ist schon verworfen.")
+        return redirect(weiter)
+    weiter = reverse("einkauf:lieferant", args=[b.lieferant_id])
+    try:
+        verworfen = services.bestellung_verwerfen(b)
+    except ValueError as fehler:
+        if als_json:
+            return JsonResponse({"ok": False, "fehler": str(fehler)}, status=409)
+        messages.error(request, str(fehler))
+        return redirect("einkauf:bestellung", bestellung_id=b.pk)
+    if not verworfen:  # inzwischen gespeichert
+        weiter = reverse("einkauf:bestellung", args=[b.pk])
+        if als_json:
+            return JsonResponse({"ok": False, "weiter": weiter, "fehler": "Die Bestellung ist schon gespeichert – es gibt nichts zu verwerfen."})
+        messages.warning(request, "Die Bestellung ist schon gespeichert – es gibt nichts zu verwerfen.")
+        return redirect(weiter)
+    messages.success(request, "Bestellung verworfen.")
+    return JsonResponse({"ok": True, "weiter": weiter}) if als_json else redirect(weiter)
+
+
+@mit_mandant
+@require_POST
+def bestellung_aktiv(request, bestellung_id):
+    """Puls der geöffneten Bestellseite: hält die vorläufige Bestellung am Leben (zuletzt_aktiv). ok=False: sie wurde inzwischen
+    verworfen oder gespeichert; weiter zeigt, wohin die Seite wechseln soll."""
+    if Bestellung.objects.filter(pk=bestellung_id, mandant=request.mandant, vorlaeufig=True).update(zuletzt_aktiv=timezone.now()):
+        return JsonResponse({"ok": True})
+    b = Bestellung.objects.filter(pk=bestellung_id, mandant=request.mandant).first()
+    return JsonResponse({"ok": False, "weiter": reverse("einkauf:bestellung", args=[b.pk]) if b else reverse("einkauf:bestellungen")})
+
+
+@mit_mandant
+@require_POST
+def bestellung_verlassen(request, bestellung_id):
+    """Signal beim Schließen von Tab/Browser (navigator.sendBeacon): die nicht gespeicherte Bestellung gilt in VERLASSEN_SEKUNDEN als
+    verlassen und wird beim nächsten Öffnen der Bestellliste oder Lieferantenseite verworfen. Neuladen (F5) setzt die Zeit zurück."""
+    from datetime import timedelta
+
+    from apps.verkauf.models import VERLASSEN_SEKUNDEN, VORLAEUFIG_MINUTEN
+    zeit = timezone.now() - timedelta(minutes=VORLAEUFIG_MINUTEN) + timedelta(seconds=VERLASSEN_SEKUNDEN)
+    Bestellung.objects.filter(pk=bestellung_id, mandant=request.mandant, vorlaeufig=True).update(zuletzt_aktiv=zeit)
+    return HttpResponse(status=204)
 
 
 @mit_mandant
@@ -474,6 +577,8 @@ def bestellung_loeschen(request, bestellung_id):
         else:
             messages.error(request, "Es gibt noch einen offenen Wareneingang – bitte ihn zuerst im Wareneingang löschen.")
         return redirect("einkauf:bestellung", bestellung_id=b.pk)
+    if b.vorlaeufig:  # nicht gespeichert: wird verworfen, nicht gelöscht (es gibt keine Nummer)
+        return bestellung_verwerfen(request, bestellung_id)
     nummer = b.nummer
     b.delete()
     messages.success(request, f"Bestellung {nummer} gelöscht.")
@@ -483,6 +588,9 @@ def bestellung_loeschen(request, bestellung_id):
 @mit_mandant
 def bestellung_pdf_ansicht(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
+    frage = _erst_abschliessen(request, b, "pdf")
+    if frage:
+        return frage
     antwort = HttpResponse(bestellung_pdf(b), content_type="application/pdf")
     antwort["Content-Disposition"] = f'inline; filename="{b.nummer}.pdf"'
     return antwort
@@ -491,6 +599,9 @@ def bestellung_pdf_ansicht(request, bestellung_id):
 @mit_mandant
 def bestellung_mail(request, bestellung_id):
     b = bestellung_holen(request, bestellung_id)
+    frage = _erst_abschliessen(request, b, "mail")
+    if frage:
+        return frage
     ap = b.lieferant.ansprechpartner.filter(Q(mandant=request.mandant) | Q(mandant__isnull=True)).exclude(email="").first()
     an = (ap.email if ap else b.lieferant.email) or ""
     betreff, text = ausfuellen(request.mandant, Mailart.LIEFERANT, {
@@ -535,12 +646,14 @@ def bestellung_aus_beleg(request, beleg_id):
             if vergleich["wahl_noetig"]:
                 return render(request, "einkauf/aus_beleg_lieferantenwahl.html", {
                     "beleg": beleg, "modus": modus or "", "grund": grund, **vergleich})
-        liste = services.bestellungen_aus_beleg(beleg, modus=modus, grund=grund, benutzer=request.user, wahl=wahl)
+        liste = services.bestellungen_aus_beleg(beleg, modus=modus, grund=grund, benutzer=request.user, wahl=wahl, vorlaeufig_bei_einer=True)
     except ValueError as fehler:
         messages.error(request, str(fehler))
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
     ohne = [p.bezeichnung for p in getattr(beleg, "_ohne_lieferant", [])]
     messages.success(request, f"{len(liste)} Bestellung(en) angelegt (nicht abgeschlossen)." +
+                     (" Sie ist noch nicht gespeichert: „Speichern: abschließen & Nummer vergeben“ vergibt die Nummer, sonst wird sie verworfen."
+                      if liste[0].vorlaeufig else "") +
                      (f" Ohne Lieferant geblieben: {', '.join(ohne)}." if ohne else ""))
     return redirect("einkauf:bestellung", bestellung_id=liste[0].pk) if len(liste) == 1 else redirect("einkauf:bestellungen")
 
@@ -583,6 +696,9 @@ def wareneingaenge(request):
 def wareneingang_neu(request):
     if request.POST.get("bestellung"):
         b = get_object_or_404(Bestellung, pk=request.POST["bestellung"], mandant=request.mandant)
+        frage = _erst_abschliessen(request, b, "wareneingang")
+        if frage:
+            return frage
         we = services.wareneingang_anlegen(request.mandant, b.lieferant, b, request.user)
         services.wareneingang_aus_bestellung(we)
     else:

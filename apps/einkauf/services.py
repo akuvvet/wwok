@@ -65,26 +65,89 @@ def ek_vorschlaege(mandant, lieferant, artikel_liste) -> dict:
 
 
 @transaction.atomic
-def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None, benutzer=None) -> Bestellung:
+def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None, benutzer=None, vorlaeufig=False) -> Bestellung:
+    """vorlaeufig (nur die Bestellmaske, Wunsch des Nutzers 19.11.2026): ohne Nummer; sie wird erst mit
+    bestellung_abschliessen() vergeben, sonst wird die Bestellung verworfen (Nummernkreis bleibt lückenlos).
+    Vom Programm in einem Rutsch angelegte Bestellungen (Vorschlag, Vergleich) bekommen sofort ihre Nummer."""
     if lieferant.gesperrt:  # wie in der Oberfläche: bei gesperrten Lieferanten entstehen keine neuen Belege
         raise ValueError(f"Lieferant {lieferant.name1} ist gesperrt – es lässt sich keine Bestellung anlegen.")
-    return Bestellung.objects.create(mandant=mandant, lieferant=lieferant, nummer=nummer(mandant, "BE"),
+    return Bestellung.objects.create(mandant=mandant, lieferant=lieferant, nummer=None if vorlaeufig else nummer(mandant, "BE"),
+                                     vorlaeufig=vorlaeufig, zuletzt_aktiv=timezone.now() if vorlaeufig else None,
                                      bemerkung=bemerkung, aus_beleg=aus_beleg,
                                      angelegt_von=benutzer if benutzer is not None and benutzer.is_authenticated else None)
+
+
+def bestellung_abschliessen(bestellung) -> bool:
+    """„Speichern: abschließen & Nummer vergeben“: die vorläufige Bestellung bekommt ihre Nummer (Status bleibt „Entwurf“, bis
+    bestellt wird). Ohne Position nicht möglich. Doppelklick und zweiter Tab: Zeile gesperrt, Zustand neu gelesen, die Nummer
+    wird nur einmal vergeben. Rückgabe: True, wenn jetzt abgeschlossen wurde; False, wenn sie schon gespeichert war."""
+    with transaction.atomic():
+        b = Bestellung.objects.select_for_update().filter(pk=bestellung.pk).first()
+        if b is None:
+            raise ValueError("Die Bestellung gibt es nicht mehr (sie wurde verworfen).")
+        if not b.vorlaeufig:
+            bestellung.refresh_from_db()
+            return False
+        if not b.positionen.exists():
+            raise ValueError("Ohne Position lässt sich die Bestellung nicht abschließen. Bitte erst Artikel erfassen oder die Bestellung verwerfen.")
+        b.nummer = nummer(b.mandant, "BE")
+        b.vorlaeufig, b.zuletzt_aktiv = False, None
+        b.save(update_fields=["nummer", "vorlaeufig", "zuletzt_aktiv", "geaendert_am"])
+    bestellung.refresh_from_db()
+    return True
+
+
+def bestellung_verwerfen(bestellung) -> bool:
+    """Eine nicht gespeicherte Bestellung samt Positionen löschen. False, wenn sie schon gespeichert (oder weg) ist. Hängt ein
+    Wareneingang daran (bei einer vorläufigen Bestellung nicht vorgesehen), wird nicht gelöscht (ValueError)."""
+    with transaction.atomic():
+        b = Bestellung.objects.select_for_update().filter(pk=bestellung.pk, vorlaeufig=True).first()
+        if b is None:
+            return False
+        if b.alle_wareneingaenge().exists():
+            raise ValueError("Zur Bestellung gibt es Wareneingänge – sie lässt sich nicht verwerfen.")
+        b.delete()
+    return True
+
+
+def vorlaeufige_bestellungen_verwerfen(mandant=None, lieferant=None, jetzt=None) -> int:
+    """Nicht gespeicherte Bestellungen, deren Seite geschlossen wurde (Signal „verlassen“) oder die seit VORLAEUFIG_MINUTEN
+    Minuten kein Lebenszeichen mehr senden, werden verworfen (wie die vorläufigen Belege im Verkauf). Der Zeitpunkt wird unter
+    der Sperre erneut geprüft: ein Puls dazwischen verhindert das Verwerfen. Rückgabe: Anzahl."""
+    from apps.verkauf.models import VORLAEUFIG_MINUTEN
+    grenze = (jetzt or timezone.now()) - timedelta(minutes=VORLAEUFIG_MINUTEN)
+    zu_alt = Q(zuletzt_aktiv__lt=grenze) | Q(zuletzt_aktiv__isnull=True, angelegt_am__lt=grenze)
+    kandidaten = Bestellung.objects.filter(zu_alt, vorlaeufig=True)
+    if mandant is not None:
+        kandidaten = kandidaten.filter(mandant=mandant)
+    if lieferant is not None:
+        kandidaten = kandidaten.filter(lieferant=lieferant)
+    anzahl = 0
+    for pk in list(kandidaten.order_by("id").values_list("pk", flat=True)):
+        with transaction.atomic():
+            b = Bestellung.objects.select_for_update().filter(zu_alt, pk=pk, vorlaeufig=True).first()
+            if b is None or b.alle_wareneingaenge().exists():
+                continue  # inzwischen aktiv oder gespeichert (oder ein Wareneingang verweist auf sie)
+            b.delete()
+            anzahl += 1
+    return anzahl
 
 
 def leere_bestellungen_entfernen(mandant, lieferant=None, minuten=2) -> int:
     """Lieferantenbestellungen ohne Position werden nicht aufbewahrt (Wunsch des Nutzers 19.11.2026, wie die leeren Entwürfe im
     Verkauf): Entwürfe ohne Position, die seit ein paar Minuten nicht geändert wurden und an denen kein Wareneingang hängt,
-    werden gelöscht; ihre Nummer wird wieder frei, wenn sie die letzte vergebene war. Rückgabe: Anzahl gelöschter Bestellungen."""
+    werden gelöscht; ihre Nummer wird wieder frei, wenn sie die letzte vergebene war. Vorläufige Bestellungen (ohne Nummer) gehören
+    nicht dazu: für sie gilt das Lebenszeichen der offenen Seite (vorlaeufige_bestellungen_verwerfen).
+    Rückgabe: Anzahl gelöschter Bestellungen."""
     grenze = timezone.now() - timedelta(minutes=minuten)
-    kandidaten = Bestellung.objects.filter(mandant=mandant, status=BestellStatus.ENTWURF, positionen__isnull=True, geaendert_am__lt=grenze)
+    kandidaten = Bestellung.objects.filter(mandant=mandant, status=BestellStatus.ENTWURF, vorlaeufig=False, positionen__isnull=True,
+                                           geaendert_am__lt=grenze)
     if lieferant is not None:
         kandidaten = kandidaten.filter(lieferant=lieferant)
     anzahl = 0
     for b in kandidaten.order_by("-id"):
         with transaction.atomic():
-            b = Bestellung.objects.select_for_update().filter(pk=b.pk, status=BestellStatus.ENTWURF).first()
+            b = Bestellung.objects.select_for_update().filter(pk=b.pk, status=BestellStatus.ENTWURF, vorlaeufig=False).first()
             if b is None or b.positionen.exists() or b.alle_wareneingaenge().exists():
                 continue  # inzwischen gefüllt oder bestellt, oder ein Wareneingang verweist auf sie
             nummer = b.nummer
@@ -156,6 +219,8 @@ def bezeichnung_uebernehmen(neu, quelle):
 
 def bestellen_pruefen(bestellung):
     """Vor dem Bestellen (und vor dem Versand der Bestellmail): Positionen vorhanden, Bestellung nicht storniert."""
+    if bestellung.vorlaeufig:
+        raise ValueError("Die Bestellung ist noch nicht gespeichert: erst „Speichern: abschließen & Nummer vergeben“.")
     if bestellung.status == BestellStatus.STORNIERT:
         raise ValueError("Die Bestellung ist storniert.")
     if not bestellung.positionen.exists():
@@ -393,11 +458,14 @@ def lieferantenvergleich(beleg, modus=None, grund="") -> dict:
 
 
 @transaction.atomic
-def bestellungen_aus_beleg(beleg, modus=None, grund="", benutzer=None, wahl=None) -> list:
+def bestellungen_aus_beleg(beleg, modus=None, grund="", benutzer=None, wahl=None, vorlaeufig_bei_einer=False) -> list:
     """Angebot oder Kundenbestellung in Lieferantenbestellungen kopieren: je Lieferant eine Bestellung. Ohne wahl bekommt jede
     Position den günstigsten Lieferanten (Typ P: den der Preislistenzeile); mit wahl ({Positions-ID: Lieferanten-ID}, aus der
     Lieferantenwahl) den gewählten. Ist bei einer Kundenbestellung schon etwas bestellt, muss modus gewählt sein: „fehlend“
-    (nur Restmengen) oder „komplett“ (alles erneut, mit Grund)."""
+    (nur Restmengen) oder „komplett“ (alles erneut, mit Grund).
+    vorlaeufig_bei_einer (Bestellmaske, Wunsch des Nutzers 19.11.2026): Ergibt sich genau eine Bestellung, ist sie vorläufig (ohne
+    Nummer, Abschließen/Verwerfen in ihrer Maske). Werden es mehrere (mehrere Lieferanten), bekommen alle sofort ihre Nummer –
+    der Benutzer sieht nur die Liste, und eine nicht geöffnete Bestellung würde sonst unbemerkt verworfen."""
     from apps.verkauf.models import Beleg
     Beleg.objects.select_for_update().filter(pk=beleg.pk).first()  # gleichzeitiges Kopieren nacheinander
     positionen, bemerkung, modus = _zu_bestellen(beleg, modus, grund)
@@ -420,8 +488,9 @@ def bestellungen_aus_beleg(beleg, modus=None, grund="", benutzer=None, wahl=None
         else:
             ohne.append((p, menge))
     ergebnis = []
+    vorlaeufig = vorlaeufig_bei_einer and len(je_lieferant) == 1
     for lieferant, zeilen_ in je_lieferant.items():
-        b = bestellung_anlegen(beleg.mandant, lieferant, bemerkung, aus_beleg=beleg, benutzer=benutzer)
+        b = bestellung_anlegen(beleg.mandant, lieferant, bemerkung, aus_beleg=beleg, benutzer=benutzer, vorlaeufig=vorlaeufig)
         for p, menge, angebot in zeilen_:
             if angebot is None:
                 neu = bestellposition(b, p.artikel, menge, preisliste_artikel=p.preisliste_artikel)
@@ -545,7 +614,9 @@ def wareneingang_anlegen(mandant, lieferant, bestellung=None, benutzer=None) -> 
     if lieferant.gesperrt:  # wie in der Oberfläche: bei gesperrten Lieferanten entstehen keine neuen Belege
         raise ValueError(f"Lieferant {lieferant.name1} ist gesperrt – es lässt sich kein Wareneingang anlegen.")
     if bestellung is not None and bestellung.status == BestellStatus.STORNIERT:
-        raise ValueError(f"Die Bestellung {bestellung.nummer} ist storniert – dazu lässt sich kein Wareneingang erfassen.")
+        raise ValueError(f"Die Bestellung {bestellung.nummer_text} ist storniert – dazu lässt sich kein Wareneingang erfassen.")
+    if bestellung is not None and bestellung.vorlaeufig:
+        raise ValueError("Die Bestellung ist noch nicht gespeichert: erst „Speichern: abschließen & Nummer vergeben“, dann der Wareneingang.")
     erster = bestellung is not None and not bestellung.wareneingaenge.exists()
     we = Wareneingang.objects.create(mandant=mandant, lieferant=lieferant, bestellung=bestellung,
                                      nummer=nummer(mandant, "WE"), benutzer=benutzer)

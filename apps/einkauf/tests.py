@@ -178,6 +178,11 @@ class EinkaufTest(TestCase):
         self.client.post(reverse("einkauf:bestellung_position", args=[b.pk]), {"artikel": "TD-100", "menge": "3"})  # Bestellnr. des Lieferanten
         self.assertEqual(b.positionen.get().artikel, self.maus)
         self.assertContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), "Maus")
+        self.assertTrue(b.vorlaeufig and not b.nummer)  # neu angelegt: noch ohne Nummer, PDF erst nach dem Abschluss
+        self.assertContains(self.client.get(reverse("einkauf:bestellung_pdf", args=[b.pk])), "Erst abschließen")
+        self.client.post(reverse("einkauf:bestellung_abschliessen", args=[b.pk]))
+        b.refresh_from_db()
+        self.assertTrue(b.nummer.startswith("BE") and not b.vorlaeufig)
         self.assertEqual(self.client.get(reverse("einkauf:bestellung_pdf", args=[b.pk]))["Content-Type"], "application/pdf")
         ohne = len(self.client.get(reverse("einkauf:bestellung_pdf", args=[b.pk])).content)
         with mit_logo(self.m):
