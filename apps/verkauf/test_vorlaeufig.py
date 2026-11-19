@@ -254,8 +254,32 @@ class UmwandlungTest(VorlaeufigBasis):
         AboPosition.objects.create(abo=abo, bezeichnung="Wartung", einzelpreis=D("100"))
         ab = abo.rechnung_erzeugen(timezone.localdate())
         self.assertGreater(ab.belegdatum, timezone.localdate())
-        re = ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG, vorlaeufig=True)
-        self.assertEqual((re.art, re.belegdatum, re.abo_id), (Belegart.RECHNUNG, ab.belegdatum, abo.pk))
+        # keine Rechnung mit Datum in der Zukunft (Entscheidung des Nutzers 19.11.2026): erst ab dem Stichtag
+        with self.assertRaisesMessage(ValueError, f"frühestens am Stichtag {ab.belegdatum:%d.%m.%Y}"):
+            ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG, vorlaeufig=True)
+        with self.assertRaisesMessage(ValueError, "frühestens am Stichtag"):
+            ab.kopieren_als(Belegart.RECHNUNG, vorlaeufig=True)
+        ab.refresh_from_db()
+        self.assertEqual(ab.art, Belegart.AUFTRAG)
+        with mock.patch("django.utils.timezone.localdate", return_value=ab.belegdatum):  # am Stichtag geht es
+            re = ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG, vorlaeufig=True)
+            self.assertEqual((re.art, re.belegdatum, re.abo_id), (Belegart.RECHNUNG, ab.belegdatum, abo.pk))
+
+    def test_rechnung_und_gutschrift_nie_mit_datum_in_der_zukunft(self):
+        re = self.beleg(Belegart.RECHNUNG, belegdatum=timezone.localdate() + timedelta(days=11))
+        self.pos(re, menge="1")
+        with self.assertRaisesMessage(ValueError, "liegt in der Zukunft"):
+            re.abschliessen()
+        self.assertFalse(Beleg.objects.get(pk=re.pk).abgeschlossen)
+        self.assertIsNone(Beleg.objects.get(pk=re.pk).nummer)
+        gs = self.beleg(Belegart.GUTSCHRIFT, belegdatum=timezone.localdate() + timedelta(days=1))
+        self.pos(gs, menge="1")
+        with self.assertRaisesMessage(ValueError, "liegt in der Zukunft"):
+            gs.abschliessen(gutschrift_grund="Kulanz")
+        heute = self.beleg(Belegart.RECHNUNG)
+        self.pos(heute, menge="1")
+        heute.abschliessen()
+        self.assertEqual(Beleg.objects.get(pk=heute.pk).belegdatum, timezone.localdate())
 
 
 class TeiluebernahmeVerwerfenTest(VorlaeufigBasis):

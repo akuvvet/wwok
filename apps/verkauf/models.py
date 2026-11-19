@@ -969,6 +969,10 @@ class Beleg(Zeitstempel):
             gutschrift_menge_pruefen(self)
         if self.art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT) and self.belegdatum < timezone.localdate():
             self.belegdatum = timezone.localdate()  # Rechnung/Gutschrift tragen das Abschlussdatum, nicht den Tag des Anlegens
+        if self.art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT) and self.belegdatum > timezone.localdate():
+            # Entscheidung des Nutzers 19.11.2026: keine Rechnung oder Gutschrift mit einem Datum in der Zukunft
+            raise ValueError(f"{self.get_art_display()} mit Datum {self.belegdatum:%d.%m.%Y} liegt in der Zukunft – speichern "
+                             f"(abschließen & Nummer vergeben) geht frühestens an diesem Tag.")
         if war_vorlaeufig:  # Angebot, aus dem dieser Beleg übernommen wurde: bekommt zuerst seine Nummer (Regel des Nutzers)
             from . import vorgang
             vorgang.angebot_vorab(self)
@@ -1166,6 +1170,13 @@ class Beleg(Zeitstempel):
         if (self.art, self.nummer) != (art, nummer):
             raise ValueError(f"{self} wurde inzwischen umgewandelt – bitte den Beleg neu öffnen.")
 
+    def abo_stichtag_pruefen(self):
+        """Abo-Bestellung (wiederkehrende Rechnung): Sie entsteht vorab mit dem Stichtag als Datum. Die Rechnung dazu entsteht
+        frühestens am Stichtag (Entscheidung des Nutzers 19.11.2026: keine Rechnung mit Datum in der Zukunft)."""
+        if self.abo_id and self.belegdatum > timezone.localdate():
+            raise ValueError(f"Die Rechnung zu diesem Abo-Zeitraum entsteht frühestens am Stichtag {self.belegdatum:%d.%m.%Y}. "
+                             "Bis dahin lässt sich die Bestellung bearbeiten.")
+
     @transaction.atomic
     def folgebeleg_erzeugen(self, entscheidungen=None, art=None, vorlaeufig=False) -> "Beleg":
         """Nächste Stufe im Belegfluss. Bestellung -> Rechnung (art=RE) ist zusätzlich direkt möglich.
@@ -1183,6 +1194,8 @@ class Beleg(Zeitstempel):
             raise ValueError(f"Aus {self.get_art_display()} kann kein {Belegart(art).label} übernommen werden.")
         if self.art == Belegart.LIEFERSCHEIN and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
+        if art == Belegart.RECHNUNG:
+            self.abo_stichtag_pruefen()
         self.positionen_pruefen(art)
         self.folge_pruefen(art)
         p_ids, verschieben = self._p_vorbereiten(art)
@@ -1337,6 +1350,8 @@ class Beleg(Zeitstempel):
             raise ValueError("Ein Nachlieferschein entsteht nur aus einer abgeschlossenen Rechnung.")
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
+        if art == Belegart.RECHNUNG:
+            self.abo_stichtag_pruefen()
         self.positionen_pruefen(art)
         self.folge_pruefen(art)
         p_ids, verschieben = self._p_vorbereiten(art)

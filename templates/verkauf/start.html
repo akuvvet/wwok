@@ -61,7 +61,7 @@
   <div class="scroll"><table>
     <thead><tr><th>Beleg</th><th>Datum</th><th>Kunde</th><th class="zahl">Brutto</th></tr></thead>
     <tbody>
-    {% for b in vorlaeufige %}<tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {% if b.vorlaeufig %}<span class="marke gesperrt" title="Nicht gespeichert: wird verworfen, wenn er nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>{% else %}{{ b.nummer|default:"(nicht abgeschlossen)" }}{% endif %}</a></td>
+    {% for b in vorlaeufige %}<tr><td><a href="{% url 'verkauf:beleg' b.pk %}" title="{{ b.get_art_display }}">{% if b.vorlaeufig or not b.nummer %}{{ b.get_art_display }} {% endif %}{% if b.vorlaeufig %}<span class="marke gesperrt" title="Nicht gespeichert: wird verworfen, wenn er nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>{% else %}{{ b.nummer|default:"(nicht abgeschlossen)" }}{% endif %}</a></td>
       <td>{{ b.belegdatum|date:"d.m.Y" }}</td><td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td><td class="zahl">{{ b.summe_brutto|floatformat:"2g" }}</td></tr>{% endfor %}
     </tbody></table></div>
 </div>
@@ -72,7 +72,7 @@
   <div class="scroll"><table>
     <thead><tr><th>Beleg</th><th>Datum</th><th>Kunde</th><th class="zahl">Brutto</th></tr></thead>
     <tbody>
-    {% for b in offene %}<tr><td><a href="{% url 'verkauf:beleg' b.pk %}">{{ b.get_art_display }} {{ b.nummer|default:"(nicht abgeschlossen)" }}</a>{% include "verkauf/versand_marke.html" %}</td>
+    {% for b in offene %}<tr><td><a href="{% url 'verkauf:beleg' b.pk %}" title="{{ b.get_art_display }}">{% if b.nummer %}{{ b.nummer }}{% else %}{{ b.get_art_display }} (nicht abgeschlossen){% endif %}</a>{% include "verkauf/versand_marke.html" %}</td>
       <td>{{ b.belegdatum|date:"d.m.Y" }}</td><td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td><td class="zahl">{{ b.summe_brutto|floatformat:"2g" }}</td></tr>
     {% empty %}<tr><td colspan="4">Keine offenen Belege.</td></tr>{% endfor %}
     </tbody></table></div>
