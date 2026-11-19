@@ -1090,6 +1090,18 @@ def ruecksendbar(we_position) -> Decimal:
     return max(we_position.menge - weg, Decimal("0"))
 
 
+def ruecksendbare_wareneingaenge(mandant, lieferant, grenze=100) -> list:
+    """Gebuchte Wareneingänge des Lieferanten, aus denen noch etwas zurückgehen kann (Menge über dem schon Zurückgesendeten,
+    ohne ESD), neueste zuerst. Zwei Abfragen statt einer je Position."""
+    wes = list(Wareneingang.objects.filter(mandant=mandant, lieferant=lieferant, gebucht=True)
+               .prefetch_related("positionen__artikel").order_by("-datum", "-id")[:grenze * 3])
+    pos_ids = [p.pk for we in wes for p in we.positionen.all()]
+    weg = dict(RuecksendungPosition.objects.filter(we_position_id__in=pos_ids)
+               .exclude(ruecksendung__status=RuecksendungStatus.ABGELEHNT)
+               .values("we_position_id").annotate(s=Sum("menge")).values_list("we_position_id", "s"))
+    return [we for we in wes if any(p.menge > (weg.get(p.pk) or 0) and not p.artikel.esd_key for p in we.positionen.all())][:grenze]
+
+
 def seriennummern_im_lager(we_position) -> list:
     """Seriennummern dieser Wareneingangsposition, die noch im Lager sind (nur diese können zurückgehen)."""
     from apps.lager.models import Seriennummer

@@ -55,6 +55,39 @@ class GutschriftImLieferantenkontoTest(TestCase):
         services.gutschrift_zahlung_stornieren(z2, "falsch gebucht")  # nach Storno wieder offen
         self.assertEqual(lieferantenkonto.belege(self.m, self.lf, art="LG")[0]["betrag"], Decimal("100"))
 
+    def test_kontoauszug_mit_gutschrift_verrechnung_und_auszahlung(self):
+        from datetime import timedelta
+
+        from .models import Lieferantenrechnung, RechnungStatus
+        r = Lieferantenrechnung.objects.create(mandant=self.m, lieferant=self.lf, rechnungsnummer="R-1", datum=self.heute,
+                                               faellig=self.heute + timedelta(days=14), netto=Decimal("200"), brutto=Decimal("238"))
+        bezahlt = Lieferantenrechnung.objects.create(mandant=self.m, lieferant=self.lf, rechnungsnummer="R-2", datum=self.heute,
+                                                     faellig=self.heute, netto=Decimal("100"), brutto=Decimal("119"),
+                                                     status=RechnungStatus.BEZAHLT, bezahlt_am=self.heute, bezahlter_betrag=Decimal("116.62"))
+        g = self.gutschrift("GS-K")
+        services.gutschrift_verrechnen(g, r, Decimal("50"))
+        z = services.gutschrift_zahlung_buchen(g, Decimal("20"))
+        services.gutschrift_zahlung_stornieren(z, "doppelt")  # stornierte Auszahlung zählt nicht
+        services.gutschrift_zahlung_buchen(g, Decimal("10"))
+        self.gutschrift("GS-ANDERER", mandant=self.m2)
+        zeilen, saldo = lieferantenkonto.kontoauszug(self.m, self.lf)
+        texte = [zl["text"] for zl in zeilen]
+        self.assertIn("Gutschrift GS-K", texte)
+        self.assertIn("Verrechnet: Gutschrift GS-K → Rechnung R-1", texte)
+        self.assertIn("Auszahlung des Lieferanten auf Gutschrift GS-K", texte)
+        self.assertIn("Skonto/Differenz zu Rechnung R-2", texte)
+        self.assertNotIn("GS-ANDERER", " ".join(texte))
+        self.assertEqual(sum(1 for zl in zeilen if zl["text"].startswith("Auszahlung")), 1)
+        # offen: R-1 238 − 50 verrechnet = 188; Restguthaben 119 − 50 − 10 = 59 → 188 − 59 = 129
+        self.assertEqual(saldo, Decimal("129"))
+        self.assertEqual(saldo, r.offener_betrag - g.restguthaben)
+        seite = self.client.get(reverse("einkauf:lieferant_kontoauszug", args=[self.lf.pk]))
+        self.assertContains(seite, "Lieferantenkontoauszug")
+        self.assertContains(seite, "Gutschrift GS-K")
+        self.assertContains(seite, "(50,00)")
+        lf_seite = self.client.get(reverse("einkauf:lieferant", args=[self.lf.pk]))
+        self.assertContains(lf_seite, reverse("einkauf:lieferant_kontoauszug", args=[self.lf.pk]))
+
     def test_offene_gutschrift_in_uebersicht_lieferant(self):
         self.gutschrift("GS-3")
         seite = self.client.get(reverse("einkauf:lieferanten"))

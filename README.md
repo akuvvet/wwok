@@ -907,6 +907,8 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Lieferanten-Gutschrift ohne Rücksendung erfassen (19.11.2026): Einkauf → Lieferanten-Gutschriften (Erfassen und Liste „Mit Restguthaben“/„Alle“), Hilfe-Eintrag
 - [x] WE-Rücksendung über den Lieferanten (19.11.2026): „+ WE-Rücksendung“ mit Auswahl des gebuchten Wareneingangs auf der Lieferantenseite, Menüpunkt in der Seitenleiste entfernt
 - [x] Lieferanten-Gutschriften im Lieferantenkonto (19.11.2026): Belegart „Lieferanten-Gutschrift“ in der Belegliste des Lieferanten und in den offenen Belegen (offen = Restguthaben > 0, Betrag = Restguthaben), „Offenes Guthaben“ im Kopf
+- [x] Lieferantenkontoauszug (19.11.2026): Symbol „Kontoauszug“ beim Lieferanten; Rechnungen +, Zahlungsausgänge und Skonto −, Gutschriften −, Auszahlungen des Lieferanten auf Gutschriften +, Verrechnungen in Klammern (ohne Saldowirkung), laufender Saldo (negativ = Guthaben)
+- [x] WE-Rücksendung (19.11.2026): Auswahl beim Lieferanten zeigt nur Wareneingänge mit noch zurücksendbarer Menge; ist alles zurückgesendet, klarer Hinweis statt leerem Mengenfeld
 - [ ] Auswertungen mit Marge, Excel-Ausgabe und freiem Zeitraum
 - [x] Gesamtprüfung vom 14.11.2026 (`docs/pruefbericht-2026-11-14.md`): Abschnitt A und C behoben, darunter automatisches Kunden-Skonto, Lastschrift erst mit der Gutschrift im Bankabgleich, Kasse nie im Minus, Belegnummern bleiben nach dem Löschen verbraucht, Kundensperre auch bei Kopie und wiederkehrender Rechnung, Warnung bei doppelter EAN und doppeltem Lieferanten
 - [x] Python 3.12 (eigene Umgebung auf dem Server) und Django 5.2; hochgeladene Preislisten liegen außerhalb des öffentlichen Medienordners (`PRIVAT_ROOT`)
