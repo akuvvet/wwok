@@ -41,7 +41,7 @@ def belege(mandant, lieferant=None, nur_offen=True, art="", ab=None):
         if nur_offen:
             qs = qs.filter(status__in=BESTELLUNG_OFFEN)
         for b in qs:
-            zeilen.append({"art": "BE", "art_text": "Bestellung", "nummer": b.nummer, "url": reverse("einkauf:bestellung", args=[b.pk]),
+            zeilen.append({"art": "BE", "art_text": "Bestellung", "nummer": b.nummer, "vorlaeufig": b.vorlaeufig, "url": reverse("einkauf:bestellung", args=[b.pk]),
                            "datum": b.datum, "lieferant": b.lieferant, "bereich": "bestellung", "status": b.status,
                            "status_text": b.get_status_display(), "betrag": b.summe_netto, "betrag_art": "netto", "pk": b.pk})
     if art in ("", "WE"):

@@ -162,6 +162,18 @@ class ArtikelfelderTest(TestCase):
         neu = form.save()
         self.assertEqual(list(neu.weitere_kategorien.all()), [self.zweit])
 
+    def test_weitere_kategorien_als_suchfeld_mit_kaestchen(self):
+        """Wunsch des Nutzers 19.11.2026: Suchauswahl mit Kästchen statt Strg+Klick-Liste; mehrere werden gespeichert."""
+        html = str(ArtikelForm()["weitere_kategorien"])
+        self.assertIn('multiple', html)
+        self.assertIn('data-suchauswahl="kategorie"', html)
+        dritt = Kategorie.objects.create(name="Angebote")
+        daten = {"nummer": "F8", "typ": "A", "bezeichnung": "Neu", "steuersatz": self.st.pk, "mengeneinheit": "Stück", "preiseinheit": "1",
+                 "kategorie": self.haupt.pk, "weitere_kategorien": [self.zweit.pk, dritt.pk], "fix_vk1": "aufschlag", "fix_vk2": "aufschlag", "fix_vk3": "aufschlag"}
+        form = ArtikelForm(daten)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(set(form.save().weitere_kategorien.all()), {self.zweit, dritt})
+
     # --- Formular ---
     def test_steuersatz_im_neuen_formular_mit_19_prozent_vorbelegt(self):
         form = ArtikelForm()

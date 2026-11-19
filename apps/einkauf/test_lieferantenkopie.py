@@ -43,6 +43,7 @@ class LieferantenkopieTest(TestCase):
 
     def bestellt(self, liste):
         for b in liste:
+            services.bestellung_abschliessen(b)  # aus der Oberfläche kommt eine einzelne Bestellung vorläufig (ohne Nummer)
             services.bestellen(b)
 
     def login(self):
@@ -153,6 +154,6 @@ class LieferantenkopieTest(TestCase):
         self.assertContains(seite, "Lieferantenbestellungen:")
         self.assertContains(seite, "bestellt: 5 von 5")
         for b in Bestellung.objects.all():
-            self.assertContains(seite, b.nummer)
+            self.assertContains(seite, b.nummer_text)
         liste = self.client.get(reverse("einkauf:bestellungen"))
         self.assertContains(liste, "aus Beleg")

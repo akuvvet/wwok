@@ -70,6 +70,11 @@ class GemeinsameArtikelsucheTest(TestCase):
         self.assertEqual((felder["Herstellernummer"], felder["Hersteller"], felder["EAN"], felder["Kategorie"], felder["Online"]),
                          ("PSU-750", "Xilence", "4250686414745", "Netzteile", "online"))
         self.assertEqual(d["bild"], "")
+        self.assertEqual(felder["Erweiterte Bezeichnung"], "")
+        self.netz.bezeichnung_erweitert = "750 Watt, 80 Plus Bronze\nmit Kabelmanagement"
+        self.netz.save()
+        d = self.client.get(reverse("lager:artikel_details"), {"nummer": "20274"}).json()
+        self.assertEqual(dict(d["felder"])["Erweiterte Bezeichnung"], "750 Watt, 80 Plus Bronze\nmit Kabelmanagement")
         d = self.client.get(reverse("lager:artikel_details"), {"pl": self.pl.pk}).json()
         self.assertEqual(dict(d["felder"])["Hersteller"], "be quiet")
         self.assertEqual(self.client.get(reverse("lager:artikel_details"), {"nummer": "gibtsnicht"}).status_code, 404)

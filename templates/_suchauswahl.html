@@ -20,6 +20,13 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
   .suchauswahl li.sa-leer { cursor:default; opacity:.7; font-style:italic; }
   .suchauswahl li .sa-marke { margin-left:6px; font-size:11px; padding:0 5px; border-radius:8px; border:1px solid currentColor; opacity:.65; }
   .suchauswahl li mark { background:none; color:inherit; font-weight:700; }
+  /* Mehrfachauswahl: gewählte Einträge als Kästchen mit × über dem Suchfeld */
+  .suchauswahl .sa-kaestchen { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px; }
+  .suchauswahl .sa-kaestchen:empty { display:none; }
+  .suchauswahl .sa-kaestchen span { display:inline-flex; align-items:center; gap:4px; padding:2px 4px 2px 8px; border-radius:12px; font-size:13px;
+    background:var(--grund, #eef1f5); border:1px solid var(--rand, #ccc); }
+  .suchauswahl .sa-kaestchen button { border:0; background:none; cursor:pointer; padding:0 4px; font-size:14px; line-height:1; color:inherit; opacity:.7; }
+  .suchauswahl .sa-kaestchen button:hover, .suchauswahl .sa-kaestchen button:focus-visible { opacity:1; }
   /* Tabellensuche („*“ + Enter): Artikelnr. | Bezeichnung | Bestand | Standard-VK des Mandanten */
   dialog.sa-tabelle { width:min(1280px, 96vw); max-width:96vw; max-height:86vh; padding:0; border:1px solid var(--rand, #ccc); border-radius:8px;
     background:var(--karte, #fff); color:var(--text, #222); display:flex; flex-direction:column; }
@@ -45,7 +52,7 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
     background:var(--karte, #fff); border:1px solid var(--rand, #ddd); border-radius:6px; overflow:hidden; font-size:12px; opacity:.9; }
   .sa-tabelle .sa-bild img { max-width:100%; max-height:100%; object-fit:contain; }
   .sa-tabelle .sa-angaben { display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; align-content:start; margin:0; font-size:14px; }
-  .sa-tabelle .sa-angaben dt { opacity:.7; } .sa-tabelle .sa-angaben dd { margin:0; }
+  .sa-tabelle .sa-angaben dt { opacity:.7; } .sa-tabelle .sa-angaben dd { margin:0; white-space:pre-line; }  /* erweiterte Bezeichnung mehrzeilig */
 </style>
 <script>
   // Tabellensuche als eigenes Fenster über allem (auch über einer offenen Maske): Suchfeld, Tabelle, Auswahl per Klick oder ↑↓ + Enter,
@@ -140,9 +147,11 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
     (wurzel || document).querySelectorAll('select[data-suchauswahl]:not([data-sa-bereit])').forEach(function (sel) {
       sel.setAttribute('data-sa-bereit', '1');
       var schluessel = 'wwok_zuletzt_' + (sel.dataset.suchauswahl || sel.name);
+      var mehrfach = sel.multiple;  // Mehrfachauswahl (z. B. weitere Kategorien): Kästchen mit × statt eines Feldwerts
       var eintraege = Array.prototype.map.call(sel.options, function (o) {
-        return {wert: o.value, text: o.text.trim(), suche: norm(o.text + ' ' + (o.dataset.suche || '')), offline: o.dataset.offline === '1'};
+        return {wert: o.value, text: o.text.trim(), suche: norm(o.text + ' ' + (o.dataset.suche || '')), offline: o.dataset.offline === '1', option: o};
       }).filter(function (e) { return e.wert !== ''; });
+      var kaestchen = document.createElement('div'); kaestchen.className = 'sa-kaestchen';
       var box = document.createElement('div'), feld = document.createElement('input'), liste = document.createElement('ul'),
           leeren = document.createElement('button'), id = (sel.id || sel.name) + '_sa';
       box.className = 'suchauswahl'; liste.id = id + '_liste'; liste.hidden = true; liste.setAttribute('role', 'listbox');
@@ -155,14 +164,29 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
       }
       if (sel.disabled) feld.disabled = true;
       leeren.type = 'button'; leeren.className = 'sa-leeren'; leeren.textContent = '×'; leeren.title = 'Auswahl leeren';
-      leeren.setAttribute('aria-label', 'Auswahl leeren'); leeren.hidden = sel.required || sel.disabled;
+      leeren.setAttribute('aria-label', 'Auswahl leeren'); leeren.hidden = sel.required || sel.disabled || mehrfach;
       sel.parentNode.insertBefore(box, sel);
+      if (mehrfach) { box.appendChild(kaestchen); feld.placeholder = 'Weitere hinzufügen: tippen und Enter …'; }
       box.appendChild(feld); box.appendChild(leeren); box.appendChild(liste); box.appendChild(sel);
       sel.hidden = true; sel.tabIndex = -1;
 
       var treffer = [], aktiv = -1;
       function gewaehlt() { return eintraege.find(function (e) { return e.wert === sel.value; }); }
-      function anzeigen() { var g = gewaehlt(); feld.value = g ? g.text : ''; }
+      function kaestchenZeichnen() {  // je gewählter Option ein Kästchen mit × (Text per textContent, kein HTML aus Daten)
+        kaestchen.innerHTML = '';
+        eintraege.filter(function (e) { return e.option.selected; }).forEach(function (e) {
+          var k = document.createElement('span'), x = document.createElement('button');
+          k.appendChild(document.createTextNode(e.text));
+          x.type = 'button'; x.textContent = '×'; x.title = 'Entfernen'; x.setAttribute('aria-label', e.text + ' entfernen'); x.disabled = sel.disabled;
+          x.addEventListener('click', function () { e.option.selected = false; kaestchenZeichnen(); sel.dispatchEvent(new Event('change', {bubbles: true})); feld.focus(); });
+          k.appendChild(x); kaestchen.appendChild(k);
+        });
+      }
+      function anzeigen() {
+        if (mehrfach) { feld.value = ''; kaestchenZeichnen(); return; }
+        var g = gewaehlt(); feld.value = g ? g.text : '';
+      }
+      function frei(e) { return !mehrfach || !e.option.selected; }  // bei Mehrfachauswahl stehen Gewählte nicht mehr in der Liste
       function zuletzt() { try { return JSON.parse(localStorage.getItem(schluessel) || '[]'); } catch (e) { return []; } }
       function merken(wert) {
         try { localStorage.setItem(schluessel, JSON.stringify([wert].concat(zuletzt().filter(function (w) { return w !== wert; })).slice(0, ZULETZT))); } catch (e) {}
@@ -195,8 +219,9 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
           var aehnlich = aehnliche();
           var z = zuletzt().map(function (w) { return eintraege.find(function (e) { return e.wert === w; }); })
             .filter(function (e) { return e && aehnlich.indexOf(e) < 0; });
+          aehnlich = aehnlich.filter(frei); z = z.filter(frei);
           var oben = aehnlich.concat(z);
-          treffer = oben.concat(eintraege.filter(function (e) { return oben.indexOf(e) < 0; }));
+          treffer = oben.concat(eintraege.filter(function (e) { return oben.indexOf(e) < 0 && frei(e); }));
           treffer.slice(0, MAX).forEach(function (e, i) {
             if (i === 0 && aehnlich.length) html += '<li class="sa-titel" role="presentation">Ähnliche Bezeichnung</li>';
             if (i === aehnlich.length && z.length) html += '<li class="sa-titel" role="presentation">Zuletzt verwendet</li>';
@@ -204,7 +229,7 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
             html += zeile(e, [], i);
           });
         } else {
-          treffer = eintraege.filter(function (e) { return woerter.every(function (w) { return e.suche.indexOf(w) >= 0; }); });
+          treffer = eintraege.filter(function (e) { return frei(e) && woerter.every(function (w) { return e.suche.indexOf(w) >= 0; }); });
           var erstes = woerter[0];  // „8“ → „8 – Vorkasse“ vor „3 – Zahlbar innerhalb 8 Tagen“: Anfang des Textes zuerst
           function rang(e) { var t = norm(e.text); return t.indexOf(erstes + ' ') === 0 ? 0 : t.indexOf(erstes) === 0 ? 1 : 2; }
           treffer = treffer.map(function (e, i) { return [rang(e), i, e]; })
@@ -222,6 +247,10 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
         if (zuruecksetzen) anzeigen();
       }
       function waehlen(e) {
+        if (mehrfach) {  // hinzufügen; das Feld bleibt leer und bereit für die nächste
+          if (e) { e.option.selected = true; merken(e.wert); sel.dispatchEvent(new Event('change', {bubbles: true})); }
+          anzeigen(); schliessen(false); return;
+        }
         var alt = sel.value;
         sel.value = e ? e.wert : '';
         if (e) merken(e.wert);
@@ -229,6 +258,14 @@ Oben stehen die zuletzt gewählten Einträge (je Browser, localStorage). Für Ar
         if (sel.value !== alt) sel.dispatchEvent(new Event('change', {bubbles: true}));
       }
       feld.addEventListener('focus', function () { feld.select(); });
+      if (mehrfach) {
+        anzeigen();
+        feld.addEventListener('keydown', function (ev) {  // Rücktaste im leeren Feld entfernt das letzte Kästchen
+          if (ev.key !== 'Backspace' || feld.value) return;
+          var gewaehlte = eintraege.filter(function (e) { return e.option.selected; });
+          if (gewaehlte.length) { gewaehlte[gewaehlte.length - 1].option.selected = false; kaestchenZeichnen(); sel.dispatchEvent(new Event('change', {bubbles: true})); }
+        });
+      }
       feld.addEventListener('click', oeffnen);
       feld.addEventListener('input', function () { aktiv = feld.value.trim() ? 0 : -1; oeffnen(); });
       feld.addEventListener('keydown', function (ev) {

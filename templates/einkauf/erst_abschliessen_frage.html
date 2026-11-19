@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titel %}Erst abschließen? – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:bestellung' b.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Erst abschließen &amp; Nummer vergeben?</h1>
+  <p>Die Bestellung ist noch nicht gespeichert. Um {{ aktion_text }}, wird sie zuerst mit
+     „Speichern: abschließen &amp; Nummer vergeben“ gespeichert; danach geht es weiter.</p>
+  <form method="post" action="{% url 'einkauf:bestellung_abschliessen' b.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
+    <input type="hidden" name="danach" value="{{ aktion }}">
+    <button type="submit">Abschließen &amp; Nummer vergeben, dann fortfahren</button>
+    <a class="knopf leise" href="{% url 'einkauf:bestellung' b.pk %}">Zurück zur Bestellung</a>
+  </form>
+</div>
+{% endblock %}

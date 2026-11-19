@@ -81,7 +81,7 @@ def suchen(q, mandant):
 
     bestellungen = Bestellung.objects.filter(_filter(woerter, ["nummer", "lieferant__name1"]), mandant=mandant)
     for z in _exakt_zuerst(bestellungen, q).values("pk", "nummer", "lieferant__name1")[:MAX_JE_GRUPPE]:
-        hinzu("Bestellung", z["nummer"], z["lieferant__name1"], reverse("einkauf:bestellung", args=[z["pk"]]))
+        hinzu("Bestellung", z["nummer"] or "(nicht gespeichert)", z["lieferant__name1"], reverse("einkauf:bestellung", args=[z["pk"]]))
 
     reparaturen = Reparatur.objects.filter(_filter(woerter, ["nummer", "geraet", "kunde__name1"]), mandant=mandant)
     for z in _exakt_zuerst(reparaturen, q).values("pk", "nummer", "geraet", "kunde__name1", "kunde__anonymisiert")[:MAX_JE_GRUPPE]:

@@ -1,0 +1,97 @@
+<script id="vorlaeufigskript">
+  // Nicht gespeicherte Lieferantenbestellung (wie die Belegmaske im Verkauf, templates/verkauf/beleg.html): Wer sie verlässt, entscheidet
+  // vorher über Abschließen (Nummer vergeben), Verwerfen oder Zurück. Dazu Puls (hält die Bestellung am Leben) und die Rückfrage
+  // „Erst abschließen?“ vor Mail, bestellt, PDF und Wareneingang.
+  (function () {
+    var URL_VERWERFEN = "{% url 'einkauf:bestellung_verwerfen' b.pk %}", URL_AKTIV = "{% url 'einkauf:bestellung_aktiv' b.pk %}",
+        URL_VERLASSEN = "{% url 'einkauf:bestellung_verlassen' b.pk %}";
+    var abschluss = document.getElementById('abschlussform'), token = (document.querySelector('input[name=csrfmiddlewaretoken]') || {}).value || '';
+    var durchlassen = false, laeuft = false, fragt = false, gesendet = false;
+    function verwerfen() {
+      laeuft = true;  // gegen Doppelklick: bis zur Antwort geht nichts anderes
+      fetch(URL_VERWERFEN, {method: 'POST', credentials: 'same-origin', headers: {'X-Wwok-Stand': '1', 'X-CSRFToken': token}})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.ok) { durchlassen = true; location.href = d.weiter; return; }
+          laeuft = false;
+          wwokToast(d.fehler || 'Die Bestellung konnte nicht verworfen werden.', 'error');
+          if (d.weiter) { durchlassen = true; setTimeout(function () { location.href = d.weiter; }, 2500); }
+        })
+        .catch(function () { laeuft = false; wwokToast('Das hat nicht geklappt. Bitte die Seite neu laden und erneut versuchen.', 'error'); });
+    }
+    function entscheiden(ziel) {
+      if (fragt || laeuft) return;
+      fragt = true;
+      wwokDialog('Diese Bestellung ist noch nicht gespeichert. Ohne Abschließen wird sie verworfen.', [
+        {text: 'Abschließen', wert: 'abschliessen', haupt: true}, {text: 'Verwerfen', wert: 'verwerfen'}, {text: 'Zurück', wert: null}
+      ]).then(function (wert) {
+        fragt = false;
+        if (wert === 'abschliessen' && abschluss) abschluss.requestSubmit();  // das ursprüngliche Ziel entfällt
+        else if (wert === 'verwerfen') verwerfen();
+      });
+    }
+    function bleibt(a) {  // Links, die die Bestellung nicht verlassen
+      var h = a.getAttribute('href') || '';
+      return h === '' || h.charAt(0) === '#' || /^(javascript:|mailto:|tel:)/i.test(h) || a.hasAttribute('data-modal') || a.hasAttribute('download')
+        || (a.target && a.target !== '_self') || !!a.closest('[data-bleibt], [data-modal], dialog');
+    }
+    window.addEventListener('click', function (e) {
+      var a = e.target.closest && e.target.closest('a[href]');
+      if (durchlassen || !a || bleibt(a) || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      entscheiden(a.href);
+    }, true);
+    window.addEventListener('submit', function (e) {
+      var f = e.target;
+      if (durchlassen || f.closest('[data-bleibt], .tabinhalt, dialog, [data-modal]') || (f.target && f.target !== '_self')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      entscheiden();
+    }, true);
+    var absenden = HTMLFormElement.prototype.submit;  // Dialoge senden nach der Rückfrage per submit()
+    HTMLFormElement.prototype.submit = function () { gesendet = true; absenden.call(this); };
+    window.addEventListener('submit', function (e) { if (!e.defaultPrevented) gesendet = true; });
+    window.addEventListener('beforeunload', function (e) { if (!durchlassen && !gesendet) { e.preventDefault(); e.returnValue = ''; } });
+    // Tab oder Browser geschlossen (oder weg ohne Rückfrage): sofort als verlassen melden, die Bereinigung verwirft die Bestellung.
+    // Neuladen hält sie (der Aufruf der Seite zählt wieder als Lebenszeichen).
+    window.addEventListener('pagehide', function () {
+      if (durchlassen || gesendet || !navigator.sendBeacon) return;
+      var d = new FormData(); d.append('csrfmiddlewaretoken', token);
+      navigator.sendBeacon(URL_VERLASSEN, d);
+    });
+    // Mail, bestellt, PDF, Wareneingang: erst abschließen (Server: bestellung_abschliessen mit danach=…)
+    document.querySelectorAll('form[data-erst]').forEach(function (f) {
+      f.addEventListener('submit', function (e) {
+        if (f.dataset.erstOk) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        var knopf = e.submitter;
+        wwokDialog('Erst abschließen & Nummer vergeben? Die Bestellung ist noch nicht gespeichert; erst danach geht das.', [
+          {text: 'Abschließen & Nummer vergeben, dann fortfahren', wert: true, haupt: true}, {text: 'Zurück', wert: false}
+        ]).then(function (ja) {
+          if (!ja) return;
+          f.dataset.erstOk = '1';
+          f.requestSubmit(knopf || undefined);
+        });
+      }, true);
+    });
+    // Lebenszeichen: kurz nach dem Laden (überholt ein verspätetes „verlassen“ vom Neuladen), dann alle 15 Sekunden.
+    function lebenszeichen() {
+      if (durchlassen) return;
+      fetch(URL_AKTIV, {method: 'POST', credentials: 'same-origin', headers: {'X-CSRFToken': token}})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.ok !== false) return;
+          durchlassen = true;
+          wwokToast('Die Bestellung wurde inzwischen verworfen oder gespeichert.', 'warning');
+          setTimeout(function () { location.href = d.weiter; }, 2500);
+        })
+        .catch(function () {});  // kein Netz: beim nächsten Takt erneut
+    }
+    setTimeout(lebenszeichen, 3000);
+    window.addEventListener('pageshow', function (e) { if (e.persisted) { gesendet = false; lebenszeichen(); } });
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') lebenszeichen(); });
+    setInterval(lebenszeichen, 15 * 1000);
+  })();
+</script>

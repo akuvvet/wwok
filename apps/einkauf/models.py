@@ -27,7 +27,14 @@ class BestellStatus(models.TextChoices):
 class Bestellung(Zeitstempel):
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="bestellungen")
     lieferant = models.ForeignKey(Lieferant, on_delete=models.PROTECT, related_name="bestellungen")
-    nummer = models.CharField("Bestellnummer", max_length=20, db_index=True)
+    nummer = models.CharField("Bestellnummer", max_length=20, db_index=True, null=True, blank=True,
+                              help_text="Leer, solange die Bestellung vorläufig (nicht gespeichert) ist; die Nummer vergibt „Speichern: abschließen & Nummer vergeben“")
+    vorlaeufig = models.BooleanField(
+        "vorläufig (nicht gespeichert)", default=False, db_index=True, editable=False,
+        help_text="Mit „+ Bestellung“ oder aus einem Kundenbeleg angelegt und noch nicht mit „Speichern: abschließen & Nummer vergeben“ gespeichert: "
+                  "ohne Nummer; wird verworfen, wenn sie nicht abgeschlossen wird.")
+    zuletzt_aktiv = models.DateTimeField("zuletzt aktiv", null=True, blank=True, editable=False,
+                                         help_text="Vorläufige Bestellung: letzte Aktivität; ohne Lebenszeichen der geöffneten Seite wird verworfen.")
     datum = models.DateField("Datum", default=timezone.localdate)
     status = models.CharField(max_length=20, choices=BestellStatus.choices, default=BestellStatus.ENTWURF, db_index=True)
     bemerkung = models.TextField("Bemerkung", blank=True)
@@ -52,7 +59,12 @@ class Bestellung(Zeitstempel):
         constraints = [models.UniqueConstraint(fields=["mandant", "nummer"], name="bestellnummer_eindeutig")]
 
     def __str__(self):
-        return f"Bestellung {self.nummer}"
+        return f"Bestellung {self.nummer_text}"
+
+    @property
+    def nummer_text(self) -> str:
+        """Nummer für die Anzeige; eine vorläufige Bestellung hat noch keine."""
+        return self.nummer or "(nicht gespeichert)"
 
     @property
     def summe_netto(self) -> Decimal:
