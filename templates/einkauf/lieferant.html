@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block titel %}{{ lieferant.name1 }} – wwok{% endblock %}
-{# Kein Untermenü „Neuer Beleg für …“ in der Seitenleiste: + Bestellung / + Wareneingang stehen hier unter der Adresse (Wunsch des Nutzers 19.11.2026) #}
 {% block inhalt %}
 <a href="{% url 'einkauf:lieferanten' %}" data-escape style="display:none">zurück</a>
 {% if lieferant.gesperrt %}<div class="warnung">Lieferant ist gesperrt.</div>{% endif %}

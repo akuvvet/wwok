@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block titel %}{{ r.nummer }} – wwok{% endblock %}
-{% block lieferantenmenue %}{% include "einkauf/lieferant_menue.html" with lieferant=r.lieferant %}{% endblock %}
 {% block inhalt %}
 <a href="{% url 'einkauf:ruecksendungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte">

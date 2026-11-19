@@ -79,10 +79,11 @@ class BestellungTabsTest(Basis):
         self.assertContains(r, f'name="menge_{self.maus.pk}" value="3"')
         self.assertContains(r, f'name="auswahl" value="{self.maus.pk}" aria-label="M1 übernehmen" checked')
         self.assertContains(r, f'name="auswahl" value="{self.kabel.pk}" aria-label="K1 übernehmen">')  # führt TD nicht: kein Haken
-        self.assertContains(r, "gesamte Bedarf")
+        self.assertContains(r, 'name="bedarf" value="lieferant"  onchange')  # Haken „nur Artikel, die TD führt“, nicht gesetzt
         r = self.client.get(url, {"bedarf": "lieferant"})
         self.assertEqual([z["artikel"] for z in r.context["bedarf"]], [self.maus])
-        self.assertContains(r, "gesamten Bedarf zeigen")
+        self.assertContains(r, 'name="bedarf" value="lieferant" checked onchange')
+        self.assertContains(r, "nur Artikel, die TD führt</label>")
 
     def test_bedarf_zeigt_guenstigste_lieferanten_je_position(self):
         self.kundenbestellung(self.maus, "3")
