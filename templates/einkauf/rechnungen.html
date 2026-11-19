@@ -77,7 +77,11 @@
     <tr><th>Datum</th><th>Lieferant</th><th>Gutschrift</th><th class="zahl">Betrag</th><th>Stand</th></tr>
     {% for z in eingaenge %}<tr{% if z.storniert %} style="opacity:.6"{% endif %}><td>{{ z.datum|date:"d.m.Y" }}</td><td>{{ z.gutschrift.lieferant.kurz }}</td>
       <td><a href="{% url 'einkauf:gutschrift' z.gutschrift_id %}">{{ z.gutschrift.nummer }}</a></td><td class="zahl">{{ z.betrag|floatformat:"2g" }}</td>
-      <td>{% if z.storniert %}storniert – {{ z.storno_grund }}{% else %}gebucht{% endif %}</td></tr>{% endfor %}
+      <td>{% if z.storniert %}storniert – {{ z.storno_grund }}{% else %}gebucht
+        <form method="post" action="{% url 'einkauf:gutschrift_zahlung_storno' z.gutschrift_id z.pk %}" class="zeile" style="margin-top:4px">{% csrf_token %}
+          <input type="hidden" name="zurueck" value="zahlungen">
+          <input name="grund" size="18" maxlength="300" placeholder="Stornogrund (Pflicht)" aria-label="Stornogrund" required>
+          <button type="submit" class="gefahr" data-frage="Zahlungseingang über {{ z.betrag|floatformat:'2g' }} € ({{ z.gutschrift.nummer }}) stornieren?">Storno</button></form>{% endif %}</td></tr>{% endfor %}
   </table>
 </div>{% endif %}
 {% endblock %}

@@ -226,7 +226,9 @@ class RuecksendungTest(TestCase):
             self.assertEqual(r.status_code, 200, url)
             self.assertNotContains(r, "Neuer Beleg für TD")
             self.assertNotContains(r, 'class="untermenue"><small')
-        self.assertContains(self.client.get(reverse("einkauf:bestellungen")), "WE-Rücksendung</span>")
+        # WE-Rücksendung nicht mehr in der Seitenleiste, sondern als „+ WE-Rücksendung“ beim Lieferanten (Wunsch des Nutzers 19.11.2026)
+        self.assertNotContains(self.client.get(reverse("einkauf:bestellungen")), "WE-Rücksendung</span>")
+        self.assertContains(self.client.get(reverse("einkauf:lieferant", args=[self.lf.pk])), "+ WE-Rücksendung</button>")
 
     def test_gesperrter_lieferant_ohne_knoepfe(self):
         self.lf.gesperrt = True

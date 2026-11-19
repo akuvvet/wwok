@@ -38,6 +38,11 @@
         {% for b in offene_bestellungen %}<option value="{{ b.pk }}">zu {{ b.nummer }}</option>{% endfor %}</select>{% endif %}
       <input type="hidden" name="lieferant" value="{{ lieferant.pk }}">
       <button type="submit" class="leise">+ Wareneingang</button></form>
+    {% if gebuchte_wareneingaenge %}<form method="get" action="{% url 'einkauf:ruecksendung_start' %}" class="zeile">
+      <input type="hidden" name="lieferant" value="{{ lieferant.pk }}">
+      <select name="we" aria-label="WE-Rücksendung aus Wareneingang" required><option value="">Wareneingang wählen …</option>
+        {% for we in gebuchte_wareneingaenge %}<option value="{{ we.pk }}">aus {{ we.nummer }} vom {{ we.datum|date:"d.m.Y" }}{% if we.lieferschein %} (LS {{ we.lieferschein }}){% endif %}</option>{% endfor %}</select>
+      <button type="submit" class="leise" title="Ware aus einem gebuchten Wareneingang an den Lieferanten zurücksenden">+ WE-Rücksendung</button></form>{% endif %}
   </div>
   {% endif %}
 </div>

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block titel %}{{ r.nummer }} – wwok{% endblock %}
 {% block inhalt %}
-<a href="{% url 'einkauf:ruecksendungen' %}" data-escape style="display:none">zurück</a>
+<a href="{% url 'einkauf:lieferant' r.lieferant_id %}" data-escape style="display:none">zurück</a>
 <div class="karte">
   <h1>WE-Rücksendung {{ r.nummer }} – <a href="{% url 'einkauf:lieferant' r.lieferant_id %}">{{ r.lieferant.name1 }}</a></h1>
   <p>{{ r.datum|date:"d.m.Y" }} · aus Wareneingang <a href="{% url 'einkauf:wareneingang' r.wareneingang_id %}">{{ r.wareneingang.nummer }}</a>{% if r.wareneingang.lieferschein %} (Lieferschein {{ r.wareneingang.lieferschein }}){% endif %}
