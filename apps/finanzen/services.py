@@ -99,8 +99,10 @@ def summen_je_beleg(belege) -> dict:
 
 
 def gutschrift_rest(gutschrift) -> Decimal:
-    """Noch nicht verrechneter Betrag einer Gutschrift."""
-    return gutschrift.summe_brutto - (gutschrift.verrechnungen.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0"))
+    """Noch freier Betrag einer Gutschrift: weder mit Rechnungen verrechnet noch ausgezahlt. Auszahlungen sind negative Zahlungen
+    auf der Gutschrift (Entscheidung des Nutzers 19.11.2026), ihr Storno eine positive Gegenbuchung."""
+    verrechnet = gutschrift.verrechnungen.aggregate(s=models.Sum("betrag"))["s"] or Decimal("0")
+    return gutschrift.summe_brutto - verrechnet + bezahlt(gutschrift)
 
 
 def offen(beleg) -> Decimal:
@@ -307,7 +309,19 @@ def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, s
         Beleg.objects.select_for_update().get(pk=beleg.pk)  # Sperre gegen gleichzeitiges Doppelabsenden
         if offen_bisher != offen(beleg):
             raise ValueError("Der offene Betrag hat sich inzwischen geändert (evtl. schon gebucht). Bitte prüfen und neu buchen.")
-    if beleg.art not in (Belegart.RECHNUNG, Belegart.AUFTRAG, Belegart.PROFORMA) \
+    if beleg.art == Belegart.GUTSCHRIFT:  # nur Auszahlung des freien Betrags (negativ) und ihr Storno
+        if not beleg.abgeschlossen:
+            raise ValueError("Ausgezahlt wird erst nach „Speichern: abschließen & Nummer vergeben“.")
+        if betrag > 0 and storno_zu is None:
+            raise ValueError("Auf eine Gutschrift wird nur ausgezahlt (Betrag an den Kunden), kein Zahlungseingang gebucht.")
+        if zahlart == Zahlart.SKONTO:
+            raise ValueError("Eine Auszahlung aus der Gutschrift ist ein Geldfluss – Skonto ist hier nicht möglich.")
+        if betrag < 0 and storno_zu is None:
+            Beleg.objects.select_for_update().get(pk=beleg.pk)  # Sperre: nicht gleichzeitig verrechnen und auszahlen
+            frei = gutschrift_rest(beleg)
+            if -betrag > frei + CENT / 2:
+                raise ValueError(f"Von {beleg} sind nur noch {frei:.2f} € frei.".replace(".", ",", 1))
+    elif beleg.art not in (Belegart.RECHNUNG, Belegart.AUFTRAG, Belegart.PROFORMA) \
             or (beleg.art in (Belegart.RECHNUNG, Belegart.PROFORMA) and not beleg.abgeschlossen):
         raise ValueError("Zahlungen können nur auf abgeschlossene Rechnungen, Proforma-Rechnungen oder Bestellungen gebucht werden.")
     if beleg.art == Belegart.PROFORMA and beleg.proforma_storno and storno_zu is None:
@@ -472,7 +486,7 @@ def zahlungsweg(beleg):
         zeilen.append({"datum": datum, "rang": rang, "zeit": zeit, "vorgang": vorgang, "weg": weg, "betrag": betrag, "wirkung": wirkung,
                        "benutzer": benutzer, "text": text, "ziel": ziel, "art": art, "stand": None})
 
-    eingang = ausgezahlt = Decimal("0")
+    eingang = ausgezahlt = gs_ausgezahlt = Decimal("0")
     if rechnung:
         zeile(rechnung.belegdatum, 0, None, f"Rechnung {rechnung.nummer} ausgestellt", betrag=rechnung.summe_brutto,
               wirkung=rechnung.summe_brutto, art="beleg")
@@ -520,6 +534,11 @@ def zahlungsweg(beleg):
         angelegt = g.angelegt_am if timezone.localtime(g.angelegt_am).date() == g.belegdatum else None  # am selben Tag: Uhrzeit ordnet ein
         zeile(g.belegdatum, 2, angelegt, f"Gutschrift {g.nummer} ausgestellt", "noch kein Geldfluss: Guthaben des Kunden", g.summe_brutto,
               None, None, text, g if g.pk != beleg.pk else None, "beleg")
+        for z in g.zahlungen.select_related("benutzer").order_by("erfasst_am", "pk"):  # Auszahlung direkt aus der Gutschrift
+            vorgang = f"Storno einer Auszahlung aus Gutschrift {g.nummer}" if z.storno_zu_id else f"Auszahlung aus Gutschrift {g.nummer}"
+            gs_ausgezahlt -= z.betrag
+            zeile(z.datum, 3, z.erfasst_am, vorgang, z.get_zahlart_display(), z.betrag, None, z.benutzer, z.storno_grund or z.bemerkung,
+                  g if g.pk != beleg.pk else None, "aus" if z.betrag < 0 and not z.storno_zu_id else "zahlung")
     bedingung = models.Q(gutschrift__in=gutschriften)
     if rechnung:
         bedingung |= models.Q(rechnung=rechnung)
@@ -540,6 +559,6 @@ def zahlungsweg(beleg):
             stand += z["wirkung"]
             z["stand"] = stand
     summe = sum((g.summe_brutto for g in gutschriften), Decimal("0"))
-    return {"rechnung": rechnung, "zeilen": zeilen, "gutschriften": summe, "verrechnet": verrechnet, "frei": summe - verrechnet,
-            "eingang": eingang, "ausgezahlt": ausgezahlt, "stand": stand if rechnung else None,
+    return {"rechnung": rechnung, "zeilen": zeilen, "gutschriften": summe, "verrechnet": verrechnet, "frei": summe - verrechnet - gs_ausgezahlt,
+            "eingang": eingang, "ausgezahlt": ausgezahlt + gs_ausgezahlt, "gs_ausgezahlt": gs_ausgezahlt, "stand": stand if rechnung else None,
             "ueber": summe - rechnung.summe_brutto if rechnung and summe > rechnung.summe_brutto + CENT else None}

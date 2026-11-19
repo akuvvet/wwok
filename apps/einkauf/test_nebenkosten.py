@@ -174,22 +174,27 @@ class KopfUndKundenmenueTest(TestCase):
         self.assertContains(r, 'class="firma"')
         self.assertContains(r, 'title="OKAY Computer – Mandant wechseln">OKAY')
 
-    def test_kundenmenue_mit_neuem_beleg_als_untermenue(self):
+    def test_neuer_beleg_unter_der_kundenadresse_ohne_untermenue(self):
+        """Wunsch des Nutzers 19.11.2026: wie beim Lieferanten stehen + Angebot / + Bestellung unter der Adresse des Kunden,
+        die Seitenleiste hat kein Untermenü „Neuer Beleg für …“ mehr (auch nicht im Beleg)."""
         self.wahl()
         r = self.client.get(reverse("verkauf:start"))
         self.assertContains(r, "<span>Kunde</span>")
         self.assertNotContains(r, "erst Kunde wählen")  # Hinweistext entfällt (Wunsch des Nutzers)
-        self.assertContains(r, '<div class="untermenue"></div>')  # leer, per CSS ausgeblendet
+        self.assertNotContains(r, 'class="untermenue"')
         r = self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk]))
         self.assertNotContains(r, "Neuen Beleg anlegen")  # Karte entfällt
-        self.assertContains(r, "Neuer Beleg für Muster GmbH")
-        self.assertContains(r, reverse("verkauf:beleg_neu", args=[self.kunde.pk]))
+        self.assertNotContains(r, "Neuer Beleg für")
+        self.assertNotContains(r, 'class="untermenue"')
+        self.assertContains(r, 'action="%s"' % reverse("verkauf:beleg_neu", args=[self.kunde.pk]), count=1)
+        self.assertContains(r, 'name="art" value="AN" type="submit"')
+        self.assertContains(r, '+ Angebot</button>')
+        self.assertContains(r, '+ Bestellung</button>')
         self.assertNotContains(r, 'name="art" value="LS"')
-        self.assertContains(r, 'class="leise">Angebot</button>')
         b = Beleg.objects.create(mandant=self.m, art=Belegart.ANGEBOT, kunde=self.kunde)
-        self.assertContains(self.client.get(reverse("verkauf:beleg", args=[b.pk])), "Neuer Beleg für Muster GmbH")
+        self.assertNotContains(self.client.get(reverse("verkauf:beleg", args=[b.pk])), "Neuer Beleg für")
         self.kunde.gesperrt = True
         self.kunde.save()
         r = self.client.get(reverse("verkauf:kunde", args=[self.kunde.pk]))
-        self.assertContains(r, "Kunde gesperrt")
-        self.assertNotContains(r, "Neuer Beleg für")
+        self.assertContains(r, "Kunde ist gesperrt")
+        self.assertNotContains(r, "+ Angebot</button>")

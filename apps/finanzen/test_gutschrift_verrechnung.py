@@ -134,7 +134,7 @@ class GutschriftVerrechnungTest(TestCase):
     def test_gutschrift_ohne_rechnung_laesst_sich_verrechnen(self):
         frei = Beleg.objects.create(mandant=self.m, art=Belegart.GUTSCHRIFT, kunde=self.kunde)
         Position.objects.create(beleg=frei, bezeichnung="Dienst", einzelpreis=D("10"))
-        frei.abschliessen()
+        frei.abschliessen(gutschrift_grund="Kulanz")
         frei.refresh_from_db()
         self.assertContains(self.client.get(reverse("finanzen:beleg", args=[self.r.pk])), "(ohne Rechnung)")
         self.assertContains(self.client.get(reverse("finanzen:offene_posten")), frei.nummer)

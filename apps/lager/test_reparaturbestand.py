@@ -126,7 +126,8 @@ class ReparaturbestandTest(TestCase):
         gs = self.gutschrift(self.rechnung(self.a), "B")
         self.assertEqual(Position.objects.create(beleg=gs, artikel=self.b, bezeichnung="x", einzelpreis=Decimal("1")).ruecknahme, "B")
         frei = Beleg.objects.create(mandant=self.m, art=Belegart.GUTSCHRIFT, kunde=self.kunde)
-        self.assertEqual(Position.objects.create(beleg=frei, artikel=self.b, bezeichnung="x", einzelpreis=Decimal("1")).ruecknahme, "R")
+        # freie Gutschrift (ohne Rechnung): Standard „keine Ware zurück“ (Entscheidung des Nutzers 19.11.2026)
+        self.assertEqual(Position.objects.create(beleg=frei, artikel=self.b, bezeichnung="x", einzelpreis=Decimal("1")).ruecknahme, "K")
 
     def test_aeltere_gutschrift_bleibt_von_hand_buchbar(self):
         re = self.rechnung(self.a)
@@ -191,8 +192,9 @@ class ReparaturbestandTest(TestCase):
 
     def test_freie_gutschrift_hat_keine_mengengrenze(self):
         frei = Beleg.objects.create(mandant=self.m, art=Belegart.GUTSCHRIFT, kunde=self.kunde)
-        Position.objects.create(beleg=frei, artikel=self.a, bezeichnung="x", menge=Decimal("9"), einzelpreis=Decimal("1"))
-        frei.abschliessen()
+        Position.objects.create(beleg=frei, artikel=self.a, bezeichnung="x", menge=Decimal("9"), einzelpreis=Decimal("1"),
+                                ruecknahme=Ruecknahme.REPARATUR)
+        frei.abschliessen(gutschrift_grund="Rückgabe ohne Rechnung")
         self.assertEqual(reparaturbestand(self.m, self.a), Decimal("9"))
 
     def gruppenrechnung(self, fest):

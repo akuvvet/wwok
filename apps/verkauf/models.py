@@ -231,6 +231,10 @@ class GutschriftUeberRechnung(ValueError):
     """Die Gutschriften zu einer Rechnung übersteigen zusammen den Rechnungsbetrag: Abschluss nur mit Begründung (Rückfrage in der Maske)."""
 
 
+class GutschriftGrundFehlt(ValueError):
+    """Freie Gutschrift (ohne Rechnung): Abschluss nur mit Grund (Rückfrage in der Maske, Entscheidung des Nutzers 19.11.2026)."""
+
+
 class Beleg(Zeitstempel):
     mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="belege")
     art = models.CharField("Belegart", max_length=2, choices=Belegart.choices)
@@ -265,6 +269,8 @@ class Beleg(Zeitstempel):
     bemerkung = models.TextField("Bemerkung (intern, wird nicht gedruckt)", blank=True)
     ueber_rechnung_grund = models.CharField("Begründung: Gutschriften über dem Rechnungsbetrag", max_length=300, blank=True, editable=False)
     ueber_rechnung_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, editable=False, related_name="+")
+    gutschrift_grund = models.CharField("Grund der Gutschrift", max_length=300, blank=True, editable=False,
+                                        help_text="Pflicht bei einer freien Gutschrift ohne Rechnung; wird gedruckt.")
     vorgaenger = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="folgebelege")
     lieferscheine = models.ManyToManyField("self", symmetrical=False, blank=True, related_name="rechnungen",
@@ -900,8 +906,13 @@ class Beleg(Zeitstempel):
             return None
         return {"rechnung": rechnung, "betrag": rechnung.summe_brutto, "andere": andere, "gesamt": gesamt, "ueber": gesamt - rechnung.summe_brutto}
 
+    @property
+    def freie_gutschrift(self) -> bool:
+        """Gutschrift ohne Rechnung (unter dem Kunden angelegt, Entscheidung des Nutzers 19.11.2026)."""
+        return self.art == Belegart.GUTSCHRIFT and not (self.vorgaenger_id and self.vorgaenger.art == Belegart.RECHNUNG)
+
     @transaction.atomic
-    def abschliessen(self, p_erlaubt=False, esd_ohne_key=False, ueber_grund=""):
+    def abschliessen(self, p_erlaubt=False, esd_ohne_key=False, ueber_grund="", gutschrift_grund=""):
         """p_erlaubt: nur für „erst abschließen, dann übernehmen“ (views._erst_abschliessen): eine Bestellung mit Preislistenartikeln
         (P) darf abgeschlossen werden, weil die Übernahme die P-Positionen sofort in ein neues Angebot verschiebt."""
         if self.abgeschlossen:
@@ -948,6 +959,11 @@ class Beleg(Zeitstempel):
             raise GutschriftUeberRechnung(
                 f"Die Gutschriften zur Rechnung {ueber['rechnung'].nummer} ergeben zusammen {euro['gesamt']} € und liegen damit "
                 f"{euro['ueber']} € über dem Rechnungsbetrag von {euro['betrag']} €. Bitte begründen, warum.")
+        if self.freie_gutschrift:  # ohne Rechnung: der Grund ist Pflicht und wird gedruckt
+            self.gutschrift_grund = " ".join((gutschrift_grund or self.gutschrift_grund or "").split())[:300]
+            if not self.gutschrift_grund:
+                raise GutschriftGrundFehlt("Eine Gutschrift ohne Rechnung braucht einen Grund (z. B. Kulanz, Preisnachlass, Rückgabe "
+                                           "ohne Rechnung). Er steht auf der Gutschrift.")
         if self.art == Belegart.GUTSCHRIFT:
             from apps.lager.services import gutschrift_menge_pruefen
             gutschrift_menge_pruefen(self)
@@ -965,6 +981,7 @@ class Beleg(Zeitstempel):
             self.ueber_rechnung_von = wer() if wer() is not None and wer().is_authenticated else None
         Beleg.objects.filter(pk=self.pk).update(nummer=self.nummer, abgeschlossen=True, vorlaeufig=False, zuletzt_aktiv=None,
                                                 ueber_rechnung_grund=self.ueber_rechnung_grund, ueber_rechnung_von=self.ueber_rechnung_von,
+                                                gutschrift_grund=self.gutschrift_grund,
                                                 belegdatum=self.belegdatum, kaeufer_name=self.kaeufer_name,
                                                 kaeufer_strasse=self.kaeufer_strasse, kaeufer_plz=self.kaeufer_plz,
                                                 kaeufer_ort=self.kaeufer_ort, kaeufer_land=self.kaeufer_land)
@@ -1779,7 +1796,9 @@ class Position(Zeitstempel):
             self.pos = letzte + 1
         if not self.pk and not self.ruecknahme and self.beleg.art == Belegart.GUTSCHRIFT:  # neue Position folgt der Gutschrift
             erste = Position.objects.filter(beleg=self.beleg).order_by("pk").values_list("ruecknahme", flat=True).first()
-            self.ruecknahme = Ruecknahme.REPARATUR if erste is None else erste
+            # freie Gutschrift (ohne Rechnung): meist Kulanz oder Nachlass – Standard „keine Ware zurück“, in Spalte B änderbar
+            standard = Ruecknahme.KEINE if self.beleg.freie_gutschrift else Ruecknahme.REPARATUR
+            self.ruecknahme = standard if erste is None else erste
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

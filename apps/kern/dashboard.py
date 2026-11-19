@@ -8,7 +8,7 @@ Fachliche Festlegungen:
   Ob die Bestellung schon abgeschlossen (nummeriert) ist, spielt keine Rolle: Offen heißt „noch nicht ausgeliefert“.
 - Offene Angebote = Beleg der Art AN mit Positionen, ohne Folgebeleg und (falls befristet) noch gültig.
 - Offene Posten Kunden = abgeschlossene Rechnungen mit Restbetrag (Brutto − Zahlungen − verrechnete Gutschriften),
-  abzüglich der noch unverrechneten Gutschriften, wie auf der Seite „Offene Posten“.
+  abzüglich der noch freien (weder verrechneten noch ausgezahlten) Gutschriften, wie auf der Seite „Offene Posten“.
 - Offene Lieferantenbestellung = Status „bestellt“ oder „teilweise geliefert“; Summe = Wert der noch nicht gelieferten Menge.
 - Alle zeitabhängigen Funktionen nehmen „heute“ als Parameter (Tests).
 """
@@ -185,7 +185,8 @@ def offene_posten(mandant, heute) -> dict:
                   else "bis60" if ueberfaellig_tage <= 60 else "ueber60"] += rest
     verrechnet_gs = _summe_je_beleg(Gutschriftverrechnung, "gutschrift")
     gutschriften = (Beleg.objects.filter(mandant=mandant, art=Belegart.GUTSCHRIFT, abgeschlossen=True)
-                    .annotate(rest=F("summe_brutto") - verrechnet_gs).filter(rest__gte=CENT).order_by()
+                    # Auszahlungen direkt aus der Gutschrift sind negative Zahlungen auf ihr (Entscheidung 19.11.2026)
+                    .annotate(rest=F("summe_brutto") - verrechnet_gs + _summe_je_beleg(Zahlung, "beleg")).filter(rest__gte=CENT).order_by()
                     .values_list("rest", flat=True))
     betrag -= sum(gutschriften, Decimal("0"))
     return {"anzahl": anzahl, "betrag": betrag, "ueberfaellig_anzahl": ueberfaellig_anzahl, "ueberfaellig_betrag": ueberfaellig_betrag,

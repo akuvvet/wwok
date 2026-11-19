@@ -40,9 +40,7 @@
   @media (min-width:901px) {  /* eingeklappt: nur Symbole */
     html.leiste-schmal .seitenleiste { width:56px; padding:10px 6px; align-items:stretch; }
     html.leiste-schmal .seitenleiste .sl-link, html.leiste-schmal .seitenleiste .gruppe > summary { justify-content:center; padding:8px 0; }
-    html.leiste-schmal .seitenleiste .sl-link span, html.leiste-schmal .seitenleiste .gruppe > summary span, html.leiste-schmal .seitenleiste .untermenue small { display:none; }
-    html.leiste-schmal .seitenleiste .untermenue { margin:0; padding:0; border-left:0; }  /* Neuer Beleg bleibt erreichbar, nur kompakt */
-    html.leiste-schmal .seitenleiste .untermenue button { padding:3px 0; font-size:10px; text-align:center; overflow:hidden; }
+    html.leiste-schmal .seitenleiste .sl-link span, html.leiste-schmal .seitenleiste .gruppe > summary span { display:none; }
     html.leiste-schmal .seitenleiste .ic { margin-right:0; width:20px; height:20px; }
     html.leiste-schmal .gruppeninhalt { margin:2px 0 6px; padding-left:0; border-left:0; }
     html.leiste-schmal .seitenleiste .sl-titel { display:none; }
@@ -61,10 +59,6 @@
   .posfeld { width:84px; text-align:right; }
   table.vergleich td { vertical-align:top; }
   table.vergleich tr.beste td:first-child { box-shadow:inset 3px 0 0 var(--ok); }
-  .untermenue { display:flex; flex-direction:column; gap:4px; margin:0 0 4px 12px; padding-left:10px; border-left:2px solid var(--rand); font-size:13px; }
-  .untermenue:empty { display:none; }  /* ohne gewählten Kunden kein leerer Kasten */
-  .untermenue form { display:flex; flex-direction:column; gap:4px; }
-  .untermenue button { width:100%; text-align:left; padding:3px 8px; }
   @media (max-width:900px) {  /* zu schmal für eine feste Leiste: Schublade über ☰ in der Kopfzeile */
     .seite { display:block; }
     .menueknopf { display:inline-block; }
@@ -72,8 +66,6 @@
       transform:translateX(-102%); visibility:hidden; transition:transform .18s, visibility .18s; box-shadow:0 0 18px rgba(0,0,0,.3); }
     body.leiste-offen .seitenleiste { transform:none; visibility:visible; }
     .leistenknopf { display:none; }
-    .untermenue form { flex-direction:row; flex-wrap:wrap; }
-    .untermenue button { width:auto; }
   }
   .ic { width:16px; height:16px; fill:currentColor; vertical-align:-3px; margin-right:6px; }
   .knopf .ic { flex:none; }
@@ -303,7 +295,6 @@
 <summary title="Verkauf"><svg class="ic"><use href="#i-verkauf"/></svg><span>Verkauf</span><span class="gpfeil" aria-hidden="true">▾</span></summary>
 <div class="gruppeninhalt">
 <a class="sl-link{% if namensraum == 'verkauf' and un != 'belege' and un != 'abos' %} aktiv{% endif %}" {% if namensraum == 'verkauf' and un != 'belege' and un != 'abos' %}aria-current="page" {% endif %}href="{% url 'verkauf:start' %}" title="Kunde"><svg class="ic"><use href="#i-suche"/></svg><span>Kunde</span></a>
-<div class="untermenue">{% block kundenmenue %}{% endblock %}</div>
 <a class="sl-link{% if namensraum == 'verkauf' and un == 'belege' %} aktiv{% endif %}" {% if namensraum == 'verkauf' and un == 'belege' %}aria-current="page" {% endif %}href="{% url 'verkauf:belege' %}" title="Alle Belege"><svg class="ic"><use href="#i-beleg"/></svg><span>Alle Belege</span></a>
 <a class="sl-link{% if namensraum == 'verkauf' and un == 'abos' %} aktiv{% endif %}" {% if namensraum == 'verkauf' and un == 'abos' %}aria-current="page" {% endif %}href="{% url 'verkauf:abos' %}" title="Wiederkehrende Rechnungen"><svg class="ic"><use href="#i-abo"/></svg><span>Wiederkehrende Rechnungen</span></a>
 <a class="sl-link{% if namensraum == 'shop' %} aktiv{% endif %}" {% if namensraum == 'shop' %}aria-current="page" {% endif %}href="{% url 'shop:uebersicht' %}" title="Shop &amp; Online"><svg class="ic"><use href="#i-shop"/></svg><span>Shop &amp; Online</span></a>

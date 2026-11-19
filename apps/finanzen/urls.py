@@ -9,6 +9,7 @@ urlpatterns = [
     path("beleg/<int:beleg_id>/", views.beleg_op, name="beleg"),
     path("beleg/<int:beleg_id>/zahlung/", views.zahlung_buchen, name="zahlung"),
     path("zahlung/<int:zahlung_id>/storno/", views.zahlung_storno, name="zahlung_storno"),
+    path("beleg/<int:beleg_id>/auszahlung/", views.gutschrift_auszahlen, name="gutschrift_auszahlen"),
     path("beleg/<int:beleg_id>/verrechnen/", views.gutschrift_verrechnen, name="gutschrift_verrechnen"),
     path("verrechnung/<int:verrechnung_id>/aufheben/", views.verrechnung_aufheben, name="verrechnung_aufheben"),
     path("beleg/<int:beleg_id>/guthaben/", views.anzahlung_verrechnen, name="anzahlung_verrechnen"),

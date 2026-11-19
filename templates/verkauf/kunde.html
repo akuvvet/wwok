@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block titel %}{{ kunde.name1 }} – wwok{% endblock %}
-{% block kundenmenue %}{% include "verkauf/kunde_menue.html" %}{% endblock %}
 {% block inhalt %}
 <a href="{% url 'verkauf:start' %}" data-escape style="display:none">zurück</a>
 {% if kunde.gesperrt %}<div class="warnung">Kunde ist gesperrt – keine neuen Belege.</div>{% endif %}
@@ -45,6 +44,13 @@
     </dl>
     {% if ansprechpartner %}<div>{% for a in ansprechpartner %}{{ a }}{% if a.hauptkontakt %} ★{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
   </div>
+  {% if not kunde.gesperrt %}
+  <form method="post" action="{% url 'verkauf:beleg_neu' kunde.pk %}" class="zeile" style="margin-top:10px">{% csrf_token %}
+    <button name="art" value="AN" type="submit" title="Neues Angebot für {{ kunde.name1 }}">+ Angebot</button>
+    <button name="art" value="AB" type="submit" class="leise" title="Neue Bestellung für {{ kunde.name1 }}">+ Bestellung</button>
+    <button name="art" value="GS" type="submit" class="leise" title="Gutschrift ohne Rechnung (z. B. Kulanz, Preisnachlass). Zu einer Rechnung: dort „Storno / Gutschrift“.">+ Gutschrift</button>
+  </form>
+  {% endif %}
 </div>
 
 <div class="karte">
