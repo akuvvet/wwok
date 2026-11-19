@@ -103,7 +103,7 @@ class SkontoTest(TestCase):
         b = self.rechnung()
         seite = self.client.get(reverse("finanzen:beleg", args=[b.pk]))
         self.assertContains(seite, "Skonto bis 11.11.2026")
-        self.assertContains(seite, "automatisch als Skonto ausgebucht")
+        self.assertContains(seite, "Skontofrist laut Zahlungsbedingung: bis 11.11.2026")  # die Maske schlägt den Rest im Feld Skonto vor
         antwort = self.client.post(reverse("finanzen:zahlung", args=[b.pk]),
                                    {"betrag": "116,62", "datum": "2026-11-08", "zahlart": "ue", "offen_bisher": "119,00"}, follow=True)
         self.assertContains(antwort, "2,38 € Skonto gewährt")
@@ -113,3 +113,69 @@ class SkontoTest(TestCase):
         self.assertTrue(zeile.startswith("2,38;"))
         self.assertIn(";8736;10001;", zeile)  # Skontokonto an Debitor, nicht Bank
         self.assertIn(";1200;10001;", next(z for z in text.splitlines() if "Zahlung Kunde GmbH" in z))
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class SkontoFeldTest(SkontoTest):
+    """Wunsch des Nutzers 19.11.2026: Feld „Skonto“ in „Zahlung buchen“. Rechnung 100 €, Zahlung 80 € → 20 € stehen als Skonto;
+    so gelassen ist die Rechnung bezahlt, auf 0 gesetzt bleiben 20 € offen."""
+
+    def buchen(self, b, betrag, skonto, **extra):
+        daten = {"betrag": betrag, "skonto": skonto, "datum": "2026-11-20", "zahlart": Zahlart.UEBERWEISUNG, **extra}
+        return self.client.post(reverse("finanzen:zahlung", args=[b.pk]), daten, follow=True)
+
+    def test_maske_hat_feld_skonto_mit_vorschlag(self):
+        b = self.rechnung()
+        r = self.client.get(reverse("finanzen:beleg", args=[b.pk]))
+        self.assertContains(r, 'name="skonto" value="0,00"')
+        self.assertContains(r, 'data-offen="119,00"')
+        self.assertContains(r, "Skonto (gewährter Rest)")
+
+    def test_rest_als_skonto_gleicht_aus(self):
+        b = self.rechnung()
+        r = self.buchen(b, "80,00", "39,00")
+        self.assertContains(r, "39,00 € Skonto gewährt")
+        self.assertContains(r, "ausgeglichen")
+        self.assertEqual((self.skonti(b), services.offen(b)), ([Decimal("39.00")], Decimal("0.00")))
+
+    def test_skonto_null_laesst_den_rest_offen(self):
+        b = self.rechnung()
+        r = self.buchen(b, "80,00", "0")
+        self.assertContains(r, "Noch offen: 39,00 €")
+        self.assertEqual((self.skonti(b), services.offen(b)), ([], Decimal("39.00")))
+
+    def test_skonto_null_auch_in_der_skontofrist(self):
+        b = self.rechnung()  # 2 % bis 11.11.: die Maske entscheidet, kein automatisches Skonto
+        self.client.post(reverse("finanzen:zahlung", args=[b.pk]),
+                         {"betrag": "116,62", "skonto": "0", "datum": "2026-11-05", "zahlart": Zahlart.UEBERWEISUNG})
+        self.assertEqual((self.skonti(b), services.offen(b)), ([], Decimal("2.38")))
+
+    def test_teil_skonto_und_zu_viel(self):
+        b = self.rechnung()
+        self.buchen(b, "80,00", "9,00")
+        self.assertEqual((self.skonti(b), services.offen(b)), ([Decimal("9.00")], Decimal("30.00")))
+        c = self.rechnung()
+        r = self.buchen(c, "80,00", "40,00")
+        self.assertContains(r, "mehr als offen")
+        self.assertFalse(c.zahlungen.exists())  # nichts gebucht, auch nicht die Zahlung
+        r = self.buchen(c, "80,00", "-1")
+        self.assertContains(r, "nicht negativ")
+
+    def test_skonto_nur_mit_zahlungseingang(self):
+        b = self.rechnung()
+        self.buchen(b, "119,00", "0")
+        r = self.buchen(b, "-10,00", "5,00")
+        self.assertContains(r, "nur zusammen mit einem Zahlungseingang")
+
+    def test_storno_der_zahlung_nimmt_das_skonto_mit(self):
+        b = self.rechnung()
+        self.buchen(b, "80,00", "39,00")
+        zahlung = b.zahlungen.exclude(zahlart=Zahlart.SKONTO).get()
+        services.zahlung_stornieren(zahlung, "Fehlbuchung")
+        self.assertEqual(services.offen(b), Decimal("119.00"))
+
+    def test_ohne_feld_bleibt_alles_wie_bisher(self):
+        b = self.rechnung()  # z. B. Bankabgleich oder alte Maske: automatisches Skonto in der Frist
+        self.client.post(reverse("finanzen:zahlung", args=[b.pk]),
+                         {"betrag": "116,62", "datum": "2026-11-05", "zahlart": Zahlart.UEBERWEISUNG})
+        self.assertEqual(self.skonti(b), [Decimal("2.38")])

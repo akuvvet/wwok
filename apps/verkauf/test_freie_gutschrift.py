@@ -271,3 +271,83 @@ class GutschriftAuszahlenTest(TestCase):
         r = self.client.get(reverse("finanzen:beleg", args=[gs1.pk]))
         self.assertIsNone(r.context["gs_ausgezahlt"] or None)  # die Auszahlung von gs2 gehört nicht in den Kopf von gs1
         self.assertEqual(self.client.get(reverse("finanzen:beleg", args=[gs2.pk])).context["gs_ausgezahlt"], D("5.00"))
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class BelegListeNurNummerTest(TestCase):
+    """Wunsch des Nutzers 19.11.2026: In Belegtabellen steht nur die Nummer (RE…, AB…), die Belegart nur bei Belegen ohne Nummer."""
+
+    def test_kunde_und_alle_belege(self):
+        m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        kunde = Kunde.objects.create(nummer="1000", name1="Muster GmbH")
+        self.client.force_login(get_user_model().objects.create_superuser("chef", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = m.pk
+        s.save()
+        re = Beleg.objects.create(mandant=m, art=Belegart.RECHNUNG, kunde=kunde)
+        Position.objects.create(beleg=re, bezeichnung="Dienst", einzelpreis=D("10"))
+        re.abschliessen()
+        re.refresh_from_db()
+        entwurf = Beleg.objects.create(mandant=m, art=Belegart.RECHNUNG, kunde=kunde)  # ohne Nummer bis zum Abschluss
+        Position.objects.create(beleg=entwurf, bezeichnung="Dienst", einzelpreis=D("10"))
+        for url in (reverse("verkauf:kunde", args=[kunde.pk]), reverse("verkauf:belege") + "?status=alle"):
+            r = self.client.get(url)
+            self.assertContains(r, f'title="Rechnung">{re.nummer}</a>')
+            self.assertNotContains(r, f"Rechnung {re.nummer}</a>")
+            self.assertContains(r, 'title="Rechnung">Rechnung (nicht abgeschlossen)</a>')
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class GutschriftVerrechnenSeiteTest(TestCase):
+    """Wunsch des Nutzers 19.11.2026: Auf der Zahlungsseite der Gutschrift mit einer (anderen) Rechnung verrechnen, auch teilweise.
+    RE 100 / GS 50 → Rechnung bleibt 50 offen; GS 100 / RE 50 → Gutschrift bleibt 50 frei (auszahlen oder weiter verrechnen)."""
+
+    def setUp(self):
+        self.m = Mandant.objects.create(kurzname="OKAY", firmenname="OKAY Computer")
+        self.kunde = Kunde.objects.create(nummer="1000", name1="Muster GmbH")
+        self.client.force_login(get_user_model().objects.create_superuser("chef", password="x" * 14))
+        s = self.client.session
+        s["mandant_id"] = self.m.pk
+        s.save()
+
+    def beleg(self, art, netto, **extra):
+        b = Beleg.objects.create(mandant=self.m, art=art, kunde=self.kunde)
+        Position.objects.create(beleg=b, bezeichnung="Dienst", einzelpreis=D(netto), steuer_prozent=D("0"))
+        b.abschliessen(**extra)
+        b.refresh_from_db()
+        return b
+
+    def verrechnen(self, gs, re, betrag):
+        return self.client.post(reverse("finanzen:gutschrift_verrechnen", args=[re.pk]),
+                                {"gutschrift": gs.pk, "zurueck": "gutschrift", "offen_bisher": f"{offen(re):.2f}".replace(".", ","),
+                                 "betrag": betrag}, follow=True)
+
+    def test_rechnung_100_gutschrift_50(self):
+        re = self.beleg(Belegart.RECHNUNG, "100")
+        gs = self.beleg(Belegart.GUTSCHRIFT, "50", gutschrift_grund="Kulanz")
+        seite = self.client.get(reverse("finanzen:beleg", args=[gs.pk]))
+        self.assertContains(seite, "Mit Rechnung verrechnen")
+        self.assertContains(seite, 'name="betrag" value="50,00"')  # Vorschlag: höchstens der freie Betrag
+        r = self.verrechnen(gs, re, "50,00")
+        self.assertEqual(r.redirect_chain[-1][0], reverse("finanzen:beleg", args=[gs.pk]))
+        self.assertEqual((offen(re), gutschrift_rest(gs)), (D("50.00"), D("0.00")))
+
+    def test_gutschrift_100_rechnung_50_rest_weiter_verrechnen_oder_auszahlen(self):
+        gs = self.beleg(Belegart.GUTSCHRIFT, "100", gutschrift_grund="Kulanz")
+        re1 = self.beleg(Belegart.RECHNUNG, "50")
+        re2 = self.beleg(Belegart.RECHNUNG, "30")
+        seite = self.client.get(reverse("finanzen:beleg", args=[gs.pk]))
+        self.assertContains(seite, re1.nummer)
+        self.assertContains(seite, re2.nummer)
+        self.verrechnen(gs, re1, "50,00")
+        self.assertEqual((offen(re1), gutschrift_rest(gs)), (D("0.00"), D("50.00")))
+        self.verrechnen(gs, re2, "30,00")  # Rest mit einer weiteren Rechnung
+        self.assertEqual(gutschrift_rest(gs), D("20.00"))
+        self.client.post(reverse("finanzen:gutschrift_auszahlen", args=[gs.pk]),
+                         {"betrag": "20,00", "datum": "2026-11-19", "zahlart": "ue"})  # Rest überweisen
+        self.assertEqual(gutschrift_rest(gs), D("0.00"))
+        self.assertNotContains(self.client.get(reverse("finanzen:beleg", args=[gs.pk])), "Mit Rechnung verrechnen")
+
+    def test_ohne_offene_rechnung_hinweis_auf_auszahlung(self):
+        gs = self.beleg(Belegart.GUTSCHRIFT, "10", gutschrift_grund="Kulanz")
+        self.assertContains(self.client.get(reverse("finanzen:beleg", args=[gs.pk])), "keine offene Rechnung")

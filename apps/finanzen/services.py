@@ -301,8 +301,9 @@ def mahnung_erstellen(beleg, stufe_nr, benutzer=None, heute=None) -> Mahnung:
 
 @transaction.atomic
 def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, storno_zu=None, storno_grund="",
-                  offen_bisher=None, aus_bankumsatz=None) -> Zahlung:
-    """offen_bisher: offener Betrag, den die Maske gezeigt hat; weicht er ab, wurde schon gebucht (Doppelklick)."""
+                  offen_bisher=None, aus_bankumsatz=None, auto_skonto=True) -> Zahlung:
+    """offen_bisher: offener Betrag, den die Maske gezeigt hat; weicht er ab, wurde schon gebucht (Doppelklick).
+    auto_skonto=False: kein automatisches Skonto nach der Skontofrist-Regel (die Maske bucht das Skonto-Feld selbst)."""
     if beleg.vorlaeufig or Beleg.objects.filter(pk=beleg.pk, vorlaeufig=True).exists():
         raise ValueError("Zahlungen gehen erst nach „Speichern: abschließen & Nummer vergeben“.")
     if offen_bisher is not None:
@@ -352,9 +353,35 @@ def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, s
                       f"Storno Barrückzahlung {beleg.nummer}: {storno_grund}" if storno_zu else
                       f"{'Barzahlung' if betrag > 0 else 'Barrückzahlung'} {beleg.nummer}"), datum, beleg, benutzer)
     zahlung.skonto = None  # automatisch gewährtes Skonto zu diesem Zahlungseingang (für die Meldung in der Maske)
-    if betrag > 0 and storno_zu is None and zahlart != Zahlart.SKONTO and beleg.art == Belegart.RECHNUNG:
+    if auto_skonto and betrag > 0 and storno_zu is None and zahlart != Zahlart.SKONTO and beleg.art == Belegart.RECHNUNG:
         zahlung.skonto = skonto_gewaehren(beleg, zahlung, benutzer)
     return zahlung
+
+
+@transaction.atomic
+def zahlung_mit_skonto(rechnung, betrag, skonto, datum, zahlart, bemerkung="", benutzer=None, offen_bisher=None) -> tuple:
+    """Maske „Zahlung buchen“ (Wunsch des Nutzers 19.11.2026): Zahlungseingang plus von Hand gewährtes Skonto. Das Feld Skonto
+    schlägt den Rest vor (100 € offen, 80 € gezahlt → 20 € Skonto, Rechnung ausgeglichen); auf 0 gesetzt bleibt der Rest offen.
+    Rückgabe (Zahlung, Skonto-Buchung oder None)."""
+    skonto = skonto or Decimal("0")
+    if rechnung.art != Belegart.RECHNUNG:
+        raise ValueError("Skonto gibt es nur bei Rechnungen.")
+    if skonto < 0:
+        raise ValueError("Das Skonto darf nicht negativ sein.")
+    if skonto and betrag <= 0:
+        raise ValueError("Skonto nur zusammen mit einem Zahlungseingang (Betrag größer als 0).")
+    if skonto and zahlart == Zahlart.SKONTO:
+        raise ValueError("Für Skonto das Feld „Skonto“ nutzen und als Zahlart den Zahlungsweg des Kunden wählen.")
+    Beleg.objects.select_for_update().get(pk=rechnung.pk)
+    vorher = offen(rechnung)
+    if skonto and betrag + skonto > vorher + CENT / 2:
+        euro = lambda x: f"{x:.2f}".replace(".", ",")
+        raise ValueError(f"Zahlung und Skonto ({euro(betrag + skonto)} €) sind mehr als offen ({euro(vorher)} €). Skonto verringern.")
+    zahlung = zahlung_buchen(rechnung, betrag, datum, zahlart, bemerkung, benutzer, offen_bisher=offen_bisher, auto_skonto=False)
+    gewaehrt = None
+    if skonto:
+        gewaehrt = zahlung_buchen(rechnung, skonto, datum, Zahlart.SKONTO, "Skonto gewährt (von Hand bei der Zahlung)", benutzer)
+    return zahlung, gewaehrt
 
 
 @transaction.atomic

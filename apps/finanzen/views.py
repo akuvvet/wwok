@@ -135,8 +135,17 @@ def beleg_op(request, beleg_id):
             if z["offen"] > 0:
                 andere.append({"beleg": z["beleg"], "offen": z["offen"], "vorschlag": min(z["offen"], guthaben)})
     ist_gs = beleg.art == Belegart.GUTSCHRIFT
+    rechnungen_fuer_gs = []
+    if ist_gs and beleg.abgeschlossen:  # freien Betrag der Gutschrift mit offenen Rechnungen des Kunden verrechnen (auch teilweise)
+        frei = services.gutschrift_rest(beleg)
+        if frei >= services.CENT:
+            for z in services.offene_rechnungen(request.mandant, beleg.kunde):
+                if z["offen"] >= services.CENT:
+                    rechnungen_fuer_gs.append({"beleg": z["beleg"], "offen": z["offen"], "vorschlag": min(z["offen"], frei)})
+            rechnungen_fuer_gs.sort(key=lambda r: r["beleg"].pk != beleg.vorgaenger_id)  # die eigene Rechnung zuerst
     return render(request, "finanzen/beleg_op.html", {
         "weg": services.zahlungsweg(beleg), "gs_rest": services.gutschrift_rest(beleg) if ist_gs else None,
+        "rechnungen_fuer_gs": rechnungen_fuer_gs,
         # Kopf der Gutschrift: nur diese Gutschrift (der Zahlungsweg umfasst alle Gutschriften ihrer Rechnung)
         "gs_verrechnet": (beleg.verrechnungen.aggregate(s=Sum("betrag"))["s"] or Decimal("0")) if ist_gs else None,
         "gs_ausgezahlt": -services.bezahlt(beleg) if ist_gs else None,
@@ -165,6 +174,17 @@ def zahlung_buchen(request, beleg_id):
     try:
         # offen_bisher: offener Betrag, den die Maske gezeigt hat; weicht er ab, wurde schon gebucht (Doppelklick)
         bisher = request.POST.get("offen_bisher")
+        if "skonto" in request.POST and beleg.art == Belegart.RECHNUNG:  # Maske mit Feld Skonto: Rest von Hand gewährt oder offen
+            skonto_feld = request.POST.get("skonto", "").strip()
+            z, gewaehrt = services.zahlung_mit_skonto(
+                beleg, betrag(request.POST.get("betrag")), betrag(skonto_feld) if skonto_feld else Decimal("0"),
+                datum(request.POST.get("datum")), request.POST.get("zahlart", Zahlart.UEBERWEISUNG),
+                request.POST.get("bemerkung", "").strip(), request.user, offen_bisher=betrag(bisher) if bisher else None)
+            rest = services.offen(beleg)
+            messages.success(request, "Zahlung gebucht." + (f" {gewaehrt.betrag:.2f} € Skonto gewährt.".replace(".", ",", 1) if gewaehrt else "")
+                             + (" Die Rechnung ist ausgeglichen." if abs(rest) < services.CENT else
+                                f" Noch offen: {rest:.2f} €.".replace(".", ",", 1) if rest > 0 else ""))
+            return redirect("finanzen:beleg", beleg_id=beleg.pk)
         z = services.zahlung_buchen(beleg, betrag(request.POST.get("betrag")), datum(request.POST.get("datum")),
                                     request.POST.get("zahlart", Zahlart.UEBERWEISUNG),
                                     request.POST.get("bemerkung", "").strip(), request.user,
@@ -233,6 +253,8 @@ def gutschrift_verrechnen(request, beleg_id):
         messages.success(request, f"{gutschrift} verrechnet.")
     except ValueError as fehler:
         messages.error(request, str(fehler))
+    if request.POST.get("zurueck") == "gutschrift":  # von der Zahlungsseite der Gutschrift aus verrechnet
+        return redirect("finanzen:beleg", beleg_id=gutschrift.pk)
     return redirect("finanzen:beleg", beleg_id=rechnung.pk)
 
 

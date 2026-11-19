@@ -46,6 +46,22 @@
 </div>
 {% endif %}
 
+{% if beleg.art == 'GS' and beleg.abgeschlossen and gs_rest > 0 %}
+<div class="karte" id="verrechnen">
+  <h2>Mit Rechnung verrechnen</h2>
+  {% if rechnungen_fuer_gs %}<p style="opacity:.8;margin-top:0">Auch teilweise: Ist die Rechnung höher, bleibt dort der Rest offen; ist die Gutschrift höher, bleibt hier der Rest frei – zum Verrechnen mit einer weiteren Rechnung oder zur Auszahlung.</p>
+  <table>
+    <tr><th>Rechnung</th><th>Datum</th><th class="zahl">offen</th><th>verrechnen</th></tr>
+    {% for r in rechnungen_fuer_gs %}<tr><td><a href="{% url 'finanzen:beleg' r.beleg.pk %}">{{ r.beleg.nummer }}</a>{% if r.beleg.pk == beleg.vorgaenger_id %} <em>(zu dieser Gutschrift)</em>{% endif %}</td>
+      <td>{{ r.beleg.belegdatum|date:"d.m.Y" }}</td><td class="zahl">{{ r.offen|floatformat:"2g" }} €</td>
+      <td><form method="post" action="{% url 'finanzen:gutschrift_verrechnen' r.beleg.pk %}" class="zeile">{% csrf_token %}
+        <input type="hidden" name="gutschrift" value="{{ beleg.pk|stringformat:"d" }}"><input type="hidden" name="zurueck" value="gutschrift">
+        <input type="hidden" name="offen_bisher" value="{{ r.offen|floatformat:2 }}">
+        <input name="betrag" value="{{ r.vorschlag|floatformat:2 }}" size="10" aria-label="Betrag für {{ r.beleg.nummer }}"><button type="submit">Verrechnen</button></form></td></tr>{% endfor %}
+  </table>{% else %}<p style="opacity:.8;margin:0">Der Kunde hat keine offene Rechnung. Der freie Betrag lässt sich unten auszahlen.</p>{% endif %}
+</div>
+{% endif %}
+
 {% if beleg.art == 'GS' and beleg.abgeschlossen %}
 <div class="karte" id="auszahlung">
   <h2>Auszahlung an den Kunden</h2>
@@ -71,13 +87,30 @@
   <h2>Zahlung buchen</h2>
   <form method="post" action="{% url 'finanzen:zahlung' beleg.pk %}" class="zeile">{% csrf_token %}<input type="hidden" name="offen_bisher" value="{{ offen|floatformat:2 }}">
     <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
-    <div><label>Betrag brutto (negativ = Gegenbuchung)</label><input name="betrag" value="{{ offen|floatformat:2 }}" size="10" autofocus></div>
+    <div><label>Betrag brutto (negativ = Gegenbuchung)</label><input name="betrag" value="{{ offen|floatformat:2 }}" size="10" autofocus{% if beleg.art == 'RE' and offen > 0 %} data-offen="{{ offen|floatformat:2 }}"{% endif %}></div>
+    {% if beleg.art == 'RE' and offen > 0 %}<div><label for="skonto" title="Bei einer Teilzahlung steht hier der Rest. So stehen lassen = dem Kunden als Skonto gewährt, die Rechnung ist ausgeglichen. Auf 0 setzen = der Rest bleibt offen.">Skonto (gewährter Rest)</label><input id="skonto" name="skonto" value="0,00" size="8" inputmode="decimal"></div>{% endif %}
     <div><label>Zahlart</label><select name="zahlart">{% for w, n in zahlarten %}<option value="{{ w }}">{{ n }}</option>{% endfor %}</select></div>
     <div><label>Bemerkung</label><input name="bemerkung" size="26"></div>
     <button type="submit">Buchen</button>
   </form>
-  {% if skonto and offen > 0 %}<p style="opacity:.8;margin:8px 0 0">Zahlt der Kunde bis {{ skonto.1|date:"d.m.Y" }} und zieht höchstens {{ skonto.0|floatformat:"2g" }} € ab, wird der Rest automatisch als Skonto ausgebucht.
-    Skonto nach der Frist gewährst du von Hand: Restbetrag mit Zahlart „Skonto“ buchen.</p>{% endif %}
+  {% if beleg.art == 'RE' and offen > 0 %}<p style="opacity:.8;margin:8px 0 0">Bei einer Teilzahlung steht der Rest im Feld „Skonto“: so lassen = dem Kunden gewährt, die Rechnung ist ausgeglichen; auf 0 setzen = der Rest bleibt offen.{% if skonto %}
+    Skontofrist laut Zahlungsbedingung: bis {{ skonto.1|date:"d.m.Y" }}, höchstens {{ skonto.0|floatformat:"2g" }} €.{% endif %}</p>
+  <script>
+  // Feld Skonto: schlägt den Rest vor (offen − Betrag), solange es nicht von Hand geändert wurde
+  (function () {
+    var b = document.querySelector('input[name=betrag][data-offen]'), s = document.getElementById('skonto');
+    if (!b || !s) return;
+    var vonHand = false, zahl = function (t) { t = (t || '').trim(); return parseFloat(t.indexOf(',') >= 0 ? t.replace(/\./g, '').replace(',', '.') : t) || 0; };
+    function vorschlag() {
+      if (vonHand) return;
+      var rest = Math.round((zahl(b.dataset.offen) - zahl(b.value)) * 100) / 100;
+      s.value = (rest > 0 && zahl(b.value) > 0 ? rest : 0).toFixed(2).replace('.', ',');
+    }
+    s.addEventListener('input', function () { vonHand = true; });
+    b.addEventListener('input', vorschlag);
+    vorschlag();
+  })();
+  </script>{% endif %}
   <table style="margin-top:12px">
     <tr><th>Datum</th><th>Zahlart</th><th class="zahl">Betrag</th><th>Bemerkung / Stornogrund</th><th>Benutzer</th><th></th></tr>
     {% for z in zahlungen %}<tr><td>{{ z.datum|date:"d.m.Y" }}</td><td>{{ z.get_zahlart_display }}</td><td class="zahl">{{ z.betrag }}</td><td>{{ z.bemerkung }}{% if z.storno_zu_id %} <em>(Storno)</em>{% endif %}</td><td>{{ z.benutzer|default:"" }}</td>
