@@ -68,7 +68,6 @@
 </script>
 {% endif %}
 {% endblock %}
-{# Kein Untermenü „Neuer Beleg für …“ in der Seitenleiste (Wunsch des Nutzers 19.11.2026): neue Belege über die Lieferantenseite #}
 {% block inhalt %}
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
 <div class="karte kopfkarte">
@@ -143,8 +142,11 @@
 
 {% if offen_fuer_positionen %}
 <div class="karte tabinhalt" id="tab-bedarf" hidden>
-  <p class="fein" style="margin-top:0">Was gebraucht wird: Mindestbestand bzw. Monatsreichweite aus dem Verkaufsverlauf, dazu immer die Fehlmenge aus offenen Kundenbestellungen. Schon bestellte Mengen (auch in dieser Bestellung) sind abgezogen.
-    {% if bedarf_nur %}Angezeigt: nur Artikel, die {{ b.lieferant.kurz }} laut Preisliste führt · <a href="?#bedarf">gesamten Bedarf zeigen</a>{% else %}Angezeigt: der gesamte Bedarf, auch Artikel anderer Lieferanten · <a href="?bedarf=lieferant#bedarf">nur Artikel, die {{ b.lieferant.kurz }} führt</a>{% endif %}</p>
+  <form method="get" action="#bedarf" class="zeile" style="margin:0 0 8px;align-items:center">
+    <span class="fein" title="Mindestbestand bzw. Monatsreichweite aus dem Verkaufsverlauf, dazu immer die Fehlmenge aus offenen Kundenbestellungen. Schon bestellte Mengen (auch in dieser Bestellung) sind abgezogen.">Bedarf aus Mindestbestand, Verkäufen und Kundenbestellungen, abzüglich schon bestellter Mengen.</span>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="bedarf" value="lieferant" {% if bedarf_nur %}checked{% endif %} onchange="this.form.submit()"> nur Artikel, die {{ b.lieferant.kurz }} führt</label>
+    <noscript><button type="submit" class="leise">Anzeigen</button></noscript>
+  </form>
   <form method="post" action="{% url 'einkauf:bestellung_bedarf' b.pk %}">{% csrf_token %}
   <div class="scroll"><table>
     <thead><tr><th></th><th>Artikel</th><th>Bezeichnung</th><th class="zahl" title="Lagerbestand">Lager</th><th class="zahl" title="Offen in Kundenbestellungen">Kunden</th><th class="zahl" title="Ziel aus Mindestbestand bzw. Verkaufsverlauf">Ziel</th><th class="zahl" title="Lager − Kunden + schon bestellt">vorhanden</th><th>Menge</th><th class="zahl">EK bei {{ b.lieferant.kurz }}</th><th title="Die günstigsten Lieferanten aus den Preislisten: zuerst lieferbare nach EK, dann die mit Bestand 0">Günstigste Lieferanten</th><th>Grund</th></tr></thead>

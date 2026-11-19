@@ -204,38 +204,36 @@ class RuecksendungTest(TestCase):
         self.assertNotIn(Wareneingang.objects.get(pk=ersatz.pk), kandidaten)
 
     # ---- Menü unter „Lieferant“ ----------------------------------------------------------------
-    def test_seitenleiste_zeigt_bestellung_und_wareneingang_beim_lieferanten(self):
+    def test_kein_untermenue_in_der_seitenleiste_knoepfe_auf_der_lieferantenseite(self):
+        """Wunsch des Nutzers 19.11.2026: kein Untermenü „Neuer Beleg für …“ unter „Lieferant“ in der Seitenleiste – weder auf der
+        Lieferantenseite noch in Bestellung, Wareneingang oder Rücksendung. Neue Belege über die Knöpfe unter der Adresse."""
         b, we, _ = self.ueberlieferung()
         b2 = services.bestellung_anlegen(self.m, self.lf)
         services.bestellposition(b2, self.maus, D("1"))
         b2.status = BestellStatus.BESTELLT
         b2.save()
         self.anmelden()
-        # Lieferantenseite: Knöpfe unter der Adresse, kein Untermenü in der Seitenleiste (Wunsch des Nutzers 19.11.2026)
         r = self.client.get(reverse("einkauf:lieferant", args=[self.lf.pk]))
-        self.assertNotContains(r, "Neuer Beleg für TD")
         self.assertContains(r, f'<option value="{b2.pk}">zu {b2.nummer}</option>', count=1)
         self.assertContains(r, 'action="%s"' % reverse("einkauf:bestellung_neu"), count=1)
-        # Bestellung und Wareneingang: ebenfalls ohne Untermenü (Wunsch des Nutzers 19.11.2026)
-        for url in (reverse("einkauf:bestellung", args=[b.pk]), reverse("einkauf:wareneingang", args=[we.pk])):
-            self.assertNotContains(self.client.get(url), "Neuer Beleg für TD")
-        for url in (reverse("einkauf:ruecksendung_neu", args=[we.pk]),):  # Rücksendung: Untermenü bleibt
+        self.assertContains(r, 'action="%s"' % reverse("einkauf:wareneingang_neu"), count=1)
+        for url in (reverse("einkauf:lieferant", args=[self.lf.pk]), reverse("einkauf:bestellung", args=[b.pk]),
+                    reverse("einkauf:wareneingang", args=[we.pk]), reverse("einkauf:ruecksendung_neu", args=[we.pk]),
+                    reverse("einkauf:bestellungen")):
             r = self.client.get(url)
-            self.assertContains(r, "Neuer Beleg für TD")
-            self.assertContains(r, "+ Bestellung</button>")
-            self.assertContains(r, "+ Wareneingang</button>")
-            self.assertContains(r, f'<option value="{b2.pk}">zu {b2.nummer}</option>')
-        self.assertNotContains(self.client.get(reverse("einkauf:bestellungen")), "Neuer Beleg für TD")
+            self.assertEqual(r.status_code, 200, url)
+            self.assertNotContains(r, "Neuer Beleg für TD")
+            self.assertNotContains(r, 'class="untermenue"><small')
         self.assertContains(self.client.get(reverse("einkauf:bestellungen")), "WE-Rücksendung</span>")
 
     def test_gesperrter_lieferant_ohne_knoepfe(self):
-        _, we, _ = self.ueberlieferung()  # vor der Sperre angelegt: die Rücksendung zeigt das Seitenmenü
         self.lf.gesperrt = True
         self.lf.save()
         self.anmelden()
-        r = self.client.get(reverse("einkauf:ruecksendung_neu", args=[we.pk]))
-        self.assertContains(r, "Lieferant gesperrt</small>")
-        self.assertNotContains(r, "Neuer Beleg für TD")
+        r = self.client.get(reverse("einkauf:lieferant", args=[self.lf.pk]))
+        self.assertContains(r, "Lieferant ist gesperrt.")
+        self.assertNotContains(r, 'action="%s"' % reverse("einkauf:bestellung_neu"))
+        self.assertNotContains(r, 'action="%s"' % reverse("einkauf:wareneingang_neu"))
 
 
 class RuecksendungReviewTest(RuecksendungTest):
