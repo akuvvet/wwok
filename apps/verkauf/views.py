@@ -75,13 +75,10 @@ KUNDENSUCHE_FELDER = ["nummer", "name1", "name2", "name3", "ort", "ansprechpartn
 
 def kunden_suchen(q):
     """Kundensuche wie auf der Startseite: jedes Wort in einem Namen, einem Ansprechpartner, der Nummer oder dem Ort;
-    Reihenfolge egal, „*“ allein = alle, Stern am Ende = Wortanfang."""
-    filt = Q()
-    if q != "*":
-        vergleich = "istartswith" if q.endswith("*") else "icontains"
-        for wort in q.rstrip("*").split():
-            filt &= Q(*[Q(**{f"{feld}__{vergleich}": wort}) for feld in KUNDENSUCHE_FELDER], _connector=Q.OR)
-    return Kunde.objects.filter(filt, anonymisiert=False).distinct()
+    Reihenfolge egal, „*“ allein = alle, Stern am Ende = Wortanfang, „%“ wie LIKE.
+    Dieselbe Syntax wie bei Lieferanten: apps/stammdaten/partnersuche.py."""
+    from apps.stammdaten.partnersuche import partner_filter
+    return Kunde.objects.filter(partner_filter(q, KUNDENSUCHE_FELDER), anonymisiert=False).distinct()
 
 
 @login_required
@@ -444,12 +441,12 @@ def gruppe_wechseln(p, ziel, alter_betrag):
     if not alt:
         faktor = (Decimal("100") - p.rabatt_prozent) / 100
         preis = runden(p.einzelpreis * faktor)
-        if runden(p.menge * preis) != runden(p.menge * p.einzelpreis * faktor):
+        if runden(p.menge * preis / (p.preiseinheit or 1)) != runden(p.betrag_roh * faktor):
             raise ValueError("Der Rabatt geht nicht auf den Cent genau im Preis auf – bitte den Preis von Hand setzen und den Rabatt entfernen.")
     if alt:
         gruppenpreis_erhoehen(alt, -alter_betrag)
     if ziel:
-        gruppenpreis_erhoehen(ziel, p.menge * preis)
+        gruppenpreis_erhoehen(ziel, p.menge * preis / (p.preiseinheit or 1))
     p.einzelpreis, p.rabatt_prozent = preis, Decimal("0")
     p.gruppe = ziel
     p.save()
@@ -545,8 +542,8 @@ def _position_neu(request, beleg_id):
             einzel = vorschlag_preis(k.komponente, beleg.kunde) or Decimal("0")
             Position.objects.create(beleg=beleg, gruppe=kopf, typ=k.komponente.typ, artikel=k.komponente,
                                     bezeichnung=k.komponente.bezeichnung, menge=menge * k.menge, einzelpreis=einzel,
-                                    steuer_prozent=k.komponente.steuersatz.prozent)
-            summe += einzel * k.menge
+                                    preiseinheit=k.komponente.preiseinheit, steuer_prozent=k.komponente.steuersatz.prozent)
+            summe += einzel * k.menge / k.komponente.preiseinheit  # Komponente mit Preiseinheit n: Preis gilt je n Stück
         if preis is None:
             kopf.einzelpreis = summe
             kopf.save()
@@ -556,8 +553,9 @@ def _position_neu(request, beleg_id):
             if preis is None:
                 preis = vorschlag_preis(artikel, beleg.kunde) or Decimal("0")
             Position.objects.create(beleg=beleg, gruppe=gruppe, typ=artikel.typ, artikel=artikel, bezeichnung=bezeichnung,
-                                    menge=menge, einzelpreis=preis, steuer_prozent=steuer)
-            gruppenpreis_erhoehen(gruppe, menge * preis)
+                                    menge=menge, einzelpreis=preis, preiseinheit=artikel.preiseinheit if artikel.typ != "G" else 1,
+                                    steuer_prozent=steuer)
+            gruppenpreis_erhoehen(gruppe, menge * preis / (artikel.preiseinheit if artikel.typ != "G" else 1))
         else:
             Position.objects.create(beleg=beleg, typ="G", bezeichnung=bezeichnung, menge=menge,
                                     einzelpreis=preis if preis is not None else Decimal("0"), rabatt_prozent=rabatt,
@@ -569,7 +567,8 @@ def _position_neu(request, beleg_id):
             raise ValueError("Preis fehlt.")
         Position.objects.create(
             beleg=beleg, typ=artikel.typ if artikel else typ, artikel=artikel, bezeichnung=bezeichnung,
-            menge=menge, einzelpreis=preis, rabatt_prozent=rabatt, steuer_prozent=steuer)
+            menge=menge, einzelpreis=preis, rabatt_prozent=rabatt, steuer_prozent=steuer,
+            preiseinheit=artikel.preiseinheit if artikel and artikel.typ != "G" else 1)
     beleg.berechne()
     messages.success(request, "Gespeichert.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
@@ -604,7 +603,7 @@ def gruppenpreis(request, beleg_id, position_id):
     preis = dezimal(request.POST.get("preis"))
     kopf.preis_fest = preis is not None  # leer = wieder die Summe der Unterpositionen (wird in berechne() gesetzt)
     if preis is None:
-        summe = sum((u.menge * u.einzelpreis for u in kopf.unterpositionen.all()), Decimal("0"))
+        summe = sum((u.betrag_roh for u in kopf.unterpositionen.all()), Decimal("0"))
         preis = (summe / kopf.menge) if kopf.menge else Decimal("0")
     kopf.einzelpreis = preis.quantize(Decimal("0.01"))
     kopf.save()
@@ -640,7 +639,7 @@ def _position_aendern(request, beleg_id, position_id):
     menge = dezimal(request.POST.get("menge"), p.menge)
     if menge <= 0:
         raise ValueError("Die Menge muss größer als 0 sein.")
-    alter_betrag = p.menge * p.einzelpreis
+    alter_betrag = p.betrag_roh
     neuer_preis = rabatt = None
     if not p.gruppe_id:  # Eingaben zuerst prüfen: scheitert später etwas, wird nichts zurückgebucht und nichts gemeldet
         neuer_preis = dezimal(request.POST.get("preis"), p.einzelpreis)
@@ -712,7 +711,7 @@ def position_loeschen(request, beleg_id, position_id):
         beleg = beleg_holen(request, beleg_id, sperren=True)
         p = get_object_or_404(Position, pk=position_id, beleg=beleg)
         if p.gruppe_id:  # Unterposition einer Gruppe mit festem Preis: der Preis sinkt um ihren Betrag
-            gruppenpreis_erhoehen(p.gruppe, -(p.menge * p.einzelpreis))
+            gruppenpreis_erhoehen(p.gruppe, -p.betrag_roh)
         elif p.verschoben and not beleg.positionen_gesperrt:  # übernommene Menge geht zurück in die Bestellung
             from . import uebernahme
             rueck = uebernahme.zurueckbuchen(p, p.menge)
@@ -1396,7 +1395,7 @@ def abo_aus_rechnung(request, beleg_id):
         regel, nur_monatsende = regel_vorschlag(p.menge, p.zusatztext) if abo.halbmonatlich else (Mengenregel.FEST, False)
         kalender += regel != Mengenregel.FEST
         AboPosition.objects.create(abo=abo, artikel=p.artikel, bezeichnung=p.bezeichnung, menge=p.menge, einzelpreis=p.einzelpreis,
-                                   rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent, regel=regel, nur_monatsende=nur_monatsende)
+                                   preiseinheit=p.preiseinheit, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent, regel=regel, nur_monatsende=nur_monatsende)
     hinweis = f" {kalender} Position(en) rechnen nach dem Kalender, Mengenregeln bitte in der Verwaltung prüfen." if abo.halbmonatlich else ""
     messages.success(request, f"Wiederkehrende Rechnung „{abo.bezeichnung}“ angelegt: nächste Rechnung am {abo.naechster_termin:%d.%m.%Y}.{hinweis}")
     return redirect("verkauf:abos")

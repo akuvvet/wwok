@@ -99,7 +99,7 @@ def _position(beleg, zelle, artikel_merken):
         raise ValueError("Der Rabatt muss zwischen 0 und 100 % liegen.")
     p = Position(beleg=beleg, typ=artikel.typ, artikel=artikel, bezeichnung=bezeichnung, zusatztext=text(zelle("zusatz")),
                  menge=menge_lesen(zelle("menge")), einzelpreis=preis, rabatt_prozent=rabatt,
-                 steuer_prozent=artikel.steuersatz.prozent)
+                 preiseinheit=1 if artikel.typ == "G" else artikel.preiseinheit, steuer_prozent=artikel.steuersatz.prozent)
     if zelle("gesamt") != "" and geld(zelle("gesamt")) != p.netto_gesamt:
         gesamt, gerechnet = (str(w).replace(".", ",") for w in (geld(zelle("gesamt")), p.netto_gesamt))
         raise ValueError(f"Gesamtnetto {gesamt} passt nicht zu Netto × Menge = {gerechnet}.")

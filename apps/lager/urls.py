@@ -17,4 +17,5 @@ urlpatterns = [
     path("seriennummer/<int:seriennummer_id>/einlagern/", views.seriennummer_einlagern, name="seriennummer_einlagern"),
     path("inventur/", views.inventur_liste, name="inventur_liste"),
     path("artikel/<int:artikel_id>/stamm/", views.stamm, name="stamm"),
+    path("artikel-details/", views.artikel_details, name="artikel_details"),
 ]

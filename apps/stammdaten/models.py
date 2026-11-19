@@ -455,13 +455,24 @@ def kennungen_filter(wort):
 
 
 class ArtikelQuerySet(models.QuerySet):
+    @staticmethod
+    def _alle_kategorien_offline():
+        """Q: Artikel mit mindestens einer Kategorie (Haupt- oder weitere), von denen keine wirksam online ist.
+        Artikel ganz ohne Kategorie gehören nicht dazu."""
+        offline = Kategorie.offline_ids()
+        durchgang = Artikel.weitere_kategorien.through.objects
+        weitere_online = durchgang.exclude(kategorie_id__in=offline).values("artikel_id")
+        weitere_alle = durchgang.values("artikel_id")
+        return (models.Q(kategorie_id__in=offline) | models.Q(kategorie__isnull=True, pk__in=weitere_alle)) & ~models.Q(pk__in=weitere_online)
+
     def shop_sichtbar(self):
-        """Die eine Regel für „im Shop sichtbar“: online, aktiv und keine Kategorie oder Kategorie wirksam online."""
-        return self.filter(online=True, nicht_aktiv=False).exclude(kategorie_id__in=Kategorie.offline_ids())
+        """Die eine Regel für „im Shop sichtbar“: online, aktiv und keine Kategorie oder mindestens eine
+        Kategorie (Haupt- oder weitere) wirksam online."""
+        return self.filter(online=True, nicht_aktiv=False).exclude(self._alle_kategorien_offline())
 
     def wegen_kategorie_offline(self):
-        """Artikel mit gesetztem Online-Häkchen, die nur wegen ihrer Kategorie nicht im Shop stehen."""
-        return self.filter(online=True, nicht_aktiv=False, kategorie_id__in=Kategorie.offline_ids())
+        """Artikel mit gesetztem Online-Häkchen, die nur wegen ihrer Kategorien nicht im Shop stehen (alle offline)."""
+        return self.filter(online=True, nicht_aktiv=False).filter(self._alle_kategorien_offline())
 
 
 class Artikel(Zeitstempel):

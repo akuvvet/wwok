@@ -101,6 +101,7 @@ class ShopArtikel(models.Model):
     bild_ids = models.JSONField(default=list, blank=True, help_text="Von wwok gesendete Produktbilder im Shop")
     bilder_stand = models.CharField(max_length=64, blank=True, help_text="Prüfsumme der zuletzt gesendeten Bilder")
     kategorie_id = models.CharField(max_length=64, blank=True, help_text="Von wwok zugeordnete Kategorie im Shop")
+    kategorie_ids = models.JSONField(default=list, blank=True, help_text="Alle von wwok zugeordneten Kategorien im Shop (Haupt- und weitere)")
     im_shop_aktiv = models.BooleanField(default=True)
 
     class Meta:

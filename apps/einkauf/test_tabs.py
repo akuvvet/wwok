@@ -136,6 +136,23 @@ class BestellungTabsTest(Basis):
         self.assertEqual((pos.artikel, pos.menge, pos.ek, pos.bestellnummer), (self.maus, D("4"), D("9.00"), "TD-M"))
         self.assertEqual(services.bedarf_fuer_lieferant(b), [])  # Entwurf zählt als bestellt
 
+    def test_bedarf_ohne_preis_beim_lieferanten_nimmt_den_guenstigsten_ek(self):
+        """Wunsch des Nutzers 19.11.2026: TD führt das Kabel nicht – übernommen wird der günstigste EK (WAVE 2,00), ohne dessen Bestellnummer."""
+        self.kundenbestellung(self.kabel, "2")
+        self.kundenbestellung(self.maus, "1")
+        b = services.bestellung_anlegen(self.m, self.lf)
+        zeilen = {z["artikel"]: z for z in services.bedarf_fuer_lieferant(b)}
+        self.assertEqual((zeilen[self.kabel]["ek_ersatz"], zeilen[self.kabel]["ek_ersatz_von"]), (D("2"), self.lf2))
+        self.assertIsNone(zeilen[self.maus]["ek_ersatz"])  # TD führt die Maus: eigener Preis
+        r = self.client.get(reverse("einkauf:bestellung", args=[b.pk]))
+        self.assertContains(r, "günstigster, bei WAVE")
+        self.assertContains(r, '<tr data-ek="2.0000">')
+        self.client.post(reverse("einkauf:bestellung_bedarf", args=[b.pk]),
+                         {"auswahl": [self.kabel.pk, self.maus.pk], f"menge_{self.kabel.pk}": "2", f"menge_{self.maus.pk}": "1"})
+        kabel = b.positionen.get(artikel=self.kabel)
+        self.assertEqual((kabel.ek, kabel.bestellnummer), (D("2.00"), ""))
+        self.assertEqual(b.positionen.get(artikel=self.maus).ek, D("9.00"))  # Preis von TD bleibt
+
     def test_bedarf_ohne_auswahl_meldet_fehler(self):
         b = services.bestellung_anlegen(self.m, self.lf)
         r = self.client.post(reverse("einkauf:bestellung_bedarf", args=[b.pk]), {}, follow=True)

@@ -2,12 +2,14 @@
 
 Rechte: Alle diese Ansichten stehen jedem angemeldeten Benutzer mit gewähltem Mandanten offen (Admin-Pflicht gibt es nur bei
 Änderungen, siehe rechte.py); die Suche liefert nur Links zu Leseseiten und keine Preise oder Bankdaten.
-Mandanten: Belege, Bestellungen und Werkstattaufträge werden strikt auf request.mandant begrenzt."""
+Mandanten: Belege, Bestellungen und Werkstattaufträge werden strikt auf request.mandant begrenzt.
+Hilfe: zusätzlich Anleitungen aus hilfe.py (feste Texte, keine Daten); bei Fragen ganz oben, sonst hinter den Treffern."""
 from django.db.models import Case, Exists, IntegerField, OuterRef, Q, Value, When
 from django.http import JsonResponse
 from django.urls import reverse
 
 from apps.einkauf.models import Bestellung
+from apps.kern.hilfe import als_treffer as hilfe_als_treffer, hilfe_suchen, ist_frage
 from apps.stammdaten.models import KENNUNGEN, Artikel, Kunde, Lieferant
 from apps.verkauf.models import Beleg, BelegUmwandlung
 from apps.verkauf.views import mit_mandant
@@ -86,9 +88,12 @@ def suchen(q, mandant):
         kunde = "" if z["kunde__anonymisiert"] else z["kunde__name1"]
         hinzu("Werkstatt", z["nummer"], f"{z['geraet']} · {kunde}" if kunde else z["geraet"], reverse("werkstatt:detail", args=[z["pk"]]))
 
-    return treffer
+    # Hilfe: Anleitungen zu Fragen und Stichworten („Wie buche ich eine Kundenrechnung?“); bei einer Frage ganz oben, sonst nach den Treffern
+    hilfe = [hilfe_als_treffer(e) for e in hilfe_suchen(q)]
+    return hilfe + treffer if ist_frage(q) else treffer + hilfe
 
 
 @mit_mandant
 def schnellsuche(request):
-    return JsonResponse({"treffer": suchen(request.GET.get("q", ""), request.mandant)})
+    q = request.GET.get("q", "")
+    return JsonResponse({"treffer": suchen(q, request.mandant), "frage": ist_frage(" ".join(q.split())[:MAX_LAENGE])})

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone as tz
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.html import escape, linebreaks
 
@@ -291,15 +292,42 @@ def meldebestand(shop, artikel):
 
 
 def verkaufspreis(shop, artikel, stufe=None):
-    """Netto und brutto der Preisstufe (ohne Angabe die des Shops); ohne Preis (None, None)."""
+    """Netto und brutto der Preisstufe (ohne Angabe die des Shops) je Stück; ohne Preis (None, None).
+    Der VK im Artikel gilt je Preiseinheit (z. B. je 100 Stück); der Shop verkauft Stück, deshalb wird geteilt."""
     netto_preis = stufenpreis(artikel, stufe or shop.preisstufe)
     if netto_preis is None:
         return None, None
+    einheit = Decimal(getattr(artikel, "preiseinheit", 1) or 1)
+    if einheit != 1:
+        netto_preis = (netto_preis / einheit).quantize(CENT, rounding=ROUND_HALF_UP)
     return netto_preis, (netto_preis * (1 + artikel.steuersatz.prozent / 100)).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
 def preisliste(netto_preis, brutto) -> list:
     return [{"currencyId": STANDARD_WAEHRUNG_EUR, "gross": float(brutto), "net": float(netto_preis), "linked": True}]
+
+
+def produktpreis(artikel, preis_netto, preis_brutto) -> list:
+    """Standardpreis des Produkts; mit UVP des Artikels (netto) als Listenpreis, den Shopware durchgestrichen zeigt."""
+    eintrag = preisliste(preis_netto, preis_brutto)
+    if artikel.uvp:
+        uvp = (artikel.uvp / Decimal(getattr(artikel, "preiseinheit", 1) or 1)).quantize(CENT, rounding=ROUND_HALF_UP)  # je Stück wie der Preis
+        brutto = (uvp * (1 + artikel.steuersatz.prozent / 100)).quantize(CENT, rounding=ROUND_HALF_UP)
+        eintrag[0]["listPrice"] = {"currencyId": STANDARD_WAEHRUNG_EUR, "gross": float(brutto), "net": float(uvp), "linked": True}
+    return eintrag
+
+
+def grundpreis_felder(artikel, einheiten) -> dict:
+    """Shopware-Felder für den Grundpreis: Inhalt (purchaseUnit = 1 / Faktor), Bezugsgröße 1 und Einheit.
+    Leer, wenn der Artikel keinen Grundpreis hat oder die Einheit im Shop fehlt (dann bleibt der Grundpreis dort unberührt)."""
+    if not artikel.grundpreis_faktor or not artikel.grundpreis_einheit.strip():
+        return {}
+    name = artikel.grundpreis_einheit.strip().casefold()
+    treffer = [e["id"] for e in einheiten if name in ((e.get("shortCode") or "").strip().casefold(), (e.get("name") or "").strip().casefold())]
+    if not treffer:
+        return {}
+    inhalt = (Decimal(1) / artikel.grundpreis_faktor).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    return {"purchaseUnit": float(inhalt), "referenceUnit": 1.0, "unitId": treffer[0]}
 
 
 def kundenpreis(shop, artikel) -> tuple:
@@ -333,9 +361,9 @@ def nicht_mehr_online(shop, client, alle=False, nummer="") -> list:
     zuordnungen = list(zuordnungen.filter(artikel__nummer=nummer) if nummer else zuordnungen.filter(im_shop_aktiv=True))
     if not zuordnungen:
         return []
-    offline = Kategorie.offline_ids()
-    # Bewusst über eine Offline-Kategorie abgeschaltet: kein Importfehler, die Schutzgrenze gilt dafür nicht
-    wegen_kategorie = [z for z in zuordnungen if z.artikel.online and not z.artikel.nicht_aktiv and z.artikel.kategorie_id in offline]
+    # Bewusst über Offline-Kategorien abgeschaltet (alle Kategorien des Artikels offline): kein Importfehler, die Schutzgrenze gilt dafür nicht
+    wegen_ids = set(Artikel.objects.wegen_kategorie_offline().filter(pk__in=[z.artikel_id for z in zuordnungen]).values_list("pk", flat=True))
+    wegen_kategorie = [z for z in zuordnungen if z.artikel_id in wegen_ids]
     sonstige = [z for z in zuordnungen if z not in wegen_kategorie]
     if len(sonstige) > MAX_DEAKTIVIEREN and not alle:  # z. B. Importfehler: nicht den ganzen Shop abschalten
         SyncProtokoll.objects.create(shop=shop, art="abgleich", erfolgreich=False, meldung=(
@@ -359,7 +387,8 @@ def kategorien_abgleichen(shop, client) -> int:
     offline = Kategorie.offline_ids()
     bekannt = set(ShopKategorie.objects.filter(shop=shop).values_list("kategorie_id", flat=True))
     # nur Hauptkategorien über den Namen; Unterkategorien ordnet die KategorieKarte beim Senden über den Pfad zu
-    neu = Kategorie.objects.filter(artikel__shop_zuordnungen__shop=shop, eltern__isnull=True).exclude(pk__in=bekannt).distinct()
+    neu = Kategorie.objects.filter(Q(artikel__shop_zuordnungen__shop=shop) | Q(artikel_weitere__shop_zuordnungen__shop=shop),
+                                   eltern__isnull=True).exclude(pk__in=bekannt).distinct()
     if neu:  # erst über den Namen (nur eindeutig), danach immer über die ID
         karte = _nach_name(client.kategorien())
         for k in neu:
@@ -413,7 +442,7 @@ def abgleichen(shop, client=None, alle=False) -> dict:
         if bestand_neu is not None:
             eintrag["stock"] = bestand_neu
         if preis_brutto is not None:
-            eintrag["price"] = preisliste(preis_netto, preis_brutto)
+            eintrag["price"] = produktpreis(a, preis_netto, preis_brutto)
         if preis_kunde:
             eintrag["prices"] = [preis_kunde]
         payload.append(eintrag)
@@ -715,9 +744,34 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
     daten = produktdaten(a)
     if nummer_geaendert:
         daten["productNumber"] = a.nummer
-    kategorie_id = lauf["kategorien"].id_fuer(a.kategorie) if a.kategorie_id else ""  # fehlt sie, wird sie angelegt
-    herstellername = a.hersteller.name if a.hersteller_id else ""
-    stand = hashlib.sha256(json.dumps([daten, kategorie_id, herstellername], sort_keys=True).encode()).hexdigest()
+    # Haupt- und weitere Kategorien; offline oder nicht zuzuordnende fehlen, fehlende werden angelegt
+    kategorie_ids, unklar = [], False
+    if lauf.get("offline_kategorien") is None:  # einmal je Lauf
+        from apps.stammdaten.models import Kategorie
+        lauf["offline_kategorien"] = set(Kategorie.offline_ids())
+    for k in ([a.kategorie] if a.kategorie_id else []) + list(a.weitere_kategorien.all()):
+        ext = lauf["kategorien"].id_fuer(k)
+        if ext and ext not in kategorie_ids:
+            kategorie_ids.append(ext)
+        elif not ext and k.pk not in lauf["offline_kategorien"]:
+            unklar = True  # online, aber gerade nicht zuzuordnen (API-Fehler, doppelter Name): dann nichts im Shop entfernen
+    kategorie_id = kategorie_ids[0] if kategorie_ids else ""
+    herstellername = a.hersteller_id and a.hersteller.name or ""
+    grund, grund_hinweis = {}, ""
+    if a.grundpreis_faktor and a.grundpreis_einheit.strip():
+        if lauf.get("einheiten") is None:  # nur bei Artikeln mit Grundpreis und nur einmal je Lauf
+            lauf["einheiten"] = client.einheiten()
+        grund = grundpreis_felder(a, lauf["einheiten"])
+        if not grund:
+            grund_hinweis = f"Grundpreis nicht gesendet: Einheit „{a.grundpreis_einheit}“ gibt es im Shop nicht"
+    zusatz = {}  # nur wenn vorhanden, damit sich der Stand bisheriger Artikel nicht ändert
+    if len(kategorie_ids) > 1:
+        zusatz["weitere"] = kategorie_ids[1:]
+    if grund:
+        zusatz["grundpreis"] = grund
+    if a.uvp:
+        zusatz["uvp"] = str(a.uvp)
+    stand = hashlib.sha256(json.dumps([daten, kategorie_id, herstellername] + ([zusatz] if zusatz else []), sort_keys=True).encode()).hexdigest()
     bilder_stand = hashlib.sha256(json.dumps([(b.pk, b.bild.name) for b in a.bilder.all()]).encode()).hexdigest()
     teilstand = "~" + bilder_stand[:63]  # Zeitlimit mitten in den Bildern: Der nächste Lauf lädt nur den Rest
     bilder_neu = alle or not z or anderes_produkt or z.bilder_stand != bilder_stand
@@ -735,8 +789,11 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
     eintrag = {**daten, "id": produkt_id or feste_id(shop, "produkt", a.pk)}
     if herstellername:
         eintrag["manufacturerId"] = _hersteller_id(shop, client, lauf["hersteller"], herstellername)
-    if kategorie_id:
-        eintrag["categories"] = [{"id": kategorie_id}]
+    if kategorie_ids:
+        eintrag["categories"] = [{"id": i} for i in kategorie_ids]
+    eintrag.update(grund)
+    if produkt_id and z and z.daten_stand != stand and (z.daten_stand or a.uvp) and preis_brutto is not None:
+        eintrag["price"] = produktpreis(a, preis_netto, preis_brutto)  # UVP als Listenpreis folgt der Änderung, auch wenn der Preis gleich blieb
     bestand_neu = None
     if not produkt_id:  # Neuanlage: Shopware verlangt Steuer, Preis, Bestand und Nummer
         steuer_id = lauf["steuern"].get(a.steuersatz.prozent.normalize())
@@ -745,7 +802,7 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
         bestand_neu = meldebestand(shop, a) or 0
         eintrag.update({"productNumber": a.nummer, "taxId": steuer_id, "stock": bestand_neu, "active": True,
                         "isCloseout": a.typ != "G",  # Lagerartikel: nur verfügbarer Bestand bestellbar, Schutz vor Doppelverkauf
-                        "price": preisliste(preis_netto, preis_brutto),
+                        "price": produktpreis(a, preis_netto, preis_brutto),
                         "visibilities": [{"id": feste_id(shop, "sichtbar", a.pk), "salesChannelId": client.verkaufskanal(), "visibility": 30}]})
         preis_kunde, brutto_kunde = kundenpreis(shop, a) if lauf["regel_ok"] else (None, None)
         if preis_kunde:
@@ -755,7 +812,7 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
         if bestand_da is not None:
             eintrag["stock"] = bestand_da
         if preis_brutto is not None:
-            eintrag["price"] = preisliste(preis_netto, preis_brutto)
+            eintrag["price"] = produktpreis(a, preis_netto, preis_brutto)
         if preis_kunde:  # fremder Preis mit Regel im Shop bleibt unberührt, dann kein Kundenpreis von wwok
             belegt = any(p["id"] != preis_kunde["id"] for p in client.produktpreise([produkt_id]))
             if not belegt:
@@ -794,11 +851,19 @@ def _artikel_senden(shop, client, a, z, produkt_id, lauf, alle) -> str:
         neue_bilder = neue_bilder + [bild_id for bild_id in bisher if bild_id not in neue_bilder]
         lauf["ergebnis"]["offen"] += 1
     bisherige_kategorie = z.kategorie_id if z else ""
-    if kategorie_id and bisherige_kategorie and bisherige_kategorie != kategorie_id:
-        client.kategorie_entfernen(eintrag["id"], bisherige_kategorie)  # nur die, die wwok selbst zugeordnet hat
+    bisherige = list(dict.fromkeys(([bisherige_kategorie] if bisherige_kategorie else []) + (list(z.kategorie_ids) if z else [])))
+    if unklar:  # nichts entfernen und die bisherigen merken: der nächste Lauf entscheidet mit vollständiger Zuordnung
+        kategorie_ids = list(dict.fromkeys(kategorie_ids + bisherige))
+    elif kategorie_ids:  # nur die entfernen, die wwok selbst zugeordnet hat und die nicht mehr gelten
+        for alt in bisherige:
+            if alt not in kategorie_ids:
+                client.kategorie_entfernen(eintrag["id"], alt)
     werte = {"produkt_id": eintrag["id"], "daten_stand": stand, "bild_ids": neue_bilder, "gesendet_am": timezone.now(),
              "bilder_stand": teilstand if teilweise else bilder_stand if bilder_erledigt else (z.bilder_stand if z else ""),
-             "kategorie_id": kategorie_id or bisherige_kategorie}
+             "kategorie_id": kategorie_id or bisherige_kategorie,
+             "kategorie_ids": kategorie_ids or bisherige}
+    if grund_hinweis:
+        hinweise = hinweise + [grund_hinweis]
     if not produkt_id:
         werte.update(gemeldeter_bestand=bestand_neu, gemeldeter_preis=preis_brutto, gemeldeter_kundenpreis=brutto_kunde,
                      gemeldete_regel=shop.regel_kunden_id if brutto_kunde is not None else "")
@@ -842,7 +907,7 @@ def artikeldaten_senden(shop, client=None, alle=False, nummer="", zeitlimit=ZEIT
     shop.letzter_artikelabgleich = timezone.now()  # gleich zu Beginn, damit der nächste Zeitplan-Aufruf nicht parallel startet
     shop.save(update_fields=["letzter_artikelabgleich"])
     artikel = Artikel.objects.shop_sichtbar().filter(typ__in=["A", "G"]) \
-        .select_related("steuersatz", "kategorie", "hersteller").prefetch_related("bilder", "komponenten__komponente")
+        .select_related("steuersatz", "kategorie", "hersteller").prefetch_related("bilder", "komponenten__komponente", "weitere_kategorien")
     if nummer:
         artikel = artikel.filter(nummer=nummer)
         if not artikel:

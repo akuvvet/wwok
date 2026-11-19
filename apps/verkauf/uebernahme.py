@@ -64,7 +64,7 @@ def _kopie(quelle, beleg, menge, pos, gruppe, verschoben=True, mit_quelle=True) 
         reservieren=quelle.reservieren,
         beleg=beleg, gruppe=gruppe, pos=pos, typ=quelle.typ, artikel=quelle.artikel, bezeichnung=quelle.bezeichnung,
         preisliste_artikel=quelle.preisliste_artikel, menge=menge, einzelpreis=quelle.einzelpreis,
-        rabatt_prozent=quelle.rabatt_prozent, steuer_prozent=quelle.steuer_prozent, zusatztext=quelle.zusatztext,
+        preiseinheit=quelle.preiseinheit, rabatt_prozent=quelle.rabatt_prozent, steuer_prozent=quelle.steuer_prozent, zusatztext=quelle.zusatztext,
         lieferschein=quelle.lieferschein, quellposition=quelle if mit_quelle else None, preis_fest=quelle.preis_fest,
         verschoben=verschoben)
 

@@ -121,6 +121,10 @@ class ShopwareClient:
             self.api("POST", "/api/_action/sync", {"write-kategorien": {"entity": "category", "action": "upsert", "payload": [
                 {"id": kid, "active": bool(aktiv)} for kid, aktiv in aenderungen[i:i + 100]]}})
 
+    def einheiten(self) -> list:
+        """Maßeinheiten des Shops (für den Grundpreis): id, name, shortCode."""
+        return self._alle("unit", ["id", "name", "shortCode"])
+
     def hersteller(self) -> list:
         return self._alle("product_manufacturer", ["id", "name"])
 

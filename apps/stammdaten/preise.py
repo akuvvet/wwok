@@ -34,14 +34,17 @@ def aufschlag(artikel, stufe: int, vorgabe=LADEN):
 
 
 def stufenpreis(artikel, stufe: int):
-    """Netto-VK der Stufe (fest eingetragen oder aus EK + Aufschlag); None, wenn nicht ermittelbar."""
+    """Netto-VK der Stufe (fest eingetragen oder aus EK + Aufschlag); None, wenn nicht ermittelbar.
+    Der VK gilt je Preiseinheit (Artikel.preiseinheit, z. B. je 100 Stück); der EK ist je Stück, deshalb wird der
+    Aufschlags-VK mit der Preiseinheit multipliziert. Feste VK und Kundensonderpreise werden je Preiseinheit eingetragen."""
     fest = getattr(artikel, f"vk{stufe}", None)
     if fest is not None or artikel.typ == "L":  # die Kosten einer Leistung zählen nur für die Marge, nicht für den Preis
         return fest
     prozent = aufschlag(artikel, stufe)
     ek = _ek_quelle(artikel, mit_kosten=False)[0]
     if prozent is not None and ek:
-        return (ek * (Decimal("100") + prozent) / 100).quantize(CENT, rounding=ROUND_HALF_UP)
+        einheit = Decimal(getattr(artikel, "preiseinheit", 1) or 1)
+        return (ek * einheit * (Decimal("100") + prozent) / 100).quantize(CENT, rounding=ROUND_HALF_UP)
     return None
 
 

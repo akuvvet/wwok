@@ -14,8 +14,10 @@
       liste.forEach(function (t, i) {
         var d = document.createElement('div');
         d.style.cssText = 'padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--rand);' + (i === aktiv ? 'background:var(--grund)' : '');
-        d.textContent = (t.lieferant ? '[' + t.lieferant + '] ' : '') + t.nummer + ' – ' + t.bezeichnung + '  (EK ' + t.ek + ' €' +
-          (t.bestand !== null && t.bestand !== undefined ? ', Lieferant-Bestand ' + t.bestand : '') + ')';
+        // wie in der Belegmaske: Bestand und verfügbar bei eigenen Artikeln, Bestand beim Lieferanten bei Preislistenartikeln
+        d.textContent = (t.lieferant ? '[' + t.lieferant + '] ' : '') + t.nummer + ' – ' + t.bezeichnung + '  (EK ' + t.ek + ' €)' +
+          (t.verfuegbar !== null && t.verfuegbar !== undefined ? '  · Bestand ' + parseFloat(t.bestand) + ' · verfügbar ' + parseFloat(t.verfuegbar) : '') +
+          (t.lieferant && t.lieferant_bestand !== null && t.lieferant_bestand !== undefined ? '  · beim Lieferanten ' + t.lieferant_bestand : '');
         d.addEventListener('mousedown', function (e) { e.preventDefault(); waehle(i); });
         box.appendChild(d);
       });
@@ -46,7 +48,7 @@
     });
     function suche() {
       var q = feld.value.trim(), nr = ++anfrage;
-      if (q.length < 2) { liste = []; zeige(); return; }
+      if (q.length < 2 && !/[*>%]/.test(q)) { liste = []; zeige(); return; }
       fetch("{% url 'einkauf:bestellartikel_suche' b.pk %}?q=" + encodeURIComponent(q), {credentials: 'same-origin'})
         .then(function (r) { return r.json(); }).then(function (d) {
           if (nr !== anfrage) return;
@@ -56,7 +58,23 @@
         });
     }
     feld.addEventListener('input', function () { pl.value = ''; gewaehlt = null; document.getElementById('vergleich').innerHTML = ''; clearTimeout(timer); timer = setTimeout(suche, 200); });
+    function tabelle() {  // „*“ (oder >5, %…) + Enter: dasselbe Auswahlfenster wie in der Belegmaske, mit Detailbereich
+      clearTimeout(timer); anfrage++; liste = []; zeige();
+      wwokTabelle({q: feld.value.trim(), zurueck: feld, spalten: [
+        {titel: 'Artikelnr.', feld: function (t) { return (t.lieferant ? '[' + t.lieferant + '] ' : '') + t.nummer; }},
+        {titel: 'Bezeichnung', feld: 'bezeichnung'},
+        {titel: 'Bestand', zahl: true, feld: function (t) { return t.lieferant ? (t.lieferant_bestand === null || t.lieferant_bestand === undefined ? '' : t.lieferant_bestand + ' (Lief.)') : (t.bestand === null ? '' : parseFloat(t.bestand)); }},
+        {titel: 'verfügbar', zahl: true, feld: function (t) { return t.verfuegbar === null || t.verfuegbar === undefined ? '' : parseFloat(t.verfuegbar); }},
+        {titel: 'EK bei {{ b.lieferant.kurz|escapejs }}', zahl: true, feld: 'ek'}],
+        laden: function (text) {
+          return fetch("{% url 'einkauf:bestellartikel_suche' b.pk %}?tabelle=1&q=" + encodeURIComponent(text), {credentials: 'same-origin'})
+            .then(function (r) { return r.json(); }).then(function (d) { return {zeilen: d.treffer, mehr: d.mehr}; });
+        },
+        details: wwokArtikelDetails,
+        waehlen: function (t) { liste = [t]; waehle(0); }});
+    }
     feld.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && /[*>%]/.test(feld.value)) { e.preventDefault(); tabelle(); return; }
       if (!liste.length) return;
       if (e.key === 'ArrowDown') { aktiv = Math.min(aktiv + 1, liste.length - 1); zeige(); e.preventDefault(); }
       else if (e.key === 'ArrowUp') { aktiv = Math.max(aktiv - 1, 0); zeige(); e.preventDefault(); }
@@ -127,7 +145,7 @@
 <div class="erfassung-block" style="margin-top:14px">
   <h2>Artikel hinzufügen</h2>
   <form method="post" action="{% url 'einkauf:bestellung_position' b.pk %}" class="zeile erfassung" id="positionsform" autocomplete="off">{% csrf_token %}
-    <div><label>Artikel suchen (Wörter in beliebiger Reihenfolge)</label>
+    <div><label title="* + Enter = alle als Tabelle · >5 = Bestand über 5 · Netz% = beginnt mit, %750W% = enthält">Artikel suchen (Wörter in beliebiger Reihenfolge, <code>*</code> + Enter = Tabelle)</label>
       <div style="position:relative"><input name="artikel" id="artikel" size="40" autofocus><input type="hidden" name="pl" id="pl">
         <div id="trefferliste" style="display:none;position:absolute;z-index:5;left:0;top:100%;min-width:600px;max-height:340px;overflow:auto;background:var(--karte);border:1px solid var(--rand);border-radius:6px"></div></div></div>
     <div><label>Bezeichnung (leer = wie Artikel)</label><input name="bezeichnung" maxlength="255" size="28"></div>
@@ -153,13 +171,13 @@
   <div class="scroll"><table>
     <thead><tr><th>{% if bedarf %}<input type="checkbox" id="bedarf-alle" title="alle / keine" aria-label="alle Artikel auswählen">{% endif %}</th><th>Artikel</th><th>Bezeichnung</th><th class="zahl" title="Lagerbestand">Lager</th><th class="zahl" title="Offen in Kundenbestellungen">Kunden</th><th class="zahl" title="Ziel aus Mindestbestand bzw. Verkaufsverlauf">Ziel</th><th class="zahl" title="Lager − Kunden + schon bestellt">vorhanden</th><th>Menge</th><th class="zahl">EK bei {{ b.lieferant.kurz }}</th><th title="Die günstigsten Lieferanten aus den Preislisten: zuerst lieferbare nach EK, dann die mit Bestand 0">Günstigste Lieferanten</th><th>Grund</th></tr></thead>
     <tbody>
-    {% for z in bedarf %}<tr data-ek="{% if z.ek_hier is not None %}{{ z.ek_hier|unlocalize }}{% endif %}">
+    {% for z in bedarf %}<tr data-ek="{% if z.ek_hier is not None %}{{ z.ek_hier|unlocalize }}{% elif z.ek_ersatz is not None %}{{ z.ek_ersatz|unlocalize }}{% endif %}">
       <td><input type="checkbox" name="auswahl" value="{{ z.artikel.pk }}" aria-label="{{ z.artikel.nummer }} übernehmen"{% if z.fuehrt %} checked{% endif %}></td>
       <td><a href="{% url 'lager:artikel' z.artikel.pk %}">{{ z.artikel.nummer }}</a></td><td>{{ z.artikel.bezeichnung }}</td>
       <td class="zahl">{{ z.lager|floatformat:"-3" }}</td><td class="zahl">{% if z.kundenbedarf %}{{ z.kundenbedarf|floatformat:"-3" }}{% else %}–{% endif %}</td>
       <td class="zahl">{{ z.ziel|floatformat:"-3" }}</td><td class="zahl">{{ z.haben|floatformat:"-3" }}</td>
       <td><input name="menge_{{ z.artikel.pk }}" value="{{ z.menge|floatformat:'-3' }}" size="5" inputmode="decimal" aria-label="Menge {{ z.artikel.nummer }}"></td>
-      <td class="zahl">{% if z.ek_hier is not None %}{{ z.ek_hier|floatformat:"2g" }}{% if z.bestand_hier is not None %}<br><small class="fein">Bestand {{ z.bestand_hier }}</small>{% endif %}{% else %}<small class="fein">nicht in der Preisliste</small>{% endif %}</td>
+      <td class="zahl">{% if z.ek_hier is not None %}{{ z.ek_hier|floatformat:"2g" }}{% if z.bestand_hier is not None %}<br><small class="fein">Bestand {{ z.bestand_hier }}</small>{% endif %}{% elif z.ek_ersatz is not None %}{{ z.ek_ersatz|floatformat:"2g" }}<br><small class="fein" title="Führt {{ b.lieferant.kurz }} den Artikel nicht, wird der günstigste EK aus allen Preislisten übernommen">günstigster, bei {{ z.ek_ersatz_von.kurz }}</small>{% else %}<small class="fein">nicht in der Preisliste</small>{% endif %}</td>
       <td data-guenstigste>{% for g in z.guenstigste %}<div{% if g.hier %} style="font-weight:600"{% elif forloop.first and z.guenstiger %} style="color:var(--hinweis)"{% endif %}>{{ g.lieferant.kurz }}: {{ g.ek|floatformat:"2g" }}{% if g.bestand is not None %} <small class="fein">Bestand {{ g.bestand }}</small>{% endif %}</div>{% empty %}<small class="fein">kein Lieferant in den Preislisten</small>{% endfor %}</td>
       <td>{{ z.grund }}{% if z.kundenbelege %}<br><small>{% for kb in z.kundenbelege %}<a href="{% url 'verkauf:beleg' kb.pk %}" title="{{ kb.kunde.name1 }}">{{ kb.nummer|default:"(nicht gespeichert)" }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</small>{% endif %}</td>
     </tr>{% empty %}<tr><td colspan="11" style="padding:14px;opacity:.75">Kein Bedarf{% if bedarf_nur %} bei Artikeln, die {{ b.lieferant.kurz }} führt{% endif %}.</td></tr>{% endfor %}

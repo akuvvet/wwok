@@ -124,6 +124,11 @@ def beleg_pdf(beleg, als_lieferschein=False) -> bytes:
         text = p.bezeichnung + (f"\n{p.zusatztext}" if p.zusatztext else "")
         if p.lieferschein_id and not p.gruppe_id:
             text += f"\nLieferschein {p.lieferschein.nummer} vom {p.lieferschein.belegdatum:%d.%m.%Y}"
+        if not als_lieferschein and not p.gruppe_id and beleg.art not in (
+                Belegart.LIEFERSCHEIN, Belegart.NACHLIEFERSCHEIN, Belegart.GUTSCHRIFT, Belegart.PROFORMA_STORNO):
+            grundpreis = p.grundpreis_text  # brutto je Stück nach Rabatt (Preisangabenverordnung)
+            if grundpreis:
+                text += f"\nGrundpreis: {grundpreis}"
         seriennummern = [sn.nummer for sn in p.seriennummern.all()] or (
             [sn.nummer for sn in p.quellposition.seriennummern.all()] if p.quellposition_id else [])
         if seriennummern:
@@ -141,9 +146,10 @@ def beleg_pdf(beleg, als_lieferschein=False) -> bytes:
             zeilen.append([str(p.pos), absatz(p.artikelnummer, normal), absatz(text, normal), zahl(p.menge)])
             continue
         zeilen.append([str(p.pos), absatz(p.artikelnummer, normal), absatz(text, normal),
-                       zahl(p.menge), euro(p.einzelpreis), f"{zahl(p.rabatt_prozent)} %" if p.rabatt_prozent else "",
+                       zahl(p.menge), euro(p.einzelpreis) + (f"\nje {p.preiseinheit} Stück" if p.preiseinheit > 1 else ""),
+                       f"{zahl(p.rabatt_prozent)} %" if p.rabatt_prozent else "",
                        euro(p.netto_gesamt)])
-    breiten = [12 * mm, 24 * mm, 117 * mm, 17 * mm] if als_lieferschein else [12 * mm, 24 * mm, 58 * mm, 17 * mm, 21 * mm, 16 * mm, 22 * mm]
+    breiten = [12 * mm, 24 * mm, 117 * mm, 17 * mm] if als_lieferschein else [12 * mm, 24 * mm, 55 * mm, 17 * mm, 24 * mm, 16 * mm, 22 * mm]
     tabelle = Table(zeilen, colWidths=breiten, repeatRows=1)
     tabelle.setStyle(TableStyle([
         ("FONT", (0, 1), (-1, -1), "Helvetica", 9), ("VALIGN", (0, 0), (-1, -1), "TOP"),
