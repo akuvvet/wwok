@@ -110,10 +110,11 @@ def lieferant_detail(request, lieferant_id):
     zeilen = lieferantenkonto.belege(request.mandant, lieferant, nur_offen=nur_offen, art=belegart, ab=ab_datum)
     seite, parameter = blaettern(request, zeilen, 25)
     offen_rechnungen = sum((z["betrag"] for z in lieferantenkonto.belege(request.mandant, lieferant, art="LR")), Decimal("0"))
+    offen_gutschriften = sum((z["betrag"] for z in lieferantenkonto.belege(request.mandant, lieferant, art="LG")), Decimal("0"))
     md = LieferantMandant.objects.filter(lieferant=lieferant, mandant=request.mandant).first()
     return render(request, "einkauf/lieferant.html", {
         "lieferant": lieferant, "seite": seite, "parameter": parameter, "filter": art, "ab": ab,
-        "arten": lieferantenkonto.ARTEN, "offen_rechnungen": offen_rechnungen,
+        "arten": lieferantenkonto.ARTEN, "offen_rechnungen": offen_rechnungen, "offen_gutschriften": offen_gutschriften,
         "unsere_kundennummer": md.unsere_kundennummer if md else "",
         "ansprechpartner": lieferant.ansprechpartner.all(),
         "offene_bestellungen": Bestellung.objects.filter(mandant=request.mandant, lieferant=lieferant,

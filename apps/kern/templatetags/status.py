@@ -56,6 +56,10 @@ STATUS = {
         "ersatz": ("haken", "ok", "Ersatz erhalten"),
         "abgelehnt": ("storno", "warn", "abgelehnt – Ware zurück im Lager"),
     },
+    "lieferantengutschrift": {
+        "offen": ("plus", "hinweis", "Restguthaben offen"),
+        "erledigt": ("haken", "neutral", "verrechnet/ausgezahlt"),
+    },
     "werkstatt": {
         "angenommen": ("eingang", "info", "angenommen"),
         "in_reparatur": ("werkstatt", "info", "in Reparatur"),
