@@ -11,7 +11,7 @@ from apps.esd.models import ESDKey
 from apps.esd.services import zeilen as esd_zeilen
 from apps.lager.services import seriennummern_einlagern, zeilen
 from apps.stammdaten.ekkalk import ek_import as import_ek_von, plausibilitaet_we, wareneingang_ek
-from apps.stammdaten.models import Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel, keine_leistung
+from apps.stammdaten.models import (KENNUNGEN, Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel, isbn_normalisieren, keine_leistung)
 from apps.verkauf.models import Belegart, Nummernkreis, Position
 
 from .models import (RUECKSENDUNG_OFFEN, BestellPosition, BestellStatus, Bestellung, Lieferantenrechnung, Rma, RmaStatus,
@@ -601,8 +601,13 @@ def artikel_per_code(code: str, lieferant=None):
     code = code.strip()
     if not code:
         return None
+    kennung = Q()
+    for feld in KENNUNGEN:  # EAN, ASIN, SKU, FNSKU, ISBN, UPC, eBay-ID
+        kennung |= Q(**{f"{feld}__iexact": code})
+    if isbn_normalisieren(code):
+        kennung |= Q(isbn=isbn_normalisieren(code))  # ISBN mit Bindestrichen gescannt/getippt
     treffer = Artikel.objects.filter(nicht_aktiv=False).filter(
-        Q(ean=code) | Q(nummer__iexact=code) | Q(herstellernummer__iexact=code)).first()
+        kennung | Q(nummer__iexact=code) | Q(herstellernummer__iexact=code)).first()
     if treffer:
         return treffer
     al = ArtikelLieferant.objects.filter(bestellnummer__iexact=code)

@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel, lieferanten_auswahl
+from apps.stammdaten.models import Artikel, Lieferant, Preislistenartikel, kennungen_filter, lieferanten_auswahl
 from apps.kern.rechte import admin_bei_aenderung, nur_admin
 from apps.kern.seiten import blaettern
 from apps.verkauf.mail import MailFehler, ausfuellen, senden_an
@@ -269,7 +269,7 @@ def preisvergleich(request):
         eintraege = Preislistenartikel.objects.filter(artikel__isnull=True).select_related("lieferant")
         for wort in q.split():
             treffer = treffer.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
-                                     | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+                                     | Q(hersteller__name__icontains=wort) | kennungen_filter(wort))
             eintraege = eintraege.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
                                          | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))
         treffer, eintraege = treffer.order_by("nummer")[:20], eintraege.order_by("bezeichnung")[:20]
@@ -345,7 +345,7 @@ def api_bestellartikel(request, bestellung_id):
     eintraege = Preislistenartikel.objects.filter(lieferant=b.lieferant, artikel__isnull=True)
     for wort in q.split():
         artikel = artikel.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
-                                 | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+                                 | Q(hersteller__name__icontains=wort) | kennungen_filter(wort))
         eintraege = eintraege.filter(Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort) | Q(bestellnummer__icontains=wort)
                                      | Q(hersteller__icontains=wort) | Q(ean__icontains=wort))
     treffer = []

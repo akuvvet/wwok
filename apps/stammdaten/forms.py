@@ -1,11 +1,13 @@
 """Formulare für die Bearbeitung von Kunden und Lieferanten im Dialog (Registerkarten statt Admin-Fieldsets)."""
+from decimal import Decimal
+
 from django import forms
 from django.db import models
 from django.forms import inlineformset_factory
 from django.utils import formats, timezone
 
-from .models import (Anrede, Ansprechpartner, Artikel, ArtikelMandant, Artikeltyp, EkHerkunft, Kunde, KundeMandant, Kundenanschrift, Lieferant,
-                     LieferantMandant, _ek_quelle, nummer_und_name)
+from .models import (Anrede, Ansprechpartner, Artikel, ArtikelMandant, Artikeltyp, EkHerkunft, Kategorie, Kunde, KundeMandant, Kundenanschrift,
+                     Lieferant, LieferantMandant, Steuersatz, _ek_quelle, nummer_und_name)
 
 from .preise import stufenpreis
 
@@ -118,11 +120,15 @@ AnschriftSet = inlineformset_factory(
     Kunde, Kundenanschrift, fields=["art", "standard", "name1", "name2", "strasse", "plz", "ort", "land"], extra=3, can_delete=True)
 
 ARTIKEL_TABS = [
-    ("grund", "Stammdaten", ["nummer", "typ", "bezeichnung", "bezeichnung_erweitert", "kategorie", "leistungskategorie", "hersteller", "herstellernummer",
-                             "ean", "mengeneinheit", "steuersatz", "kostenstelle", "nicht_aktiv"]),
-    # Reihenfolge = Raster mit drei Spalten: EK und Häkchen, dann VK1–VK3, dann Aufschlag VK1–VK3
+    ("grund", "Stammdaten", ["nummer", "typ", "bezeichnung", "bezeichnung_erweitert", "kategorie", "weitere_kategorien", "leistungskategorie", "hersteller",
+                             "herstellernummer", "ean", "mengeneinheit", "steuersatz", "kostenstelle", "nicht_aktiv"]),
+    # weitere Kennungen (Marktplätze, Bücher); die EAN steht bei den Stammdaten
+    ("kennungen", "Kennungen", ["amazon_asin", "amazon_sku", "amazon_fnsku", "isbn", "upc", "ebay_id"]),
+    # Reihenfolge = Raster mit drei Spalten: EK und Häkchen, dann VK1–VK3, dann Aufschlag VK1–VK3; danach UVP, EK3 und Sonder-EK, Preisgrenzen, Grundpreis
     ("preise", "Preise", ["kosten", "ek_manuell", "vk1_fuer_alle", "aufschlag_vk1_fuer_alle", "vk1", "vk2", "vk3",
-                          "aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3"]),
+                          "aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3",
+                          "uvp", "ek3", "sonder_ek", "sonder_ek_von", "sonder_ek_bis", "preiseinheit",
+                          "vk_min", "vk_max", "grundpreis_faktor", "grundpreis_einheit"]),
     ("logistik", "Maße & Versand", ["laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg", "sperrgut", "zolltarifnummer",
                                     "garantie_monate", "eol_datum", "nachfolger", "esd_key"]),
     ("online", "Online & Texte", ["online", "kurzbeschreibung", "keywords", "meta_titel", "meta_description", "meta_keywords"]),
@@ -213,6 +219,8 @@ class VkVorschlagForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         kategorie_suchauswahl(self)
         nachfolger_suchauswahl(self)
+        if "preiseinheit" in self.fields:  # leer = 1 (ältere Aufrufe, Verwaltung und Importe schicken das Feld nicht mit)
+            self.fields["preiseinheit"].required = False
         if "ek_manuell" in self.fields:
             self.ek_feld_einrichten()
         # EK als Basis für die Live-Umrechnung VK ↔ Aufschlag in der Maske (wie stufenpreis: ohne Leistungskosten)
@@ -271,6 +279,10 @@ class VkVorschlagForm(forms.ModelForm):
             elif quelle != "manuell":
                 text += " – der Import-EK ist maßgebend und hat Vorrang vor dem manuellen EK."
             feld.help_text = text
+
+    def clean_preiseinheit(self):
+        wert = self.cleaned_data.get("preiseinheit")
+        return 1 if wert is None else wert  # 0 bleibt stehen und wird vom Modell abgelehnt
 
     def clean_ek_manuell(self):
         ek = self.cleaned_data.get("ek_manuell")
@@ -349,6 +361,15 @@ class ArtikelForm(VkVorschlagForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         datum_felder(self)
+        if "weitere_kategorien" in self.fields:  # Mehrfachauswahl (Strg/Cmd + Klick); die Hauptkategorie bleibt das Feld darüber
+            feld = self.fields["weitere_kategorien"]
+            feld.queryset = Kategorie.objects.order_by("name")
+            feld.widget = forms.SelectMultiple(attrs={"size": 5})
+        if not self.instance.pk and not self.is_bound and not self.instance.steuersatz_id:
+            # neuer Artikel: Steuersatz 19 % vorbelegen (Entscheidung 19.11.2026); eine Kopie bringt ihren eigenen mit
+            standard = Steuersatz.objects.filter(prozent=Decimal("19")).order_by("pk").first()
+            if standard and "steuersatz" in self.fields:
+                self.initial.setdefault("steuersatz", standard.pk)
         # P-Artikel sind eine eigene Tabelle (Preislisten); hier nur A, L und G
         self.fields["typ"].choices = [(w, n) for w, n in Artikeltyp.choices if w != Artikeltyp.P]
         if self.instance.pk:  # Typwechsel würde Bestand und Belege verfälschen

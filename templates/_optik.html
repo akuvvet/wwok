@@ -21,8 +21,13 @@ damit die Layoutfarbe des Mandanten weiter gewinnt. Nur Aussehen – keine Maße
   header { background:color-mix(in srgb, var(--karte) 86%, transparent); -webkit-backdrop-filter:saturate(1.4) blur(10px); backdrop-filter:saturate(1.4) blur(10px);
            box-shadow:0 1px 0 var(--rand), 0 4px 14px rgba(16,24,40,.04); border-bottom-color:transparent; }
   .firma, header strong { letter-spacing:-.01em; }
-  .kopfsuche input { border-radius:999px; padding-left:14px; background:var(--grund); border-color:transparent; transition:background .15s, border-color .15s, width .2s; }
-  .kopfsuche input:focus { background:var(--feld); border-color:var(--akzent); }
+  /* Kopfsuche: eigener Grauton, unabhängig von der Mandantenfarbe des Kopfbereichs, damit Feld und Vorgabetext immer lesbar sind */
+  :root { --kopfsuche-feld:#e9ecf0; --kopfsuche-rand:#c3c9d1; --kopfsuche-hinweis:#4b5563; }
+  @media (prefers-color-scheme: dark) { :root { --kopfsuche-feld:#2b3139; --kopfsuche-rand:#4a525d; --kopfsuche-hinweis:#c4cad3; } }
+  header .kopfsuche input[type=search] { border-radius:999px; padding-left:14px; background:var(--kopfsuche-feld); border:1px solid var(--kopfsuche-rand); color:var(--text);
+    transition:background .15s, border-color .15s, width .2s; }
+  header .kopfsuche input[type=search]::placeholder { color:var(--kopfsuche-hinweis); opacity:1; }
+  header .kopfsuche input[type=search]:focus { background:var(--feld); border-color:var(--akzent); }
   .palettenknopf { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; background:var(--grund); border-color:var(--rand); color:var(--leise); font-size:13px; }
   .palettenknopf kbd { font:inherit; font-size:11px; padding:0 5px; border:1px solid var(--rand); border-radius:5px; background:var(--karte); }
   @media (max-width:640px) { .palettenknopf kbd { display:none; } }  /* am Handy gibt es keine Strg-Taste */

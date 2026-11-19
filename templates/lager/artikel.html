@@ -158,4 +158,38 @@
 </div>
 {% endif %}
 {% endif %}
+
+<div class="karte" id="artikeldaten">
+  <h2>Artikeldaten</h2>
+  <div class="raster">
+    <div>Eingabedatum<br>{{ eingabe_am|date:"d.m.Y H:i" }}{% if eingabe_von %} · {{ eingabe_von }}{% endif %}</div>
+    <div>Letzte Änderung<br>{{ artikel.geaendert_am|date:"d.m.Y H:i" }}{% if artikel.geaendert_von %} · {{ artikel.geaendert_von }}{% endif %}</div>
+    {% if artikel.ean %}<div>EAN<br>{{ artikel.ean }}</div>{% endif %}
+    {% if artikel.amazon_asin %}<div>Amazon ASIN<br>{{ artikel.amazon_asin }}</div>{% endif %}
+    {% if artikel.amazon_sku %}<div>Amazon SKU<br>{{ artikel.amazon_sku }}</div>{% endif %}
+    {% if artikel.amazon_fnsku %}<div>Amazon FNSKU<br>{{ artikel.amazon_fnsku }}</div>{% endif %}
+    {% if artikel.isbn %}<div>ISBN<br>{{ artikel.isbn }}</div>{% endif %}
+    {% if artikel.upc %}<div>UPC<br>{{ artikel.upc }}</div>{% endif %}
+    {% if artikel.ebay_id %}<div>eBay-ID<br>{{ artikel.ebay_id }}</div>{% endif %}
+    {% if artikel.uvp is not None %}<div>UVP netto<br>{{ artikel.uvp|floatformat:"2g" }} €</div>{% endif %}
+    {% if artikel.vk_min is not None %}<div>VK-Untergrenze netto<br>{{ artikel.vk_min|floatformat:"2g" }} €</div>{% endif %}
+    {% if artikel.vk_max is not None %}<div>VK-Obergrenze netto<br>{{ artikel.vk_max|floatformat:"2g" }} €</div>{% endif %}
+    {% if artikel.preiseinheit > 1 %}<div>Preiseinheit<br>VK gilt je {{ artikel.preiseinheit }} Stück</div>{% endif %}
+    {% if grundpreis_netto or grundpreis_brutto %}<div>Grundpreis zum VK1<br>{% if grundpreis_brutto %}{{ grundpreis_brutto }} brutto{% endif %}{% if grundpreis_netto %}<br><span class="fein">{{ grundpreis_netto }} netto</span>{% endif %}</div>{% endif %}
+    {% if weitere_kategorien %}<div>weitere Kategorien<br>{% for k in weitere_kategorien %}{{ k }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+  </div>
+</div>
+
+<div class="karte" id="historie">
+  <details>
+    <summary><strong>Historie</strong> <span class="fein">– Änderungen am Artikel{% if historie|length >= historie_max %} (die letzten {{ historie_max }}){% endif %}</span></summary>
+    <div class="scroll"><table>
+      <thead><tr><th>Zeitpunkt</th><th>Benutzer</th><th>Aktion</th><th>Änderungen (alt → neu)</th></tr></thead>
+      <tbody>{% for h in historie %}
+        <tr><td>{{ h.zeitpunkt|date:"d.m.Y H:i" }}</td><td>{{ h.benutzer|default:"–" }}</td><td>{{ h.aktion }}{% if h.bereich %} <span class="fein">({{ h.bereich }})</span>{% endif %}</td>
+          <td>{% for bez, alt, neu in h.aenderungen %}<div>{{ bez }}: {{ alt }} → {{ neu }}</div>{% empty %}–{% endfor %}</td></tr>
+      {% empty %}<tr><td colspan="4">Noch keine Einträge.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </details>
+</div>
 {% endblock %}

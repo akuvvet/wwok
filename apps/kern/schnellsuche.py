@@ -8,7 +8,7 @@ from django.http import JsonResponse
 from django.urls import reverse
 
 from apps.einkauf.models import Bestellung
-from apps.stammdaten.models import Artikel, Kunde, Lieferant
+from apps.stammdaten.models import KENNUNGEN, Artikel, Kunde, Lieferant
 from apps.verkauf.models import Beleg, BelegUmwandlung
 from apps.verkauf.views import mit_mandant
 from apps.werkstatt.models import Reparatur
@@ -17,6 +17,7 @@ MIN_ZEICHEN = 2
 MAX_JE_GRUPPE = 6
 MAX_WOERTER = 6
 MAX_LAENGE = 100
+KENNUNG_NAMEN = {"ean": "EAN", "amazon_asin": "ASIN", "amazon_sku": "SKU", "amazon_fnsku": "FNSKU", "isbn": "ISBN", "upc": "UPC", "ebay_id": "eBay"}
 
 
 def _filter(woerter, felder, extra=None):
@@ -57,9 +58,11 @@ def suchen(q, mandant):
     for z in _exakt_zuerst(kunden, q).values("pk", "nummer", "name1", "name2", "ort")[:MAX_JE_GRUPPE]:
         hinzu("Kunde", f"{z['nummer']} – {_name(z)}", z["ort"], reverse("verkauf:kunde", args=[z["pk"]]))
 
-    artikel = Artikel.objects.filter(_filter(woerter, ["nummer", "bezeichnung", "ean", "herstellernummer"]))
-    for z in _exakt_zuerst(artikel, q).values("pk", "nummer", "bezeichnung", "ean", "nicht_aktiv")[:MAX_JE_GRUPPE]:
-        zusatz = "nicht aktiv" if z["nicht_aktiv"] else (f"EAN {z['ean']}" if z["ean"] else "")
+    artikel = Artikel.objects.filter(_filter(woerter, ["nummer", "bezeichnung", "herstellernummer", *KENNUNGEN]))
+    for z in _exakt_zuerst(artikel, q).values("pk", "nummer", "bezeichnung", "nicht_aktiv", *KENNUNGEN)[:MAX_JE_GRUPPE]:
+        # Zusatz: die Kennung, über die der Artikel gefunden wurde (zuerst die EAN), sonst die erste vorhandene
+        gefunden = [k for k in KENNUNGEN if z[k] and any(w.lower() in z[k].lower() for w in woerter)] or [k for k in KENNUNGEN if z[k]]
+        zusatz = "nicht aktiv" if z["nicht_aktiv"] else (f"{KENNUNG_NAMEN[gefunden[0]]} {z[gefunden[0]]}" if gefunden else "")
         hinzu("Artikel", f"{z['nummer']} – {z['bezeichnung']}", zusatz, reverse("lager:artikel", args=[z["pk"]]))
 
     # Belege des aktiven Mandanten; auch die alten Nummern umgewandelter Belege (Angebot -> Bestellung -> Rechnung)

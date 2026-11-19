@@ -10,7 +10,7 @@ from django.views.decorators.http import require_POST
 
 from apps.kern.models import Mandant
 from apps.shop.models import Shop, ShopArtikel
-from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie, _ek_quelle, ek_je_artikel, keine_leistung
+from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie, _ek_quelle, ek_je_artikel, keine_leistung, kennungen_filter
 from apps.stammdaten.preise import gruppen_kalkulation
 from apps.verkauf.views import mit_mandant
 
@@ -37,12 +37,13 @@ def zahl(text, standard=None):
 
 
 def suche(q, artikel=None):
-    """Jedes Wort muss in Nummer, Bezeichnung, Herstellernummer, Hersteller oder EAN vorkommen (Reihenfolge egal)."""
+    """Jedes Wort muss in Nummer, Bezeichnung, Herstellernummer, Hersteller oder einer Kennung (EAN, ASIN, SKU, FNSKU, ISBN, UPC, eBay-ID)
+    vorkommen (Reihenfolge egal)."""
     artikel = Artikel.objects.filter(nicht_aktiv=False) if artikel is None else artikel
     for wort in q.split():
         artikel = artikel.filter(
             Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
-            | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+            | Q(hersteller__name__icontains=wort) | kennungen_filter(wort))
     return artikel
 
 
@@ -78,7 +79,8 @@ def nach_kategorie(artikel, kategorie):
     ids = {int(kategorie)}
     for _ in range(3):
         ids |= set(Kategorie.objects.filter(eltern_id__in=ids).values_list("pk", flat=True))
-    return artikel.filter(kategorie_id__in=ids)
+    # Haupt- oder weitere Kategorie; distinct, weil ein Artikel über mehrere Kategorien des Baums zweimal vorkommen kann
+    return artikel.filter(Q(kategorie_id__in=ids) | Q(weitere_kategorien__in=ids)).distinct()
 
 
 @mit_mandant
@@ -154,7 +156,15 @@ def artikel_detail(request, artikel_id):
         artikel=artikel, wareneingang__mandant=request.mandant, wareneingang__gebucht=True
     ).select_related("wareneingang__lieferant").order_by("-wareneingang__datum", "-id").first()
     ek, ek_quelle = _ek_quelle(artikel)
+    from apps.stammdaten import historie as artikel_historie
+    from apps.stammdaten.preise import stufenpreis
+    eingabe_am, eingabe_von = artikel_historie.eingabe(artikel)
+    vk1 = stufenpreis(artikel, 1)  # wirksamer VK1 netto (fest oder aus EK + Aufschlag)
+    brutto = vk1 * (1 + artikel.steuersatz.prozent / 100) if vk1 is not None else None
     return render(request, "lager/artikel.html", {
+        "eingabe_am": eingabe_am, "eingabe_von": eingabe_von, "historie": artikel_historie.historie(artikel, request.mandant),
+        "historie_max": artikel_historie.HISTORIE_MAX, "weitere_kategorien": artikel.weitere_kategorien.order_by("name"),
+        "grundpreis_netto": artikel.grundpreis_text(vk1), "grundpreis_brutto": artikel.grundpreis_text(brutto),
         "ek": ek, "ek_quelle": ek_quelle, "ek_datum": artikel.ek_datum(ek_quelle),
         "bestellt": offen_bestellt(request.mandant, artikel), "letzter_we": letzter_we,
         "lieferanten": artikel.lieferanten.select_related("lieferant").order_by("ek"),

@@ -1,6 +1,6 @@
 """Gemeinsame Suchsyntax der Artikelsuche (Belegmaske, Tabellensuche, Nachfolger):
 
-- Wörter: jedes Wort muss irgendwo vorkommen (Nummer, Bezeichnung, Herstellernummer, Hersteller, EAN …), Reihenfolge egal
+- Wörter: jedes Wort muss irgendwo vorkommen (Nummer, Bezeichnung, Herstellernummer, Hersteller, EAN, ASIN, SKU, FNSKU, ISBN, UPC, eBay-ID …), Reihenfolge egal
 - ``*`` allein: alle Artikel
 - ``>5``: Lagerbestand des Mandanten größer als 5 (auch ``> 5``, Komma oder Punkt als Dezimaltrenner)
 - ``%`` wie SQL-LIKE: ``Netz%`` beginnt mit „Netz“, ``%750W%`` enthält „750W“, ``%Gold`` endet mit „Gold“
@@ -11,6 +11,8 @@ from decimal import Decimal, InvalidOperation
 
 from django.db.models import DecimalField, OuterRef, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
+
+from .models import kennungen_filter
 
 BESTAND = re.compile(r">\s*(\d+(?:[.,]\d+)?)")
 
@@ -53,7 +55,10 @@ def artikel_filtern(qs, q: str, mandant, wort_felder=("nummer", "bezeichnung", "
     for wort in woerter:
         bedingung = Q()
         for feld in wort_felder:
-            bedingung |= Q(**{f"{feld}__icontains": wort})
+            if feld == "ean":  # „ean“ steht für alle Kennungen (ASIN, SKU, FNSKU, ISBN, UPC, eBay-ID)
+                bedingung |= kennungen_filter(wort)
+            else:
+                bedingung |= Q(**{f"{feld}__icontains": wort})
         qs = qs.filter(bedingung)
     for m in muster:
         regex, bedingung = like_regex(m), Q()
