@@ -144,10 +144,10 @@
 {% if offen_fuer_positionen %}
 <div class="karte tabinhalt" id="tab-bedarf" hidden>
   <p class="fein" style="margin-top:0">Was gebraucht wird: Mindestbestand bzw. Monatsreichweite aus dem Verkaufsverlauf, dazu immer die Fehlmenge aus offenen Kundenbestellungen. Schon bestellte Mengen (auch in dieser Bestellung) sind abgezogen.
-    {% if bedarf_alle %}Angezeigt: alle Artikel mit Bedarf · <a href="?#bedarf">nur Artikel, die {{ b.lieferant.kurz }} führt</a>{% else %}Angezeigt: nur Artikel, die {{ b.lieferant.kurz }} laut Preisliste führt · <a href="?bedarf=alle#bedarf">alle Artikel mit Bedarf</a>{% endif %}</p>
+    {% if bedarf_nur %}Angezeigt: nur Artikel, die {{ b.lieferant.kurz }} laut Preisliste führt · <a href="?#bedarf">gesamten Bedarf zeigen</a>{% else %}Angezeigt: der gesamte Bedarf, auch Artikel anderer Lieferanten · <a href="?bedarf=lieferant#bedarf">nur Artikel, die {{ b.lieferant.kurz }} führt</a>{% endif %}</p>
   <form method="post" action="{% url 'einkauf:bestellung_bedarf' b.pk %}">{% csrf_token %}
   <div class="scroll"><table>
-    <thead><tr><th></th><th>Artikel</th><th>Bezeichnung</th><th class="zahl" title="Lagerbestand">Lager</th><th class="zahl" title="Offen in Kundenbestellungen">Kunden</th><th class="zahl" title="Ziel aus Mindestbestand bzw. Verkaufsverlauf">Ziel</th><th class="zahl" title="Lager − Kunden + schon bestellt">vorhanden</th><th>Menge</th><th class="zahl">EK bei {{ b.lieferant.kurz }}</th><th>Grund</th></tr></thead>
+    <thead><tr><th></th><th>Artikel</th><th>Bezeichnung</th><th class="zahl" title="Lagerbestand">Lager</th><th class="zahl" title="Offen in Kundenbestellungen">Kunden</th><th class="zahl" title="Ziel aus Mindestbestand bzw. Verkaufsverlauf">Ziel</th><th class="zahl" title="Lager − Kunden + schon bestellt">vorhanden</th><th>Menge</th><th class="zahl">EK bei {{ b.lieferant.kurz }}</th><th title="Die günstigsten Lieferanten aus den Preislisten: zuerst lieferbare nach EK, dann die mit Bestand 0">Günstigste Lieferanten</th><th>Grund</th></tr></thead>
     <tbody>
     {% for z in bedarf %}<tr>
       <td><input type="checkbox" name="auswahl" value="{{ z.artikel.pk }}" aria-label="{{ z.artikel.nummer }} übernehmen"{% if z.fuehrt %} checked{% endif %}></td>
@@ -155,10 +155,10 @@
       <td class="zahl">{{ z.lager|floatformat:"-3" }}</td><td class="zahl">{% if z.kundenbedarf %}{{ z.kundenbedarf|floatformat:"-3" }}{% else %}–{% endif %}</td>
       <td class="zahl">{{ z.ziel|floatformat:"-3" }}</td><td class="zahl">{{ z.haben|floatformat:"-3" }}</td>
       <td><input name="menge_{{ z.artikel.pk }}" value="{{ z.menge|floatformat:'-3' }}" size="5" inputmode="decimal" aria-label="Menge {{ z.artikel.nummer }}"></td>
-      <td class="zahl">{% if z.ek_hier is not None %}{{ z.ek_hier|floatformat:"2g" }}{% if z.bestand_hier is not None %}<br><small class="fein">Bestand {{ z.bestand_hier }}</small>{% endif %}{% else %}<small class="fein">nicht in der Preisliste</small>{% endif %}
-        {% if z.guenstiger %}<br><small style="color:var(--hinweis)">günstiger bei {{ z.lieferant.kurz }}: {{ z.ek|floatformat:"2g" }}</small>{% endif %}</td>
+      <td class="zahl">{% if z.ek_hier is not None %}{{ z.ek_hier|floatformat:"2g" }}{% if z.bestand_hier is not None %}<br><small class="fein">Bestand {{ z.bestand_hier }}</small>{% endif %}{% else %}<small class="fein">nicht in der Preisliste</small>{% endif %}</td>
+      <td data-guenstigste>{% for g in z.guenstigste %}<div{% if g.hier %} style="font-weight:600"{% elif forloop.first and z.guenstiger %} style="color:var(--hinweis)"{% endif %}>{{ g.lieferant.kurz }}: {{ g.ek|floatformat:"2g" }}{% if g.bestand is not None %} <small class="fein">Bestand {{ g.bestand }}</small>{% endif %}</div>{% empty %}<small class="fein">kein Lieferant in den Preislisten</small>{% endfor %}</td>
       <td>{{ z.grund }}{% if z.kundenbelege %}<br><small>{% for kb in z.kundenbelege %}<a href="{% url 'verkauf:beleg' kb.pk %}" title="{{ kb.kunde.name1 }}">{{ kb.nummer|default:"(nicht gespeichert)" }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</small>{% endif %}</td>
-    </tr>{% empty %}<tr><td colspan="10" style="padding:14px;opacity:.75">Kein Bedarf{% if not bedarf_alle %} bei Artikeln, die {{ b.lieferant.kurz }} führt{% endif %}.</td></tr>{% endfor %}
+    </tr>{% empty %}<tr><td colspan="11" style="padding:14px;opacity:.75">Kein Bedarf{% if bedarf_nur %} bei Artikeln, die {{ b.lieferant.kurz }} führt{% endif %}.</td></tr>{% endfor %}
     </tbody>
   </table></div>
   {% if bedarf %}<p style="margin-bottom:0"><button type="submit">Ausgewählte in die Bestellung übernehmen</button></p>{% endif %}

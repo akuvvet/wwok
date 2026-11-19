@@ -1113,16 +1113,30 @@ def ruecksendung_abgelehnt(r, grund, benutzer=None) -> Ruecksendung:
 BESTELLUNG_OFFEN_FUER_WE = (BestellStatus.BESTELLT, BestellStatus.TEIL)
 
 
-def bedarf_fuer_lieferant(bestellung, alle=False) -> list:
+GUENSTIGSTE_MAX = 3  # so viele Lieferanten zeigt der Tab „Bedarf“ je Artikel
+
+
+def guenstigste_lieferanten(artikel_liste, anzahl=GUENSTIGSTE_MAX) -> dict:
+    """{artikel_id: [ArtikelLieferant, …]} – die günstigsten Lieferanten je Artikel aus den Preislisten (ohne gesperrte, nur mit EK).
+    Reihenfolge wie guenstigster_lieferant: zuerst lieferbare (Bestand unbekannt oder > 0) nach EK, danach die mit Bestand 0."""
+    je_artikel = defaultdict(list)
+    for al in ArtikelLieferant.objects.filter(artikel__in=artikel_liste, ek__isnull=False, lieferant__gesperrt=False)             .select_related("lieferant").order_by("ek", "lieferant__nummer"):
+        je_artikel[al.artikel_id].append(al)
+    return {a: sorted(liste, key=lambda al: al.bestand == 0)[:anzahl] for a, liste in je_artikel.items()}
+
+
+def bedarf_fuer_lieferant(bestellung, nur_lieferant=False) -> list:
     """Tab „Bedarf“: der Bestellvorschlag (Mindestbestand, Verkaufsverlauf, Fehlmenge aus Kundenbestellungen) für diese
-    Bestellung. Standard: nur Artikel, die der Lieferant laut Preisliste führt; alle=True zeigt auch die übrigen."""
+    Bestellung. Standard (Wunsch des Nutzers 19.11.2026): der gesamte Bedarf, auch Artikel, die dieser Lieferant nicht führt;
+    je Zeile die günstigsten Lieferanten. nur_lieferant=True zeigt nur Artikel, die der Lieferant laut Preisliste führt."""
     zeilen_ = []
     vorschlag = bestellvorschlag(bestellung.mandant)
-    preise = {al.artikel_id: al for al in ArtikelLieferant.objects.filter(
-        lieferant=bestellung.lieferant, artikel__in=[z["artikel"] for z in vorschlag])}
+    artikel_liste = [z["artikel"] for z in vorschlag]
+    preise = {al.artikel_id: al for al in ArtikelLieferant.objects.filter(lieferant=bestellung.lieferant, artikel__in=artikel_liste)}
+    guenstigste = guenstigste_lieferanten(artikel_liste)
     for z in vorschlag:
         al = preise.get(z["artikel"].pk)
-        if al is None and not alle:
+        if al is None and nur_lieferant:
             continue
         z["fuehrt"] = al is not None
         z["ek_hier"] = al.ek if al else None
@@ -1130,6 +1144,8 @@ def bedarf_fuer_lieferant(bestellung, alle=False) -> list:
         z["bestand_hier"] = al.bestand if al else None
         z["guenstiger"] = (z["lieferant"] is not None and z["lieferant"] != bestellung.lieferant and z["ek"] is not None
                            and (z["ek_hier"] is None or z["ek"] < z["ek_hier"]))
+        z["guenstigste"] = [{"lieferant": g.lieferant, "ek": g.ek, "bestand": g.bestand, "hier": g.lieferant_id == bestellung.lieferant_id}
+                            for g in guenstigste.get(z["artikel"].pk, [])]
         zeilen_.append(z)
     return zeilen_
 

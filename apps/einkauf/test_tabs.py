@@ -60,21 +60,58 @@ class BestellungTabsTest(Basis):
             self.assertContains(r, f'id="tab-{tab}"')
         self.assertContains(r, 'id="positionsform"')  # Artikel hinzufügen bleibt im Tab Positionen
 
-    def test_bedarf_nur_artikel_des_lieferanten(self):
+    def test_bedarf_zeigt_gesamten_bedarf_filter_auf_lieferant_bleibt(self):
+        """Wunsch des Nutzers 19.11.2026: der Tab zeigt den gesamten Bedarf, nicht nur Artikel dieses Lieferanten."""
         self.kundenbestellung(self.maus, "3")
         self.kundenbestellung(self.kabel, "2")  # führt nur WAVE
         b = services.bestellung_anlegen(self.m, self.lf)
-        zeilen = services.bedarf_fuer_lieferant(b)
+        alle = services.bedarf_fuer_lieferant(b)
+        self.assertEqual({z["artikel"] for z in alle}, {self.maus, self.kabel})
+        self.assertFalse(next(z for z in alle if z["artikel"] == self.kabel)["fuehrt"])
+        zeilen = services.bedarf_fuer_lieferant(b, nur_lieferant=True)
         self.assertEqual([z["artikel"] for z in zeilen], [self.maus])
         z = zeilen[0]
         self.assertEqual((z["menge"], z["ek_hier"], z["bestellnr_hier"], z["bestand_hier"]), (D("3"), D("9"), "TD-M", 40))
         self.assertTrue(z["guenstiger"])  # WAVE hat 8 statt 9
-        alle = services.bedarf_fuer_lieferant(b, alle=True)
-        self.assertEqual({z["artikel"] for z in alle}, {self.maus, self.kabel})
-        self.assertFalse(next(z for z in alle if z["artikel"] == self.kabel)["fuehrt"])
-        r = self.client.get(reverse("einkauf:bestellung", args=[b.pk]))
+        url = reverse("einkauf:bestellung", args=[b.pk])
+        r = self.client.get(url)
+        self.assertEqual({z["artikel"] for z in r.context["bedarf"]}, {self.maus, self.kabel})
         self.assertContains(r, f'name="menge_{self.maus.pk}" value="3"')
-        self.assertContains(r, "günstiger bei WAVE")
+        self.assertContains(r, f'name="auswahl" value="{self.maus.pk}" aria-label="M1 übernehmen" checked')
+        self.assertContains(r, f'name="auswahl" value="{self.kabel.pk}" aria-label="K1 übernehmen">')  # führt TD nicht: kein Haken
+        self.assertContains(r, "gesamte Bedarf")
+        r = self.client.get(url, {"bedarf": "lieferant"})
+        self.assertEqual([z["artikel"] for z in r.context["bedarf"]], [self.maus])
+        self.assertContains(r, "gesamten Bedarf zeigen")
+
+    def test_bedarf_zeigt_guenstigste_lieferanten_je_position(self):
+        self.kundenbestellung(self.maus, "3")
+        self.kundenbestellung(self.kabel, "2")
+        self.kundenbestellung(self.tast, "1")
+        lf3 = Lieferant.objects.create(nummer="L3", name1="Alpha KG", kurzname="ALPHA")
+        lf4 = Lieferant.objects.create(nummer="L4", name1="Billig OHG", kurzname="BILLIG")
+        lf5 = Lieferant.objects.create(nummer="L5", name1="Gesperrt AG", kurzname="GESP", gesperrt=True)
+        ArtikelLieferant.objects.create(artikel=self.maus, lieferant=lf3, bestellnummer="A-M", ek=D("7"), bestand=0)   # billig, aber nicht lieferbar
+        ArtikelLieferant.objects.create(artikel=self.maus, lieferant=lf4, bestellnummer="B-M", ek=D("8.50"), bestand=3)
+        ArtikelLieferant.objects.create(artikel=self.maus, lieferant=lf5, bestellnummer="G-M", ek=D("1"))             # gesperrt
+        b = services.bestellung_anlegen(self.m, self.lf)
+        zeilen = {z["artikel"]: z for z in services.bedarf_fuer_lieferant(b)}
+        self.assertEqual([(g["lieferant"].kurz, g["ek"], g["hier"]) for g in zeilen[self.maus]["guenstigste"]],
+                         [("WAVE", D("8"), False), ("BILLIG", D("8.50"), False), ("TD", D("9"), True)])  # höchstens 3, Bestand 0 zuletzt
+        self.assertEqual([g["lieferant"].kurz for g in zeilen[self.kabel]["guenstigste"]], ["WAVE"])
+        self.assertEqual([(g["lieferant"].kurz, g["hier"]) for g in zeilen[self.tast]["guenstigste"]], [("TD", True)])
+        r = self.client.get(reverse("einkauf:bestellung", args=[b.pk]))
+        self.assertContains(r, "Günstigste Lieferanten")
+        self.assertContains(r, "WAVE: 8,00")
+        self.assertContains(r, "BILLIG: 8,50")
+        self.assertNotContains(r, "GESP")
+
+    def test_bedarf_ohne_lieferant_in_den_preislisten(self):
+        ohne = Artikel.objects.create(nummer="O1", bezeichnung="Ohne Preisliste", steuersatz=Steuersatz.objects.get(nummer=1), vk1=D("5"))
+        self.kundenbestellung(ohne, "1")
+        b = services.bestellung_anlegen(self.m, self.lf)
+        self.assertEqual(services.bedarf_fuer_lieferant(b)[0]["guenstigste"], [])
+        self.assertContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), "kein Lieferant in den Preislisten")
 
     def test_bedarf_uebernehmen_und_danach_weg(self):
         self.kundenbestellung(self.maus, "3")

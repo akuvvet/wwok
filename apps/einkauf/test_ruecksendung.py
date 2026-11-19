@@ -211,8 +211,12 @@ class RuecksendungTest(TestCase):
         b2.status = BestellStatus.BESTELLT
         b2.save()
         self.anmelden()
-        for url in (reverse("einkauf:lieferant", args=[self.lf.pk]), reverse("einkauf:bestellung", args=[b.pk]),
-                    reverse("einkauf:wareneingang", args=[we.pk])):
+        # Lieferantenseite: Knöpfe unter der Adresse, kein Untermenü in der Seitenleiste (Wunsch des Nutzers 19.11.2026)
+        r = self.client.get(reverse("einkauf:lieferant", args=[self.lf.pk]))
+        self.assertNotContains(r, "Neuer Beleg für TD")
+        self.assertContains(r, f'<option value="{b2.pk}">zu {b2.nummer}</option>', count=1)
+        self.assertContains(r, 'action="%s"' % reverse("einkauf:bestellung_neu"), count=1)
+        for url in (reverse("einkauf:bestellung", args=[b.pk]), reverse("einkauf:wareneingang", args=[we.pk])):
             r = self.client.get(url)
             self.assertContains(r, "Neuer Beleg für TD")
             self.assertContains(r, "+ Bestellung</button>")
@@ -222,10 +226,11 @@ class RuecksendungTest(TestCase):
         self.assertContains(self.client.get(reverse("einkauf:bestellungen")), "WE-Rücksendung</span>")
 
     def test_gesperrter_lieferant_ohne_knoepfe(self):
+        b = services.bestellung_anlegen(self.m, self.lf)  # vor der Sperre angelegt: die Bestellung zeigt das Seitenmenü
         self.lf.gesperrt = True
         self.lf.save()
         self.anmelden()
-        r = self.client.get(reverse("einkauf:lieferant", args=[self.lf.pk]))
+        r = self.client.get(reverse("einkauf:bestellung", args=[b.pk]))
         self.assertContains(r, "Lieferant gesperrt</small>")
         self.assertNotContains(r, "Neuer Beleg für TD")
 
