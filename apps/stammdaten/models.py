@@ -8,9 +8,10 @@ Ansprechpartner, letzter EK.
 import logging
 import os
 import uuid
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models.signals import post_delete
@@ -424,6 +425,35 @@ class EkHerkunft(models.TextChoices):
     WARENEINGANG = "wareneingang", "Wareneingang"
 
 
+KENNUNGEN = ("ean", "amazon_asin", "amazon_sku", "amazon_fnsku", "isbn", "upc", "ebay_id")  # werden in jeder Artikelsuche durchsucht
+
+
+def isbn_normalisieren(text):
+    """ISBN ohne Bindestriche und Leerzeichen, X in Großbuchstaben."""
+    return (text or "").replace("-", "").replace(" ", "").upper()
+
+
+def isbn_gueltig(isbn):
+    """Prüfziffer von ISBN-10 (Summe gewichtet mod 11) bzw. ISBN-13 (Gewichte 1/3 mod 10); erwartet normalisierten Text."""
+    if len(isbn) == 10 and isbn[:9].isdigit() and (isbn[9].isdigit() or isbn[9] == "X"):
+        summe = sum((10 - i) * int(z) for i, z in enumerate(isbn[:9])) + (10 if isbn[9] == "X" else int(isbn[9]))
+        return summe % 11 == 0
+    if len(isbn) == 13 and isbn.isascii() and isbn.isdigit():
+        return sum(int(z) * (1 if i % 2 == 0 else 3) for i, z in enumerate(isbn)) % 10 == 0
+    return False
+
+
+def kennungen_filter(wort):
+    """Q-Objekt: Wort steht in einer der Kennungen (EAN, ASIN, SKU, FNSKU, ISBN, UPC, eBay-ID); ISBN auch ohne Bindestriche."""
+    bedingung = models.Q()
+    for feld in KENNUNGEN:
+        bedingung |= models.Q(**{f"{feld}__icontains": wort})
+    sauber = isbn_normalisieren(wort)
+    if sauber and sauber != wort:
+        bedingung |= models.Q(isbn__icontains=sauber)
+    return bedingung
+
+
 class ArtikelQuerySet(models.QuerySet):
     def shop_sichtbar(self):
         """Die eine Regel für „im Shop sichtbar“: online, aktiv und keine Kategorie oder Kategorie wirksam online."""
@@ -449,6 +479,15 @@ class Artikel(Zeitstempel):
     hersteller = models.ForeignKey(Hersteller, on_delete=models.PROTECT, null=True, blank=True)
     herstellernummer = models.CharField("Herstellernummer", max_length=100, blank=True, db_index=True)
     ean = models.CharField("EAN", max_length=14, blank=True, db_index=True)
+    # Kennungen für Marktplätze und Bücher (Entscheidung 19.11.2026); alle werden in jeder Artikelsuche wie die EAN gefunden
+    amazon_asin = models.CharField("Amazon ASIN", max_length=10, blank=True, db_index=True)
+    amazon_sku = models.CharField("Amazon SKU", max_length=60, blank=True, db_index=True)
+    amazon_fnsku = models.CharField("Amazon FNSKU", max_length=10, blank=True, db_index=True)
+    isbn = models.CharField("ISBN", max_length=17, blank=True, db_index=True, help_text="ISBN-10 oder ISBN-13, Bindestriche erlaubt.")
+    upc = models.CharField("UPC", max_length=12, blank=True, db_index=True, help_text="12 Ziffern.")
+    ebay_id = models.CharField("eBay-ID", max_length=40, blank=True, db_index=True)
+    weitere_kategorien = models.ManyToManyField(Kategorie, blank=True, related_name="artikel_weitere", verbose_name="weitere Kategorien",
+                                                help_text="Zusätzlich zur Hauptkategorie; gilt auch im Shop.")
     laenge_cm = models.DecimalField("Länge (cm)", max_digits=8, decimal_places=2, null=True, blank=True)
     breite_cm = models.DecimalField("Breite (cm)", max_digits=8, decimal_places=2, null=True, blank=True)
     hoehe_cm = models.DecimalField("Höhe (cm)", max_digits=8, decimal_places=2, null=True, blank=True)
@@ -506,6 +545,20 @@ class Artikel(Zeitstempel):
     aufschlag_vk1 = models.DecimalField("Aufschlag VK1 %", max_digits=6, decimal_places=2, null=True, blank=True)
     aufschlag_vk2 = models.DecimalField("Aufschlag VK2 %", max_digits=6, decimal_places=2, null=True, blank=True)
     aufschlag_vk3 = models.DecimalField("Aufschlag VK3 %", max_digits=6, decimal_places=2, null=True, blank=True)
+    uvp = models.DecimalField("UVP netto (empfohlener VK)", null=True, blank=True, validators=[MinValueValidator(0)], **GELD)
+    ek3 = models.DecimalField("EK-Preis 3 netto", null=True, blank=True, validators=[MinValueValidator(0)], **EK_GELD)
+    sonder_ek = models.DecimalField("Sonder-EK netto", null=True, blank=True, validators=[MinValueValidator(0)], **EK_GELD)
+    sonder_ek_von = models.DateField("Sonder-EK gültig von", null=True, blank=True)
+    sonder_ek_bis = models.DateField("Sonder-EK gültig bis", null=True, blank=True)
+    vk_min = models.DecimalField("VK-Untergrenze netto", null=True, blank=True, validators=[MinValueValidator(0)], **GELD,
+                                 help_text="Darunter warnt der Beleg.")
+    vk_max = models.DecimalField("VK-Obergrenze netto", null=True, blank=True, validators=[MinValueValidator(0)], **GELD,
+                                 help_text="Darüber warnt der Beleg.")
+    preiseinheit = models.PositiveIntegerField("Preiseinheit (VK gilt je n Stück)", default=1, validators=[MinValueValidator(1)])
+    # Grundpreis nach Preisangabenverordnung: Preis × Faktor = Preis je Bezugsgröße (z. B. Faktor 10 bei 100 g → Preis je kg)
+    grundpreis_faktor = models.DecimalField("Grundpreis-Faktor", max_digits=12, decimal_places=6, null=True, blank=True,
+                                            validators=[MinValueValidator(0)], help_text="Preis × Faktor = Grundpreis, z. B. 10 bei 100 g je kg.")
+    grundpreis_einheit = models.CharField("Grundpreis-Einheit", max_length=10, blank=True, help_text="z. B. kg, l, m, 100 g")
     # Online (eine Checkbox für Shop, eBay, Kaufland)
     online = models.BooleanField("online", default=False)
     kurzbeschreibung = models.TextField("Kurzbeschreibung", blank=True)
@@ -523,6 +576,38 @@ class Artikel(Zeitstempel):
 
     def __str__(self):
         return f"{self.nummer} – {self.bezeichnung}"
+
+    def clean(self):
+        super().clean()
+        fehler = {}
+        if self.isbn:
+            sauber = isbn_normalisieren(self.isbn)
+            if isbn_gueltig(sauber):
+                self.isbn = sauber  # ohne Bindestriche gespeichert, damit die Suche sie findet
+            else:
+                fehler["isbn"] = "Keine gültige ISBN-10 oder ISBN-13 (Prüfziffer stimmt nicht)."
+        if self.upc and not (self.upc.isascii() and self.upc.isdigit()):
+            fehler["upc"] = "Der UPC besteht nur aus Ziffern."
+        if self.vk_min is not None and self.vk_max is not None and self.vk_min > self.vk_max:
+            fehler["vk_max"] = "Die Obergrenze darf nicht unter der Untergrenze liegen."
+        if self.sonder_ek_von and self.sonder_ek_bis and self.sonder_ek_bis < self.sonder_ek_von:
+            fehler["sonder_ek_bis"] = "Der Sonder-EK darf nicht vor seinem Beginn enden."
+        if fehler:
+            raise ValidationError(fehler)
+
+    def grundpreis(self, preis):
+        """Grundpreis nach Preisangabenverordnung: Preis × Faktor, auf 2 Stellen kaufmännisch gerundet; None ohne Preis oder Faktor.
+        Die Preiseinheit (VK gilt je n Stück) wird hier nicht eingerechnet: der Faktor bezieht sich auf den übergebenen Preis."""
+        if preis is None or not self.grundpreis_faktor:
+            return None
+        return (Decimal(preis) * self.grundpreis_faktor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def grundpreis_text(self, preis):
+        """z. B. „12,50 € / kg“; leer, wenn kein Grundpreis berechenbar ist."""
+        wert = self.grundpreis(preis)
+        if wert is None or not self.grundpreis_einheit:
+            return ""
+        return f"{wert:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + f" € / {self.grundpreis_einheit}"
 
 
 class Leistungsartikel(Artikel):

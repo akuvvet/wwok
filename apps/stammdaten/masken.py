@@ -20,6 +20,7 @@ from . import forms as f
 from . import kopie, ustid
 from .models import (BILD_FORMATE, MAX_BILD_BYTES, MAX_BILDER, Artikel, ArtikelBild, ArtikelMandant, Artikeltyp, GruppenKomponente, Kunde, KundeMandant,
                      Lieferant, LieferantMandant, Preislistenartikel, Stammnummer, UstIdPruefung)
+from .models import kennungen_filter
 from .preise import komponenten_zeile
 
 
@@ -89,7 +90,7 @@ def komponenten_suche(request):
     treffer = Artikel.objects.filter(nicht_aktiv=False, typ__in=[Artikeltyp.A, Artikeltyp.L])
     for wort in q.split():
         treffer = treffer.filter(Q(nummer__icontains=wort) | Q(bezeichnung__icontains=wort) | Q(herstellernummer__icontains=wort)
-                                 | Q(hersteller__name__icontains=wort) | Q(ean__icontains=wort))
+                                 | Q(hersteller__name__icontains=wort) | kennungen_filter(wort))
     return JsonResponse({"treffer": [komponenten_zeile(a, Decimal("1")) for a in treffer.order_by("nummer")[:20]]})
 
 

@@ -180,7 +180,8 @@ class ArtikelAdmin(StandardVkMixin, admin.ModelAdmin):
     form = VkVorschlagForm
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "radar_ampel", "online", "aktiv"]
     list_filter = [AuffaelligFilter, "typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
-    search_fields = ["nummer", "bezeichnung", "herstellernummer", "ean"]
+    search_fields = ["nummer", "bezeichnung", "herstellernummer", *m.KENNUNGEN]
+    filter_horizontal = ["weitere_kategorien"]
     list_select_related = ["hersteller", "kategorie__eltern__eltern"]
     readonly_fields = ["ek_anzeige", "shop_hinweis", "angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [ArtikelMandantInline, ArtikelLieferantInline, GruppenKomponenteInline, ArtikelBildInline]
@@ -265,12 +266,15 @@ class ArtikelAdmin(StandardVkMixin, admin.ModelAdmin):
         ek, quelle = m._ek_quelle(obj) if obj.pk else (None, "")
         return f"{ek:.2f} € ({quelle})".replace(".", ",") if ek is not None else "–"
     fieldsets = [
-        ("Grunddaten", {"fields": [("nummer", "typ"), "bezeichnung", "bezeichnung_erweitert", "kategorie",
+        ("Grunddaten", {"fields": [("nummer", "typ"), "bezeichnung", "bezeichnung_erweitert", "kategorie", "weitere_kategorien",
                                    ("hersteller", "herstellernummer", "ean"), ("garantie_monate", "nicht_aktiv"), "esd_key"]}),
+        ("Kennungen", {"fields": [("amazon_asin", "amazon_sku", "amazon_fnsku"), ("isbn", "upc", "ebay_id")]}),
         ("Maße", {"fields": [("laenge_cm", "breite_cm", "hoehe_cm", "gewicht_kg")]}),
         # wie die Artikelmaske: EK und Häkchen, dann VK1–VK3, dann Aufschlag VK1–VK3; „fix“ und Umrechnung per change_form.html
         ("Preise", {"fields": ["steuersatz", ("ek_manuell", "vk1_fuer_alle", "aufschlag_vk1_fuer_alle"), ("vk1", "vk2", "vk3"),
-                               ("aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3")]}),
+                               ("aufschlag_vk1", "aufschlag_vk2", "aufschlag_vk3"),
+                               ("uvp", "ek3", "preiseinheit"), ("sonder_ek", "sonder_ek_von", "sonder_ek_bis"), ("vk_min", "vk_max"),
+                               ("grundpreis_faktor", "grundpreis_einheit")]}),
         ("Online", {"fields": ["online", "shop_hinweis", "kurzbeschreibung", "keywords", "meta_titel",
                                "meta_description", "meta_keywords"]}),
     ]
