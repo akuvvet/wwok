@@ -14,6 +14,6 @@
     <tr><td colspan="3"><strong>{% if saldo < 0 %}Guthaben beim Lieferanten{% else %}Offener Saldo (wir schulden dem Lieferanten){% endif %}</strong></td><td class="zahl"><strong>{{ saldo|floatformat:"2g" }} €</strong></td></tr>
   </table></div>
   <p class="fein">Rechnungen erhöhen den Saldo, Zahlungen, Skonto und Gutschriften senken ihn; zahlt der Lieferant eine Gutschrift aus, steigt er wieder. Verrechnungen stehen in Klammern und ändern den Saldo nicht.</p>
-  <p><button class="leise" onclick="window.print()">Drucken</button></p>
+  <p><a class="knopf" href="?format=pdf" target="_blank" rel="noopener">PDF drucken</a> <button class="leise" onclick="window.print()">Seite drucken</button></p>
 </div>
 {% endblock %}
