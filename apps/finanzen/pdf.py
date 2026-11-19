@@ -17,6 +17,62 @@ def mahnung_text(mahnung) -> str:
     return text_fuer(mahnung)
 
 
+def fusszeile(m):
+    """Seitenfuß mit Firmendaten des Mandanten (wie auf Mahnungen)."""
+    def seite(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(colors.grey)
+        zeilen = [" · ".join(t for t in (m.firmenname, m.strasse, f"{m.plz} {m.ort}".strip()) if t),
+                  " · ".join(t for t in (f"USt-ID {m.ust_id}" if m.ust_id else "", f"IBAN {m.iban}" if m.iban else "",
+                                         f"BIC {m.bic}" if m.bic else "") if t),
+                  " · ".join(t for t in (m.telefon, m.email) if t)]
+        for i, zeile in enumerate(zeilen):
+            canvas.drawCentredString(A4[0] / 2, 16 * mm - i * 3.5 * mm, zeile)
+        canvas.drawRightString(A4[0] - 20 * mm, 16 * mm - 3 * 3.5 * mm, f"Seite {doc.page}")
+        canvas.restoreState()
+    return seite
+
+
+def kontoauszug_pdf(mandant, partner, art, zeilen, saldo, saldo_text, stichtag=None) -> bytes:
+    """Kontoauszug (Kunde oder Lieferant) als PDF: Anschrift, Tabelle Datum/Buchung/Betrag/Saldo, Schlusssaldo.
+    `art` ist „Kunden“ oder „Lieferanten“; Verrechnungen (Betrag None) stehen in Klammern ohne Saldowirkung."""
+    from django.utils import timezone
+    m, stichtag = mandant, stichtag or timezone.localdate()
+    basis = getSampleStyleSheet()["Normal"]
+    normal = ParagraphStyle("n", parent=basis, fontName="Helvetica", fontSize=10, leading=14)
+    zelle = ParagraphStyle("z", parent=normal, fontSize=9, leading=11)
+    klein = ParagraphStyle("k", parent=normal, fontSize=7.5, leading=10, textColor=colors.grey)
+    titel = ParagraphStyle("t", parent=normal, fontName="Helvetica-Bold", fontSize=14, leading=18)
+    puffer = BytesIO()
+    doc = SimpleDocTemplate(puffer, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=15 * mm,
+                            bottomMargin=28 * mm, title=f"{art}kontoauszug {partner.nummer}", author=m.firmenname)
+    anschrift = "\n".join(t for t in (partner.name1, partner.name2, partner.strasse,
+                                      f"{partner.plz} {partner.ort}".strip()) if t)
+    absender = " · ".join(t for t in (m.firmenname, m.strasse, f"{m.plz} {m.ort}".strip()) if t)
+    inhalt = [*logo_elemente(m), absatz(absender, klein), Spacer(1, 4 * mm),
+              absatz(anschrift, normal), Spacer(1, 6 * mm),
+              absatz(f"Stand:{stichtag:%d.%m.%Y} · {art}-Nr. {partner.nummer}", klein), Spacer(1, 4 * mm),
+              Paragraph(escape(f"{art}kontoauszug"), titel), Spacer(1, 5 * mm)]
+    daten = [["Datum", "Buchung", "Betrag", "Saldo"]]
+    for z in zeilen:
+        betrag = f"({euro(z['info'])})" if z["betrag"] is None else euro(z["betrag"])
+        daten.append([z["datum"].strftime("%d.%m.%Y"), absatz(z["text"], zelle), betrag, euro(z["saldo"])])
+    if len(daten) == 1:
+        daten.append(["", absatz("Keine Buchungen.", zelle), "", ""])
+    daten.append(["", absatz(saldo_text, ParagraphStyle("zb", parent=zelle, fontName="Helvetica-Bold")), "", euro(saldo)])
+    t = Table(daten, colWidths=[22 * mm, 96 * mm, 26 * mm, 26 * mm], repeatRows=1)
+    t.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), "Helvetica", 9), ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 9),
+                           ("ALIGN", (2, 0), (3, -1), "RIGHT"), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                           ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.black),
+                           ("FONT", (3, -1), (3, -1), "Helvetica-Bold", 9), ("LINEABOVE", (0, -1), (-1, -1), 0.8, colors.black)]))
+    inhalt.append(t)
+    inhalt += [Spacer(1, 4 * mm), absatz("Beträge in Klammern sind Verrechnungen zwischen Belegen und ändern den Saldo nicht.", klein)]
+    seite = fusszeile(m)
+    doc.build(inhalt, onFirstPage=seite, onLaterPages=seite)
+    return puffer.getvalue()
+
+
 def mahnung_pdf(mahnung) -> bytes:
     beleg, m = mahnung.beleg, mahnung.beleg.mandant
     basis = getSampleStyleSheet()["Normal"]

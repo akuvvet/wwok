@@ -129,6 +129,13 @@ def lieferant_kontoauszug(request, lieferant_id):
     from . import lieferantenkonto
     lieferant = get_object_or_404(Lieferant, pk=lieferant_id)
     zeilen, saldo = lieferantenkonto.kontoauszug(request.mandant, lieferant)
+    if request.GET.get("format") == "pdf":
+        from apps.finanzen.pdf import kontoauszug_pdf
+        text = "Guthaben beim Lieferanten" if saldo < 0 else "Offener Saldo (wir schulden dem Lieferanten)"
+        antwort = HttpResponse(kontoauszug_pdf(request.mandant, lieferant, "Lieferanten", zeilen, saldo, text),
+                               content_type="application/pdf")
+        antwort["Content-Disposition"] = f'inline; filename="Kontoauszug-{lieferant.nummer}.pdf"'
+        return antwort
     return render(request, "einkauf/kontoauszug.html", {"lieferant": lieferant, "zeilen": zeilen, "saldo": saldo, "bereich": "einkauf"})
 
 

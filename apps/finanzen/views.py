@@ -308,6 +308,12 @@ def anzahlung_aufheben(request, verrechnung_id):
 def kontoauszug(request, kunde_id):
     kunde = get_object_or_404(Kunde, pk=kunde_id)
     zeilen, saldo = services.kontoauszug(request.mandant, kunde)
+    if request.GET.get("format") == "pdf":
+        from .pdf import kontoauszug_pdf
+        antwort = HttpResponse(kontoauszug_pdf(request.mandant, kunde, "Kunden", zeilen, saldo, "Offener Saldo (Kunde schuldet)"),
+                               content_type="application/pdf")
+        antwort["Content-Disposition"] = f'inline; filename="Kontoauszug-{kunde.nummer}.pdf"'
+        return antwort
     return render(request, "finanzen/kontoauszug.html", {"kunde": kunde, "zeilen": zeilen, "saldo": saldo})
 
 

@@ -85,6 +85,15 @@ class GutschriftImLieferantenkontoTest(TestCase):
         self.assertContains(seite, "Lieferantenkontoauszug")
         self.assertContains(seite, "Gutschrift GS-K")
         self.assertContains(seite, "(50,00)")
+        self.assertContains(seite, "?format=pdf")
+        pdf = self.client.get(reverse("einkauf:lieferant_kontoauszug", args=[self.lf.pk]), {"format": "pdf"})
+        self.assertEqual(pdf["Content-Type"], "application/pdf")
+        import io
+
+        from pypdf import PdfReader
+        text = "\n".join(s.extract_text() or "" for s in PdfReader(io.BytesIO(pdf.content)).pages)
+        for teil in ("Lieferantenkontoauszug", "Gutschrift GS-K", "(50,00 €)", "129,00 €", "Offener Saldo"):
+            self.assertIn(teil, text)
         lf_seite = self.client.get(reverse("einkauf:lieferant", args=[self.lf.pk]))
         self.assertContains(lf_seite, reverse("einkauf:lieferant_kontoauszug", args=[self.lf.pk]))
 
