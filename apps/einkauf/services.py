@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import F, Q, Sum
 from django.utils import timezone
 
@@ -14,7 +14,8 @@ from apps.stammdaten.ekkalk import ek_import as import_ek_von, plausibilitaet_we
 from apps.stammdaten.models import (KENNUNGEN, Artikel, ArtikelLieferant, ArtikelMandant, Lieferant, Preislistenartikel, isbn_normalisieren, keine_leistung)
 from apps.verkauf.models import Belegart, Nummernkreis, Position
 
-from .models import (RUECKSENDUNG_OFFEN, BestellPosition, BestellStatus, Bestellung, Lieferantenrechnung, Rma, RmaStatus,
+from .models import (RUECKSENDUNG_OFFEN, BestellPosition, BestellStatus, Bestellung, Lieferantengutschrift,
+                     LieferantengutschriftVerrechnung, LieferantengutschriftZahlung, Lieferantenrechnung, Rma, RmaStatus,
                      RechnungStatus, Ruecksendung, RuecksendungArt, RuecksendungPosition, RuecksendungStatus, Wareneingang,
                      WareneingangPosition)
 
@@ -1040,6 +1041,10 @@ def rechnung_loeschen(rechnung, notiz, benutzer=None) -> list:
             raise ValueError("Bezahlte Rechnungen lassen sich nicht löschen – erst die Zahlung stornieren.")
         if r.status == RechnungStatus.EXPORTIERT:
             raise ValueError("Die Rechnung wurde schon zur Zahlung exportiert (SEPA-Datei) und lässt sich nicht löschen. Bitte erst mit der Bank klären.")
+        if r.verrechnet > 0:
+            raise ValueError("Die Rechnung ist mit einer Gutschrift verrechnet – bitte erst die Verrechnung rückgängig machen.")
+        if r.verrechnungen.exists():  # auch rückgängig gemachte bleiben als Nachweis stehen
+            raise ValueError("Zur Rechnung gibt es (rückgängig gemachte) Verrechnungen mit Gutschriften; sie bleibt als Nachweis bestehen und lässt sich nicht löschen.")
         nummern = list(r.wareneingaenge.values_list("nummer", flat=True))
         r.historie_eintrag(f"Rechnung gelöscht – {notiz}" + (f" (Zuordnung aufgehoben: {', '.join(nummern)})" if nummern else ""), benutzer)
         r.save(update_fields=["historie"])
@@ -1172,19 +1177,210 @@ def ruecksendung_versendet(r, benutzer=None) -> Ruecksendung:
 
 
 @transaction.atomic
-def ruecksendung_gutschrift(r, betrag, benutzer=None) -> Ruecksendung:
-    """Gutschrift des Lieferanten erhalten (Betrag netto, Pflicht). Auch nach einer Rücksendung zum Austausch möglich,
-    wenn der Lieferant keinen Ersatz liefert."""
+def ruecksendung_gutschrift(r, nummer, datum, netto, steuer, brutto, notiz="", benutzer=None) -> Ruecksendung:
+    """Gutschrift des Lieferanten erhalten: Belegdaten (Gutschrift-Nr., Datum, Netto, USt, Brutto) werden als
+    Lieferanten-Gutschrift erfasst (Entscheidung Nutzer 19.11.2026), `gutschrift_betrag` bleibt das Netto. Auch nach einer
+    Rücksendung zum Austausch möglich, wenn der Lieferant keinen Ersatz liefert."""
     r = _ruecksendung_offen(r)
-    if betrag is None or not betrag.is_finite() or betrag < 0:
-        raise ValueError("Bitte den Betrag der Gutschrift (netto) eintragen.")
-    if betrag >= Decimal("10000000000"):
-        raise ValueError("Der Betrag der Gutschrift ist zu groß.")
-    r.status, r.gutschrift_betrag, r.erledigt_am = RuecksendungStatus.GUTSCHRIFT, betrag.quantize(Decimal("0.01")), timezone.localdate()
+    g = gutschrift_erfassen(r.mandant, r.lieferant, nummer, datum, netto, steuer, brutto, notiz, ruecksendung=r, benutzer=benutzer)
+    r.status, r.gutschrift_betrag, r.erledigt_am = RuecksendungStatus.GUTSCHRIFT, g.netto, timezone.localdate()
     r.versendet_am = r.versendet_am or r.erledigt_am
-    r.historie_eintrag(f"Gutschrift erhalten: {r.gutschrift_betrag} € netto (erwartet {r.summe_netto} €)", benutzer)
+    r.historie_eintrag(f"Gutschrift {g.nummer} erhalten: {g.netto} € netto, {g.brutto} € brutto (erwartet {r.summe_netto} € netto)", benutzer)
     r.save()
     return r
+
+
+# ---- Gutschrift des Lieferanten: erfassen, verrechnen, Zahlung (Entscheidung Nutzer 19.11.2026) ----------
+
+GUTSCHRIFT_GRENZE = Decimal("10000000000")
+CENT = Decimal("0.01")
+
+
+def _geld_pruefen(wert, name, minimum_null=False):
+    """Betrag prüfen und auf Cent runden; minimum_null: 0 ist erlaubt (USt)."""
+    if wert is None or not wert.is_finite():
+        raise ValueError(f"Bitte {name} der Gutschrift angeben.")
+    if wert >= GUTSCHRIFT_GRENZE:
+        raise ValueError(f"Der Betrag der Gutschrift ist zu groß ({name}).")
+    if wert < 0 or (wert == 0 and not minimum_null):
+        raise ValueError(f"{name} der Gutschrift muss {'mindestens 0' if minimum_null else 'größer als 0'} sein.")
+    return wert.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def gutschrift_erfassen(mandant, lieferant, nummer, datum, netto, steuer, brutto, notiz="", ruecksendung=None, benutzer=None) -> Lieferantengutschrift:
+    """Gutschrift des Lieferanten anlegen: Nummer und Datum Pflicht (Datum nicht in der Zukunft), Nummer je Mandant und
+    Lieferant eindeutig, Netto plus USt = Brutto auf 1 Cent."""
+    nummer = " ".join((nummer or "").split())
+    if not nummer:
+        raise ValueError("Bitte die Gutschrift-Nr. des Lieferanten angeben.")
+    if len(nummer) > 60:
+        raise ValueError("Die Gutschrift-Nr. ist zu lang (höchstens 60 Zeichen).")
+    if datum is None:
+        raise ValueError("Bitte das Gutschriftdatum angeben.")
+    if datum > timezone.localdate():
+        raise ValueError("Das Gutschriftdatum darf nicht in der Zukunft liegen.")
+    netto, brutto = _geld_pruefen(netto, "Netto"), _geld_pruefen(brutto, "Brutto")
+    steuer = _geld_pruefen(steuer, "USt", minimum_null=True)
+    if abs(netto + steuer - brutto) > CENT:
+        raise ValueError("Netto plus USt ergibt nicht den Bruttobetrag.")
+    if ruecksendung is not None and (ruecksendung.mandant_id != mandant.pk or ruecksendung.lieferant_id != lieferant.pk):
+        raise ValueError("Die Rücksendung gehört nicht zu diesem Mandanten und Lieferanten.")
+    if Lieferantengutschrift.objects.filter(mandant=mandant, lieferant=lieferant, nummer__iexact=nummer).exists():
+        raise ValueError(f"Die Gutschrift {nummer} von {lieferant.name1} ist bereits erfasst.")
+    g = Lieferantengutschrift(mandant=mandant, lieferant=lieferant, ruecksendung=ruecksendung, nummer=nummer, datum=datum,
+                              netto=netto, steuer=steuer, brutto=brutto, notiz=(notiz or "").strip()[:200], benutzer=benutzer)
+    g.historie_eintrag(f"erfasst: netto {netto} €, USt {steuer} €, brutto {brutto} €" + (f" (zu {ruecksendung.nummer})" if ruecksendung else ""), benutzer)
+    try:
+        with transaction.atomic():
+            g.save()
+    except IntegrityError:  # gleichzeitig dieselbe Nummer erfasst
+        raise ValueError(f"Die Gutschrift {nummer} von {lieferant.name1} ist bereits erfasst.")
+    return g
+
+
+def _gutschrift_sperren(gutschrift) -> Lieferantengutschrift:
+    return Lieferantengutschrift.objects.select_for_update().select_related("lieferant").get(pk=gutschrift.pk)
+
+
+def _datum_pruefen(datum):
+    datum = datum or timezone.localdate()
+    if datum > timezone.localdate():
+        raise ValueError("Das Datum darf nicht in der Zukunft liegen.")
+    return datum
+
+
+def _teilbetrag_pruefen(betrag):
+    if betrag is None or not betrag.is_finite() or betrag <= 0:
+        raise ValueError("Der Betrag muss größer als 0 sein.")
+    if betrag >= GUTSCHRIFT_GRENZE:
+        raise ValueError("Der Betrag ist zu groß.")
+    return betrag.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+@transaction.atomic
+def gutschrift_verrechnen(gutschrift, rechnung, betrag, datum=None, benutzer=None) -> LieferantengutschriftVerrechnung:
+    """Gutschrift (brutto) gegen eine offene Lieferantenrechnung desselben Lieferanten und Mandanten verrechnen, auch teilweise.
+    Betrag höchstens Restguthaben und offener Betrag (Brutto minus frühere Verrechnungen). Voll verrechnet = bezahlt
+    (bezahlt am = Verrechnungsdatum, Zahlbetrag 0)."""
+    g = _gutschrift_sperren(gutschrift)  # feste Reihenfolge: erst Gutschrift, dann Rechnung
+    r = Lieferantenrechnung.objects.select_for_update().select_related("lieferant").get(pk=rechnung.pk)
+    if r.mandant_id != g.mandant_id or r.lieferant_id != g.lieferant_id:
+        raise ValueError("Die Rechnung gehört nicht zum selben Lieferanten und Mandanten wie die Gutschrift.")
+    if r.status == RechnungStatus.BEZAHLT:
+        raise ValueError(f"Die Rechnung {r.rechnungsnummer} ist schon bezahlt.")
+    if r.status == RechnungStatus.EXPORTIERT:
+        raise ValueError(f"Die Rechnung {r.rechnungsnummer} wurde schon zur Zahlung exportiert (SEPA-Datei) – eine Verrechnung könnte doppelt zahlen lassen. "
+                         "Bitte erst mit der Bank klären.")
+    r.freigabe_pruefen()
+    betrag, datum = _teilbetrag_pruefen(betrag), _datum_pruefen(datum)
+    rest = g.restguthaben
+    if betrag > rest:
+        raise ValueError(f"Höchstens {rest} € möglich (Restguthaben der Gutschrift {g.nummer}).")
+    offen = r.offener_betrag
+    if betrag > offen:
+        raise ValueError(f"Höchstens {offen} € möglich (offener Betrag der Rechnung {r.rechnungsnummer}).")
+    if betrag < offen and r.zahlbetrag(datum) - betrag <= 0:  # Rest läge unter dem Skontobetrag: nichts mehr zu überweisen, aber nicht „voll“
+        raise ValueError(f"Der Rest der Rechnung läge unter dem Skontobetrag – bitte den vollen offenen Betrag ({offen} €) verrechnen.")
+    v = LieferantengutschriftVerrechnung.objects.create(gutschrift=g, rechnung=r, betrag=betrag, datum=datum, benutzer=benutzer)
+    r.historie_eintrag(f"{betrag} € mit Gutschrift {g.nummer} verrechnet", benutzer)
+    if betrag == offen:
+        r.status, r.bezahlt_am, r.bezahlter_betrag = RechnungStatus.BEZAHLT, datum, Decimal("0")
+        r.historie_eintrag(f"durch Verrechnung vollständig bezahlt (Gutschrift {g.nummer})", benutzer)
+    r.save()
+    g.historie_eintrag(f"{betrag} € mit Rechnung {r.rechnungsnummer} verrechnet (Restguthaben {g.restguthaben} €)", benutzer)
+    g.save(update_fields=["historie", "geaendert_am"])
+    return v
+
+
+@transaction.atomic
+def verrechnung_aufheben(verrechnung, grund, benutzer=None) -> LieferantengutschriftVerrechnung:
+    """Verrechnung rückgängig machen (Pflichtgrund): nur solange die Rechnung offen oder allein durch Verrechnung bezahlt ist,
+    nicht nach SEPA-Export und nicht nach einer gebuchten Zahlung. Historie an Gutschrift und Rechnung."""
+    grund = " ".join((grund or "").split())
+    if not grund:
+        raise ValueError("Bitte einen Grund für das Rückgängigmachen angeben.")
+    g = _gutschrift_sperren(verrechnung.gutschrift)
+    r = Lieferantenrechnung.objects.select_for_update().get(pk=verrechnung.rechnung_id)
+    v = LieferantengutschriftVerrechnung.objects.select_for_update().get(pk=verrechnung.pk)
+    if v.aufgehoben:
+        raise ValueError("Die Verrechnung ist schon rückgängig gemacht.")
+    if r.status == RechnungStatus.EXPORTIERT:
+        raise ValueError(f"Die Rechnung {r.rechnungsnummer} wurde schon zur Zahlung exportiert (SEPA-Datei) – bitte erst mit der Bank klären.")
+    if r.status == RechnungStatus.BEZAHLT and not r.durch_verrechnung_bezahlt:
+        raise ValueError(f"Die Rechnung {r.rechnungsnummer} ist anders bezahlt – bitte erst die Zahlung stornieren.")
+    v.aufgehoben, v.aufgehoben_am, v.aufgehoben_grund, v.aufgehoben_von = True, timezone.now(), grund[:300], benutzer
+    v.save()
+    r.historie_eintrag(f"Verrechnung {v.betrag} € mit Gutschrift {g.nummer} rückgängig gemacht – {grund}", benutzer)
+    if r.status == RechnungStatus.BEZAHLT:
+        r.status, r.bezahlt_am, r.bezahlter_betrag = RechnungStatus.OFFEN, None, None
+    r.save()
+    g.historie_eintrag(f"Verrechnung {v.betrag} € mit Rechnung {r.rechnungsnummer} rückgängig gemacht – {grund}", benutzer)
+    g.save(update_fields=["historie", "geaendert_am"])
+    return v
+
+
+@transaction.atomic
+def gutschrift_zahlung_buchen(gutschrift, betrag, datum=None, benutzer=None, bankumsatz=None) -> LieferantengutschriftZahlung:
+    """Zahlung des Lieferanten auf die Gutschrift (Eingang), höchstens das Restguthaben. Mit `bankumsatz` ist es die Zuordnung
+    aus dem Bankabgleich (positiver, noch offener Umsatz desselben Mandanten; Betrag und Datum kommen dann vom Umsatz)."""
+    g = _gutschrift_sperren(gutschrift)
+    if bankumsatz is not None:
+        from apps.finanzen.models import Bankumsatz
+        u = Bankumsatz.objects.select_for_update().get(pk=bankumsatz.pk)
+        if u.mandant_id != g.mandant_id:
+            raise ValueError("Der Umsatz gehört zu einem anderen Mandanten.")
+        if u.betrag <= 0:
+            raise ValueError("Nur ein Zahlungseingang (positiver Betrag) lässt sich einer Gutschrift zuordnen.")
+        if u.status != Bankumsatz.OFFEN or u.zahlungen.filter(storno_zu__isnull=True, storniert_durch__isnull=True).exists():
+            raise ValueError("Umsatz ist bereits zugeordnet.")
+        betrag, datum = u.betrag, u.buchungsdatum
+    betrag, datum = _teilbetrag_pruefen(betrag), _datum_pruefen(datum)
+    rest = g.restguthaben
+    if betrag > rest:
+        raise ValueError(f"Höchstens {rest} € möglich (Restguthaben der Gutschrift {g.nummer}).")
+    z = LieferantengutschriftZahlung.objects.create(gutschrift=g, datum=datum, betrag=betrag, bankumsatz=bankumsatz, benutzer=benutzer)
+    if bankumsatz is not None:
+        u.status, u.vorschlag = Bankumsatz.ZUGEORDNET, None
+        u.save(update_fields=["status", "vorschlag"])
+    g.historie_eintrag(f"Zahlung des Lieferanten {betrag} € erhalten ({datum:%d.%m.%Y})" + (" – aus dem Bankabgleich" if bankumsatz else "")
+                       + f", Restguthaben {g.restguthaben} €", benutzer)
+    g.save(update_fields=["historie", "geaendert_am"])
+    return z
+
+
+@transaction.atomic
+def gutschrift_zahlung_stornieren(zahlung, grund, benutzer=None) -> LieferantengutschriftZahlung:
+    """Zahlungseingang stornieren (Pflichtgrund); der Bankumsatz, falls es einen gibt, ist wieder offen."""
+    grund = " ".join((grund or "").split())
+    if not grund:
+        raise ValueError("Bitte einen Stornogrund angeben.")
+    g = _gutschrift_sperren(zahlung.gutschrift)
+    z = LieferantengutschriftZahlung.objects.select_for_update().get(pk=zahlung.pk)
+    if z.storniert:
+        raise ValueError("Die Zahlung ist schon storniert.")
+    z.storniert, z.storno_am, z.storno_grund, z.storno_von = True, timezone.now(), grund[:300], benutzer
+    z.save()
+    if z.bankumsatz_id:
+        from apps.finanzen.models import Bankumsatz
+        Bankumsatz.objects.filter(pk=z.bankumsatz_id, status=Bankumsatz.ZUGEORDNET).update(status=Bankumsatz.OFFEN)
+    g.historie_eintrag(f"Zahlung vom {z.datum:%d.%m.%Y} über {z.betrag} € storniert – {grund}", benutzer)
+    g.save(update_fields=["historie", "geaendert_am"])
+    return z
+
+
+def offene_gutschriften(mandant, lieferant=None):
+    """Gutschriften mit Restguthaben > 0 (für Offene Posten Lieferanten und Bankabgleich)."""
+    qs = Lieferantengutschrift.objects.filter(mandant=mandant).select_related("lieferant").prefetch_related("verrechnungen", "zahlungen")
+    if lieferant is not None:
+        qs = qs.filter(lieferant=lieferant)
+    return [g for g in qs if g.restguthaben > 0]
+
+
+def verrechenbare_rechnungen(gutschrift):
+    """Offene (nicht exportierte, nicht bezahlte) Rechnungen desselben Lieferanten und Mandanten mit offenem Betrag."""
+    qs = Lieferantenrechnung.objects.filter(mandant=gutschrift.mandant, lieferant=gutschrift.lieferant, status=RechnungStatus.OFFEN) \
+        .prefetch_related("verrechnungen")
+    return [r for r in qs if r.offener_betrag > 0]
 
 
 @transaction.atomic

@@ -51,7 +51,7 @@
     <tr><td>{% if r.status != 'bezahlt' %}<input type="checkbox" name="auswahl" value="{{ r.pk }}">{% endif %}</td>
         <td><a href="{% url 'einkauf:lieferant' r.lieferant_id %}" title="{{ r.lieferant.nummer }} – {{ r.lieferant.name1 }}">{{ r.lieferant.kurz }}</a></td><td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a></td>
         <td>{{ r.datum|date:"d.m.Y" }}</td><td>{{ r.faellig|date:"d.m.Y" }}</td><td class="zahl">{{ r.brutto }}</td>
-        <td class="zahl">{{ zahlbetrag }}{% if zahlbetrag != r.brutto %} <small>(Skonto)</small>{% endif %}</td>
+        <td class="zahl">{{ zahlbetrag }}{% if r.verrechnet %} <small>(nach Gutschrift)</small>{% elif zahlbetrag != r.brutto %} <small>(Skonto)</small>{% endif %}</td>
         <td>{% if not abgleich.verknuepft %}<span style="opacity:.6">kein Wareneingang</span>{% elif abgleich.ok %}passt{% else %}{% if abgleich.bestaetigt %}Abweichung {{ abgleich.differenz }} € bestätigt{% else %}<span style="color:var(--warn)">Abweichung {{ abgleich.differenz }} € – klären</span>{% endif %}{% endif %}{% if r.bemerkung %}<br><small>{{ r.bemerkung }}</small>{% endif %}</td>
         <td>{% status_symbol "lieferantenrechnung" r.status r.get_status_display faellig=r.faellig skonto_bis=r.skonto_bis %}</td></tr>
     {% empty %}<tr><td colspan="9">Keine Rechnungen.</td></tr>{% endfor %}
@@ -61,4 +61,23 @@
     <button type="submit">SEPA-Datei für Auswahl erzeugen (StarMoney)</button></p>
   </form>
 </div>
+{% if gutschriften %}<div class="karte">
+  <h2>Guthaben bei Lieferanten (Gutschriften)</h2>
+  <table>
+    <tr><th>Lieferant</th><th>Gutschrift</th><th>Datum</th><th class="zahl">Brutto</th><th class="zahl">Restguthaben</th></tr>
+    {% for g in gutschriften %}<tr><td><a href="{% url 'einkauf:lieferant' g.lieferant_id %}" title="{{ g.lieferant.nummer }} – {{ g.lieferant.name1 }}">{{ g.lieferant.kurz }}</a></td>
+      <td><a href="{% url 'einkauf:gutschrift' g.pk %}">{{ g.nummer }}</a></td><td>{{ g.datum|date:"d.m.Y" }}</td>
+      <td class="zahl">{{ g.brutto|floatformat:"2g" }}</td><td class="zahl"><strong>{{ g.restguthaben|floatformat:"2g" }} €</strong></td></tr>{% endfor %}
+  </table>
+  <p style="opacity:.8">Das Guthaben mindert die Zahlung, sobald du es in der Gutschrift mit einer offenen Rechnung verrechnest, oder wird als Zahlung des Lieferanten gebucht.</p>
+</div>{% endif %}
+{% if eingaenge %}<div class="karte">
+  <h2>Zahlungseingänge von Lieferanten (Gutschriften)</h2>
+  <table>
+    <tr><th>Datum</th><th>Lieferant</th><th>Gutschrift</th><th class="zahl">Betrag</th><th>Stand</th></tr>
+    {% for z in eingaenge %}<tr{% if z.storniert %} style="opacity:.6"{% endif %}><td>{{ z.datum|date:"d.m.Y" }}</td><td>{{ z.gutschrift.lieferant.kurz }}</td>
+      <td><a href="{% url 'einkauf:gutschrift' z.gutschrift_id %}">{{ z.gutschrift.nummer }}</a></td><td class="zahl">{{ z.betrag|floatformat:"2g" }}</td>
+      <td>{% if z.storniert %}storniert – {{ z.storno_grund }}{% else %}gebucht{% endif %}</td></tr>{% endfor %}
+  </table>
+</div>{% endif %}
 {% endblock %}

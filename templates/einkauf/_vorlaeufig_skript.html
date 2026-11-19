@@ -7,12 +7,12 @@
         URL_VERLASSEN = "{% url 'einkauf:bestellung_verlassen' b.pk %}";
     var abschluss = document.getElementById('abschlussform'), token = (document.querySelector('input[name=csrfmiddlewaretoken]') || {}).value || '';
     var durchlassen = false, laeuft = false, fragt = false, gesendet = false;
-    function verwerfen() {
+    function verwerfen(ziel) {
       laeuft = true;  // gegen Doppelklick: bis zur Antwort geht nichts anderes
       fetch(URL_VERWERFEN, {method: 'POST', credentials: 'same-origin', headers: {'X-Wwok-Stand': '1', 'X-CSRFToken': token}})
         .then(function (r) { return r.json(); })
         .then(function (d) {
-          if (d.ok) { durchlassen = true; location.href = d.weiter; return; }
+          if (d.ok) { durchlassen = true; location.href = ziel || d.weiter; return; }  // verworfen: zum angeklickten Menüpunkt
           laeuft = false;
           wwokToast(d.fehler || 'Die Bestellung konnte nicht verworfen werden.', 'error');
           if (d.weiter) { durchlassen = true; setTimeout(function () { location.href = d.weiter; }, 2500); }
@@ -26,8 +26,15 @@
         {text: 'Abschließen', wert: 'abschliessen', haupt: true}, {text: 'Verwerfen', wert: 'verwerfen'}, {text: 'Zurück', wert: null}
       ]).then(function (wert) {
         fragt = false;
-        if (wert === 'abschliessen' && abschluss) abschluss.requestSubmit();  // das ursprüngliche Ziel entfällt
-        else if (wert === 'verwerfen') verwerfen();
+        if (wert === 'abschliessen' && abschluss) {
+          if (ziel) {  // danach zum angeklickten Menüpunkt (Wunsch des Nutzers 19.11.2026)
+            var w = abschluss.querySelector('[name=weiter]');
+            if (!w) { w = document.createElement('input'); w.type = 'hidden'; w.name = 'weiter'; abschluss.appendChild(w); }
+            w.value = ziel; durchlassen = true;
+          }
+          abschluss.requestSubmit();
+        }
+        else if (wert === 'verwerfen') verwerfen(ziel);
       });
     }
     function bleibt(a) {  // Links, die die Bestellung nicht verlassen

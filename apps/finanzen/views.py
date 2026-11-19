@@ -450,7 +450,12 @@ def bank(request):
     umsaetze = Bankumsatz.objects.filter(mandant=request.mandant)
     if status in ("offen", "zugeordnet", "ignoriert"):
         umsaetze = umsaetze.filter(status=status)
-    seite, parameter = blaettern(request, umsaetze.select_related("vorschlag", "vorschlag__kunde", "zahlung").prefetch_related("zahlungen__beleg"))
+    seite, parameter = blaettern(request, umsaetze.select_related("vorschlag", "vorschlag__kunde", "zahlung").prefetch_related("zahlungen__beleg", "gutschrift_zahlungen__gutschrift"))
+    from apps.einkauf import services as einkauf_services
+    gutschriften = einkauf_services.offene_gutschriften(request.mandant)  # Eingang eines Lieferanten statt Kundenzahlung
+    for u in seite:
+        u.gutschrift_vorschlag = {g.pk for g, _ in bankmodul.gutschrift_treffer(u, gutschriften)} if u.status == "offen" else set()
+        u.gutschrift_auswahl = [g for g in gutschriften if g.restguthaben >= u.betrag] if u.status == "offen" and u.betrag > 0 else []
     return render(request, "finanzen/bank.html", {
         "umsaetze": seite, "seite": seite, "parameter": parameter, "status": status})
 
@@ -475,6 +480,19 @@ def bank_zuordnen(request, umsatz_id):
             elif request.POST["aktion"] == "oeffnen" and umsatz.status == Bankumsatz.IGNORIERT:
                 umsatz.status = Bankumsatz.OFFEN
                 umsatz.save(update_fields=["status"])
+        return redirect("finanzen:bank")
+    if request.POST.get("gutschrift"):  # Eingang eines Lieferanten auf eine Lieferanten-Gutschrift
+        from apps.einkauf.models import Lieferantengutschrift
+        gid = request.POST["gutschrift"]
+        gutschrift = Lieferantengutschrift.objects.filter(pk=gid, mandant=request.mandant).first() if gid.isdigit() else None
+        if gutschrift is None:
+            messages.error(request, "Gutschrift nicht gefunden.")
+        else:
+            try:
+                z = bankmodul.gutschrift_zuordnen(umsatz, gutschrift, request.user)
+                messages.success(request, f"Gebucht: {z.betrag:.2f} € auf Gutschrift {gutschrift.nummer} ({gutschrift.lieferant.name1}).".replace(".", ","))
+            except ValueError as fehler:
+                messages.error(request, str(fehler))
         return redirect("finanzen:bank")
     eingabe = request.POST.get("rechnung", "").strip().upper()
     nummern = [n for n in eingabe.replace(";", ",").replace(" ", ",").split(",") if n]  # mehrere Nummern: Betrag wird verteilt

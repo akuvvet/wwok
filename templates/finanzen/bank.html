@@ -27,7 +27,7 @@
     {% for u in umsaetze %}
     <tr><td>{{ u.buchungsdatum|date:"d.m.Y" }}</td><td class="zahl">{{ u.betrag }}</td><td>{{ u.name }}</td><td>{{ u.zweck }}</td>
       <td>
-        {% if u.status == 'zugeordnet' %}{% for z in u.zahlungen.all %}{% if not forloop.first %}, {% endif %}{{ z.beleg.nummer }} ({{ z.betrag|floatformat:"2g" }} €){% empty %}{% if u.betrag < 0 %}Rücklastschrift {% endif %}{{ u.vorschlag.nummer }}{% endfor %}
+        {% if u.status == 'zugeordnet' %}{% for z in u.zahlungen.all %}{% if not forloop.first %}, {% endif %}{{ z.beleg.nummer }} ({{ z.betrag|floatformat:"2g" }} €){% empty %}{% for gz in u.gutschrift_zahlungen.all %}{% if not gz.storniert %}Lieferanten-Gutschrift <a href="{% url 'einkauf:gutschrift' gz.gutschrift_id %}">{{ gz.gutschrift.nummer }}</a> ({{ gz.betrag|floatformat:"2g" }} €){% endif %}{% empty %}{% if u.betrag < 0 %}Rücklastschrift {% endif %}{{ u.vorschlag.nummer }}{% endfor %}{% endfor %}
         {% elif u.status == 'ignoriert' %}ignoriert
         <form method="post" action="{% url 'finanzen:bank_zuordnen' u.pk %}" style="display:inline">{% csrf_token %}
           <button type="submit" name="aktion" value="oeffnen" class="leise">wieder öffnen</button></form>
@@ -38,6 +38,15 @@
           <button type="submit" name="aktion" value="ignorieren" class="leise" data-frage="Diesen Umsatz ignorieren?">Ignorieren</button>
         </form>
         {% if u.vorschlag %}<small style="color:var(--warn)">Vorschlag: Betrag übersteigt den offenen Betrag – prüfen und buchen</small>{% endif %}
+        {% if u.gutschrift_auswahl %}
+        <form method="post" action="{% url 'finanzen:bank_zuordnen' u.pk %}" class="zeile" style="margin-top:4px">{% csrf_token %}
+          <select name="gutschrift" aria-label="Lieferanten-Gutschrift" title="Zahlungseingang eines Lieferanten auf eine seiner Gutschriften buchen">
+            {% for g in u.gutschrift_auswahl %}<option value="{{ g.pk }}" {% if g.pk in u.gutschrift_vorschlag %}selected{% endif %}>{{ g.lieferant.kurz }} · {{ g.nummer }} · Rest {{ g.restguthaben|floatformat:"2g" }} €{% if g.pk in u.gutschrift_vorschlag %} (Vorschlag){% endif %}</option>{% endfor %}
+          </select>
+          <button type="submit" class="leise">Auf Lieferanten-Gutschrift buchen</button>
+        </form>
+        {% if u.gutschrift_vorschlag %}<small style="color:var(--warn)">Vorschlag: Betrag und Lieferant passen zu einer offenen Gutschrift – prüfen und buchen</small>{% endif %}
+        {% endif %}
         {% endif %}
       </td></tr>
     {% empty %}<tr><td colspan="5">Keine Umsätze.</td></tr>{% endfor %}

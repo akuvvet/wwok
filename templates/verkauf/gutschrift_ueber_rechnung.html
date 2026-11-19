@@ -13,7 +13,7 @@
     <tr><td><strong>über dem Rechnungsbetrag</strong></td><td class="zahl"><strong>{{ ueber.ueber|floatformat:"2g" }} €</strong></td></tr>
   </table>{% endif %}
   <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" style="margin-top:12px">{% csrf_token %}
-    <input type="hidden" name="danach" value="{{ danach }}">
+    <input type="hidden" name="danach" value="{{ danach }}">{% if weiter %}<input type="hidden" name="weiter" value="{{ weiter }}">{% endif %}
     {% if esd_ohne_key %}<input type="hidden" name="esd_ohne_key" value="1">{% endif %}
     <label for="ueber_grund">Warum wird mehr gutgeschrieben als berechnet? (Pflicht, wird an der Gutschrift gespeichert und nicht gedruckt)</label>
     <textarea id="ueber_grund" name="ueber_grund" rows="3" maxlength="300" required autofocus style="width:100%;max-width:640px"></textarea>
