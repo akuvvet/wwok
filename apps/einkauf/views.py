@@ -95,6 +95,7 @@ def lieferant_detail(request, lieferant_id):
 
     from . import lieferantenkonto
     lieferant = get_object_or_404(Lieferant, pk=lieferant_id)
+    services.leere_bestellungen_entfernen(request.mandant, lieferant)  # Bestellungen ohne Position werden nicht gespeichert
     art = request.GET.get("art") or "offen"  # beim Öffnen: nur offene Belege; „alle“ schickt art=alle (der Live-Filter lässt leere Werte weg)
     nur_offen = art == "offen"
     belegart = art if art in dict(lieferantenkonto.ARTEN) else ""
@@ -118,6 +119,7 @@ def lieferant_detail(request, lieferant_id):
 
 @mit_mandant
 def bestellungen(request):
+    services.leere_bestellungen_entfernen(request.mandant)  # Bestellungen ohne Position werden nicht gespeichert
     status = request.GET.get("status", "offen")
     liste = Bestellung.objects.filter(mandant=request.mandant).select_related("lieferant", "aus_beleg").prefetch_related("positionen")
     if status == "offen":
