@@ -6,12 +6,14 @@ from django.utils import timezone
 
 from apps.stammdaten.models import lieferanten_auswahl
 
-from .models import RUECKSENDUNG_OFFEN, BestellStatus, Bestellung, Lieferantenrechnung, RechnungStatus, Rma, RmaStatus, Ruecksendung, Wareneingang
+from .models import (RUECKSENDUNG_OFFEN, BestellStatus, Bestellung, Lieferantengutschrift, Lieferantenrechnung, RechnungStatus, Rma,
+                     RmaStatus, Ruecksendung, Wareneingang)
 
 LIEFERANTENSUCHE_FELDER = ["nummer", "kurzname", "name1", "name2", "name3", "ort",
                            "ansprechpartner__vorname", "ansprechpartner__nachname"]
 
-ARTEN = [("BE", "Bestellung"), ("WE", "Wareneingang"), ("WR", "WE-Rücksendung"), ("LR", "Lieferantenrechnung"), ("RMA", "RMA")]
+ARTEN = [("BE", "Bestellung"), ("WE", "Wareneingang"), ("WR", "WE-Rücksendung"), ("LR", "Lieferantenrechnung"),
+         ("LG", "Lieferanten-Gutschrift"), ("RMA", "RMA")]
 BESTELLUNG_OFFEN = (BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL)
 RMA_OFFEN = (RmaStatus.ANGELEGT, RmaStatus.EINGESENDET)
 
@@ -71,6 +73,20 @@ def belege(mandant, lieferant=None, nur_offen=True, art="", ab=None):
                            "datum": r.datum, "lieferant": r.lieferant, "bereich": "ruecksendung", "status": r.status,
                            "status_text": r.get_status_display(), "betrag": r.summe_netto, "betrag_art": "netto",
                            "bezug": r.wareneingang.nummer, "pk": r.pk})
+    if art in ("", "LG"):
+        # Gutschriften des Lieferanten; offen = Restguthaben > 0. Betrag = Restguthaben, Brutto steht im Bezug.
+        qs = filtern(Lieferantengutschrift.objects.select_related("ruecksendung").prefetch_related("verrechnungen", "zahlungen"))
+        for g in qs:
+            rest = g.restguthaben
+            if nur_offen and rest <= 0:
+                continue
+            bezug = f"aus {g.ruecksendung.nummer}, " if g.ruecksendung_id else ""
+            zeilen.append({"art": "LG", "art_text": "Gutschrift", "nummer": g.nummer, "url": reverse("einkauf:gutschrift", args=[g.pk]),
+                           "datum": g.datum, "lieferant": g.lieferant, "bereich": "lieferantengutschrift",
+                           "status": "offen" if rest > 0 else "erledigt",
+                           "status_text": "Restguthaben offen" if rest > 0 else "verrechnet/ausgezahlt",
+                           "betrag": rest, "betrag_art": "Rest",
+                           "bezug": f"{bezug}Gutschrift {g.brutto:.2f} € brutto".replace(".", ","), "pk": g.pk})
     if art in ("", "RMA"):
         qs = filtern(Rma.objects.all(), "angelegt_am__date")
         if nur_offen:

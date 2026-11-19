@@ -26,6 +26,7 @@
       <dt>Zahlung:</dt><dd>{{ lieferant.zahlungsbedingung|default:"–" }}</dd>
       {% if lieferant.lieferzeit_tage %}<dt>Lieferzeit:</dt><dd>{{ lieferant.lieferzeit_tage }} Tage</dd>{% endif %}
       <dt>Offene Rechnungen:</dt><dd><a href="?art=LR">{{ offen_rechnungen|floatformat:"2g" }} €</a></dd>
+      {% if offen_gutschriften %}<dt>Offenes Guthaben:</dt><dd><a href="?art=LG" title="Restguthaben aus Lieferanten-Gutschriften">{{ offen_gutschriften|floatformat:"2g" }} €</a></dd>{% endif %}
     </dl>
     {% if ansprechpartner %}<div>{% for a in ansprechpartner %}{{ a }}{% if a.hauptkontakt %} ★{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
   </div>
