@@ -51,6 +51,28 @@ def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None, benutze
                                      angelegt_von=benutzer if benutzer is not None and benutzer.is_authenticated else None)
 
 
+def leere_bestellungen_entfernen(mandant, lieferant=None, minuten=2) -> int:
+    """Lieferantenbestellungen ohne Position werden nicht aufbewahrt (Wunsch des Nutzers 19.11.2026, wie die leeren Entwürfe im
+    Verkauf): Entwürfe ohne Position, die seit ein paar Minuten nicht geändert wurden und an denen kein Wareneingang hängt,
+    werden gelöscht; ihre Nummer wird wieder frei, wenn sie die letzte vergebene war. Rückgabe: Anzahl gelöschter Bestellungen."""
+    grenze = timezone.now() - timedelta(minutes=minuten)
+    kandidaten = Bestellung.objects.filter(mandant=mandant, status=BestellStatus.ENTWURF, positionen__isnull=True, geaendert_am__lt=grenze)
+    if lieferant is not None:
+        kandidaten = kandidaten.filter(lieferant=lieferant)
+    anzahl = 0
+    for b in kandidaten.order_by("-id"):
+        with transaction.atomic():
+            b = Bestellung.objects.select_for_update().filter(pk=b.pk, status=BestellStatus.ENTWURF).first()
+            if b is None or b.positionen.exists() or b.alle_wareneingaenge().exists():
+                continue  # inzwischen gefüllt oder bestellt, oder ein Wareneingang verweist auf sie
+            nummer = b.nummer
+            b.delete()
+            if nummer:
+                Nummernkreis.freigeben(mandant, "BE", nummer)
+            anzahl += 1
+    return anzahl
+
+
 def bestellposition(bestellung, artikel, menge, ek=None, preisliste_artikel=None) -> BestellPosition:
     """Position zur Bestellung: eigener Artikel oder Artikel aus der Preisliste des Lieferanten (wird beim Wareneingang
     zum eigenen Artikel)."""

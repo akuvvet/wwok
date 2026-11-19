@@ -106,6 +106,7 @@
 </div>
 
 <div class="karte tabinhalt" id="tab-positionen">
+  {% if b.status == 'entwurf' and not positionen %}<div class="warnung" style="margin-top:0">Ohne Position wird die Bestellung nicht gespeichert: Ein leerer Entwurf wird nach ein paar Minuten automatisch entfernt. Artikel unten erfassen oder aus dem Tab „Bedarf“ übernehmen.</div>{% endif %}
   <div class="scroll"><table>
     <thead><tr><th>Artikel</th><th class="zahl">Menge</th>{% if mit_lieferung %}<th class="zahl">geliefert</th>{% endif %}<th class="zahl">EK netto</th><th class="zahl">Netto</th><th></th></tr></thead>
     <tbody>{% for p in positionen %}
