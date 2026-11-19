@@ -120,8 +120,16 @@ def lieferant_detail(request, lieferant_id):
         "offene_bestellungen": Bestellung.objects.filter(mandant=request.mandant, lieferant=lieferant,
                                                          status__in=[BestellStatus.BESTELLT, BestellStatus.TEIL]),
         # „+ WE-Rücksendung“ steht wie „+ Bestellung“ beim Lieferanten, nicht mehr in der Seitenleiste (Wunsch des Nutzers 19.11.2026)
-        "gebuchte_wareneingaenge": Wareneingang.objects.filter(mandant=request.mandant, lieferant=lieferant, gebucht=True)
-        .order_by("-datum", "-id")[:100]})
+        "gebuchte_wareneingaenge": services.ruecksendbare_wareneingaenge(request.mandant, lieferant)})
+
+
+@mit_mandant
+def lieferant_kontoauszug(request, lieferant_id):
+    """Kontoauszug des Lieferanten wie beim Kunden: Rechnungen, Zahlungen, Gutschriften, Verrechnungen, laufender Saldo."""
+    from . import lieferantenkonto
+    lieferant = get_object_or_404(Lieferant, pk=lieferant_id)
+    zeilen, saldo = lieferantenkonto.kontoauszug(request.mandant, lieferant)
+    return render(request, "einkauf/kontoauszug.html", {"lieferant": lieferant, "zeilen": zeilen, "saldo": saldo, "bereich": "einkauf"})
 
 
 @mit_mandant
@@ -1348,7 +1356,8 @@ def ruecksendung_neu(request, we_id):
     return render(request, "einkauf/ruecksendung_neu.html", {
         "we": we, "positionen": positionen, "arten": RuecksendungArt.choices,
         "art": request.POST.get("art", ""), "grund": request.POST.get("grund", ""),
-        "bisher": we.ruecksendungen.order_by("-id")})
+        "bisher": we.ruecksendungen.order_by("-id"),
+        "zuruecksendbar": any(p.rest > 0 and not p.artikel.esd_key for p in positionen)})
 
 
 @mit_mandant

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block titel %}Kontoauszug {{ lieferant.nummer }} – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:lieferant' lieferant.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Lieferantenkontoauszug · Mandant {{ request.mandant }}</h1>
+  <p><a href="{% url 'einkauf:lieferant' lieferant.pk %}">{{ lieferant.nummer }} – {{ lieferant.name1 }}</a>{% if lieferant.strasse %}, {{ lieferant.strasse }}{% endif %}{% if lieferant.ort %}, {{ lieferant.plz }} {{ lieferant.ort }}{% endif %}</p>
+  <div class="scroll"><table>
+    <tr><th>Datum</th><th>Buchung</th><th class="zahl">Betrag</th><th class="zahl">Saldo</th></tr>
+    {% for z in zeilen %}
+    <tr><td>{{ z.datum|date:"d.m.Y" }}</td><td><a href="{{ z.url }}">{{ z.text }}</a></td>
+        <td class="zahl">{% if z.betrag is None %}<span style="opacity:.65" title="Verrechnung zwischen Belegen, ändert den Saldo nicht">({{ z.info|floatformat:"2g" }})</span>{% else %}{{ z.betrag|floatformat:"2g" }}{% endif %}</td><td class="zahl">{{ z.saldo|floatformat:"2g" }}</td></tr>
+    {% empty %}<tr><td colspan="4">Keine Buchungen.</td></tr>{% endfor %}
+    <tr><td colspan="3"><strong>{% if saldo < 0 %}Guthaben beim Lieferanten{% else %}Offener Saldo (wir schulden dem Lieferanten){% endif %}</strong></td><td class="zahl"><strong>{{ saldo|floatformat:"2g" }} €</strong></td></tr>
+  </table></div>
+  <p class="fein">Rechnungen erhöhen den Saldo, Zahlungen, Skonto und Gutschriften senken ihn; zahlt der Lieferant eine Gutschrift aus, steigt er wieder. Verrechnungen stehen in Klammern und ändern den Saldo nicht.</p>
+  <p><button class="leise" onclick="window.print()">Drucken</button></p>
+</div>
+{% endblock %}

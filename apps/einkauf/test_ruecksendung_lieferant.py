@@ -54,6 +54,23 @@ class RuecksendungBeimLieferantenTest(TestCase):
         fremd = self.gebuchter_we(self.m2)
         self.assertEqual(self.client.get(reverse("einkauf:ruecksendung_start"), {"we": fremd.pk}).status_code, 404)
 
+    def test_vollstaendig_zurueckgesendet_nicht_in_auswahl_und_klarer_hinweis(self):
+        """Bildschirmfoto des Nutzers: „Menge zurück“ zeigte nur „–“, weil schon alles zurückgesendet war."""
+        teil = self.gebuchter_we()
+        voll = self.gebuchter_we()
+        services.ruecksendung_anlegen(teil, [(teil.positionen.get(), D("1"), [])], "gutschrift", "defekt")
+        services.ruecksendung_anlegen(voll, [(voll.positionen.get(), D("2"), [])], "gutschrift", "defekt")
+        seite = self.client.get(reverse("einkauf:lieferant", args=[self.lf.pk])).content.decode()
+        self.assertIn(f'<option value="{teil.pk}">', seite)  # 1 von 2 noch zurücksendbar
+        self.assertNotIn(f'<option value="{voll.pk}">', seite)
+        neu = self.client.get(reverse("einkauf:ruecksendung_neu", args=[voll.pk]))
+        self.assertContains(neu, "kann nichts mehr zurückgehen")
+        self.assertContains(neu, "schon vollständig zurückgesendet")
+        self.assertNotContains(neu, "Rücksendung anlegen</button>")
+        offen = self.client.get(reverse("einkauf:ruecksendung_neu", args=[teil.pk]))
+        self.assertContains(offen, f'name="menge_{teil.positionen.get().pk}"')
+        self.assertNotContains(offen, "kann nichts mehr zurückgehen")
+
     def test_kein_menuepunkt_mehr_in_der_seitenleiste(self):
         seite = self.client.get(reverse("einkauf:lieferanten")).content.decode()
         self.assertNotIn('<span>WE-Rücksendung</span>', seite)

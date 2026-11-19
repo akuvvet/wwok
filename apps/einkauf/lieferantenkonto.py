@@ -26,6 +26,43 @@ def lieferanten_suchen(q):
     return lieferanten_auswahl(gesperrte=True).filter(partner_filter(q, LIEFERANTENSUCHE_FELDER)).distinct()
 
 
+def kontoauszug(mandant, lieferant):
+    """Lieferantenkonto mit laufendem Saldo (positiv = wir schulden dem Lieferanten, negativ = Guthaben bei ihm):
+    Rechnungen +, Zahlungsausgänge und Skonto −, Gutschriften −, Auszahlungen des Lieferanten auf Gutschriften +.
+    Verrechnungen Gutschrift → Rechnung stehen nur zur Nachvollziehbarkeit da (Betrag in Klammern, Saldo unverändert)."""
+    from decimal import Decimal
+
+    from .models import LieferantengutschriftVerrechnung, LieferantengutschriftZahlung
+    posten = []  # (datum, rang, id, text, betrag oder None, url, info)
+    for r in Lieferantenrechnung.objects.filter(mandant=mandant, lieferant=lieferant).prefetch_related("verrechnungen"):
+        url = reverse("einkauf:rechnung", args=[r.pk])
+        posten.append((r.datum, 0, r.pk, f"Rechnung {r.rechnungsnummer}", r.brutto, url, None))
+        if r.status == RechnungStatus.BEZAHLT and r.bezahlt_am:
+            if r.bezahlter_betrag:
+                posten.append((r.bezahlt_am, 1, r.pk, f"Zahlung an Lieferanten zu Rechnung {r.rechnungsnummer}", -r.bezahlter_betrag, url, None))
+            rest = r.brutto - r.verrechnet - (r.bezahlter_betrag or Decimal("0"))
+            if rest:
+                posten.append((r.bezahlt_am, 1, r.pk, f"Skonto/Differenz zu Rechnung {r.rechnungsnummer}", -rest, url, None))
+    for g in Lieferantengutschrift.objects.filter(mandant=mandant, lieferant=lieferant).select_related("ruecksendung"):
+        aus = f" (aus {g.ruecksendung.nummer})" if g.ruecksendung_id else ""
+        posten.append((g.datum, 0, g.pk, f"Gutschrift {g.nummer}{aus}", -g.brutto, reverse("einkauf:gutschrift", args=[g.pk]), None))
+    for v in LieferantengutschriftVerrechnung.objects.filter(gutschrift__mandant=mandant, gutschrift__lieferant=lieferant,
+                                                             aufgehoben=False).select_related("gutschrift", "rechnung"):
+        posten.append((v.datum, 2, v.pk, f"Verrechnet: Gutschrift {v.gutschrift.nummer} → Rechnung {v.rechnung.rechnungsnummer}",
+                       None, reverse("einkauf:gutschrift", args=[v.gutschrift_id]), v.betrag))
+    for z in LieferantengutschriftZahlung.objects.filter(gutschrift__mandant=mandant, gutschrift__lieferant=lieferant,
+                                                         storniert=False).select_related("gutschrift"):
+        posten.append((z.datum, 1, z.pk, f"Auszahlung des Lieferanten auf Gutschrift {z.gutschrift.nummer}", z.betrag,
+                       reverse("einkauf:gutschrift", args=[z.gutschrift_id]), None))
+    posten.sort(key=lambda p: p[:3])
+    saldo, zeilen = Decimal("0"), []
+    for datum, _, _, text, betrag, url, info in posten:
+        if betrag is not None:
+            saldo += betrag
+        zeilen.append({"datum": datum, "text": text, "betrag": betrag, "info": info, "saldo": saldo, "url": url})
+    return zeilen, saldo
+
+
 def belege(mandant, lieferant=None, nur_offen=True, art="", ab=None):
     """Einkaufsbelege als einheitliche Zeilen, neueste zuerst. nur_offen: Bestellungen nicht geliefert/storniert,
     Wareneingänge nicht gebucht, Rechnungen nicht bezahlt, RMA angelegt oder eingesendet."""
