@@ -484,6 +484,26 @@ class LieferantengutschriftTest(TestCase):
         self.assertTrue(LieferantengutschriftVerrechnung.objects.get(pk=v.pk).aufgehoben)
         self.assertTrue(LieferantengutschriftZahlung.objects.get(pk=z.pk).storniert)
 
+    def test_storno_direkt_aus_zahlungen_lieferanten(self):
+        """Wunsch des Nutzers 19.11.2026: die Gutschriftzahlung muss storniert werden können – auch in der Liste."""
+        g = self.gutschrift("G1", D("50.00"))
+        z = services.gutschrift_zahlung_buchen(g, D("50.00"), HEUTE)
+        self.anmelden()
+        liste = self.client.get(reverse("finanzen:zahlungen_lieferanten"))
+        self.assertContains(liste, reverse("einkauf:gutschrift_zahlung_storno", args=[g.pk, z.pk]))
+        r = self.client.post(reverse("einkauf:gutschrift_zahlung_storno", args=[g.pk, z.pk]), {"grund": "doppelt", "zurueck": "zahlungen"})
+        self.assertRedirects(r, reverse("finanzen:zahlungen_lieferanten"), fetch_redirect_response=False)
+        z.refresh_from_db()
+        self.assertTrue(z.storniert)
+        self.assertEqual(Lieferantengutschrift.objects.get(pk=g.pk).restguthaben, D("50.00"))
+        # nach dem Storno wieder offen: Liste „Mit Restguthaben“, Offene Posten, Zahlung neu buchbar
+        self.assertIn(g, services.offene_gutschriften(self.m))
+        self.assertContains(self.client.get(reverse("einkauf:gutschriften")), reverse("einkauf:gutschrift", args=[g.pk]))
+        self.assertContains(self.client.get(reverse("finanzen:op_lieferanten")), "G1")
+        self.assertContains(self.client.get(reverse("einkauf:gutschrift", args=[g.pk])), "Zahlung erhalten buchen")
+        self.assertNotContains(self.client.get(reverse("finanzen:zahlungen_lieferanten")),
+                               reverse("einkauf:gutschrift_zahlung_storno", args=[g.pk, z.pk]))
+
     def test_zahlung_ueber_die_seite_und_zahlungen_lieferanten(self):
         g = self.gutschrift("G1", D("119.00"))
         self.anmelden()

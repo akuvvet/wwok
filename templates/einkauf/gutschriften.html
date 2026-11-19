@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block titel %}Lieferanten-Gutschriften – wwok{% endblock %}
+{% block skript %}
+<script>
+  // Lieferant per Suchfeld: die getippte Auswahl wird zur Lieferanten-ID, freier Text gilt nicht
+  (function () {
+    var feld = document.getElementById('lieferantsuche'), id = document.getElementById('lieferantid');
+    var liste = document.getElementById('lieferantenliste');
+    function pruefen() {
+      var treffer = Array.prototype.find.call(liste.options, function (o) { return o.value === feld.value; });
+      id.value = treffer ? treffer.dataset.pk : '';
+      feld.setCustomValidity(treffer || !feld.value ? '' : 'Bitte einen Lieferanten aus der Liste wählen.');
+    }
+    feld.addEventListener('input', pruefen);
+    feld.addEventListener('change', pruefen);
+    // Brutto aus Netto und USt vorschlagen, solange Brutto nicht von Hand geändert wurde
+    var netto = document.getElementById('g_netto'), steuer = document.getElementById('g_steuer'), brutto = document.getElementById('g_brutto');
+    var bruttoHand = false;
+    function wert(f) { var v = parseFloat((f.value || '').replace(/\./g, '').replace(',', '.')); return isNaN(v) ? null : v; }
+    function rechnen(ustNeu) {
+      var n = wert(netto);
+      if (n === null) return;
+      if (ustNeu) steuer.value = (Math.round(n * 19) / 100).toFixed(2).replace('.', ',');
+      var s = wert(steuer);
+      if (!bruttoHand && s !== null) brutto.value = (Math.round((n + s) * 100) / 100).toFixed(2).replace('.', ',');
+    }
+    netto.addEventListener('input', function () { rechnen(true); });
+    steuer.addEventListener('input', function () { rechnen(false); });
+    brutto.addEventListener('input', function () { bruttoHand = true; });
+  })();
+</script>
+{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:rechnungen' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Lieferanten-Gutschriften · Mandant {{ request.mandant }}</h1>
+  <p style="opacity:.85">Gutschriften des Lieferanten ohne Rücksendung (z. B. Bonus, Preisnachlass, Gutschrift zu einer Rechnung) hier erfassen.
+     Gutschriften aus einer WE-Rücksendung (Lieferant → + WE-Rücksendung) entstehen dort mit „Gutschrift erhalten“ und stehen ebenfalls in dieser Liste.</p>
+  <form method="post" action="{% url 'einkauf:gutschrift_neu' %}" class="zeile" style="align-items:flex-end">{% csrf_token %}
+    <div><label for="lieferantsuche">Lieferant (Name, Kurzname oder Nummer tippen)</label>
+      <input id="lieferantsuche" list="lieferantenliste" size="30" autocomplete="off" required>
+      <input type="hidden" name="lieferant" id="lieferantid">
+      <datalist id="lieferantenliste">{% for l in lieferanten %}<option value="{{ l.kurz }} – {{ l.name1 }} ({{ l.nummer }})" data-pk="{{ l.pk }}"></option>{% endfor %}</datalist></div>
+    <div><label for="g_nummer">Gutschrift-Nr. des Lieferanten</label><input id="g_nummer" name="nummer" size="14" maxlength="60" required></div>
+    <div><label for="g_datum">Gutschriftdatum</label><input id="g_datum" type="date" name="datum" max="{{ heute }}" value="{{ heute }}" required></div>
+    <div><label for="g_netto">Netto (€)</label><input id="g_netto" name="netto" size="9" inputmode="decimal" required></div>
+    <div><label for="g_steuer">USt (€)</label><input id="g_steuer" name="steuer" size="9" inputmode="decimal" required></div>
+    <div><label for="g_brutto">Brutto (€)</label><input id="g_brutto" name="brutto" size="9" inputmode="decimal" required></div>
+    <div><label for="g_notiz">Notiz</label><input id="g_notiz" name="notiz" size="24" maxlength="200"></div>
+    <button type="submit">Gutschrift erfassen</button>
+  </form>
+</div>
+<div class="karte">
+  <p class="zeile">
+    <a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">Mit Restguthaben</a>
+    <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a></p>
+  <div class="scroll"><table>
+    <thead><tr><th>Datum</th><th>Gutschrift-Nr.</th><th>Lieferant</th><th>Rücksendung</th><th class="zahl">Brutto</th><th class="zahl">verrechnet</th><th class="zahl">Zahlung erhalten</th><th class="zahl">Restguthaben</th><th>Notiz</th></tr></thead>
+    <tbody>{% for g in zeilen %}<tr>
+      <td>{{ g.datum|date:"d.m.Y" }}</td>
+      <td><a href="{% url 'einkauf:gutschrift' g.pk %}">{{ g.nummer }}</a></td>
+      <td><a href="{% url 'einkauf:lieferant' g.lieferant_id %}">{{ g.lieferant.name1 }}</a></td>
+      <td>{% if g.ruecksendung %}<a href="{% url 'einkauf:ruecksendung' g.ruecksendung_id %}">{{ g.ruecksendung.nummer }}</a>{% else %}–{% endif %}</td>
+      <td class="zahl">{{ g.brutto|floatformat:"2g" }} €</td>
+      <td class="zahl">{{ g.verrechnet|floatformat:"2g" }} €</td>
+      <td class="zahl">{{ g.eingegangen|floatformat:"2g" }} €</td>
+      <td class="zahl"><strong>{{ g.restguthaben|floatformat:"2g" }} €</strong></td>
+      <td>{{ g.notiz }}</td></tr>
+    {% empty %}<tr><td colspan="9">{% if status == 'offen' %}Keine Gutschrift mit Restguthaben.{% else %}Noch keine Gutschrift erfasst.{% endif %}</td></tr>{% endfor %}</tbody>
+    {% if zeilen %}<tfoot><tr><td colspan="7">Summe Restguthaben</td><td class="zahl"><strong>{{ summe|floatformat:"2g" }} €</strong></td><td></td></tr></tfoot>{% endif %}
+  </table></div>
+</div>
+{% endblock %}
