@@ -7,8 +7,8 @@
   <div class="raster">
     <div>Datum<br>{{ r.datum|date:"d.m.Y" }}</div><div>fällig<br>{{ r.faellig|date:"d.m.Y" }}</div>
     <div>Netto / Steuer<br>{{ r.netto|floatformat:"2g" }} / {{ r.steuer|floatformat:"2g" }} €</div><div>Brutto<br><strong>{{ r.brutto|floatformat:"2g" }} €</strong></div>
-    <div>zu zahlen<br><strong>{{ zahlbetrag }} €</strong>{% if r.skonto_bis %}<br><small>Skonto {{ r.skonto_prozent }} % bis {{ r.skonto_bis|date:"d.m.Y" }}</small>{% endif %}</div>
-    <div>Status<br>{% status_symbol "lieferantenrechnung" r.status r.get_status_display mit_text=True faellig=r.faellig skonto_bis=r.skonto_bis %}{% if r.bezahlt_am %}<br>{{ r.bezahlt_am|date:"d.m.Y" }}, {{ r.bezahlter_betrag|floatformat:"2g" }} €{% endif %}</div>
+    <div>zu zahlen<br><strong>{{ zahlbetrag }} €</strong>{% if verrechnet %}<br><small>nach Verrechnung von {{ verrechnet|floatformat:"2g" }} € mit Gutschriften</small>{% endif %}{% if r.skonto_bis %}<br><small>Skonto {{ r.skonto_prozent }} % bis {{ r.skonto_bis|date:"d.m.Y" }}</small>{% endif %}</div>
+    <div>Status<br>{% status_symbol "lieferantenrechnung" r.status r.get_status_display mit_text=True faellig=r.faellig skonto_bis=r.skonto_bis %}{% if r.bezahlt_am %}<br>{{ r.bezahlt_am|date:"d.m.Y" }}{% if r.durch_verrechnung_bezahlt %}, durch Verrechnung{% else %}, {{ r.bezahlter_betrag|floatformat:"2g" }} €{% endif %}{% endif %}</div>
   </div>
   {% if abgleich.verknuepft %}<p style="margin-top:12px">
     {% if abgleich.ok %}Wareneingänge netto {{ abgleich.wareneingang_netto|floatformat:"2g" }} € – passt zur Rechnung.
@@ -50,6 +50,15 @@
   </form>{% endif %}
   {% if r.historie %}<p style="margin-top:12px;opacity:.8;white-space:pre-line">{{ r.historie }}</p>{% endif %}
 </div>
+{% if verrechnungen %}<div class="karte">
+  <h2>Verrechnet mit Gutschriften</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Datum</th><th>Gutschrift</th><th class="zahl">Betrag</th><th>Stand</th></tr></thead>
+    <tbody>{% for v in verrechnungen %}<tr{% if v.aufgehoben %} style="opacity:.6"{% endif %}><td>{{ v.datum|date:"d.m.Y" }}</td>
+      <td><a href="{% url 'einkauf:gutschrift' v.gutschrift_id %}">{{ v.gutschrift.nummer }}</a></td><td class="zahl">{{ v.betrag|floatformat:"2g" }} €</td>
+      <td>{% if v.aufgehoben %}rückgängig gemacht – {{ v.aufgehoben_grund }}{% else %}gilt{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>{% endif %}
 <div class="karte">
   <h2>Verknüpfte Wareneingänge</h2>
   <form method="post">{% csrf_token %}

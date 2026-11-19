@@ -9,7 +9,7 @@
      fehlende bleiben offen und werden später unter <a href="{% url 'esd:uebersicht' %}">ESD-Keys</a> zugeordnet.</p>
   <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" class="zeile" style="margin-top:12px">{% csrf_token %}
     <input type="hidden" name="esd_ohne_key" value="1">
-    <input type="hidden" name="danach" value="{{ danach }}">
+    <input type="hidden" name="danach" value="{{ danach }}">{% if weiter %}<input type="hidden" name="weiter" value="{{ weiter }}">{% endif %}
     <button type="submit">Ja, ohne Key abschließen</button>
     <a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Nein, zurück zum Beleg</a>
   </form>

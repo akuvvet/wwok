@@ -62,6 +62,17 @@ def mit_mandant(view):
     return umhuellt
 
 
+def sicheres_ziel(request, ziel: str) -> str:
+    """Nur Adressen dieser Anwendung (gleicher Host oder Pfad) als Weiterleitungsziel; sonst leer (kein offener Redirect)."""
+    ziel = (ziel or "").strip()
+    if ziel and url_has_allowed_host_and_scheme(ziel, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        from urllib.parse import urlsplit
+        teile = urlsplit(ziel)
+        if teile.path.startswith("/") and not teile.path.startswith("//"):
+            return teile.path + (f"?{teile.query}" if teile.query else "")
+    return ""
+
+
 def beleg_holen(request, beleg_id, sperren=False):
     """sperren=True (nur innerhalb einer Transaktion): Belegzeile sperren, bevor sie gelesen wird. Abschließen sperrt dieselbe Zeile;
     so sieht eine Positionsänderung den Abschluss, statt mit veraltetem Stand eine Position an einen abgeschlossenen Beleg zu hängen."""
@@ -794,16 +805,17 @@ def beleg_abschliessen(request, beleg_id):
                                    gutschrift_grund=request.POST.get("gutschrift_grund", ""))
     except GutschriftGrundFehlt as fehler:  # Rückfrage: freie Gutschrift nur mit Grund
         return render(request, "verkauf/gutschrift_grund.html", {
-            "beleg": beleg_holen(request, beleg_id), "meldung": str(fehler), "danach": request.POST.get("danach", ""),
+            "beleg": beleg_holen(request, beleg_id), "meldung": str(fehler), "danach": request.POST.get("danach", ""), "weiter": sicheres_ziel(request, request.POST.get("weiter", "")),
             "esd_ohne_key": "1" if ohne_key else "", "fehlt": "gutschrift_grund" in request.POST})
     except GutschriftUeberRechnung as fehler:  # Rückfrage: Gutschriften über dem Rechnungsbetrag nur mit Begründung
         beleg = beleg_holen(request, beleg_id)
         return render(request, "verkauf/gutschrift_ueber_rechnung.html", {
-            "beleg": beleg, "meldung": str(fehler), "ueber": beleg.gutschrift_ueber_rechnung(), "danach": request.POST.get("danach", ""),
+            "beleg": beleg, "meldung": str(fehler), "ueber": beleg.gutschrift_ueber_rechnung(), "danach": request.POST.get("danach", ""), "weiter": sicheres_ziel(request, request.POST.get("weiter", "")),
             "esd_ohne_key": "1" if ohne_key else "", "fehlt": "ueber_grund" in request.POST})
     except KeysFehlen as fehler:  # Rückfrage: ohne Key abschließen und drucken, Key später unter ESD-Keys zuordnen
         return render(request, "verkauf/esd_ohne_key.html", {"beleg": beleg_holen(request, beleg_id), "meldung": str(fehler),
-                                                              "danach": request.POST.get("danach", "")})
+                                                              "danach": request.POST.get("danach", ""),
+                                                              "weiter": sicheres_ziel(request, request.POST.get("weiter", ""))})
     except BestandReichtNicht as fehler:
         from apps.lager.services import teilung
         beleg = beleg_holen(request, beleg_id)  # Zustand vor dem abgebrochenen Abschluss
@@ -833,6 +845,9 @@ def beleg_abschliessen(request, beleg_id):
         return redirect(f"{ziel}?{parameter}" if parameter else ziel)
     if "mail" in danach:
         return redirect("verkauf:beleg_mail", beleg_id=beleg.pk)
+    weiter = sicheres_ziel(request, request.POST.get("weiter", ""))
+    if weiter:  # abgeschlossen beim Verlassen: weiter zum angeklickten Menüpunkt (Wunsch des Nutzers 19.11.2026)
+        return redirect(weiter)
     return redirect("verkauf:kunde", kunde_id=beleg.kunde_id)
 
 

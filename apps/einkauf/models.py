@@ -258,18 +258,40 @@ class Lieferantenrechnung(Zeitstempel):
             raise ValueError("Bitte einen Stornogrund angeben.")
         if self.status != RechnungStatus.BEZAHLT:
             raise ValueError("Die Rechnung ist nicht als bezahlt gebucht.")
-        zeile = (f"{timezone.localtime():%d.%m.%Y %H:%M} {benutzer or '-'}: Zahlung vom "
+        if self.durch_verrechnung_bezahlt:
+            raise ValueError("Die Rechnung ist durch Verrechnung mit einer Gutschrift bezahlt – bitte die Verrechnung rückgängig machen.")
+        zeile =(f"{timezone.localtime():%d.%m.%Y %H:%M} {benutzer or '-'}: Zahlung vom "
                  f"{self.bezahlt_am:%d.%m.%Y} über {self.bezahlter_betrag} € storniert – {grund}")
         self.historie = (self.historie + chr(10) + zeile).strip()
         self.status, self.bezahlt_am, self.bezahlter_betrag = RechnungStatus.OFFEN, None, None
         self.save()
 
+    @property
+    def verrechnet(self) -> Decimal:
+        """Mit Gutschriften des Lieferanten verrechnet (ohne rückgängig gemachte)."""
+        if self.pk is None:
+            return Decimal("0")
+        return sum((v.betrag for v in self.verrechnungen.all() if not v.aufgehoben), Decimal("0"))
+
+    @property
+    def offener_betrag(self) -> Decimal:
+        """Brutto minus Verrechnungen (ohne Skonto): bis zu diesem Betrag lässt sich noch verrechnen."""
+        return max(self.brutto - self.verrechnet, Decimal("0"))
+
+    @property
+    def durch_verrechnung_bezahlt(self) -> bool:
+        """Bezahlt allein durch Verrechnung (kein Zahlungsausgang gebucht: Betrag 0)."""
+        return self.status == RechnungStatus.BEZAHLT and self.bezahlter_betrag == 0
+
     def zahlbetrag(self, am=None) -> Decimal:
-        """Betrag für die Überweisung; Skonto nur, wenn die Skontofrist am Zahlungstag noch läuft."""
+        """Betrag für die Überweisung; Skonto nur, wenn die Skontofrist am Zahlungstag noch läuft. Verrechnungen mit
+        Gutschriften des Lieferanten mindern ihn (nie unter 0); das Skonto bezieht sich auf das Rechnungsbrutto."""
         am = am or timezone.localdate()
         if self.skonto_prozent and self.skonto_bis and am <= self.skonto_bis:
-            return (self.brutto * (Decimal("100") - self.skonto_prozent) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        return self.brutto
+            basis = (self.brutto * (Decimal("100") - self.skonto_prozent) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        else:
+            basis = self.brutto
+        return max(basis - self.verrechnet, Decimal("0"))
 
     def abgleich(self) -> dict:
         """Netto der verknüpften Wareneingänge gegen Rechnung, Nebenkosten mitgerechnet, außer sie kommen auf eigener Rechnung:
@@ -316,6 +338,8 @@ class Lieferantenrechnung(Zeitstempel):
             raise ValueError("Netto, Steuer und Brutto müssen angegeben werden (Netto und Brutto größer 0).")
         if abs(netto + steuer - brutto) > Decimal("0.01"):
             raise ValueError("Netto plus Steuer ergibt nicht den Bruttobetrag.")
+        if brutto < self.verrechnet:
+            raise ValueError(f"Der Bruttobetrag liegt unter den schon verrechneten {self.verrechnet} € – bitte erst die Verrechnung rückgängig machen.")
         self.historie_eintrag(f"Beträge korrigiert: netto {self.netto} → {netto}, steuer {self.steuer} → {steuer}, "
                               f"brutto {self.brutto} → {brutto}", benutzer)
         self.netto, self.steuer, self.brutto = netto, steuer, brutto
@@ -658,3 +682,90 @@ class RuecksendungPosition(models.Model):
     @property
     def netto(self) -> Decimal:
         return self.menge * self.ek
+
+
+class Lieferantengutschrift(Zeitstempel):
+    """Gutschrift eines Lieferanten (Entscheidung Nutzer 19.11.2026), meist aus einer WE-Rücksendung. Sie wird gegen offene
+    Lieferantenrechnungen verrechnet (auch teilweise) oder als Zahlung des Lieferanten gebucht; was bleibt, ist Restguthaben."""
+
+    mandant = models.ForeignKey(Mandant, on_delete=models.PROTECT, related_name="lieferantengutschriften")
+    lieferant = models.ForeignKey(Lieferant, on_delete=models.PROTECT, related_name="gutschriften")
+    ruecksendung = models.OneToOneField(Ruecksendung, on_delete=models.PROTECT, null=True, blank=True, related_name="lieferantengutschrift")
+    nummer = models.CharField("Gutschrift-Nr. des Lieferanten", max_length=60)
+    datum = models.DateField("Gutschriftdatum")
+    netto = models.DecimalField(**GELD)
+    steuer = models.DecimalField("USt", **GELD, default=Decimal("0"))
+    brutto = models.DecimalField(**GELD)
+    notiz = models.CharField("Notiz", max_length=200, blank=True)
+    historie = models.TextField("Verlauf", blank=True)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    class Meta:
+        verbose_name = "Lieferanten-Gutschrift"
+        verbose_name_plural = "Lieferanten-Gutschriften"
+        ordering = ["-datum", "-id"]
+        constraints = [models.UniqueConstraint(fields=["mandant", "lieferant", "nummer"], name="lieferantengutschrift_eindeutig")]
+
+    def __str__(self):
+        return f"{self.lieferant.name1} Gutschrift {self.nummer}"
+
+    @property
+    def verrechnet(self) -> Decimal:
+        return sum((v.betrag for v in self.verrechnungen.all() if not v.aufgehoben), Decimal("0"))
+
+    @property
+    def eingegangen(self) -> Decimal:
+        """Vom Lieferanten ausgezahlt (Zahlungseingänge ohne stornierte)."""
+        return sum((z.betrag for z in self.zahlungen.all() if not z.storniert), Decimal("0"))
+
+    @property
+    def restguthaben(self) -> Decimal:
+        return self.brutto - self.verrechnet - self.eingegangen
+
+    def historie_eintrag(self, text, benutzer=None):
+        zeile = f"{timezone.localtime():%d.%m.%Y %H:%M} {benutzer or '-'}: {text}"
+        self.historie = (self.historie + chr(10) + zeile).strip()
+
+
+class LieferantengutschriftVerrechnung(models.Model):
+    """Verrechnung einer Lieferanten-Gutschrift mit einer offenen Lieferantenrechnung. Rückgängig machen nur mit Grund
+    (die Zeile bleibt als „aufgehoben“ stehen)."""
+
+    gutschrift = models.ForeignKey(Lieferantengutschrift, on_delete=models.PROTECT, related_name="verrechnungen")
+    rechnung = models.ForeignKey(Lieferantenrechnung, on_delete=models.PROTECT, related_name="verrechnungen")
+    betrag = models.DecimalField(**GELD)
+    datum = models.DateField(default=timezone.localdate)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    angelegt_am = models.DateTimeField(default=timezone.now)
+    aufgehoben = models.BooleanField(default=False, db_index=True)
+    aufgehoben_am = models.DateTimeField(null=True, blank=True)
+    aufgehoben_grund = models.CharField(max_length=300, blank=True)
+    aufgehoben_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    class Meta:
+        verbose_name = "Gutschrift-Verrechnung (Lieferant)"
+        verbose_name_plural = "Gutschrift-Verrechnungen (Lieferanten)"
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.betrag} € {self.gutschrift.nummer} → {self.rechnung.rechnungsnummer}"
+
+
+class LieferantengutschriftZahlung(models.Model):
+    """Zahlung des Lieferanten auf eine Gutschrift (Eingang). Unveränderlich; Korrektur nur per Storno mit Grund."""
+
+    gutschrift = models.ForeignKey(Lieferantengutschrift, on_delete=models.PROTECT, related_name="zahlungen")
+    datum = models.DateField(default=timezone.localdate)
+    betrag = models.DecimalField(**GELD)
+    bankumsatz = models.ForeignKey("finanzen.Bankumsatz", on_delete=models.PROTECT, null=True, blank=True, related_name="gutschrift_zahlungen")
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    angelegt_am = models.DateTimeField(default=timezone.now)
+    storniert = models.BooleanField(default=False, db_index=True)
+    storno_grund = models.CharField(max_length=300, blank=True)
+    storno_am = models.DateTimeField(null=True, blank=True)
+    storno_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    class Meta:
+        verbose_name = "Zahlung auf Lieferanten-Gutschrift"
+        verbose_name_plural = "Zahlungen auf Lieferanten-Gutschriften"
+        ordering = ["-datum", "-id"]

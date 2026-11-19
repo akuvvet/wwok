@@ -21,7 +21,8 @@ from apps.verkauf.views import mit_mandant
 from apps.werkstatt.models import Reparatur
 
 from . import erechnung, sepa, services, vergleich
-from .models import (RUECKSENDUNG_OFFEN, BestellPosition, BestellStatus, Bestellung, Bestpreisplan, Lieferantenrechnung, Rma, RmaStatus,
+from .models import (RUECKSENDUNG_OFFEN, BestellPosition, BestellStatus, Bestellung, Bestpreisplan, Lieferantengutschrift,
+                     LieferantengutschriftVerrechnung, LieferantengutschriftZahlung, Lieferantenrechnung, Rma, RmaStatus,
                      RechnungStatus, Ruecksendung, RuecksendungArt, Wareneingang, WareneingangPosition)
 from .pdf import bestellung_pdf
 
@@ -494,6 +495,10 @@ def bestellung_abschliessen(request, bestellung_id):
         we = services.wareneingang_anlegen(request.mandant, b.lieferant, b, request.user)
         services.wareneingang_aus_bestellung(we)
         return redirect("einkauf:wareneingang", we_id=we.pk)
+    from apps.verkauf.views import sicheres_ziel
+    weiter = sicheres_ziel(request, request.POST.get("weiter", ""))
+    if weiter and not b.vorlaeufig:  # abgeschlossen beim Verlassen: weiter zum angeklickten Menüpunkt
+        return redirect(weiter)
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
 
 
@@ -901,7 +906,7 @@ def rechnungen(request, sicht=""):
     """sicht: „“ = Einkauf, „op“ = Finanzen → Offene Posten Lieferanten, „zahlung“ = Finanzen → Zahlungen Lieferanten."""
     status = request.GET.get("status", "offen")
     liste = Lieferantenrechnung.objects.filter(mandant=request.mandant).select_related("lieferant") \
-        .prefetch_related("wareneingaenge__positionen")
+        .prefetch_related("wareneingaenge__positionen", "verrechnungen")
     if status == "offen":  # nicht bezahlt: noch offen oder schon per SEPA exportiert
         liste = liste.exclude(status=RechnungStatus.BEZAHLT)
     elif status in RechnungStatus.values:  # u. a. „exportiert“: SEPA-Datei erzeugt, Zahlung noch nicht gebucht
@@ -912,6 +917,9 @@ def rechnungen(request, sicht=""):
         "abweichungen": sum(1 for _, a, _ in zeilen if a["offen"]),
         "seite": seite, "parameter": parameter,
         "zeilen": zeilen, "status": status, "sicht": sicht, "lieferanten": lieferanten_auswahl(),
+        "gutschriften": services.offene_gutschriften(request.mandant) if sicht in ("op", "zahlung") else [],
+        "eingaenge": LieferantengutschriftZahlung.objects.filter(gutschrift__mandant=request.mandant).select_related("gutschrift", "gutschrift__lieferant")[:30]
+        if sicht == "zahlung" else [],
         "heute": date.today().isoformat(), "summe": sum((z[2] for z in zeilen), Decimal("0"))})
 
 
@@ -989,6 +997,7 @@ def rechnung_detail(request, rechnung_id):
         .filter(Q(ersatz_fuer__isnull=True) | Q(pk__in=verknuepft))  # Ersatz aus einer Rücksendung gehört zu keiner Rechnung
     return render(request, "einkauf/rechnung.html", {
         "r": r, "abgleich": r.abgleich(), "zahlbetrag": r.zahlbetrag(), "kandidaten": kandidaten, "verknuepft": verknuepft,
+        "verrechnungen": r.verrechnungen.select_related("gutschrift"), "verrechnet": r.verrechnet,
         "heute": date.today().isoformat()})
 
 
@@ -996,17 +1005,19 @@ def rechnung_detail(request, rechnung_id):
 @require_POST
 @schutz("einkauf:rechnung", "rechnung_id")
 def rechnung_bezahlt(request, rechnung_id):
-    r = get_object_or_404(Lieferantenrechnung.objects.select_related("lieferant"), pk=rechnung_id, mandant=request.mandant)
-    if r.status == RechnungStatus.BEZAHLT:
-        raise ValueError("Die Rechnung ist schon als bezahlt gebucht.")
-    r.freigabe_pruefen()
-    betrag = zahl(request.POST.get("betrag"), r.zahlbetrag(tag(request.POST.get("datum"))))
-    if betrag <= 0:
-        raise ValueError("Der bezahlte Betrag muss größer als 0 sein.")
-    r.status = RechnungStatus.BEZAHLT
-    r.bezahlt_am = tag(request.POST.get("datum"))
-    r.bezahlter_betrag = betrag
-    r.save()
+    get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
+    with transaction.atomic():  # gesperrt: eine gleichzeitige Verrechnung mit einer Gutschrift ändert den Zahlbetrag
+        r = Lieferantenrechnung.objects.select_for_update().select_related("lieferant").get(pk=rechnung_id)
+        if r.status == RechnungStatus.BEZAHLT:
+            raise ValueError("Die Rechnung ist schon als bezahlt gebucht.")
+        r.freigabe_pruefen()
+        betrag = zahl(request.POST.get("betrag"), r.zahlbetrag(tag(request.POST.get("datum"))))
+        if betrag <= 0:
+            raise ValueError("Der bezahlte Betrag muss größer als 0 sein.")
+        r.status = RechnungStatus.BEZAHLT
+        r.bezahlt_am = tag(request.POST.get("datum"))
+        r.bezahlter_betrag = betrag
+        r.save()
     return redirect("einkauf:rechnung", rechnung_id=r.pk)
 
 
@@ -1335,8 +1346,12 @@ def ruecksendung_detail(request, ruecksendung_id):
                 services.ruecksendung_versendet(r, request.user)
                 messages.success(request, f"{r.nummer}: als versendet vermerkt.")
             elif aktion == "gutschrift":
-                services.ruecksendung_gutschrift(r, zahl(request.POST.get("betrag"), None), request.user)
-                messages.success(request, f"{r.nummer}: Gutschrift erhalten.")
+                datum = tag(request.POST.get("datum")) if request.POST.get("datum") else None  # Pflicht, kein stilles „heute“
+                r = services.ruecksendung_gutschrift(
+                    r, request.POST.get("nummer"), datum, zahl(request.POST.get("netto"), None), zahl(request.POST.get("steuer"), None),
+                    zahl(request.POST.get("brutto"), None), request.POST.get("notiz", ""), request.user)
+                messages.success(request, f"{r.nummer}: Gutschrift erhalten und erfasst – jetzt mit Rechnungen verrechnen oder die Zahlung buchen.")
+                return redirect("einkauf:gutschrift", gutschrift_id=r.lieferantengutschrift.pk)
             elif aktion == "ersatz":
                 we = services.ruecksendung_ersatz(r, request.user)
                 messages.success(request, f"{r.nummer}: Ersatz-Wareneingang {we.nummer} angelegt – bitte prüfen und buchen "
@@ -1350,4 +1365,77 @@ def ruecksendung_detail(request, ruecksendung_id):
         except ValueError as fehler:
             messages.error(request, str(fehler))
         return redirect("einkauf:ruecksendung", ruecksendung_id=r.pk)
-    return render(request, "einkauf/ruecksendung.html", {"r": r, "positionen": r.positionen.select_related("artikel", "we_position")})
+    netto = r.summe_netto
+    ust = (netto * Decimal("0.19")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)  # Vorschlag, änderbar
+    vorgabe = {name: request.POST.get(name) if request.method == "POST" else wert for name, wert in
+               (("nummer", ""), ("datum", date.today().isoformat()), ("netto", f"{netto:.2f}"), ("steuer", f"{ust:.2f}"),
+                ("brutto", f"{netto + ust:.2f}"), ("notiz", ""))}
+    return render(request, "einkauf/ruecksendung.html", {
+        "r": r, "positionen": r.positionen.select_related("artikel", "we_position"), "vorgabe": vorgabe, "heute": date.today().isoformat(),
+        "gutschrift": Lieferantengutschrift.objects.filter(ruecksendung=r).first()})
+
+
+# ---- Gutschrift des Lieferanten (Entscheidung Nutzer 19.11.2026) -------------------------------------
+
+def _gutschrift(request, gutschrift_id):
+    return get_object_or_404(Lieferantengutschrift.objects.select_related("lieferant", "ruecksendung"), pk=gutschrift_id, mandant=request.mandant)
+
+
+@mit_mandant
+def gutschrift_detail(request, gutschrift_id):
+    g = _gutschrift(request, gutschrift_id)
+    rechnungen = services.verrechenbare_rechnungen(g)
+    rest = g.restguthaben
+    return render(request, "einkauf/gutschrift.html", {
+        "g": g, "rest": rest, "verrechnet": g.verrechnet, "eingegangen": g.eingegangen,
+        "verrechnungen": g.verrechnungen.select_related("rechnung"), "zahlungen": g.zahlungen.select_related("bankumsatz"),
+        "rechnungen": [(r, min(rest, r.offener_betrag)) for r in rechnungen], "heute": date.today().isoformat()})
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:gutschrift", "gutschrift_id")
+def gutschrift_verrechnen(request, gutschrift_id):
+    g = _gutschrift(request, gutschrift_id)
+    rechnung_id = request.POST.get("rechnung", "")
+    rechnung = Lieferantenrechnung.objects.filter(pk=rechnung_id, mandant=request.mandant, lieferant=g.lieferant).first() if rechnung_id.isdigit() else None
+    if rechnung is None:
+        raise ValueError("Bitte eine offene Rechnung dieses Lieferanten wählen.")
+    betrag = zahl(request.POST.get("betrag"), None)
+    v = services.gutschrift_verrechnen(g, rechnung, betrag, tag(request.POST.get("datum")), request.user)
+    messages.success(request, f"{v.betrag:.2f} € mit Rechnung {rechnung.rechnungsnummer} verrechnet.".replace(".", ","))
+    return redirect("einkauf:gutschrift", gutschrift_id=g.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:gutschrift", "gutschrift_id")
+@nur_admin
+def gutschrift_verrechnung_aufheben(request, gutschrift_id, verrechnung_id):
+    g = _gutschrift(request, gutschrift_id)
+    v = get_object_or_404(LieferantengutschriftVerrechnung, pk=verrechnung_id, gutschrift=g)
+    services.verrechnung_aufheben(v, request.POST.get("grund"), request.user)
+    messages.success(request, "Verrechnung rückgängig gemacht.")
+    return redirect("einkauf:gutschrift", gutschrift_id=g.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:gutschrift", "gutschrift_id")
+def gutschrift_zahlung(request, gutschrift_id):
+    g = _gutschrift(request, gutschrift_id)
+    z = services.gutschrift_zahlung_buchen(g, zahl(request.POST.get("betrag"), g.restguthaben), tag(request.POST.get("datum")), request.user)
+    messages.success(request, f"Zahlung des Lieferanten über {z.betrag:.2f} € gebucht.".replace(".", ","))
+    return redirect("einkauf:gutschrift", gutschrift_id=g.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:gutschrift", "gutschrift_id")
+@nur_admin
+def gutschrift_zahlung_storno(request, gutschrift_id, zahlung_id):
+    g = _gutschrift(request, gutschrift_id)
+    z = get_object_or_404(LieferantengutschriftZahlung, pk=zahlung_id, gutschrift=g)
+    services.gutschrift_zahlung_stornieren(z, request.POST.get("grund"), request.user)
+    messages.success(request, "Zahlung storniert.")
+    return redirect("einkauf:gutschrift", gutschrift_id=g.pk)

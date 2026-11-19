@@ -72,7 +72,7 @@
 
 <div class="aktionen">
   {% if not beleg.abgeschlossen and not beleg.gehoert_zu_vorgang %}{# das nicht gespeicherte P-Angebot wird mit seinem Beleg gespeichert #}
-  <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" id="abschlussform" data-bleibt data-text="Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}">{% csrf_token %}<input type="hidden" name="danach" value=""><button type="submit" class="symbol voll" data-tip="Speichern: abschließen &amp; Nummer vergeben" aria-label="Speichern: abschließen und Nummer vergeben"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10v4z"/></svg></button></form>
+  <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" id="abschlussform" data-bleibt data-text="Beleg abschließen und Nummer vergeben?{% if beleg.art == 'RE' or beleg.art == 'GS' %} Danach ist er gesperrt.{% endif %}">{% csrf_token %}<input type="hidden" name="danach" value=""><input type="hidden" name="weiter" value=""><button type="submit" class="symbol voll" data-tip="Speichern: abschließen &amp; Nummer vergeben" aria-label="Speichern: abschließen und Nummer vergeben"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10v4z"/></svg></button></form>
   {% endif %}
   {% if beleg.vorlaeufig %}{# vor dem Speichern gibt es nichts nach außen: kein PDF, Druck, keine Mail, Zahlung, Versand, ESD #}
   {% elif druckhindernis %}<a class="symbol" href="#" onclick="wwokMeldung('{{ druckhindernis|escapejs }}');return false" data-tip="PDF – Druck nicht möglich" aria-label="PDF – Druck nicht möglich" style="opacity:.55"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14a2 2 0 0 0 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg></a>
@@ -278,12 +278,12 @@
         URL_VERLASSEN = "{% url 'verkauf:beleg_verlassen' beleg.pk %}";
     var abschluss = document.getElementById('abschlussform'), token = (document.querySelector('input[name=csrfmiddlewaretoken]') || {}).value || '';
     var durchlassen = false, laeuft = false, fragt = false, gesendet = false;
-    function verwerfen() {
+    function verwerfen(ziel) {
       laeuft = true;  // gegen Doppelklick: bis zur Antwort geht nichts anderes
       fetch(URL_VERWERFEN, {method: 'POST', credentials: 'same-origin', headers: {'X-Wwok-Stand': '1', 'X-CSRFToken': token}})
         .then(function (r) { return r.json(); })
         .then(function (d) {
-          if (d.ok) { durchlassen = true; location.href = d.weiter; return; }
+          if (d.ok) { durchlassen = true; location.href = ziel || d.weiter; return; }  // verworfen: zum angeklickten Menüpunkt
           laeuft = false;
           wwokToast(d.fehler || 'Der Beleg konnte nicht verworfen werden.', 'error');
           if (d.weiter) { durchlassen = true; setTimeout(function () { location.href = d.weiter; }, 2500); }
@@ -298,8 +298,13 @@
       ]).then(function (wert) {
         fragt = false;
         if (wert === 'verlassen') { durchlassen = true; if (ziel) location.href = ziel; return; }
-        if (wert === 'abschliessen' && abschluss) abschluss.requestSubmit();  // normaler Abschlussdialog; das ursprüngliche Ziel entfällt
-        else if (wert === 'verwerfen') verwerfen();
+        if (wert === 'abschliessen' && abschluss) {
+          if (ziel) {  // beim Verlassen: ohne weitere Auswahl abschließen, danach zum angeklickten Menüpunkt (Wunsch des Nutzers 19.11.2026)
+            abschluss.querySelector('[name=weiter]').value = ziel;
+            abschluss.dataset.bestaetigt = '1'; durchlassen = true; abschluss.submit();
+          } else abschluss.requestSubmit();  // ohne Ziel: normaler Abschlussdialog
+        }
+        else if (wert === 'verwerfen') verwerfen(ziel);
       });
     }
     function bleibt(a) {  // Links, die den Beleg nicht verlassen

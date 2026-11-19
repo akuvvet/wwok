@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block titel %}Gutschrift {{ g.nummer }} – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'finanzen:op_lieferanten' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Gutschrift {{ g.nummer }} – <a href="{% url 'einkauf:lieferant' g.lieferant_id %}">{{ g.lieferant.name1 }}</a></h1>
+  <div class="raster">
+    <div>Datum<br>{{ g.datum|date:"d.m.Y" }}</div>
+    <div>Netto / USt<br>{{ g.netto|floatformat:"2g" }} / {{ g.steuer|floatformat:"2g" }} €</div>
+    <div>Brutto<br><strong>{{ g.brutto|floatformat:"2g" }} €</strong></div>
+    <div>verrechnet<br>{{ verrechnet|floatformat:"2g" }} €</div>
+    <div>Zahlung erhalten<br>{{ eingegangen|floatformat:"2g" }} €</div>
+    <div>Restguthaben<br><strong>{{ rest|floatformat:"2g" }} €</strong></div>
+  </div>
+  <p style="margin-top:8px">{% if g.ruecksendung %}Zur Rücksendung <a href="{% url 'einkauf:ruecksendung' g.ruecksendung_id %}">{{ g.ruecksendung.nummer }}</a>.{% endif %}
+    {% if g.notiz %}Notiz: {{ g.notiz }}{% endif %}</p>
+</div>
+
+<div class="karte">
+  <h2>Verrechnungen</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Datum</th><th>Rechnung</th><th class="zahl">Betrag</th><th>Benutzer</th><th></th></tr></thead>
+    <tbody>{% for v in verrechnungen %}<tr{% if v.aufgehoben %} style="opacity:.6"{% endif %}>
+      <td>{{ v.datum|date:"d.m.Y" }}</td><td><a href="{% url 'einkauf:rechnung' v.rechnung_id %}">{{ v.rechnung.rechnungsnummer }}</a></td>
+      <td class="zahl">{{ v.betrag|floatformat:"2g" }} €</td><td>{{ v.benutzer|default:"-" }}</td>
+      <td>{% if v.aufgehoben %}rückgängig gemacht am {{ v.aufgehoben_am|date:"d.m.Y" }} – {{ v.aufgehoben_grund }}
+        {% else %}<form method="post" action="{% url 'einkauf:gutschrift_verrechnung_aufheben' g.pk v.pk %}" class="zeile">{% csrf_token %}
+          <input name="grund" size="22" maxlength="300" placeholder="Grund (Pflicht)" required>
+          <button type="submit" class="leise" data-frage="Verrechnung mit Rechnung {{ v.rechnung.rechnungsnummer }} rückgängig machen?">Rückgängig</button></form>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="5">Noch nicht verrechnet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if rest > 0 %}
+  {% if rechnungen %}
+  <form method="post" action="{% url 'einkauf:gutschrift_verrechnen' g.pk %}" class="zeile" style="margin-top:12px;align-items:flex-end">{% csrf_token %}
+    <div><label for="v_rechnung">Mit Rechnung verrechnen</label>
+      <select id="v_rechnung" name="rechnung" required>{% for r, vorschlag in rechnungen %}<option value="{{ r.pk }}" data-vorschlag="{{ vorschlag|floatformat:'2' }}">{{ r.rechnungsnummer }} · offen {{ r.offener_betrag|floatformat:"2g" }} €</option>{% endfor %}</select></div>
+    <div><label for="v_betrag">Betrag (€)</label><input id="v_betrag" name="betrag" size="9" inputmode="decimal" value="{% with erste=rechnungen.0 %}{{ erste.1|floatformat:'2' }}{% endwith %}" required></div>
+    <div><label for="v_datum">Datum</label><input id="v_datum" type="date" name="datum" max="{{ heute }}" value="{{ heute }}"></div>
+    <button type="submit">Verrechnen</button>
+  </form>
+  <script>
+    (function () {
+      var wahl = document.getElementById('v_rechnung'), betrag = document.getElementById('v_betrag');
+      wahl.addEventListener('change', function () { betrag.value = wahl.selectedOptions[0].dataset.vorschlag.replace('.', ','); });
+    })();
+  </script>
+  {% else %}<p style="margin-top:12px;opacity:.8">Keine offene Rechnung dieses Lieferanten zum Verrechnen (exportierte und bezahlte Rechnungen zählen nicht).</p>{% endif %}
+  {% endif %}
+</div>
+
+<div class="karte">
+  <h2>Zahlungen des Lieferanten</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Datum</th><th class="zahl">Betrag</th><th>Herkunft</th><th>Benutzer</th><th></th></tr></thead>
+    <tbody>{% for z in zahlungen %}<tr{% if z.storniert %} style="opacity:.6"{% endif %}>
+      <td>{{ z.datum|date:"d.m.Y" }}</td><td class="zahl">{{ z.betrag|floatformat:"2g" }} €</td>
+      <td>{% if z.bankumsatz %}Kontoauszug {{ z.bankumsatz.buchungsdatum|date:"d.m.Y" }}{% else %}von Hand{% endif %}</td><td>{{ z.benutzer|default:"-" }}</td>
+      <td>{% if z.storniert %}storniert am {{ z.storno_am|date:"d.m.Y" }} – {{ z.storno_grund }}
+        {% else %}<form method="post" action="{% url 'einkauf:gutschrift_zahlung_storno' g.pk z.pk %}" class="zeile">{% csrf_token %}
+          <input name="grund" size="22" maxlength="300" placeholder="Stornogrund (Pflicht)" required>
+          <button type="submit" class="gefahr" data-frage="Zahlung über {{ z.betrag|floatformat:'2g' }} € stornieren?">Storno</button></form>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="5">Noch keine Zahlung erhalten.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if rest > 0 %}
+  <form method="post" action="{% url 'einkauf:gutschrift_zahlung' g.pk %}" class="zeile" style="margin-top:12px;align-items:flex-end">{% csrf_token %}
+    <div><label for="z_datum">Erhalten am</label><input id="z_datum" type="date" name="datum" max="{{ heute }}" value="{{ heute }}"></div>
+    <div><label for="z_betrag">Betrag (€)</label><input id="z_betrag" name="betrag" size="9" inputmode="decimal" value="{{ rest|floatformat:'2' }}" required></div>
+    <button type="submit">Zahlung erhalten buchen</button>
+  </form>{% endif %}
+</div>
+
+{% if g.historie %}<div class="karte"><h2>Verlauf</h2><p class="fein" style="white-space:pre-line">{{ g.historie }}</p></div>{% endif %}
+{% endblock %}

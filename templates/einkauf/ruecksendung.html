@@ -10,7 +10,8 @@
   <dl class="infoblock">
     <dt>Wert netto (EK):</dt><dd>{{ r.summe_netto|floatformat:"2g" }} €</dd>
     {% if r.versendet_am %}<dt>Versendet am:</dt><dd>{{ r.versendet_am|date:"d.m.Y" }}</dd>{% endif %}
-    {% if r.gutschrift_betrag is not None %}<dt>Gutschrift:</dt><dd>{{ r.gutschrift_betrag|floatformat:"2g" }} € netto{% if r.gutschrift_betrag != r.summe_netto %} <span style="color:var(--hinweis)">(erwartet {{ r.summe_netto|floatformat:"2g" }} €)</span>{% endif %}</dd>{% endif %}
+    {% if gutschrift %}<dt>Gutschrift:</dt><dd><a href="{% url 'einkauf:gutschrift' gutschrift.pk %}">{{ gutschrift.nummer }}</a> vom {{ gutschrift.datum|date:"d.m.Y" }} – {{ gutschrift.brutto|floatformat:"2g" }} € brutto (Restguthaben {{ gutschrift.restguthaben|floatformat:"2g" }} €)</dd>{% endif %}
+    {% if r.gutschrift_betrag is not None %}<dt>Gutschrift netto:</dt><dd>{{ r.gutschrift_betrag|floatformat:"2g" }} € netto{% if r.gutschrift_betrag != r.summe_netto %} <span style="color:var(--hinweis)">(erwartet {{ r.summe_netto|floatformat:"2g" }} €)</span>{% endif %}</dd>{% endif %}
     {% if r.ersatz_wareneingang %}<dt>Ersatz:</dt><dd><a href="{% url 'einkauf:wareneingang' r.ersatz_wareneingang.pk %}">{{ r.ersatz_wareneingang.nummer }}</a> {% if r.ersatz_wareneingang.gebucht %}(gebucht){% else %}<span style="color:var(--hinweis)">(noch zu buchen)</span>{% endif %}</dd>{% endif %}
     {% if r.erledigt_am %}<dt>Erledigt am:</dt><dd>{{ r.erledigt_am|date:"d.m.Y" }}</dd>{% endif %}
   </dl>
@@ -26,8 +27,13 @@
   <h2>Wie geht es weiter?</h2>
   <div class="zeile" style="align-items:flex-start;gap:16px">
     {% if r.status == 'angelegt' %}<form method="post">{% csrf_token %}<input type="hidden" name="aktion" value="versendet"><button type="submit">An Lieferanten versendet</button></form>{% endif %}
-    <form method="post" class="zeile">{% csrf_token %}<input type="hidden" name="aktion" value="gutschrift">
-      <div><label for="betrag">Gutschrift netto (€)</label><input id="betrag" name="betrag" size="9" inputmode="decimal" value="{{ r.summe_netto|floatformat:'2' }}" required></div>
+    <form method="post" class="zeile" style="align-items:flex-end">{% csrf_token %}<input type="hidden" name="aktion" value="gutschrift">
+      <div><label for="g_nummer">Gutschrift-Nr. des Lieferanten</label><input id="g_nummer" name="nummer" size="14" maxlength="60" value="{{ vorgabe.nummer }}" required></div>
+      <div><label for="g_datum">Gutschriftdatum</label><input id="g_datum" type="date" name="datum" max="{{ heute }}" value="{{ vorgabe.datum }}" required></div>
+      <div><label for="g_netto">Netto (€)</label><input id="g_netto" name="netto" size="9" inputmode="decimal" value="{{ vorgabe.netto }}" required></div>
+      <div><label for="g_steuer">USt (€)</label><input id="g_steuer" name="steuer" size="9" inputmode="decimal" value="{{ vorgabe.steuer }}" required></div>
+      <div><label for="g_brutto">Brutto (€)</label><input id="g_brutto" name="brutto" size="9" inputmode="decimal" value="{{ vorgabe.brutto }}" required></div>
+      <div><label for="g_notiz">Notiz</label><input id="g_notiz" name="notiz" size="24" maxlength="200" value="{{ vorgabe.notiz }}"></div>
       <button type="submit"{% if r.art == 'austausch' %} class="leise"{% endif %}>Gutschrift erhalten</button></form>
     <form method="post">{% csrf_token %}<input type="hidden" name="aktion" value="ersatz">
       <button type="submit"{% if r.art == 'gutschrift' %} class="leise"{% endif %} data-frage="Ersatz erhalten? Es wird ein Wareneingang mit denselben Artikeln und Mengen angelegt, den du prüfst und buchst.">Ersatz erhalten → Wareneingang</button></form>

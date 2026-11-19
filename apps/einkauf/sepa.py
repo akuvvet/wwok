@@ -81,7 +81,10 @@ def erzeuge(mandant, rechnungen, ausfuehrung=None) -> bytes:
             ET.SubElement(ET.SubElement(cagt, q("Othr")), q("Id")).text = "NOTPROVIDED"
         ET.SubElement(ET.SubElement(tx, q("Cdtr")), q("Nm")).text = sepa_text(r.lieferant.kontoinhaber or r.lieferant.name1, 70)
         ET.SubElement(ET.SubElement(ET.SubElement(tx, q("CdtrAcct")), q("Id")), q("IBAN")).text = iban(r.lieferant.iban)
-        text = f"RE {r.rechnungsnummer}" + (f" abzgl. {r.skonto_prozent}% Skonto" if betrag != r.brutto else "")
+        skonto = bool(r.skonto_prozent and r.skonto_bis and ausfuehrung <= r.skonto_bis)
+        verrechnet = r.verrechnet
+        text = (f"RE {r.rechnungsnummer}" + (f" abzgl. {r.skonto_prozent}% Skonto" if skonto else "")
+                + (f" abzgl. Gutschrift {verrechnet} EUR" if verrechnet else ""))
         ET.SubElement(ET.SubElement(tx, q("RmtInf")), q("Ustrd")).text = sepa_text(text, 140)
     ET.indent(wurzel)
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(wurzel, encoding="utf-8")

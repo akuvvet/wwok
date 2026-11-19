@@ -150,6 +150,36 @@ def finde_rechnung(mandant, zweck: str):
     return treffer[0] if treffer else None
 
 
+def gutschrift_treffer(umsatz, gutschriften=None) -> list:
+    """Offene Lieferanten-Gutschriften, deren Restguthaben genau dem Eingang entspricht und die im Text vorkommen:
+    [(Gutschrift, Nummer_im_Text)]. Nummer im Verwendungszweck (ganzes Wort) ist sicher und wird automatisch gebucht; passt nur
+    der Name oder Kurzname des Lieferanten (Auftraggeber oder Verwendungszweck), bleibt es ein Vorschlag zur Prüfung."""
+    if umsatz.betrag <= 0:
+        return []
+    from apps.einkauf import services as einkauf
+    if gutschriften is None:
+        gutschriften = einkauf.offene_gutschriften(umsatz.mandant)
+    text = f"{umsatz.zweck} {umsatz.referenz} {umsatz.name}"
+    treffer = []
+    for g in gutschriften:
+        if g.restguthaben != umsatz.betrag:
+            continue
+        nr = bool(re.search(r"(?<![A-Za-z0-9])" + re.escape(g.nummer) + r"(?![A-Za-z0-9])", text, re.IGNORECASE))
+        namen = [n for n in (g.lieferant.name1, g.lieferant.kurzname) if n and len(n.strip()) >= 3]
+        if nr or any(re.search(r"(?<![A-Za-z0-9])" + re.escape(n.strip()) + r"(?![A-Za-z0-9])", text, re.IGNORECASE) for n in namen):
+            treffer.append((g, nr))
+    return sorted(treffer, key=lambda t: not t[1])
+
+
+def gutschrift_zuordnen(umsatz, gutschrift, benutzer=None):
+    """Zahlungseingang einer Lieferanten-Gutschrift zuordnen: dieselbe Zahlung wie der Knopf „Zahlung erhalten buchen“
+    (Betrag und Datum vom Umsatz, höchstens das Restguthaben)."""
+    from apps.einkauf import services as einkauf
+    zahlung = einkauf.gutschrift_zahlung_buchen(gutschrift, None, None, benutzer, bankumsatz=umsatz)
+    umsatz.refresh_from_db()
+    return zahlung
+
+
 def aufteilen(betrag, belege) -> tuple:
     """Verteilt einen Eingang der Reihe nach auf die offenen Beträge: ([(Beleg, Teilbetrag)], Rest). Rest > 0 = Überzahlung."""
     teile, rest = [], betrag
@@ -261,7 +291,14 @@ def zuordnen_automatisch(umsatz, benutzer=None) -> bool:
         lastschriften_buchen(umsatz, lastschriften, benutzer)
         return True
     belege = finde_rechnungen(umsatz.mandant, umsatz.zweck)
-    if not belege:
+    if not belege:  # keine Kundenrechnung: vielleicht zahlt ein Lieferant eine Gutschrift aus
+        sicher = [g for g, nr_im_text in gutschrift_treffer(umsatz) if nr_im_text]
+        if len(sicher) == 1:
+            try:
+                gutschrift_zuordnen(umsatz, sicher[0], benutzer)
+            except ValueError:  # z. B. Restguthaben inzwischen verrechnet: bleibt offen zur Prüfung
+                return False
+            return True
         return False
     umsatz.vorschlag = belege[0]
     teile, rest = aufteilen(umsatz.betrag, belege)

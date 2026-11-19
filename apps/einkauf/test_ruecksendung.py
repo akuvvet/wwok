@@ -1,5 +1,6 @@
 """WE-Rücksendung (Wunsch des Nutzers 18.11.2026): gebuchte Ware aus einem Wareneingang geht zur Gutschrift oder zum
 Austausch an den Lieferanten zurück. Bestand wird abgebucht, die Bestellung bleibt unverändert."""
+from datetime import date
 from decimal import Decimal as D
 
 from django.contrib.auth import get_user_model
@@ -115,11 +116,11 @@ class RuecksendungTest(TestCase):
         r = services.ruecksendung_anlegen(we, [(p, D("5"), [])], "gutschrift", "zu viel")
         r = services.ruecksendung_versendet(r)
         self.assertEqual(r.status, RuecksendungStatus.VERSENDET)
-        with self.assertRaisesMessage(ValueError, "Betrag"):
-            services.ruecksendung_gutschrift(r, None)
-        r = services.ruecksendung_gutschrift(r, D("44.5"))
+        with self.assertRaisesMessage(ValueError, "Netto"):
+            services.ruecksendung_gutschrift(r, "G-1", date.today(), None, D("8.45"), D("52.95"))
+        r = services.ruecksendung_gutschrift(r, "G-1", date.today(), D("44.5"), D("8.46"), D("52.96"))
         self.assertEqual((r.status, r.gutschrift_betrag), (RuecksendungStatus.GUTSCHRIFT, D("44.50")))
-        self.assertIn("Gutschrift erhalten: 44.50 € netto (erwartet 45.00 €)", r.historie)
+        self.assertIn("Gutschrift G-1 erhalten: 44.50 € netto, 52.96 € brutto (erwartet 45.00 € netto)", r.historie)
         with self.assertRaisesMessage(ValueError, "schon erledigt"):
             services.ruecksendung_versendet(r)
 
@@ -164,7 +165,8 @@ class RuecksendungTest(TestCase):
         self.assertEqual(r.redirect_chain[-1][0], reverse("einkauf:ruecksendung", args=[rs.pk]))
         self.assertContains(r, "45,00")
         self.client.post(reverse("einkauf:ruecksendung", args=[rs.pk]), {"aktion": "versendet"})
-        self.client.post(reverse("einkauf:ruecksendung", args=[rs.pk]), {"aktion": "gutschrift", "betrag": "45,00"})
+        self.client.post(reverse("einkauf:ruecksendung", args=[rs.pk]), {
+            "aktion": "gutschrift", "nummer": "G-77", "datum": date.today().isoformat(), "netto": "45,00", "steuer": "8,55", "brutto": "53,55"})
         rs.refresh_from_db()
         self.assertEqual((rs.status, rs.gutschrift_betrag), (RuecksendungStatus.GUTSCHRIFT, D("45.00")))
         liste = self.client.get(reverse("einkauf:ruecksendungen"), {"filter": "alle"})
@@ -269,7 +271,7 @@ class RuecksendungReviewTest(RuecksendungTest):
         r.refresh_from_db()
         self.assertEqual((r.status, r.ersatz_wareneingang, r.erledigt_am), (RuecksendungStatus.VERSENDET, None, None))
         self.assertIn("gelöscht – Rücksendung wieder offen", r.historie)
-        services.ruecksendung_gutschrift(r, D("40"))  # jetzt geht es weiter
+        services.ruecksendung_gutschrift(r, "G-1", date.today(), D("40"), D("7.60"), D("47.60"))  # jetzt geht es weiter
 
     def test_ersatz_per_post_nicht_an_rechnung(self):
         we, p = self.mit_seriennummern()
@@ -289,7 +291,7 @@ class RuecksendungReviewTest(RuecksendungTest):
         _, we, p = self.ueberlieferung()
         r = services.ruecksendung_anlegen(we, [(p, D("1"), [])], "gutschrift", "x")
         with self.assertRaisesMessage(ValueError, "zu groß"):
-            services.ruecksendung_gutschrift(r, D("10000000000"))
+            services.ruecksendung_gutschrift(r, "G-1", date.today(), D("10000000000"), D("0"), D("10000000000"))
 
     def test_abgelehnt_mit_wieder_eingelagerter_nummer_bricht_ab(self):
         we, p = self.mit_seriennummern()
