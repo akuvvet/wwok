@@ -6,11 +6,12 @@
   <h1><a href="{% url 'verkauf:beleg' beleg.pk %}">{{ beleg }}</a> – {{ beleg.kunde.name1 }}</h1>
   {% if beleg.art == 'GS' %}<div class="raster">
     <div>Gutschriftbetrag<br><strong>{{ beleg.summe_brutto|floatformat:"2g" }} €</strong></div>
-    <div>mit Rechnungen verrechnet<br><strong>{{ weg.verrechnet|floatformat:"2g" }} €</strong></div>
+    <div>mit Rechnungen verrechnet<br><strong>{{ gs_verrechnet|floatformat:"2g" }} €</strong></div>
+    {% if gs_ausgezahlt %}<div>ausgezahlt<br><strong>{{ gs_ausgezahlt|floatformat:"2g" }} €</strong></div>{% endif %}
     <div>noch frei (Guthaben des Kunden)<br><strong style="font-size:20px">{{ gs_rest|floatformat:"2g" }} €</strong></div>
     {% if weg.rechnung %}<div>zur Rechnung<br><a href="{% url 'finanzen:beleg' weg.rechnung.pk %}">{{ weg.rechnung.nummer }}</a> ({{ weg.rechnung.summe_brutto|floatformat:"2g" }} €)</div>{% endif %}
   </div>
-  <p style="margin:8px 0 0;opacity:.8">Eine Gutschrift wird nicht direkt ausgezahlt: Sie wird auf der Zahlungsseite einer Rechnung des Kunden verrechnet{% if weg.rechnung %} (<a href="{% url 'finanzen:beleg' weg.rechnung.pk %}">Rechnung {{ weg.rechnung.nummer }}</a>){% endif %}. Ist die Rechnung schon bezahlt, entsteht dort ein Guthaben, das als <strong>negative Zahlung</strong> mit Zahlart und Datum ausgezahlt wird.</p>
+  <p style="margin:8px 0 0;opacity:.8">Der freie Betrag wird mit einer offenen Rechnung des Kunden verrechnet (auf deren Zahlungsseite{% if weg.rechnung %}, z. B. <a href="{% url 'finanzen:beleg' weg.rechnung.pk %}">Rechnung {{ weg.rechnung.nummer }}</a>{% endif %}) oder unten direkt an den Kunden ausgezahlt.</p>
   {% else %}<div class="raster">
     <div>{% if beleg.art == 'PF' %}Proforma-Betrag{% elif beleg.art == 'AB' %}Bestellwert{% else %}Rechnungsbetrag{% endif %}<br><strong>{{ beleg.summe_brutto|floatformat:"2g" }} €</strong></div>
     <div>bezahlt<br><strong>{{ bezahlt|floatformat:"2g" }} €</strong></div>
@@ -42,6 +43,26 @@
     <span>Gutschriften: <strong>{{ weg.gutschriften|floatformat:"2g" }} €</strong></span><span>davon verrechnet: <strong>{{ weg.verrechnet|floatformat:"2g" }} €</strong></span>
     <span>noch frei: <strong>{{ weg.frei|floatformat:"2g" }} €</strong></span>{% if weg.rechnung %}<span>ausgezahlt: <strong>{{ weg.ausgezahlt|floatformat:"2g" }} €</strong></span>
     <span>Rechnung {% if weg.stand < 0 %}Guthaben{% else %}offen{% endif %}: <strong>{{ weg.stand|floatformat:"2g" }} €</strong></span>{% endif %}</p>
+</div>
+{% endif %}
+
+{% if beleg.art == 'GS' and beleg.abgeschlossen %}
+<div class="karte" id="auszahlung">
+  <h2>Auszahlung an den Kunden</h2>
+  {% if gs_rest > 0 %}<form method="post" action="{% url 'finanzen:gutschrift_auszahlen' beleg.pk %}" class="zeile">{% csrf_token %}<input type="hidden" name="frei_bisher" value="{{ gs_rest|floatformat:2 }}">
+    <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
+    <div><label>Betrag brutto (höchstens {{ gs_rest|floatformat:"2g" }} €)</label><input name="betrag" value="{{ gs_rest|floatformat:2 }}" size="10"></div>
+    <div><label>Zahlart</label><select name="zahlart">{% for w, n in zahlarten %}{% if w != 'sk' %}<option value="{{ w }}">{{ n }}</option>{% endif %}{% endfor %}</select></div>
+    <div><label>Bemerkung</label><input name="bemerkung" size="26" placeholder="Auszahlung an den Kunden"></div>
+    <button type="submit">Auszahlen</button>
+  </form>{% else %}<p style="opacity:.8">Nichts mehr frei: Die Gutschrift ist vollständig verrechnet oder ausgezahlt.</p>{% endif %}
+  {% if zahlungen %}<table style="margin-top:12px">
+    <tr><th>Datum</th><th>Zahlart</th><th class="zahl">Betrag</th><th>Bemerkung / Stornogrund</th><th>Benutzer</th><th></th></tr>
+    {% for z in zahlungen %}<tr><td>{{ z.datum|date:"d.m.Y" }}</td><td>{{ z.get_zahlart_display }}</td><td class="zahl">{{ z.betrag }}</td><td>{{ z.bemerkung }}{% if z.storno_zu_id %} <em>(Storno)</em>{% endif %}</td><td>{{ z.benutzer|default:"" }}</td>
+        <td>{% if z.storno_zu_id %}{% elif z.storniert_durch %}<span style="opacity:.6">storniert</span>
+          {% else %}<form method="post" action="{% url 'finanzen:zahlung_storno' z.pk %}" class="zeile">{% csrf_token %}
+            <input name="grund" placeholder="Stornogrund (Pflicht)" size="22" required><button type="submit" class="gefahr">Stornieren</button></form>{% endif %}</td></tr>{% endfor %}
+  </table>{% endif %}
 </div>
 {% endif %}
 

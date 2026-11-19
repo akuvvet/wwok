@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.db import transaction
+from django.db.models import Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -136,6 +137,9 @@ def beleg_op(request, beleg_id):
     ist_gs = beleg.art == Belegart.GUTSCHRIFT
     return render(request, "finanzen/beleg_op.html", {
         "weg": services.zahlungsweg(beleg), "gs_rest": services.gutschrift_rest(beleg) if ist_gs else None,
+        # Kopf der Gutschrift: nur diese Gutschrift (der Zahlungsweg umfasst alle Gutschriften ihrer Rechnung)
+        "gs_verrechnet": (beleg.verrechnungen.aggregate(s=Sum("betrag"))["s"] or Decimal("0")) if ist_gs else None,
+        "gs_ausgezahlt": -services.bezahlt(beleg) if ist_gs else None,
         "quelle": quelle, "guthaben": guthaben, "andere_rechnungen": andere,
         # Zahlung buchen: freie Guthaben des Kunden zum Verrechnen vorschlagen (nur für offene Rechnungen)
         "kunden_guthaben": [{**g, "vorschlag": min(g["guthaben"], offen)} for g in anzahlungmodul.kunden_guthaben(
@@ -170,6 +174,35 @@ def zahlung_buchen(request, beleg_id):
     except ValueError as fehler:
         messages.error(request, str(fehler))
     return redirect("finanzen:beleg", beleg_id=beleg.pk)
+
+
+@mit_mandant
+@require_POST
+def gutschrift_auszahlen(request, beleg_id):
+    """Freien Betrag einer Gutschrift direkt an den Kunden auszahlen (Entscheidung des Nutzers 19.11.2026): negative Zahlung
+    auf der Gutschrift, höchstens bis zum freien Betrag. frei_bisher schützt vor Doppelklick und veralteter Seite."""
+    from django.db import transaction
+    gutschrift = get_object_or_404(Beleg, pk=beleg_id, mandant=request.mandant, art=Belegart.GUTSCHRIFT)
+    if (gesperrt := vorlaeufig_gesperrt(request, gutschrift)) is not None:
+        return gesperrt
+    try:
+        wert = betrag(request.POST.get("betrag"))
+        if wert is None or wert <= 0:
+            raise ValueError("Bitte den auszuzahlenden Betrag (größer als 0) eintragen.")
+        zahlart = request.POST.get("zahlart", Zahlart.UEBERWEISUNG)
+        if zahlart not in Zahlart.values or zahlart == Zahlart.SKONTO:  # Skonto ist kein Geldfluss
+            raise ValueError("Bitte eine Zahlart für die Auszahlung wählen (Überweisung, Bar …).")
+        with transaction.atomic():
+            Beleg.objects.select_for_update().get(pk=gutschrift.pk)
+            bisher = request.POST.get("frei_bisher")
+            if bisher and betrag(bisher) != services.gutschrift_rest(gutschrift):
+                raise ValueError("Der freie Betrag hat sich inzwischen geändert (evtl. schon ausgezahlt oder verrechnet). Bitte prüfen.")
+            services.zahlung_buchen(gutschrift, -wert, datum(request.POST.get("datum")), zahlart,
+                                    request.POST.get("bemerkung", "").strip() or "Auszahlung an den Kunden", request.user)
+        messages.success(request, f"{wert:.2f} € aus {gutschrift} an den Kunden ausgezahlt.".replace(".", ",", 1))
+    except ValueError as fehler:
+        messages.error(request, str(fehler))
+    return redirect("finanzen:beleg", beleg_id=gutschrift.pk)
 
 
 @mit_mandant

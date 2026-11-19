@@ -19,7 +19,7 @@ from apps.kern.models import Mandant
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
-from .models import (runden, GutschriftUeberRechnung, zahlungsbedingung_vorkasse, Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Mengenregel, Position, Ruecknahme, Versand, Versandart,
+from .models import (runden, GutschriftGrundFehlt, GutschriftUeberRechnung, zahlungsbedingung_vorkasse, Abo, AboPosition, Beleg, BelegGesperrt, Belegart, Briefprodukt, Mengenregel, Position, Ruecknahme, Versand, Versandart,
                      Vorgangsweg, Wiedervorlage, letzte_preise, regel_vorschlag)
 from . import vorgang
 from .mail import MailFehler, beleg_senden
@@ -163,7 +163,9 @@ def kunde_detail(request, kunde_id):
                     if abs(fin.gutschrift_rest(g)) < fin.CENT]
         storniert = [g.vorgaenger_id for g in erledigt if g.vorgaenger_id and g.summe_brutto >= g.vorgaenger.summe_brutto
                      and abs(fin.offen(g.vorgaenger)) < fin.CENT]
-        belege = belege.exclude(pk__in=[g.pk for g in erledigt] + storniert).exclude(art=Belegart.GUTSCHRIFT, abgeschlossen=False)
+        # nicht gespeicherte Gutschriften zur Rechnung ausblenden (erreichbar über die Rechnung); eine freie Gutschrift bleibt sichtbar
+        belege = belege.exclude(pk__in=[g.pk for g in erledigt] + storniert).exclude(
+            art=Belegart.GUTSCHRIFT, abgeschlossen=False, vorgaenger__art=Belegart.RECHNUNG)
     parameter = request.GET.copy()
     parameter.pop("seite", None)
     seite = Paginator(belege, 25).get_page(request.GET.get("seite"))
@@ -194,7 +196,7 @@ def kunde_detail(request, kunde_id):
             "beleg": b, "faellig": fin.faellig_am(b) if rechnung else None, "zahlstatus": status, "re_status": re_status,
             "bezahlt": erledigt if rechnung else status["bezahlt"] if proforma else None,
             "offen": b.summe_brutto - erledigt if rechnung else status["offen"] if proforma else
-                     -(b.summe_brutto - summen["verrechnet"].get(b.pk, null)) if gutschrift else None,
+                     -(b.summe_brutto - summen["verrechnet"].get(b.pk, null) + summen["bezahlt"].get(b.pk, null)) if gutschrift else None,
             "abrechenbar": b.pk in ls_ids and b.pk not in berechnet,
             "bezug": b.vorgaenger if b.vorgaenger_id and b.vorgaenger.nummer else None,
             "vormals": b.vormals,
@@ -237,9 +239,7 @@ def beleg_neu(request, kunde_id):
     if art == Belegart.NACHLIEFERSCHEIN:
         messages.error(request, "Ein Nachlieferschein entsteht aus einer abgeschlossenen Rechnung: dort unter „Mehr“ → „Kopieren als Nachlieferschein“.")
         return redirect("verkauf:kunde", kunde_id=kunde.pk)
-    if art == Belegart.GUTSCHRIFT:
-        messages.error(request, "Eine Gutschrift entsteht nur aus einer abgeschlossenen Rechnung: dort unter „Mehr“ → „Storno / Gutschrift“.")
-        return redirect("verkauf:kunde", kunde_id=kunde.pk)
+    # Gutschrift: zur Rechnung über „Storno / Gutschrift“, ohne Rechnung hier als freie Gutschrift (Entscheidung des Nutzers 19.11.2026)
     if art == Belegart.LIEFERSCHEIN:
         messages.error(request, "Ein Lieferschein entsteht aus einer Bestellung: erst die Bestellung erfassen, "
                                 "dann dort „Als Lieferschein übernehmen“.")
@@ -791,7 +791,12 @@ def beleg_abschliessen(request, beleg_id):
         with transaction.atomic():  # P-Positionen der Bestellung wandern ins Angebot; scheitert der Abschluss, bleibt alles wie es war
             p_info = beleg.p_beim_speichern_auslagern()
             if not (p_info and p_info["nur_p"]):
-                beleg.abschliessen(esd_ohne_key=ohne_key, ueber_grund=request.POST.get("ueber_grund", ""))
+                beleg.abschliessen(esd_ohne_key=ohne_key, ueber_grund=request.POST.get("ueber_grund", ""),
+                                   gutschrift_grund=request.POST.get("gutschrift_grund", ""))
+    except GutschriftGrundFehlt as fehler:  # Rückfrage: freie Gutschrift nur mit Grund
+        return render(request, "verkauf/gutschrift_grund.html", {
+            "beleg": beleg_holen(request, beleg_id), "meldung": str(fehler), "danach": request.POST.get("danach", ""),
+            "esd_ohne_key": "1" if ohne_key else "", "fehlt": "gutschrift_grund" in request.POST})
     except GutschriftUeberRechnung as fehler:  # Rückfrage: Gutschriften über dem Rechnungsbetrag nur mit Begründung
         beleg = beleg_holen(request, beleg_id)
         return render(request, "verkauf/gutschrift_ueber_rechnung.html", {

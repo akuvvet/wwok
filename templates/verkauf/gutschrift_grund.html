@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block titel %}Grund der Gutschrift – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'verkauf:beleg' beleg.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Grund der Gutschrift</h1>
+  <p class="warnung">{{ meldung }}</p>
+  <p>Gutschrift für {{ beleg.kunde.name1 }} über <strong>{{ beleg.summe_brutto|floatformat:"2g" }} €</strong>{% if beleg.bezugnahme %} · Bezug: {{ beleg.bezugnahme }}{% endif %}</p>
+  <form method="post" action="{% url 'verkauf:beleg_abschliessen' beleg.pk %}" style="margin-top:12px">{% csrf_token %}
+    <input type="hidden" name="danach" value="{{ danach }}">
+    {% if esd_ohne_key %}<input type="hidden" name="esd_ohne_key" value="1">{% endif %}
+    <label for="gutschrift_grund">Warum wird gutgeschrieben? (Pflicht, steht auf der Gutschrift)</label>
+    <textarea id="gutschrift_grund" name="gutschrift_grund" rows="3" maxlength="300" required autofocus style="width:100%;max-width:640px"></textarea>
+    {% if fehlt %}<p class="warnung">Bitte einen Grund eintragen.</p>{% endif %}
+    <div class="zeile" style="margin-top:12px">
+      <button type="submit">Mit Grund abschließen</button>
+      <a class="knopf leise" href="{% url 'verkauf:beleg' beleg.pk %}">Zurück zur Gutschrift</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
