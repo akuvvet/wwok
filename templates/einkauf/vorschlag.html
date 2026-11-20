@@ -2,23 +2,43 @@
 {% block titel %}Bestellvorschlag – wwok{% endblock %}
 {% block inhalt %}
 <a href="{% url 'einkauf:bestellungen' %}" data-escape style="display:none">zurück</a>
-<div class="karte">
+<div class="karte" id="vorschlag">
   <h1>Bestellvorschlag · Mandant {{ request.mandant }}</h1>
-  <p style="opacity:.8">Artikel unter Mindestbestand (verfügbar + bereits bestellt). Ohne festen Mindestbestand gilt eine Monatsreichweite aus den Verkäufen der letzten 90 Tage. Was Kundenbestellungen mehr brauchen als am Lager ist, kommt immer dazu – auch ohne Mindestbestand. Bestellt wird beim günstigsten Lieferanten laut Preisliste.</p>
+  <p style="opacity:.8">Artikel unter Mindestbestand (verfügbar + bereits bestellt). Ohne festen Mindestbestand gilt eine Monatsreichweite aus den Verkäufen der letzten 90 Tage. Was Kundenbestellungen mehr brauchen als am Lager ist, kommt immer dazu – auch ohne Mindestbestand. Schon bestellte Mengen (auch nicht abgeschlossene Bestellungen) sind abgezogen.
+    Vorgewählt ist je Artikel der günstigste Lieferant; je Lieferant entsteht eine Bestellung. Dieselbe Liste steht in jeder Lieferantenbestellung im Tab „Bedarf“.</p>
   <form method="post">{% csrf_token %}
-  <table>
-    <tr><th></th><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Ziel</th><th class="zahl" title="Lagerbestand">Lager</th><th class="zahl" title="Offen in Kundenbestellungen">Kunden</th><th class="zahl" title="Lager − Kundenbestellungen + schon beim Lieferanten bestellt">vorhanden</th><th>Menge</th><th>Lieferant</th><th class="zahl">EK</th><th>Grund</th></tr>
-    {% for z in zeilen %}
-    <tr><td>{% if z.lieferant %}<input type="checkbox" name="auswahl" value="{{ z.artikel.pk }}" checked>{% endif %}</td>
-        <td>{{ z.artikel.nummer }}</td><td>{{ z.artikel.bezeichnung }}</td><td class="zahl">{{ z.ziel|floatformat:"-3" }}</td>
-        <td class="zahl">{{ z.lager|floatformat:"-3" }}</td><td class="zahl">{% if z.kundenbedarf %}{{ z.kundenbedarf|floatformat:"-3" }}{% else %}–{% endif %}</td>
-        <td class="zahl">{{ z.haben|floatformat:"-3" }}</td>
-        <td><input name="menge_{{ z.artikel.pk }}" value="{{ z.menge|floatformat:'-3' }}" size="5"></td>
-        <td>{% if z.lieferant %}<span title="{{ z.lieferant.nummer }} – {{ z.lieferant.name1 }}">{{ z.lieferant.kurz }}</span>{% else %}kein Lieferant{% endif %}<br><small><a href="{% url 'einkauf:preisvergleich' %}?artikel={{ z.artikel.nummer|urlencode }}&amp;menge={{ z.menge|floatformat:'-3' }}">Lieferanten vergleichen</a></small></td><td class="zahl">{{ z.ek|floatformat:"2g" }}</td>
-        <td>{{ z.grund }}{% if z.kundenbelege %}<br><small>{% for b in z.kundenbelege %}<a href="{% url 'verkauf:beleg' b.pk %}" title="{{ b.kunde.name1 }}">{{ b.nummer|default:"(nicht gespeichert)" }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</small>{% endif %}</td></tr>
-    {% empty %}<tr><td colspan="11">Kein Artikel unter Mindestbestand und keine offene Kundenbestellung ohne Bestand.</td></tr>{% endfor %}
-  </table>
-  {% if zeilen %}<p><button type="submit">Bestellungen anlegen (nicht abgeschlossen)</button></p>{% endif %}
+  {% include "einkauf/_bedarf_tabelle.html" %}
+  {% if zeilen %}<p id="vorschlag-uebersicht" class="fein" style="margin:10px 0 0" aria-live="polite"></p>
+  <p><button type="submit">Bestellungen anlegen (nicht abgeschlossen)</button></p>{% endif %}
   </form>
 </div>
+{% if zeilen %}<script>
+// Kopf-Haken für alle Zeilen; Übersicht „ergibt n Bestellungen: KOS 412,00 €, …“ aus Haken, Menge und gewähltem Lieferanten
+(function () {
+  var box = document.getElementById('vorschlag'), alle = box.querySelector('[data-bedarf-alle]'), info = document.getElementById('vorschlag-uebersicht');
+  function boxen() { return box.querySelectorAll('input[name=auswahl]'); }
+  function euro(x) { return x.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €'; }
+  function rechnen() {
+    var n = 0, gewaehlt = 0, je = {};
+    boxen().forEach(function (b) {
+      n++;
+      if (!b.checked) return;
+      gewaehlt++;
+      var zeile = b.closest('tr'), wahl = zeile.querySelector('select[name^="lieferant_"]'), feld = zeile.querySelector('input[name^="menge_"]');
+      if (!wahl) return;
+      var opt = wahl.options[wahl.selectedIndex], menge = parseFloat(((feld && feld.value) || '0').replace(/\./g, '').replace(',', '.')) || 0;
+      je[opt.dataset.kurz] = (je[opt.dataset.kurz] || 0) + Math.round(menge * parseFloat(opt.dataset.ek) * 100) / 100;
+    });
+    alle.checked = n > 0 && gewaehlt === n;
+    alle.indeterminate = gewaehlt > 0 && gewaehlt < n;
+    var namen = Object.keys(je).sort();
+    info.textContent = namen.length ? 'Ergibt ' + namen.length + ' Bestellung' + (namen.length > 1 ? 'en' : '') + ': '
+      + namen.map(function (k) { return k + ' ' + euro(je[k]); }).join(', ') + ' (netto)' : 'Nichts ausgewählt.';
+  }
+  alle.addEventListener('change', function () { boxen().forEach(function (b) { b.checked = alle.checked; }); rechnen(); });
+  box.addEventListener('change', rechnen);
+  box.addEventListener('input', rechnen);
+  rechnen();
+})();
+</script>{% endif %}
 {% endblock %}
