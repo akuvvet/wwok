@@ -26,7 +26,7 @@
       gewaehlt++;
       var zeile = b.closest('tr'), wahl = zeile.querySelector('select[name^="lieferant_"]'), feld = zeile.querySelector('input[name^="menge_"]');
       if (!wahl) return;
-      var opt = wahl.options[wahl.selectedIndex], menge = parseFloat(((feld && feld.value) || '0').replace(/\./g, '').replace(',', '.')) || 0;
+      var opt = wahl.options[wahl.selectedIndex], menge = window.wwokZahl((feld && feld.value) || '0') || 0;  // gemeinsame Zahlenlogik (templates/rechnen.html)
       je[opt.dataset.kurz] = (je[opt.dataset.kurz] || 0) + Math.round(menge * parseFloat(opt.dataset.ek) * 100) / 100;
     });
     alle.checked = n > 0 && gewaehlt === n;

@@ -64,7 +64,8 @@ class BedarfZusammenTest(Basis):
         r = self.client.get(reverse("einkauf:bestellung", args=[b.pk]))
         self.assertEqual(r.context["gesamt_netto"], D("1510.25"))
         self.assertContains(r, 'data-ergibt="versand + verpackung + versicherung"')
-        self.assertContains(r, 'data-wert="ware" data-rechenwert="1500.00"')
+        self.assertContains(r, 'data-wert="ware" data-ergibt="summe(runde(menge * ek))"')
+        self.assertContains(r, 'data-wert="menge"')
         self.assertContains(r, "1.510,25 €")  # ohne JavaScript schon richtig (nicht auf ganze Euro abgeschnitten)
         self.assertContains(r, "window.wwokRechnen")
 

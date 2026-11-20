@@ -287,6 +287,7 @@ def beleg_neu(request, kunde_id):
 @mit_mandant
 def beleg_detail(request, beleg_id):
     from apps.lager.services import druckhindernis, retoure_offen
+    from .rechnen import summen_ausdruecke
     from apps.lager.models import bestand, reserviert
     beleg = beleg_holen(request, beleg_id)
     beleg.arbeitsstand_beenden()  # Altdaten: ein früher offener Arbeitsstand wird still beendet, der aktuelle Stand gilt
@@ -352,6 +353,8 @@ def beleg_detail(request, beleg_id):
         "gruppe_vorgabe": max((p.pk for p in positionen if p.typ == "G" and not p.gruppe_id), default=None)
         if beleg.art == Belegart.ANGEBOT else None,
         "arten": Belegart.choices,
+        # Live-Rechnen der Summen beim Tippen im Tab Versand & Zahlung (nur solange der Beleg änderbar ist)
+        "rechnen": None if beleg.gesperrt else summen_ausdruecke(beleg, positionen),
         "zahlungsbedingungen": Zahlungsbedingung.objects.all(), "versandarten": Versandart.objects.filter(aktiv=True),
         "ansprechpartner": list(beleg.kunde.ansprechpartner.select_related("anrede").order_by("-hauptkontakt", "nachname", "id"))})
 

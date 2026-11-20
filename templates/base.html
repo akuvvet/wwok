@@ -251,6 +251,7 @@
 {% include "_optik.html" %}
 {% include "_mandantfarbe.html" %}
 <script>try{if(localStorage.getItem('wwok_leiste_schmal')==='1')document.documentElement.classList.add('leiste-schmal')}catch(e){}</script>
+{% include "rechnen.html" %}{# vor allen Seitenskripten: window.wwokZahl / wwokRechnen stehen überall bereit #}
 </head>
 <body>
 <a class="sprunglink" href="#inhalt">Zum Inhalt</a>
@@ -932,7 +933,6 @@
     if (window.ResizeObserver) new ResizeObserver(gleich).observe(main);
   })();
 </script>
-{% include "rechnen.html" %}
 {% block skript %}{% endblock %}
 {% if user.is_authenticated %}{% include "kern/_listen.html" %}{% include "kern/_palette.html" %}{% include "kern/_scan.html" %}{% endif %}
 </body>

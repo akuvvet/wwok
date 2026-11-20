@@ -21,10 +21,11 @@
       <div><label>Bestätigen – Begründung (Pflicht)</label><input name="grund" size="40" required placeholder="z. B. Teillieferung nachgereicht, Preis abgestimmt"></div>
       <button type="submit">Abweichung bestätigen</button>
     </form>
-    <form method="post" action="{% url 'einkauf:rechnung_korrigieren' r.pk %}" class="zeile">{% csrf_token %}
-      <div><label>Netto</label><input name="netto" value="{{ r.netto|floatformat:2 }}" size="9"></div>
-      <div><label>Steuer</label><input name="steuer" value="{{ r.steuer }}" size="9"></div>
-      <div><label>Brutto</label><input name="brutto" value="{{ r.brutto }}" size="9"></div>
+    <form method="post" action="{% url 'einkauf:rechnung_korrigieren' r.pk %}" class="zeile" data-rechnen>{% csrf_token %}
+      <div><label>Netto</label><input name="netto" value="{{ r.netto|floatformat:2 }}" size="9" inputmode="decimal" data-wert="netto"></div>
+      <div><label>Steuer</label><input name="steuer" value="{{ r.steuer }}" size="9" inputmode="decimal" data-wert="steuer"></div>
+      <div><label>Brutto</label><input name="brutto" value="{{ r.brutto }}" size="9" inputmode="decimal" data-wert="brutto"></div>
+      <div data-zeige-wenn="betrag(netto + steuer - brutto) > 0.01" hidden style="align-self:center;color:var(--warn)">Netto + Steuer weicht um <strong data-ergibt="netto + steuer - brutto"></strong> vom Brutto ab</div>
       <button type="submit" class="leise">Beträge korrigieren</button>
     </form>
   </div>{% endif %}

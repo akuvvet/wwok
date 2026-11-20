@@ -27,12 +27,12 @@
   <h2>Wie geht es weiter?</h2>
   <div class="zeile" style="align-items:flex-start;gap:16px">
     {% if r.status == 'angelegt' %}<form method="post">{% csrf_token %}<input type="hidden" name="aktion" value="versendet"><button type="submit">An Lieferanten versendet</button></form>{% endif %}
-    <form method="post" class="zeile" style="align-items:flex-end">{% csrf_token %}<input type="hidden" name="aktion" value="gutschrift">
+    <form method="post" class="zeile" style="align-items:flex-end" data-rechnen>{% csrf_token %}<input type="hidden" name="aktion" value="gutschrift">
       <div><label for="g_nummer">Gutschrift-Nr. des Lieferanten</label><input id="g_nummer" name="nummer" size="14" maxlength="60" value="{{ vorgabe.nummer }}" required></div>
       <div><label for="g_datum">Gutschriftdatum</label><input id="g_datum" type="date" name="datum" max="{{ heute }}" value="{{ vorgabe.datum }}" required></div>
-      <div><label for="g_netto">Netto (€)</label><input id="g_netto" name="netto" size="9" inputmode="decimal" value="{{ vorgabe.netto }}" required></div>
-      <div><label for="g_steuer">USt (€)</label><input id="g_steuer" name="steuer" size="9" inputmode="decimal" value="{{ vorgabe.steuer }}" required></div>
-      <div><label for="g_brutto">Brutto (€)</label><input id="g_brutto" name="brutto" size="9" inputmode="decimal" value="{{ vorgabe.brutto }}" required></div>
+      <div><label for="g_netto">Netto (€)</label><input id="g_netto" name="netto" size="9" inputmode="decimal" value="{{ vorgabe.netto }}" required data-wert="netto"></div>
+      <div><label for="g_steuer">USt (€)</label><input id="g_steuer" name="steuer" size="9" inputmode="decimal" value="{{ vorgabe.steuer }}" required data-wert="steuer" data-ergibt="runde(netto * 0.19)" title="Vorschlag 19 % aus Netto – überschreibbar"></div>
+      <div><label for="g_brutto">Brutto (€)</label><input id="g_brutto" name="brutto" size="9" inputmode="decimal" value="{{ vorgabe.brutto }}" required data-ergibt="netto + steuer" title="Vorschlag Netto + USt – überschreibbar"></div>
       <div><label for="g_notiz">Notiz</label><input id="g_notiz" name="notiz" size="24" maxlength="200" value="{{ vorgabe.notiz }}"></div>
       <button type="submit"{% if r.art == 'austausch' %} class="leise"{% endif %}>Gutschrift erhalten</button></form>
     <form method="post">{% csrf_token %}<input type="hidden" name="aktion" value="ersatz">
