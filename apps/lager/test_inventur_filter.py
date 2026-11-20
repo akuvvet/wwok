@@ -63,12 +63,14 @@ class InventurFilterTest(TestCase):
         self.client.post(reverse("lager:inventur_liste") + "?q=23278", {f"gezaehlt_{gesucht.pk}": "1", f"soll_{gesucht.pk}": "0"})
         self.assertEqual(bestand(self.m, gesucht), Decimal("1"))
 
-    def test_suche_ist_auf_hoechstzahl_begrenzt(self):
+    def test_viele_treffer_werden_geblaettert(self):
+        """Früher nach 200 Treffern abgeschnitten; seit 20.11.2026 wird geblättert (Standard 100 pro Seite)."""
         st = Steuersatz.objects.first()
         Artikel.objects.bulk_create(Artikel(nummer=f"B{i:04d}", bezeichnung="Blende", steuersatz=st) for i in range(205))
         r = self.client.get(reverse("lager:inventur_liste"), {"q": "blende"})
-        self.assertEqual(len(r.context["zeilen"]), 200)
-        self.assertContains(r, "bitte genauer suchen")
+        self.assertEqual((len(r.context["zeilen"]), r.context["seite"].paginator.num_pages), (100, 3))
+        self.assertContains(r, "205 Treffer")
+        self.assertEqual(len(self.client.get(reverse("lager:inventur_liste"), {"q": "blende", "seite": "3"}).context["zeilen"]), 5)
 
     def test_haken_nicht_aktiv_zeigt_nur_nicht_aktive(self):
         self.assertEqual(self.nummern(q="tastatur"), [])

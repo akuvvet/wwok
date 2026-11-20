@@ -36,7 +36,44 @@
   #wwok-menusuche { flex:0 1 320px; margin-left:auto;padding:6px 10px; border:1px solid var(--border-color); border-radius:4px; background:var(--body-bg); color:var(--body-fg); font-size:14px; }
   @media (max-width:767px) { #wwok-titelleiste { margin:-20px -16px 12px; padding:10px 16px; } }
   @media (max-width:767px) { #wwok-brotleiste .wwok-knoepfe { margin-right:16px; } }
+  /* Blätterleiste wie in den übrigen Tabellen (templates/seiten.html) */
+  .paginator.wwok-seiten { display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; line-height:1.4; }
+  #changelist .paginator.wwok-seiten a.knopf, .paginator.wwok-seiten a.knopf { display:inline-block; padding:6px 14px; border:1px solid var(--button-bg); border-radius:8px;
+    background:transparent; color:var(--link-fg); text-decoration:none; font-weight:600; font-size:14px; line-height:1.4; }
+  #changelist .paginator.wwok-seiten a.knopf:hover, #changelist .paginator.wwok-seiten a.knopf:focus { background:var(--darkened-bg); color:var(--link-hover-color); }
+  #changelist .paginator.wwok-seiten { font-size:14px; padding:10px 0; }
+  .wwok-seiten .wwok-pro-seite { display:flex; gap:6px; align-items:center; margin-left:8px; }
 </style>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // Verwaltungslisten: Anzahl pro Seite wählen (wird je Liste gemerkt, zurück auf Seite 1)
+    document.querySelectorAll('select[data-pro-seite]').forEach(function (s) {
+      s.addEventListener('change', function () {
+        var basis = s.dataset.basis || '?';
+        location.href = basis + (basis.length > 1 ? '&' : '') + 'pro_seite=' + encodeURIComponent(s.value);
+      });
+    });
+    // Suchfeld der Verwaltungslisten filtert schon beim Tippen (kurz nach der letzten Taste), nicht erst mit Enter
+    var feld = document.getElementById('searchbar'), form = document.getElementById('changelist-search');
+    if (!feld || !form) return;
+    var zeit = null, alt = feld.value;
+    feld.setAttribute('autocomplete', 'off');
+    feld.addEventListener('input', function () {
+      clearTimeout(zeit);
+      zeit = setTimeout(function () {
+        if (feld.value.trim() === alt.trim()) return;
+        try { sessionStorage.setItem('wwok-suche-fokus', location.pathname); } catch (e) {}
+        form.submit();
+      }, 450);
+    });
+    var gemerkt = null;
+    try { gemerkt = sessionStorage.getItem('wwok-suche-fokus'); sessionStorage.removeItem('wwok-suche-fokus'); } catch (e) {}
+    if (gemerkt === location.pathname) {  // nach dem Filtern weitertippen können: Fokus und Cursor ans Ende
+      feld.focus();
+      var n = feld.value.length; try { feld.setSelectionRange(n, n); } catch (e) {}
+    }
+  });
+</script>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     // Menüsuche auf der Startseite: filtert die Einträge der Übersicht

@@ -7,6 +7,8 @@ from django.templatetags.static import static
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from apps.kern.seiten import BlaetternAdminMixin
+
 from . import kopie, leistung_import
 from . import models as m
 from .forms import VkVorschlagForm
@@ -35,7 +37,7 @@ class AnsprechpartnerKundeInline(admin.TabularInline):
 
 
 @admin.register(m.Kunde)
-class KundeAdmin(admin.ModelAdmin):
+class KundeAdmin(BlaetternAdminMixin, admin.ModelAdmin):
     list_display = ["nummer", "name1", "plz", "ort", "kundenart", "preisstufe", "gesperrt"]
     list_filter = ["kundenart", "preisstufe", "gesperrt", "land"]
     search_fields = ["nummer", "name1", "name2", "ort", "email", "ust_id"]
@@ -65,7 +67,7 @@ class AnsprechpartnerLieferantInline(admin.TabularInline):
 
 
 @admin.register(m.Lieferant)
-class LieferantAdmin(admin.ModelAdmin):
+class LieferantAdmin(BlaetternAdminMixin, admin.ModelAdmin):
     list_display = ["nummer", "kurzname", "name1", "ort", "lieferzeit_tage", "gesperrt"]
     search_fields = ["nummer", "kurzname", "name1", "ort", "ust_id"]
     readonly_fields = ["angelegt_am", "geaendert_am", "geaendert_von"]
@@ -176,7 +178,7 @@ class StandardVkMixin:
 
 
 @admin.register(m.Artikel)
-class ArtikelAdmin(StandardVkMixin, admin.ModelAdmin):
+class ArtikelAdmin(BlaetternAdminMixin, StandardVkMixin, admin.ModelAdmin):
     form = VkVorschlagForm
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "radar_ampel", "online", "aktiv"]
     list_filter = [AuffaelligFilter, "typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
@@ -294,7 +296,7 @@ class LeistungskategorieAdmin(admin.ModelAdmin):
 
 
 @admin.register(m.Leistungsartikel)
-class LeistungsartikelAdmin(StandardVkMixin, admin.ModelAdmin):
+class LeistungsartikelAdmin(BlaetternAdminMixin, StandardVkMixin, admin.ModelAdmin):
     """Leistungen (Typ L) mit eigenen Kategorien und Kosten, dazu der Import aus CSV oder Excel."""
 
     list_display = ["nummer", "bezeichnung", "leistungskategorie", "kosten", "vk1", "mengeneinheit", "aktiv"]
