@@ -221,7 +221,7 @@ def kunde_detail(request, kunde_id):
         "kunde": kunde, "zeilen": zeilen, "seite": seite, "parameter": parameter.urlencode(), "filter": art,
         "ab": ab, "ohne_storno": ohne_storno, "arten": Belegart.choices,
         "kreditlimit": mandantendaten.kreditlimit if mandantendaten else None,
-        "ansprechpartner": kunde.ansprechpartner.all(),
+        "ansprechpartner": list(kunde.ansprechpartner.select_related("anrede").order_by("-hauptkontakt", "nachname", "id")),  # Hauptkontakt zuerst
         "wiedervorlagen": kunde.wiedervorlagen.filter(mandant=request.mandant, erledigt=False)})
 
 
@@ -258,10 +258,14 @@ def beleg_neu(request, kunde_id):
     if art == Belegart.PROFORMA_STORNO:
         messages.error(request, "Ein Storno entsteht nur aus einer Proforma-Rechnung.")
         return redirect("verkauf:kunde", kunde_id=kunde.pk)
+    # Ansprechpartner: der im Kundenkopf gewählte, sonst Hauptkontakt, sonst der erste (Wunsch des Nutzers 20.11.2026)
+    ap_id = request.POST.get("ansprechpartner", "")
+    ansprechpartner = (kunde.ansprechpartner.filter(pk=ap_id).first() if ap_id.isdigit() else None) \
+        or kunde.ansprechpartner.order_by("-hauptkontakt", "nachname", "id").first()
     with transaction.atomic():  # vorläufig: keine Nummer, bis der Beleg mit „Speichern: abschließen & Nummer vergeben“ gespeichert wird
         beleg = Beleg.objects.create(
             mandant=request.mandant, art=art, kunde=kunde, vorlaeufig=True,
-            ansprechpartner=kunde.ansprechpartner.filter(hauptkontakt=True).first(),
+            ansprechpartner=ansprechpartner,
             zahlungsbedingung=kunde.zahlungsbedingung,
             rechnungsanschrift=adresse_text(kunde, Anschriftart.RECHNUNG),
             versandanschrift=adresse_text(kunde, Anschriftart.VERSAND), bearbeiter=request.user)

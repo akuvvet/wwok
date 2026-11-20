@@ -243,6 +243,10 @@
       <div><label for="liefertermin">Liefertermin</label><input type="date" id="liefertermin" name="liefertermin" value="{{ b.liefertermin|date:'Y-m-d' }}"></div>
       <div><label for="bezugnahme">Bezugnahme (z. B. Angebot des Lieferanten)</label><input id="bezugnahme" name="bezugnahme" value="{{ b.bezugnahme }}" maxlength="100"></div>
       <div><label for="versandart">Versandart</label><input id="versandart" name="versandart" value="{{ b.versandart }}" maxlength="60" placeholder="z. B. DHL, Spedition, Abholung"></div>
+      <div><label for="ansprechpartner">Ansprechpartner beim Lieferanten</label><select id="ansprechpartner" name="ansprechpartner">
+        <option value="">– keiner –</option>
+        {% for a in ansprechpartner_liste %}<option value="{{ a.pk }}"{% if a.pk == b.ansprechpartner_id %} selected{% endif %}>{% if a.anrede %}{{ a.anrede }} {% endif %}{{ a.vorname }} {{ a.nachname }}{% if a.hauptkontakt %} ★{% endif %}{% if a.email %} – {{ a.email }}{% endif %}</option>{% endfor %}
+      </select></div>
     </div>
     <h2 style="margin-top:14px">Erwartete Nebenkosten (netto)</h2>
     <div class="raster">
@@ -250,7 +254,7 @@
       <div><label for="verpackung">Verpackung</label><input id="verpackung" name="verpackung" value="{{ b.verpackung|floatformat:2 }}" inputmode="decimal"></div>
       <div><label for="versicherung">Versicherung</label><input id="versicherung" name="versicherung" value="{{ b.versicherung|floatformat:2 }}" inputmode="decimal"></div>
     </div>
-    <p class="fein">Die Nebenkosten gehen in den ersten Wareneingang zu dieser Bestellung (dort änderbar) und werden dort auf den Kalkulations-EK verteilt. Liefertermin, Bezugnahme und Versandart stehen auf dem PDF.</p>
+    <p class="fein">Die Nebenkosten gehen in den ersten Wareneingang zu dieser Bestellung (dort änderbar) und werden dort auf den Kalkulations-EK verteilt. Liefertermin, Bezugnahme, Versandart und Ansprechpartner stehen auf dem PDF; die Bestell-Mail geht an die E-Mail des Ansprechpartners.</p>
     <p><button type="submit">Speichern</button></p>
     </fieldset>
   </form>

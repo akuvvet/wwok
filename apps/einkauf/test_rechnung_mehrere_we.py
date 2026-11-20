@@ -54,6 +54,33 @@ class RechnungMehrereWareneingaengeTest(TestCase):
         self.client.post(reverse("einkauf:rechnung", args=[self.lr.pk]), {"wareneingang": [self.we1.pk]})
         self.assertTrue(self.lr.abgleich()["offen"])
 
+    def test_beim_erfassen_direkt_verknuepfen(self):
+        liste = self.client.get(reverse("einkauf:rechnung_wareneingaenge"), {"lieferant": self.lf.pk}).json()["wareneingaenge"]
+        self.assertEqual({w["pk"] for w in liste}, {self.we1.pk, self.we2.pk})
+        self.assertEqual(liste[0]["bestellung"], self.b.nummer)
+        self.assertEqual(liste[0]["netto"], "10.00")
+        self.assertContains(self.client.get(reverse("einkauf:rechnungen")), 'id="re-we"')
+        r = self.client.post(reverse("einkauf:rechnung_neu"), {
+            "lieferant": self.lf.pk, "rechnungsnummer": "R-NEU", "datum": timezone.localdate().isoformat(),
+            "netto": "20,00", "brutto": "23,80", "wareneingang": [self.we1.pk, self.we2.pk]})
+        neu = Lieferantenrechnung.objects.get(rechnungsnummer="R-NEU")
+        self.assertRedirects(r, reverse("einkauf:rechnung", args=[neu.pk]), fetch_redirect_response=False)
+        self.assertEqual(set(neu.wareneingaenge.values_list("pk", flat=True)), {self.we1.pk, self.we2.pk})
+        self.assertTrue(neu.abgleich()["ok"])
+        # danach sind beide vergeben: nicht mehr in der Auswahl, auch nicht per POST an eine weitere Rechnung
+        self.assertEqual(self.client.get(reverse("einkauf:rechnung_wareneingaenge"), {"lieferant": self.lf.pk}).json()["wareneingaenge"], [])
+        self.client.post(reverse("einkauf:rechnung_neu"), {
+            "lieferant": self.lf.pk, "rechnungsnummer": "R-NEU2", "netto": "5", "brutto": "5,95", "wareneingang": [self.we1.pk]})
+        self.assertFalse(Lieferantenrechnung.objects.get(rechnungsnummer="R-NEU2").wareneingaenge.exists())
+
+    def test_fremder_mandant_und_ohne_lieferant(self):
+        andere = Mandant.objects.create(kurzname="ZONE", firmenname="ZONE Handel")
+        s = self.client.session
+        s["mandant_id"] = andere.pk
+        s.save()
+        self.assertEqual(self.client.get(reverse("einkauf:rechnung_wareneingaenge"), {"lieferant": self.lf.pk}).json()["wareneingaenge"], [])
+        self.assertEqual(self.client.get(reverse("einkauf:rechnung_wareneingaenge")).json()["wareneingaenge"], [])
+
     def test_bezahlt_ohne_speichern_knopf(self):
         self.lr.status, self.lr.bezahlt_am, self.lr.bezahlter_betrag = "bezahlt", timezone.localdate(), D("23.80")
         self.lr.save()

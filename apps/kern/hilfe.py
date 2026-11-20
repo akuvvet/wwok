@@ -297,7 +297,7 @@ HILFE = (
        "einkauf:wareneingaenge", "Einkauf → Wareneingänge"),
     _h("lieferantenrechnung", "Wie buche ich eine Lieferantenrechnung?",
        "lieferantenrechnung, eingangsrechnung, rechnung vom lieferanten, eingangsrechnung erfassen, kreditorenrechnung, rechnung erfassen, e-rechnung einlesen, xrechnung lieferant, zugferd lieferant",
-       [_weg("Von Hand erfassen", "Einkauf → Lieferantenrechnungen → Lieferant tippen, Rechnungsnr., Datum, Netto, Brutto eintragen → Erfassen → in der Rechnung unter Verknüpfte Wareneingänge den Wareneingang anhaken (bei Teillieferungen mehrere; Bestell-Nr. steht dabei, die Summe der angehakten erscheint sofort) → Verknüpfung speichern",
+       [_weg("Von Hand erfassen", "Einkauf → Lieferantenrechnungen → Lieferant tippen, Rechnungsnr., Datum, Netto, Brutto eintragen → darunter erscheinen die freien Wareneingänge des Lieferanten: gleich anhaken (bei Teillieferungen mehrere; Netto wird aus der Summe vorgeschlagen) → Erfassen. Später geht es auch in der Rechnung unter Verknüpfte Wareneingänge → Verknüpfung speichern",
              "Weicht das Netto von der Summe der verknüpften Wareneingänge um mehr als 1 Cent ab, wird es gemeldet; Zahlung und SEPA-Export sind gesperrt, bis die Beträge korrigiert („Beträge korrigieren“) oder die Abweichung mit Begründung bestätigt ist."),
         _weg("E-Rechnung einlesen", "Einkauf → Lieferantenrechnungen → E-Rechnung einlesen (XRechnung/ZUGFeRD: XML oder PDF) → Einlesen"),
         _weg("Falsch erfasste Rechnung entfernen", "Einkauf → Lieferantenrechnungen → Rechnung öffnen → Beleg löschen – Notiz (Pflicht) → Beleg löschen",

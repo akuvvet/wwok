@@ -66,15 +66,26 @@ def ek_vorschlaege(mandant, lieferant, artikel_liste) -> dict:
 
 
 @transaction.atomic
-def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None, benutzer=None, vorlaeufig=False) -> Bestellung:
+def lieferant_ansprechpartner(mandant, lieferant):
+    """Ansprechpartner des Lieferanten für diesen Mandanten (ohne Mandant: für alle), Hauptkontakt zuerst."""
+    from apps.stammdaten.models import Ansprechpartner
+    return (Ansprechpartner.objects.filter(lieferant=lieferant).filter(Q(mandant=mandant) | Q(mandant__isnull=True))
+            .select_related("anrede").order_by("-hauptkontakt", "nachname", "id"))
+
+
+def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None, benutzer=None, vorlaeufig=False,
+                       ansprechpartner_id=None) -> Bestellung:
     """vorlaeufig (nur die Bestellmaske, Wunsch des Nutzers 19.11.2026): ohne Nummer; sie wird erst mit
     bestellung_abschliessen() vergeben, sonst wird die Bestellung verworfen (Nummernkreis bleibt lückenlos).
-    Vom Programm in einem Rutsch angelegte Bestellungen (Vorschlag, Vergleich) bekommen sofort ihre Nummer."""
+    Vom Programm in einem Rutsch angelegte Bestellungen (Vorschlag, Vergleich) bekommen sofort ihre Nummer.
+    Ansprechpartner: der übergebene (nur einer dieses Lieferanten und Mandanten), sonst Hauptkontakt, sonst der erste."""
     if lieferant.gesperrt:  # wie in der Oberfläche: bei gesperrten Lieferanten entstehen keine neuen Belege
         raise ValueError(f"Lieferant {lieferant.name1} ist gesperrt – es lässt sich keine Bestellung anlegen.")
+    aps = lieferant_ansprechpartner(mandant, lieferant)
+    ap = (aps.filter(pk=ansprechpartner_id).first() if str(ansprechpartner_id or "").isdigit() else None) or aps.first()
     return Bestellung.objects.create(mandant=mandant, lieferant=lieferant, nummer=None if vorlaeufig else nummer(mandant, "BE"),
                                      vorlaeufig=vorlaeufig, zuletzt_aktiv=timezone.now() if vorlaeufig else None,
-                                     bemerkung=bemerkung, aus_beleg=aus_beleg,
+                                     bemerkung=bemerkung, aus_beleg=aus_beleg, ansprechpartner=ap,
                                      angelegt_von=benutzer if benutzer is not None and benutzer.is_authenticated else None)
 
 
@@ -155,6 +166,32 @@ def leere_bestellungen_entfernen(mandant, lieferant=None, minuten=2) -> int:
             b.delete()
             if nummer:
                 Nummernkreis.freigeben(mandant, "BE", nummer)
+            anzahl += 1
+    return anzahl
+
+
+def leere_wareneingaenge_entfernen(mandant, lieferant=None, benutzer=None, minuten=2) -> int:
+    """Wareneingänge ohne Position werden nicht aufbewahrt (Wunsch des Nutzers 20.11.2026, wie leere Bestellungen): ungebucht,
+    ohne Position, keiner Rechnung zugeordnet und kein Ersatz aus einer Rücksendung. Eigene (von `benutzer` angelegte) sofort,
+    die anderer Benutzer erst nach ein paar Minuten ohne Änderung (sie könnten gerade daran arbeiten). Die Nummer wird wieder
+    frei, wenn sie die letzte vergebene war. Rückgabe: Anzahl gelöschter Wareneingänge."""
+    grenze = timezone.now() - timedelta(minutes=minuten)
+    zeit = Q(geaendert_am__lt=grenze)
+    if benutzer is not None and getattr(benutzer, "is_authenticated", False):
+        zeit |= Q(benutzer=benutzer)
+    kandidaten = Wareneingang.objects.filter(zeit, mandant=mandant, gebucht=False, positionen__isnull=True,
+                                             rechnungen__isnull=True, ersatz_fuer__isnull=True)
+    if lieferant is not None:
+        kandidaten = kandidaten.filter(lieferant=lieferant)
+    anzahl = 0
+    for pk in list(kandidaten.order_by("-id").values_list("pk", flat=True).distinct()):
+        with transaction.atomic():
+            w = Wareneingang.objects.select_for_update().filter(pk=pk, gebucht=False).first()
+            if w is None or w.positionen.exists() or w.rechnungen.exists() or Ruecksendung.objects.filter(ersatz_wareneingang=w).exists():
+                continue  # inzwischen gefüllt, gebucht oder zugeordnet
+            nummer_ = w.nummer
+            w.delete()
+            Nummernkreis.freigeben(mandant, "WE", nummer_)
             anzahl += 1
     return anzahl
 
@@ -1011,6 +1048,16 @@ def position_loeschen(bestellung, position_id):
 
 # ---- Lieferantenrechnung / Zahlung ----------------------------------------------------------------
 
+def freie_wareneingaenge(mandant, lieferant, rechnung=None):
+    """Gebuchte Wareneingänge des Lieferanten, die (noch) zu keiner anderen Rechnung gehören, neueste zuerst. Ersatz aus einer
+    Rücksendung gehört zu keiner Rechnung. Mit `rechnung` zählen deren schon verknüpfte Wareneingänge mit."""
+    verknuepft = set(rechnung.wareneingaenge.values_list("pk", flat=True)) if rechnung is not None and rechnung.pk else set()
+    return (Wareneingang.objects.filter(mandant=mandant, lieferant=lieferant, gebucht=True)
+            .filter(Q(rechnungen__isnull=True) | Q(pk__in=verknuepft)).distinct()
+            .filter(Q(ersatz_fuer__isnull=True) | Q(pk__in=verknuepft))
+            .select_related("bestellung").prefetch_related("positionen").order_by("-datum", "-id"))
+
+
 def rechnung_erfassen(mandant, lieferant, rechnungsnummer, datum, netto, brutto, steuer=None, quelle="manuell",
                       wareneingaenge=()) -> Lieferantenrechnung:
     if netto is None or brutto is None or netto <= 0 or brutto <= 0:
@@ -1529,6 +1576,13 @@ def bestellung_kopf_speichern(bestellung, daten):
         if feld in daten:
             setattr(bestellung, feld, (daten.get(feld) or "").strip()[:5000])
             felder.append(feld)
+    if "ansprechpartner" in daten:
+        text = str(daten.get("ansprechpartner") or "").strip()
+        ap = lieferant_ansprechpartner(bestellung.mandant, bestellung.lieferant).filter(pk=text).first() if text.isdigit() else None
+        if text and ap is None:
+            raise ValueError("Dieser Ansprechpartner gehört nicht zum Lieferanten.")
+        bestellung.ansprechpartner = ap
+        felder.append("ansprechpartner")
     if felder:
         bestellung.save(update_fields=felder)
 

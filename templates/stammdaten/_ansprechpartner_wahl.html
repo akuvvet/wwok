@@ -1,0 +1,31 @@
+{# Ansprechpartner auswählen und dessen Daten zeigen. Ohne Auswahl: Hauptkontakt, sonst der erste (Reihenfolge des Modells). #}
+{% if ansprechpartner %}<div class="ap-wahl" data-ap-schluessel="{{ ap_art }}-{{ ap_id }}">
+  {% if ansprechpartner|length > 1 %}<select class="ap-auswahl" aria-label="Ansprechpartner wählen" style="margin-bottom:4px"{% if ap_form %} name="ansprechpartner" form="{{ ap_form }}"{% endif %}>
+    {% for a in ansprechpartner %}<option value="{{ a.pk }}"{% if forloop.first %} selected{% endif %}>{{ a.vorname }} {{ a.nachname }}{% if a.hauptkontakt %} ★{% endif %}</option>{% endfor %}
+  </select>{% endif %}
+  {% for a in ansprechpartner %}<div class="ap-daten" data-ap="{{ a.pk }}"{% if not forloop.first %} hidden{% endif %}>
+    <div><strong>{% if a.anrede %}{{ a.anrede }} {% endif %}{{ a.vorname }} {{ a.nachname }}</strong>{% if a.hauptkontakt %} <span class="fein" title="Hauptkontakt">★</span>{% endif %}</div>
+    {% if a.abteilung %}<div class="fein">{{ a.abteilung }}</div>{% endif %}
+    <div>Tel. {% if a.telefon %}<a href="tel:{{ a.telefon }}{{ a.durchwahl }}">{{ a.telefon }}{% if a.durchwahl %}-{{ a.durchwahl }}{% endif %}</a>{% else %}–{% endif %}</div>
+    {% if a.mobil %}<div>Mobil <a href="tel:{{ a.mobil }}">{{ a.mobil }}</a></div>{% endif %}
+    <div>{% if a.email %}<a href="mailto:{{ a.email }}">{{ a.email }}</a>{% else %}E-Mail –{% endif %}</div>
+  </div>{% endfor %}
+</div>
+<script>
+(function () {
+  var box = document.currentScript.previousElementSibling, wahl = box.querySelector('.ap-auswahl');
+  if (!wahl) return;
+  var schluessel = 'ap-wahl:' + box.dataset.apSchluessel;
+  function zeigen(pk) {
+    box.querySelectorAll('.ap-daten').forEach(function (d) { d.hidden = d.dataset.ap !== pk; });
+  }
+  try {  // Auswahl je Partner im Browser merken; fehlt sie oder gibt es den Ansprechpartner nicht mehr: Hauptkontakt/erster
+    var gemerkt = localStorage.getItem(schluessel);
+    if (gemerkt && box.querySelector('.ap-daten[data-ap="' + gemerkt + '"]')) { wahl.value = gemerkt; zeigen(gemerkt); }
+  } catch (e) {}
+  wahl.addEventListener('change', function () {
+    zeigen(wahl.value);
+    try { localStorage.setItem(schluessel, wahl.value); } catch (e) {}
+  });
+})();
+</script>{% endif %}
