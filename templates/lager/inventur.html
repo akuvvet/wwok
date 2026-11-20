@@ -13,10 +13,10 @@
     <noscript><button type="submit" class="leise">Filtern</button></noscript>
     <button type="button" class="leise" onclick="window.print()">Zählliste drucken</button>
   </form>
-  <p style="opacity:.8">Ohne Suchbegriff stehen hier nur Artikel mit Bestand; die Suche findet auch Artikel mit Bestand 0. Gezählte Menge eintragen; leere Zeilen bleiben unverändert. Eingetragene Mengen bleiben beim Suchen und Filtern erhalten. Beim Speichern werden Differenzen automatisch als Inventurbuchung gebucht. Wurde ein Artikel seit dem Öffnen der Liste verkauft oder eingebucht, wird er nicht gebucht und gemeldet.</p>
+  <p style="opacity:.8">Ohne Suchbegriff stehen hier nur Artikel mit Bestand; die Suche findet auch Artikel mit Bestand 0. Gezählte Menge eintragen; leere Zeilen bleiben unverändert. Eingetragene Mengen bleiben beim Suchen, Filtern und Blättern erhalten. Beim Speichern werden Differenzen automatisch als Inventurbuchung gebucht. Wurde ein Artikel seit dem Öffnen der Liste verkauft oder eingebucht, wird er nicht gebucht und gemeldet.</p>
   <form method="post" id="zaehlliste">{% csrf_token %}
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
-  <p data-zahl>{% if q %}{{ zeilen|length }} Treffer, auch Artikel ohne Bestand{% if gekuerzt %} (nur die ersten {{ zeilen|length }} – bitte genauer suchen){% endif %}{% else %}{{ zeilen|length }} Artikel mit Bestand{% endif %}</p>
+  <p data-zahl>{% if q %}{{ seite.paginator.count }} Treffer, auch Artikel ohne Bestand{% else %}{{ seite.paginator.count }} Artikel mit Bestand{% endif %}</p>
   <table>
     <tr><th>Lagerplatz</th><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Soll</th><th>gezählt</th></tr>
     {% for z in zeilen %}
@@ -24,6 +24,7 @@
         <td class="zahl">{{ z.soll|floatformat:"-3" }}</td><td><input type="hidden" name="soll_{{ z.artikel.pk }}" value="{{ z.soll|stringformat:'s' }}"><input name="gezaehlt_{{ z.artikel.pk }}" size="6" inputmode="decimal" aria-label="gezählt {{ z.artikel.nummer }}"></td></tr>
     {% empty %}<tr><td colspan="5">{% if q or kategorie or nicht_aktiv %}{% include "filter_leer.html" %}{% else %}Keine Artikel mit Bestand.{% endif %}</td></tr>{% endfor %}
   </table>
+  {% include "seiten.html" %}
   </div>
   <p><button type="submit">Differenzen buchen</button> <span id="erfasst" style="opacity:.8"></span></p>
   </form>

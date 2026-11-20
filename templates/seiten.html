@@ -1,5 +1,6 @@
-{% comment %}Blätterleiste für eine Page aus dem Paginator: Variablen "seite" und "parameter" (aktuelle Filter als Querystring){% endcomment %}
-{% if seite.paginator.num_pages > 1 %}
+{% comment %}Blätterleiste für eine Page aus kern.seiten.blaettern: Variablen "seite" und "parameter" (aktuelle Filter als Querystring).
+Mit „pro Seite“ (gilt je Liste, in der Sitzung gemerkt), sobald es mehr Einträge gibt als die kleinste Seitengröße.{% endcomment %}
+{% if seite.paginator.num_pages > 1 or seite.groessen and seite.paginator.count > seite.groessen.0 %}
 <nav class="seiten" aria-label="Seiten">
   {% if seite.has_previous %}<a class="knopf leise" href="?{{ parameter }}&seite=1" title="erste Seite">«</a>
   <a class="knopf leise" href="?{{ parameter }}&seite={{ seite.previous_page_number }}">‹ zurück</a>{% endif %}
@@ -7,5 +8,9 @@
     ({{ seite.start_index }}–{{ seite.end_index }} von {{ seite.paginator.count }})</span>
   {% if seite.has_next %}<a class="knopf leise" href="?{{ parameter }}&seite={{ seite.next_page_number }}">weiter ›</a>
   <a class="knopf leise" href="?{{ parameter }}&seite={{ seite.paginator.num_pages }}" title="letzte Seite">»</a>{% endif %}
+  {% if seite.groessen %}<label class="pro-seite" style="display:flex;gap:6px;align-items:center;margin:0 0 0 8px;font-weight:normal">pro Seite
+    <select data-pro-seite data-parameter="{{ parameter }}" aria-label="Anzahl pro Seite" onchange="location.href='?'+(this.dataset.parameter?this.dataset.parameter+'&':'')+'pro_seite='+this.value">
+      {% for n in seite.groessen %}<option value="{{ n }}"{% if n == seite.pro_seite %} selected{% endif %}>{{ n }}</option>{% endfor %}
+    </select></label>{% endif %}
 </nav>
 {% endif %}

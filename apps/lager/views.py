@@ -2,13 +2,13 @@ from collections import Counter
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
-from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.kern.models import Mandant
+from apps.kern.seiten import blaettern
 from apps.shop.models import Shop, ShopArtikel
 from apps.stammdaten.models import Artikel, ArtikelMandant, Kategorie, _ek_quelle, ek_je_artikel, keine_leistung, kennungen_filter
 from apps.stammdaten.preise import gruppen_kalkulation
@@ -45,8 +45,6 @@ def suche(q, artikel=None, mandant=None):
     return artikel_filtern(artikel, q, mandant)
 
 
-SEITENGROESSEN = (25, 50, 100, 200)
-INVENTUR_SUCHE_MAX = 200  # Inventur mit Suchbegriff zeigt höchstens so viele Zeilen
 
 
 def kategorien_baum():
@@ -87,11 +85,6 @@ def uebersicht(request):
     nur_bestand = request.GET.get("bestand") == "1"
     nicht_aktiv = request.GET.get("nicht_aktiv") == "1"  # Haken: nur die als nicht aktiv markierten Artikel
     kategorie = request.GET.get("kategorie", "")
-    try:
-        pro_seite = int(request.GET.get("pro_seite", 50))
-    except ValueError:
-        pro_seite = 50
-    pro_seite = pro_seite if pro_seite in SEITENGROESSEN else 50
     summen = {s["artikel"]: s["s"] for s in Lagerbewegung.objects.filter(mandant=request.mandant)
               .values("artikel").annotate(s=Sum("menge"))}
     reparatur = {s["artikel"]: s["s"] for s in Reparaturbewegung.objects.filter(mandant=request.mandant)
@@ -100,7 +93,7 @@ def uebersicht(request):
     artikel = nach_kategorie(suche(q, basis, request.mandant) if q else basis, kategorie)
     if nur_bestand:
         artikel = artikel.filter(pk__in=[a for a, s in (*summen.items(), *reparatur.items()) if s])
-    seite = Paginator(artikel.select_related("steuersatz").prefetch_related("bilder").order_by("nummer"), pro_seite).get_page(request.GET.get("seite"))
+    seite, parameter = blaettern(request, artikel.select_related("steuersatz").prefetch_related("bilder").order_by("nummer"))
     zeilen = []
     eks = ek_je_artikel(seite.object_list)
     reserviert_summen = reserviert_je_artikel(request.mandant, [a.pk for a in seite.object_list if summen.get(a.pk)])
@@ -131,12 +124,9 @@ def uebersicht(request):
     for pk, (ek, _) in ek_je_artikel(mit_bestand).items():
         if ek is not None:
             lagerwert += summen[pk] * ek
-    parameter = request.GET.copy()
-    parameter.pop("seite", None)
     return render(request, "lager/uebersicht.html", {
         "zeilen": zeilen, "q": q, "nur_bestand": nur_bestand, "nicht_aktiv": nicht_aktiv, "lagerwert": lagerwert.quantize(Decimal("0.01")),
-        "seite": seite, "parameter": parameter.urlencode(), "kategorie": kategorie, "pro_seite": pro_seite,
-        "seitengroessen": SEITENGROESSEN, "kategorien": kategorien_baum()})
+        "seite": seite, "parameter": parameter, "kategorie": kategorie, "kategorien": kategorien_baum()})
 
 
 @mit_mandant
@@ -369,11 +359,11 @@ def inventur_liste(request):
     zeilen_ = sorted(({"artikel": a, "soll": summen.get(a.pk) or Decimal("0"), "platz": plaetze.get(a.pk, "")}
                       for a in artikel.select_related("kategorie")),
                      key=lambda z: (z["artikel"].nummer.lower() != q.lower(), z["platz"], z["artikel"].nummer))
-    gekuerzt = bool(q) and len(zeilen_) > INVENTUR_SUCHE_MAX  # die Suche geht über alle Artikel: Anzeige begrenzen
-    if gekuerzt:
-        zeilen_ = zeilen_[:INVENTUR_SUCHE_MAX]
+    # Blättern wie in allen Tabellen (Wunsch des Nutzers 20.11.2026); eingetragene Zählungen merkt sich die Seite im Browser
+    seite, parameter = blaettern(request, zeilen_, 100)
     return render(request, "lager/inventur.html", {
-        "zeilen": zeilen_, "gekuerzt": gekuerzt, "q": q, "kategorie": kategorie, "nicht_aktiv": nicht_aktiv, "kategorien": kategorien_baum()})
+        "zeilen": seite.object_list, "seite": seite, "parameter": parameter, "q": q, "kategorie": kategorie,
+        "nicht_aktiv": nicht_aktiv, "kategorien": kategorien_baum()})
 
 
 @mit_mandant

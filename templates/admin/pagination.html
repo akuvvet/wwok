@@ -1,0 +1,23 @@
+{% load admin_list i18n %}{% if cl.pro_seite %}{# Listen mit BlaetternAdminMixin: dieselbe Blätterleiste wie die übrigen Tabellen (templates/seiten.html) #}
+<nav class="paginator wwok-seiten" aria-label="Seiten">
+  {% if cl.link_erste %}<a class="knopf" href="{{ cl.link_erste }}" title="erste Seite">«</a>
+  <a class="knopf" href="{{ cl.link_zurueck }}">‹ zurück</a>{% endif %}
+  <span>{% if cl.seiten_anzahl > 1 %}Seite {{ cl.seiten_nr }} von {{ cl.seiten_anzahl }} ({{ cl.von }}–{{ cl.bis }} von {{ cl.result_count }}){% else %}{{ cl.result_count }} {% if cl.result_count == 1 %}{{ cl.opts.verbose_name }}{% else %}{{ cl.opts.verbose_name_plural }}{% endif %}{% endif %}</span>
+  {% if cl.link_weiter %}<a class="knopf" href="{{ cl.link_weiter }}">weiter ›</a>
+  <a class="knopf" href="{{ cl.link_letzte }}" title="letzte Seite">»</a>{% endif %}
+  <label class="wwok-pro-seite">pro Seite <select data-pro-seite data-basis="{{ cl.link_groesse }}" aria-label="Anzahl pro Seite">
+    {% for n in cl.groessen %}<option value="{{ n }}"{% if n == cl.pro_seite %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></label>
+  {% if cl.formset and cl.result_count %}<input type="submit" name="_save" class="default" value="{% translate 'Save' %}">{% endif %}
+</nav>
+{% else %}
+<p class="paginator">
+{% if pagination_required %}
+{% for i in page_range %}
+    {% paginator_number cl i %}
+{% endfor %}
+{% endif %}
+{{ cl.result_count }} {% if cl.result_count == 1 %}{{ cl.opts.verbose_name }}{% else %}{{ cl.opts.verbose_name_plural }}{% endif %}
+{% if show_all_url %}<a href="{{ show_all_url }}" class="showall">{% translate 'Show all' %}</a>{% endif %}
+{% if cl.formset and cl.result_count %}<input type="submit" name="_save" class="default" value="{% translate 'Save' %}">{% endif %}
+</p>
+{% endif %}
