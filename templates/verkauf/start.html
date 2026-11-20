@@ -37,6 +37,7 @@
           <td>{{ k.plz }} {{ k.ort }}</td><td>{{ k.telefon }}</td></tr>
       {% endfor %}
     </table>
+    {% include "seiten.html" %}
     {% else %}<p>{% include "filter_leer.html" %}</p>{% endif %}
   {% endif %}
   </div>

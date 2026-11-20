@@ -16,6 +16,7 @@ from django.views.decorators.http import require_POST
 
 from apps.kern.kontext import MANDANT_COOKIE, mandant_oder_none
 from apps.kern.models import Mandant
+from apps.kern.seiten import blaettern
 from apps.stammdaten.models import (Ansprechpartner, Anschriftart, Artikel, Kunde, Preislistenartikel, Zahlungsbedingung)
 
 from apps.lager.models import BestandReichtNicht
@@ -109,11 +110,14 @@ def start(request):
         Beleg.leere_entwuerfe_entfernen(mandant)
         Beleg.vorlaeufige_verwerfen(mandant)  # verlassene nicht gespeicherte Belege werden verworfen
     q = request.GET.get("q", "").strip()
-    treffer = None
+    treffer = seite = parameter = None
     if mandant and q:
-        treffer = kunden_suchen(q)[:100]
-        if len(treffer) == 1:
-            return redirect("verkauf:kunde", kunde_id=treffer[0].pk)
+        alle = kunden_suchen(q).order_by("nummer", "pk")
+        if alle.count() == 1:
+            return redirect("verkauf:kunde", kunde_id=alle.first().pk)
+        # Blätterleiste wie in allen Tabellen (Wunsch des Nutzers 20.11.2026), statt nach 100 Treffern abzuschneiden
+        seite, parameter = blaettern(request, alle)
+        treffer = list(seite.object_list)
     offene = vorlaeufige = None
     if mandant and treffer is None:  # ohne Suche: die offenen (nicht abgeschlossenen) Belege zum Weiterbearbeiten
         offen_basis = Beleg.objects.filter(mandant=mandant, abgeschlossen=False, positionen__isnull=False).distinct().select_related("kunde")
@@ -129,6 +133,7 @@ def start(request):
     return render(request, "verkauf/start.html", {
         "wiedervorlagen": wiedervorlagen, "mahnungen_faellig": mahnungen_faellig,
         "mandant": mandant, "mandanten": Mandant.objects.filter(aktiv=True), "q": q, "treffer": treffer,
+        "seite": seite, "parameter": parameter,
         "offene": offene, "vorlaeufige": vorlaeufige})
 
 
