@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -304,17 +305,66 @@ def anzahlung_aufheben(request, verrechnung_id):
                     else verrechnung.rechnung_id)
 
 
+KUNDE_SALDOTEXT = "Offener Saldo (Kunde schuldet)"
+
+
+def kunde_kontoauszug_daten(request, kunde):
+    """Kontoauszug des Kunden im gewählten Zeitraum: (zeilen, saldo, von, bis, zeitraum_text, PDF)."""
+    from .pdf import kontoauszug_pdf
+    von, bis, text = services.zeitraum_aus(request.GET)
+    alle, _ = services.kontoauszug(request.mandant, kunde)
+    zeilen, saldo = services.zeitraum(alle, von, bis)
+    pdf = lambda: kontoauszug_pdf(request.mandant, kunde, "Kunden", zeilen, saldo, KUNDE_SALDOTEXT, zeitraum_text=text)  # noqa: E731
+    return zeilen, saldo, von, bis, text, pdf
+
+
+def zeitraum_query(von, bis) -> str:
+    from django.http import QueryDict
+    q = QueryDict(mutable=True)
+    if von:
+        q["von"] = von.isoformat()
+    if bis:
+        q["bis"] = bis.isoformat()
+    return q.urlencode()
+
+
 @mit_mandant
 def kontoauszug(request, kunde_id):
     kunde = get_object_or_404(Kunde, pk=kunde_id)
-    zeilen, saldo = services.kontoauszug(request.mandant, kunde)
+    zeilen, saldo, von, bis, text, pdf = kunde_kontoauszug_daten(request, kunde)
     if request.GET.get("format") == "pdf":
-        from .pdf import kontoauszug_pdf
-        antwort = HttpResponse(kontoauszug_pdf(request.mandant, kunde, "Kunden", zeilen, saldo, "Offener Saldo (Kunde schuldet)"),
-                               content_type="application/pdf")
+        antwort = HttpResponse(pdf(), content_type="application/pdf")
         antwort["Content-Disposition"] = f'inline; filename="Kontoauszug-{kunde.nummer}.pdf"'
         return antwort
-    return render(request, "finanzen/kontoauszug.html", {"kunde": kunde, "zeilen": zeilen, "saldo": saldo})
+    return render(request, "finanzen/kontoauszug.html", {"kunde": kunde, "zeilen": zeilen, "saldo": saldo, "von": von, "bis": bis,
+                                                         "zeitraum": text, "query": zeitraum_query(von, bis)})
+
+
+@mit_mandant
+def kontoauszug_mail(request, kunde_id):
+    """Kontoauszug als PDF per E-Mail an den Kunden (Wunsch des Nutzers 20.11.2026)."""
+    from apps.verkauf.mail import MailFehler, anrede_ap, ausfuellen, empfaenger_vorschlag, senden_an
+    from apps.verkauf.models import Mailart
+    kunde = get_object_or_404(Kunde, pk=kunde_id)
+    zeilen, saldo, von, bis, text, pdf = kunde_kontoauszug_daten(request, kunde)
+    an, ap = empfaenger_vorschlag(kunde, kunde.ansprechpartner.all())
+    betreff, mailtext = ausfuellen(request.mandant, Mailart.KONTOAUSZUG, {
+        "anrede": anrede_ap(ap), "partner": kunde.name1, "nummer": kunde.nummer, "firma": request.mandant.firmenname,
+        "zeitraum": text, "saldo": f"{saldo:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), "saldotext": KUNDE_SALDOTEXT})
+    query = zeitraum_query(von, bis)
+    zurueck = reverse("finanzen:kontoauszug", args=[kunde.pk]) + (f"?{query}" if query else "")
+    if request.method == "POST":
+        an, betreff, mailtext = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
+        try:
+            senden_an(request.mandant, an, betreff, mailtext, pdf(), f"Kontoauszug-{kunde.nummer}.pdf",
+                      bezug=f"Kontoauszug {kunde.nummer}", benutzer=request.user)
+            messages.success(request, f"Kontoauszug an {an} gesendet.")
+            return redirect(zurueck)
+        except MailFehler as fehler:
+            messages.error(request, str(fehler))
+    return render(request, "finanzen/partner_mail.html", {
+        "titel": f"Kontoauszug an {kunde.name1} senden", "an": an, "betreff": betreff, "text": mailtext, "zurueck": zurueck,
+        "anhang": f"Kontoauszug-{kunde.nummer}.pdf", "anhang_url": zurueck + ("&" if query else "?") + "format=pdf"})
 
 
 @mit_mandant

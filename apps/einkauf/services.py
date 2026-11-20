@@ -1710,3 +1710,45 @@ def wareneingang_uebernehmen(we, auswahl, p_anlegen=False) -> int:
         we.bestellung = zeilen_[0][0].bestellung
         we.save(update_fields=["bestellung"])
     return len(zeilen_)
+
+
+# ---- Zahlungsavis an den Lieferanten (Wunsch des Nutzers 20.11.2026) ---------------------------------
+
+AVIS_TAGE = 90  # bezahlte Rechnungen so lange zur Auswahl
+
+
+def avis_kandidaten(mandant, lieferant):
+    """Rechnungen für ein Zahlungsavis: zur Zahlung exportierte und in den letzten Tagen bezahlte, neueste zuerst."""
+    seit = timezone.localdate() - timedelta(days=AVIS_TAGE)
+    return (Lieferantenrechnung.objects.filter(mandant=mandant, lieferant=lieferant)
+            .filter(Q(status=RechnungStatus.EXPORTIERT) | Q(status=RechnungStatus.BEZAHLT, bezahlt_am__gte=seit))
+            .prefetch_related("verrechnungen__gutschrift").order_by("-bezahlt_am", "-datum", "-id"))
+
+
+def avis_vorauswahl(kandidaten) -> set:
+    """Vorgewählt: alle exportierten (Überweisung läuft); gibt es keine, die zuletzt bezahlten (gleicher Zahltag)."""
+    exportiert = {r.pk for r in kandidaten if r.status == RechnungStatus.EXPORTIERT}
+    if exportiert:
+        return exportiert
+    letzte = max((r.bezahlt_am for r in kandidaten if r.bezahlt_am), default=None)
+    return {r.pk for r in kandidaten if letzte and r.bezahlt_am == letzte}
+
+
+def zahlungsavis(rechnungen, datum) -> dict:
+    """Aufstellung je Rechnung: Brutto, verrechnete Gutschriften, Skonto/Abzug, Zahlbetrag. Bezahlte mit dem gebuchten
+    Zahlbetrag, exportierte mit dem Zahlbetrag am Zahltag (Skonto nur innerhalb der Frist)."""
+    zeilen_, summe = [], {"brutto": Decimal("0"), "gutschriften": Decimal("0"), "skonto": Decimal("0"), "zahlung": Decimal("0")}
+    for r in rechnungen:
+        gutschriften = [(v.gutschrift.nummer, v.betrag) for v in r.verrechnungen.all() if not v.aufgehoben]
+        verrechnet = sum((b for _, b in gutschriften), Decimal("0"))
+        if r.status == RechnungStatus.BEZAHLT:
+            zahlung = r.bezahlter_betrag or Decimal("0")
+        else:
+            zahlung = r.zahlbetrag(datum)
+        skonto = r.brutto - verrechnet - zahlung
+        zeile = {"rechnung": r, "brutto": r.brutto, "gutschriften": gutschriften, "verrechnet": verrechnet, "skonto": skonto,
+                 "zahlung": zahlung}
+        zeilen_.append(zeile)
+        for k, wert in (("brutto", r.brutto), ("gutschriften", verrechnet), ("skonto", skonto), ("zahlung", zahlung)):
+            summe[k] += wert
+    return {"zeilen": zeilen_, "summe": summe, "datum": datum}

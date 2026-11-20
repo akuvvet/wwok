@@ -34,7 +34,7 @@ def fusszeile(m):
     return seite
 
 
-def kontoauszug_pdf(mandant, partner, art, zeilen, saldo, saldo_text, stichtag=None) -> bytes:
+def kontoauszug_pdf(mandant, partner, art, zeilen, saldo, saldo_text, stichtag=None, zeitraum_text="") -> bytes:
     """Kontoauszug (Kunde oder Lieferant) als PDF: Anschrift, Tabelle Datum/Buchung/Betrag/Saldo, Schlusssaldo.
     `art` ist „Kunden“ oder „Lieferanten“; Verrechnungen (Betrag None) stehen in Klammern ohne Saldowirkung."""
     from django.utils import timezone
@@ -52,11 +52,15 @@ def kontoauszug_pdf(mandant, partner, art, zeilen, saldo, saldo_text, stichtag=N
     absender = " · ".join(t for t in (m.firmenname, m.strasse, f"{m.plz} {m.ort}".strip()) if t)
     inhalt = [*logo_elemente(m), absatz(absender, klein), Spacer(1, 4 * mm),
               absatz(anschrift, normal), Spacer(1, 6 * mm),
-              absatz(f"Stand:{stichtag:%d.%m.%Y} · {art}-Nr. {partner.nummer}", klein), Spacer(1, 4 * mm),
+              absatz(f"Stand: {stichtag:%d.%m.%Y} · {art}-Nr. {partner.nummer}"
+                     + (f" · Zeitraum: {zeitraum_text}" if zeitraum_text else ""), klein), Spacer(1, 4 * mm),
               Paragraph(escape(f"{art}kontoauszug"), titel), Spacer(1, 5 * mm)]
     daten = [["Datum", "Buchung", "Betrag", "Saldo"]]
     for z in zeilen:
-        betrag = f"({euro(z['info'])})" if z["betrag"] is None else euro(z["betrag"])
+        if z.get("anfang"):  # Anfangssaldo des Zeitraums
+            betrag = ""
+        else:
+            betrag = f"({euro(z['info'])})" if z["betrag"] is None else euro(z["betrag"])
         daten.append([z["datum"].strftime("%d.%m.%Y"), absatz(z["text"], zelle), betrag, euro(z["saldo"])])
     if len(daten) == 1:
         daten.append(["", absatz("Keine Buchungen.", zelle), "", ""])
@@ -71,6 +75,55 @@ def kontoauszug_pdf(mandant, partner, art, zeilen, saldo, saldo_text, stichtag=N
     seite = fusszeile(m)
     doc.build(inhalt, onFirstPage=seite, onLaterPages=seite)
     return puffer.getvalue()
+
+
+def zahlungsavis_pdf(mandant, lieferant, avis) -> bytes:
+    """Zahlungsavis an den Lieferanten (Wunsch des Nutzers 20.11.2026): welche Rechnungen mit welchem Betrag bezahlt werden,
+    mit verrechneten Gutschriften und Skonto; Summe = Überweisungsbetrag."""
+    m, datum, summe = mandant, avis["datum"], avis["summe"]
+    basis = getSampleStyleSheet()["Normal"]
+    normal = ParagraphStyle("n", parent=basis, fontName="Helvetica", fontSize=10, leading=14)
+    zelle = ParagraphStyle("z", parent=normal, fontSize=9, leading=11)
+    fett = ParagraphStyle("zb", parent=zelle, fontName="Helvetica-Bold")
+    klein = ParagraphStyle("k", parent=normal, fontSize=7.5, leading=10, textColor=colors.grey)
+    titel = ParagraphStyle("t", parent=normal, fontName="Helvetica-Bold", fontSize=14, leading=18)
+    puffer = BytesIO()
+    doc = SimpleDocTemplate(puffer, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=15 * mm,
+                            bottomMargin=28 * mm, title=f"Zahlungsavis {lieferant.nummer}", author=m.firmenname)
+    anschrift = "\n".join(t for t in (lieferant.name1, lieferant.name2, lieferant.strasse,
+                                      f"{lieferant.plz} {lieferant.ort}".strip()) if t)
+    absender = " · ".join(t for t in (m.firmenname, m.strasse, f"{m.plz} {m.ort}".strip()) if t)
+    konto = f" auf Ihr Konto IBAN {lieferant.iban}" if lieferant.iban else ""
+    inhalt = [*logo_elemente(m), absatz(absender, klein), Spacer(1, 4 * mm), absatz(anschrift, normal), Spacer(1, 6 * mm),
+              absatz(f"Datum: {timezone_heute():%d.%m.%Y} · Lieferanten-Nr. {lieferant.nummer}", klein), Spacer(1, 4 * mm),
+              Paragraph("Zahlungsavis", titel), Spacer(1, 5 * mm),
+              absatz(f"Sehr geehrte Damen und Herren,\n\nam {datum:%d.%m.%Y} überweisen wir Ihnen{konto} den Betrag von "
+                     f"{euro(summe['zahlung'])} € für die folgenden Rechnungen:", normal), Spacer(1, 5 * mm)]
+    daten = [["Rechnung", "Datum", "Betrag", "Gutschrift", "Skonto/Abzug", "Zahlung"]]
+    for z in avis["zeilen"]:
+        r = z["rechnung"]
+        gs = "\n".join(f"{nr}: {euro(b)}" for nr, b in z["gutschriften"])
+        daten.append([absatz(r.rechnungsnummer, zelle), r.datum.strftime("%d.%m.%Y"), euro(z["brutto"]),
+                      absatz(gs, zelle) if gs else "", euro(z["skonto"]) if z["skonto"] else "", euro(z["zahlung"])])
+    daten.append([absatz("Summe", fett), "", euro(summe["brutto"]), euro(summe["gutschriften"]) if summe["gutschriften"] else "",
+                  euro(summe["skonto"]) if summe["skonto"] else "", euro(summe["zahlung"])])
+    t = Table(daten, colWidths=[38 * mm, 22 * mm, 25 * mm, 32 * mm, 26 * mm, 27 * mm], repeatRows=1)
+    t.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), "Helvetica", 9), ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 9),
+                           ("ALIGN", (2, 0), (-1, -1), "RIGHT"), ("ALIGN", (3, 1), (3, -1), "LEFT"), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                           ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.black), ("LINEABOVE", (0, -1), (-1, -1), 0.8, colors.black),
+                           ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 9)]))
+    inhalt += [t, Spacer(1, 6 * mm),
+               absatz("Gutschriften: mit der Rechnung verrechnete Gutschriften von Ihnen. Skonto/Abzug: Skonto innerhalb der "
+                      "Zahlungsfrist bzw. sonstige Differenz zum Rechnungsbetrag.", klein),
+               Spacer(1, 6 * mm), absatz(f"Mit freundlichen Grüßen\n{m.firmenname}", normal)]
+    seite = fusszeile(m)
+    doc.build(inhalt, onFirstPage=seite, onLaterPages=seite)
+    return puffer.getvalue()
+
+
+def timezone_heute():
+    from django.utils import timezone
+    return timezone.localdate()
 
 
 def mahnung_pdf(mahnung) -> bytes:

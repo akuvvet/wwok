@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block titel %}Zahlungsavis {{ lieferant.nummer }} – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'einkauf:lieferant' lieferant.pk %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Zahlungsavis · Mandant {{ request.mandant }}</h1>
+  <p><a href="{% url 'einkauf:lieferant' lieferant.pk %}">{{ lieferant.nummer }} – {{ lieferant.name1 }}</a>{% if lieferant.iban %} · IBAN {{ lieferant.iban }}{% endif %}</p>
+  <p class="fein">Teilt dem Lieferanten mit, welche Rechnungen mit welchem Betrag bezahlt werden. Zur Auswahl stehen zur Zahlung exportierte Rechnungen und die in den letzten {{ tage }} Tagen bezahlten. Vorgewählt: die exportierten, sonst die zuletzt bezahlten.</p>
+  <form method="get" id="avis">
+    <input type="hidden" name="r" value="">
+    <div class="zeile" style="align-items:flex-end;margin-bottom:10px">
+      <div><label for="avis-datum">Zahltag</label><input type="date" id="avis-datum" name="datum" value="{{ datum|date:'Y-m-d' }}" onchange="this.form.submit()"></div>
+      <span class="fein">Skonto gilt bei exportierten Rechnungen nur, wenn der Zahltag in der Skontofrist liegt.</span>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr><th></th><th>Rechnung</th><th>Datum</th><th>Status</th><th class="zahl">Betrag</th><th>Gutschrift verrechnet</th><th class="zahl">Skonto/Abzug</th><th class="zahl">Zahlung</th></tr></thead>
+      <tbody>
+      {% for z in zeilen %}{% with r=z.rechnung %}<tr>
+        <td><input type="checkbox" name="r" value="{{ r.pk }}" aria-label="Rechnung {{ r.rechnungsnummer }}"{% if z.gewaehlt %} checked{% endif %} onchange="this.form.submit()"></td>
+        <td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a></td><td>{{ r.datum|date:"d.m.Y" }}</td>
+        <td>{{ r.get_status_display }}{% if r.bezahlt_am %} am {{ r.bezahlt_am|date:"d.m.Y" }}{% endif %}</td>
+        <td class="zahl">{{ z.brutto|floatformat:"2g" }}</td>
+        <td>{% for nr, b in z.gutschriften %}{{ nr }}: {{ b|floatformat:"2g" }}{% if not forloop.last %}<br>{% endif %}{% empty %}–{% endfor %}</td>
+        <td class="zahl">{% if z.skonto %}{{ z.skonto|floatformat:"2g" }}{% else %}–{% endif %}</td>
+        <td class="zahl">{{ z.zahlung|floatformat:"2g" }}</td></tr>{% endwith %}
+      {% empty %}<tr><td colspan="8">Keine exportierte oder kürzlich bezahlte Rechnung.</td></tr>{% endfor %}
+      </tbody>
+      {% if zeilen %}<tfoot><tr><td colspan="4"><strong>Ausgewählt</strong></td><td class="zahl">{{ summe.brutto|floatformat:"2g" }}</td>
+        <td>{% if summe.gutschriften %}{{ summe.gutschriften|floatformat:"2g" }}{% endif %}</td><td class="zahl">{% if summe.skonto %}{{ summe.skonto|floatformat:"2g" }}{% endif %}</td>
+        <td class="zahl"><strong>{{ summe.zahlung|floatformat:"2g" }} €</strong></td></tr></tfoot>{% endif %}
+    </table></div>
+    <noscript><p><button type="submit" class="leise">Neu berechnen</button></p></noscript>
+    {% if zeilen %}<p class="zeile"><button type="submit" name="aktion" value="pdf" formtarget="_blank">PDF drucken</button>
+      <button type="submit" name="aktion" value="mail">Per E-Mail senden</button></p>{% endif %}
+  </form>
+</div>
+{% endblock %}

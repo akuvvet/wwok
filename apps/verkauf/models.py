@@ -60,6 +60,8 @@ class Mailart(models.TextChoices):
     ESD = "ES", "Lizenzschlüssel"
     VERSAND = "VS", "Versandmitteilung"
     MAHNUNG = "MA", "Mahnung"
+    KONTOAUSZUG = "KA", "Kontoauszug (Kunde oder Lieferant)"
+    ZAHLUNGSAVIS = "ZA", "Zahlungsavis an Lieferanten"
     REPARATUR_ANGENOMMEN = "RA", "Reparatur angenommen"
     REPARATUR_LAEUFT = "RR", "Gerät in Reparatur"
     REPARATUR_FERTIG = "RF", "Reparatur fertig"

@@ -15,6 +15,7 @@ urlpatterns = [
     path("beleg/<int:beleg_id>/guthaben/", views.anzahlung_verrechnen, name="anzahlung_verrechnen"),
     path("anzahlung/<int:verrechnung_id>/aufheben/", views.anzahlung_aufheben, name="anzahlung_aufheben"),
     path("kunde/<int:kunde_id>/konto/", views.kontoauszug, name="kontoauszug"),
+    path("kunde/<int:kunde_id>/konto/mail/", views.kontoauszug_mail, name="kontoauszug_mail"),
     path("lieferanten/", views.op_lieferanten, name="op_lieferanten"),
     path("zahlungen/lieferanten/", views.zahlungen_lieferanten, name="zahlungen_lieferanten"),
     path("bank/", views.bank, name="bank"),

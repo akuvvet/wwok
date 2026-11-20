@@ -30,6 +30,12 @@ STANDARD = {
                       "{anrede},\n\nIhre Ware zu {art} {nummer} wurde am {versanddatum} mit {dienst} versendet.\n"
                       "{sendung}\n\n" + GRUSS),
     Mailart.MAHNUNG: ("{bezeichnung} zu Rechnung {nummer}", "{mahntext}"),
+    Mailart.KONTOAUSZUG: ("Kontoauszug {zeitraum} – {firma}",
+                          "{anrede},\n\nanbei erhalten Sie den Kontoauszug Ihres Kontos bei uns ({zeitraum}).\n"
+                          "{saldotext}: {saldo} €\n\nBitte prüfen Sie die Buchungen und melden Sie sich bei Abweichungen.\n\n" + GRUSS),
+    Mailart.ZAHLUNGSAVIS: ("Zahlungsavis {datum} – {firma}",
+                           "{anrede},\n\nam {datum} überweisen wir Ihnen {betrag} € für {anzahl} Rechnung(en). Die Aufstellung "
+                           "mit Skonto und verrechneten Gutschriften finden Sie im Anhang.\n\n" + GRUSS),
     Mailart.REPARATUR_ANGENOMMEN: ("Reparatur {nummer}: {status}",
                                    "{anrede},\n\nwir haben Ihr Gerät {geraet} unter der Auftragsnummer {nummer} "
                                    "angenommen und kümmern uns darum.\n\n" + GRUSS),
@@ -48,6 +54,8 @@ PLATZHALTER = {
     Mailart.VERSAND: BELEG_WERTE + ("versanddatum", "dienst", "sendung"),
     Mailart.MAHNUNG: ("anrede", "kunde", "nummer", "datum", "faelligkeit", "offen", "gebuehr", "gesamt", "frist", "firma",
                       "bezeichnung", "mahntext"),
+    Mailart.KONTOAUSZUG: ("anrede", "partner", "nummer", "firma", "zeitraum", "saldo", "saldotext"),
+    Mailart.ZAHLUNGSAVIS: ("anrede", "lieferant", "firma", "datum", "betrag", "anzahl", "rechnungen"),
     Mailart.REPARATUR_ANGENOMMEN: REPARATUR_WERTE,
     Mailart.REPARATUR_LAEUFT: REPARATUR_WERTE,
     Mailart.REPARATUR_FERTIG: REPARATUR_WERTE,
@@ -82,6 +90,22 @@ def anrede_text(kunde) -> str:
     if ap and ap.nachname and anrede_von(ap) == "frau":
         return f"Sehr geehrte Frau {ap.nachname}"
     return "Sehr geehrte Damen und Herren"
+
+
+def anrede_ap(ap) -> str:
+    """Anrede aus einem Ansprechpartner (oder keinem)."""
+    if ap and ap.nachname and anrede_von(ap) == "herr":
+        return f"Sehr geehrter Herr {ap.nachname}"
+    if ap and ap.nachname and anrede_von(ap) == "frau":
+        return f"Sehr geehrte Frau {ap.nachname}"
+    return "Sehr geehrte Damen und Herren"
+
+
+def empfaenger_vorschlag(partner, ansprechpartner) -> tuple:
+    """(An, Ansprechpartner) für Mails an Kunde oder Lieferant: Hauptkontakt bzw. erster Ansprechpartner mit E-Mail,
+    sonst die E-Mail des Partners; vor dem Senden änderbar (Wunsch des Nutzers 20.11.2026)."""
+    ap = ansprechpartner.exclude(email="").order_by("-hauptkontakt", "nachname", "id").first()
+    return (ap.email if ap else partner.email) or "", ap
 
 
 def platzhalter(beleg) -> dict:
