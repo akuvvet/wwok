@@ -180,27 +180,13 @@
     <noscript><button type="submit" class="leise">Anzeigen</button></noscript>
   </form>
   <form method="post" action="{% url 'einkauf:bestellung_bedarf' b.pk %}">{% csrf_token %}
-  <div class="scroll"><table>
-    <thead><tr><th>{% if bedarf %}<input type="checkbox" id="bedarf-alle" title="alle / keine" aria-label="alle Artikel auswählen">{% endif %}</th><th>Artikel</th><th>Bezeichnung</th><th class="zahl" title="Lagerbestand">Lager</th><th class="zahl" title="Offen in Kundenbestellungen">Kunden</th><th class="zahl" title="Ziel aus Mindestbestand bzw. Verkaufsverlauf">Ziel</th><th class="zahl" title="Lager − Kunden + schon bestellt">vorhanden</th><th>Menge</th><th class="zahl">EK bei {{ b.lieferant.kurz }}</th><th title="Die günstigsten Lieferanten aus den Preislisten: zuerst lieferbare nach EK, dann die mit Bestand 0">Günstigste Lieferanten</th><th>Grund</th></tr></thead>
-    <tbody>
-    {% for z in bedarf %}<tr data-ek="{% if z.ek_hier is not None %}{{ z.ek_hier|unlocalize }}{% elif z.ek_ersatz is not None %}{{ z.ek_ersatz|unlocalize }}{% endif %}">
-      <td><input type="checkbox" name="auswahl" value="{{ z.artikel.pk }}" aria-label="{{ z.artikel.nummer }} übernehmen"{% if z.fuehrt %} checked{% endif %}></td>
-      <td><a href="{% url 'lager:artikel' z.artikel.pk %}">{{ z.artikel.nummer }}</a></td><td>{{ z.artikel.bezeichnung }}</td>
-      <td class="zahl">{{ z.lager|floatformat:"-3" }}</td><td class="zahl">{% if z.kundenbedarf %}{{ z.kundenbedarf|floatformat:"-3" }}{% else %}–{% endif %}</td>
-      <td class="zahl">{{ z.ziel|floatformat:"-3" }}</td><td class="zahl">{{ z.haben|floatformat:"-3" }}</td>
-      <td><input name="menge_{{ z.artikel.pk }}" value="{{ z.menge|floatformat:'-3' }}" size="5" inputmode="decimal" aria-label="Menge {{ z.artikel.nummer }}"></td>
-      <td class="zahl">{% if z.ek_hier is not None %}{{ z.ek_hier|floatformat:"2g" }}{% if z.bestand_hier is not None %}<br><small class="fein">Bestand {{ z.bestand_hier }}</small>{% endif %}{% elif z.ek_ersatz is not None %}{{ z.ek_ersatz|floatformat:"2g" }}<br><small class="fein" title="Führt {{ b.lieferant.kurz }} den Artikel nicht, wird der günstigste EK aus allen Preislisten übernommen">günstigster, bei {{ z.ek_ersatz_von.kurz }}</small>{% else %}<small class="fein">nicht in der Preisliste</small>{% endif %}</td>
-      <td data-guenstigste>{% for g in z.guenstigste %}<div{% if g.hier %} style="font-weight:600"{% elif forloop.first and z.guenstiger %} style="color:var(--hinweis)"{% endif %}>{{ g.lieferant.kurz }}: {{ g.ek|floatformat:"2g" }}{% if g.bestand is not None %} <small class="fein">Bestand {{ g.bestand }}</small>{% endif %}</div>{% empty %}<small class="fein">kein Lieferant in den Preislisten</small>{% endfor %}</td>
-      <td>{{ z.grund }}{% if z.kundenbelege %}<br><small>{% for kb in z.kundenbelege %}<a href="{% url 'verkauf:beleg' kb.pk %}" title="{{ kb.kunde.name1 }}">{{ kb.nummer|default:"(nicht gespeichert)" }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</small>{% endif %}</td>
-    </tr>{% empty %}<tr><td colspan="11" style="padding:14px;opacity:.75">Kein Bedarf{% if bedarf_nur %} bei Artikeln, die {{ b.lieferant.kurz }} führt{% endif %}.</td></tr>{% endfor %}
-    </tbody>
-  </table></div>
+  {% include "einkauf/_bedarf_tabelle.html" with zeilen=bedarf lieferant=b.lieferant %}
   {% if bedarf %}<p style="margin-bottom:0"><button type="submit">Ausgewählte in die Bestellung übernehmen</button> <span id="bedarf-auswahl" class="fein"></span></p>{% endif %}
   </form>
   {% if bedarf %}<script>
   // Kopf-Haken: alle Artikel des Bedarfs aus- oder abwählen; er zeigt an, ob alle (Haken), einige (Strich) oder keine gewählt sind
   (function () {
-    var alle = document.getElementById('bedarf-alle'), tab = document.getElementById('tab-bedarf');
+    var tab = document.getElementById('tab-bedarf'), alle = tab.querySelector('[data-bedarf-alle]');
     function boxen() { return tab.querySelectorAll('input[name=auswahl]'); }
     function anzeigen() {
       var n = tab.querySelectorAll('input[name=auswahl]:checked').length, gesamt = boxen().length;

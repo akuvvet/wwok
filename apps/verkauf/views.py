@@ -348,7 +348,7 @@ def beleg_detail(request, beleg_id):
         if beleg.art == Belegart.ANGEBOT else None,
         "arten": Belegart.choices,
         "zahlungsbedingungen": Zahlungsbedingung.objects.all(), "versandarten": Versandart.objects.filter(aktiv=True),
-        "ansprechpartner": beleg.kunde.ansprechpartner.all()})
+        "ansprechpartner": list(beleg.kunde.ansprechpartner.select_related("anrede").order_by("-hauptkontakt", "nachname", "id"))})
 
 
 VERKLEMMT = "Der Beleg wird gerade von einer anderen Anfrage bearbeitet (zweiter Tab oder Benutzer). Es wurde nichts geändert – bitte erneut versuchen."
@@ -388,8 +388,8 @@ def beleg_kopf(request, beleg_id):
     elif beleg.art != Belegart.PROFORMA_STORNO:
         beleg.zahlungsbedingung = Zahlungsbedingung.objects.filter(pk=request.POST.get("zahlungsbedingung") or None).first()
     if not beleg.gesperrt:
-        beleg.ansprechpartner = Ansprechpartner.objects.filter(
-            pk=request.POST.get("ansprechpartner") or None, kunde=beleg.kunde).first()
+        if "ansprechpartner" in request.POST:  # wird im Belegkopf gewählt (beleg_ansprechpartner); ältere Formulare senden ihn noch mit
+            beleg.ansprechpartner = ansprechpartner_des_kunden(beleg, request.POST.get("ansprechpartner"))
         beleg.rechnungsanschrift = request.POST.get("rechnungsanschrift", "")
         beleg.kaeufer_aus_anschrift()
         beleg.versandanschrift = request.POST.get("versandanschrift", "")
@@ -414,6 +414,30 @@ def beleg_kopf(request, beleg_id):
     if not beleg.gesperrt:
         beleg.berechne()
     messages.success(request, "Gespeichert.")
+    return redirect("verkauf:beleg", beleg_id=beleg.pk)
+
+
+def ansprechpartner_des_kunden(beleg, ap_id):
+    """Leer = keiner; sonst nur ein Ansprechpartner dieses Kunden."""
+    if not ap_id:
+        return None
+    ap = Ansprechpartner.objects.filter(pk=ap_id if str(ap_id).isdigit() else None, kunde=beleg.kunde).first()
+    if ap is None:
+        raise ValueError("Dieser Ansprechpartner gehört nicht zum Kunden.")
+    return ap
+
+
+@mit_mandant
+@require_POST
+@sperr_schutz
+def beleg_ansprechpartner(request, beleg_id):
+    """Ansprechpartner im Belegkopf wechseln (speichert sofort). Gesperrte Belege bleiben, wie sie gedruckt wurden."""
+    beleg = beleg_holen(request, beleg_id)
+    if beleg.gesperrt:
+        raise ValueError("Der Beleg ist gesperrt: Der Ansprechpartner kann nicht mehr geändert werden.")
+    beleg.ansprechpartner = ansprechpartner_des_kunden(beleg, request.POST.get("ansprechpartner", ""))
+    beleg.save(update_fields=["ansprechpartner"])
+    messages.success(request, f"Ansprechpartner: {beleg.ansprechpartner or 'keiner'}.")
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 

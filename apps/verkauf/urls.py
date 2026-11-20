@@ -15,6 +15,7 @@ urlpatterns = [
     path("kunde/<int:kunde_id>/beleg-neu/", views.beleg_neu, name="beleg_neu"),
     path("beleg/<int:beleg_id>/", views.beleg_detail, name="beleg"),
     path("beleg/<int:beleg_id>/kopf/", views.beleg_kopf, name="beleg_kopf"),
+    path("beleg/<int:beleg_id>/ansprechpartner/", views.beleg_ansprechpartner, name="beleg_ansprechpartner"),
     path("beleg/<int:beleg_id>/position/", views.position_neu, name="position_neu"),
     path("beleg/<int:beleg_id>/position/import/", views.positionen_import, name="positionen_import"),
     path("beleg/<int:beleg_id>/position/<int:position_id>/aendern/", views.position_aendern, name="position_aendern"),

@@ -84,7 +84,7 @@ class BestellungTabsTest(Basis):
         self.assertEqual([z["artikel"] for z in r.context["bedarf"]], [self.maus])
         self.assertContains(r, 'name="bedarf" value="lieferant" checked onchange')
         self.assertContains(r, "nur Artikel, die TD führt</label>")
-        self.assertContains(r, 'id="bedarf-alle"', count=1)  # Kopf-Haken „alle / keine“
+        self.assertContains(r, '<input type="checkbox" data-bedarf-alle', count=1)  # Kopf-Haken „alle / keine“
         self.assertContains(r, "alle.indeterminate")
         # Summe der Auswahl: EK bei TD je Zeile (leer, wenn TD den Artikel nicht führt), Anzeige im Tab und als Endsumme im Kopf
         self.assertContains(r, '<tr data-ek="9.0000">')
@@ -124,7 +124,7 @@ class BestellungTabsTest(Basis):
         self.assertContains(r, '<tr data-ek="">')  # ohne Preis bei diesem Lieferanten: zählt nicht in die Summe
         leer = services.bestellung_anlegen(self.m, self.lf2)
         Position.objects.filter(artikel=ohne).delete()  # kein Bedarf mehr: kein Kopf-Haken
-        self.assertNotContains(self.client.get(reverse("einkauf:bestellung", args=[leer.pk])), 'id="bedarf-alle"')
+        self.assertNotContains(self.client.get(reverse("einkauf:bestellung", args=[leer.pk])), 'data-bedarf-alle')
 
     def test_bedarf_uebernehmen_und_danach_weg(self):
         self.kundenbestellung(self.maus, "3")

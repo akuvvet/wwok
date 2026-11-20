@@ -624,15 +624,25 @@ def bestellvorschlag(mandant) -> list:
 
 @transaction.atomic
 def bestellungen_aus_vorschlag(mandant, auswahl) -> list:
-    """auswahl: Liste von (artikel_id, menge); je Lieferant wird eine Entwurfsbestellung angelegt."""
+    """auswahl: Liste von (artikel_id, menge) oder (artikel_id, menge, lieferant_id); je Lieferant wird eine Entwurfsbestellung
+    angelegt. Ohne Lieferant der günstigste laut Preisliste; ein gewählter muss den Artikel mit Preis führen (Wunsch des
+    Nutzers 20.11.2026: Lieferant je Zeile im Bestellvorschlag wählbar)."""
     je_lieferant = defaultdict(list)
-    for artikel_id, menge in auswahl:
+    for eintrag in auswahl:
+        artikel_id, menge = eintrag[0], eintrag[1]
+        lieferant_id = eintrag[2] if len(eintrag) > 2 else None
         artikel = Artikel.objects.filter(pk=artikel_id).first()
         if artikel is None:
             raise ValueError("Ein gewählter Artikel existiert nicht mehr.")
         if menge is None or not menge.is_finite() or not Decimal("0") < menge < Decimal("10000000"):
             raise ValueError(f"{artikel.nummer}: Die Menge muss größer als 0 sein.")
-        al = guenstigster_lieferant(artikel)
+        if lieferant_id:
+            al = ArtikelLieferant.objects.filter(artikel=artikel, lieferant_id=lieferant_id, ek__isnull=False,
+                                                 lieferant__gesperrt=False).select_related("lieferant").first()
+            if al is None:
+                raise ValueError(f"{artikel.nummer}: Der gewählte Lieferant führt den Artikel nicht mit Preis.")
+        else:
+            al = guenstigster_lieferant(artikel)
         if al is None:
             raise ValueError(f"{artikel.nummer}: kein Lieferant in den Preislisten.")
         je_lieferant[al.lieferant].append((artikel, menge))
@@ -1500,32 +1510,57 @@ def guenstigste_lieferanten(artikel_liste, anzahl=GUENSTIGSTE_MAX) -> dict:
     return {a: sorted(liste, key=lambda al: al.bestand == 0)[:anzahl] for a, liste in je_artikel.items()}
 
 
-def bedarf_fuer_lieferant(bestellung, nur_lieferant=False) -> list:
-    """Tab „Bedarf“: der Bestellvorschlag (Mindestbestand, Verkaufsverlauf, Fehlmenge aus Kundenbestellungen) für diese
-    Bestellung. Standard (Wunsch des Nutzers 19.11.2026): der gesamte Bedarf, auch Artikel, die dieser Lieferant nicht führt;
-    je Zeile die günstigsten Lieferanten. nur_lieferant=True zeigt nur Artikel, die der Lieferant laut Preisliste führt."""
+def unterwegs(mandant, artikel_liste) -> dict:
+    """{artikel_id: [{"bestellung", "menge"}, …]} – noch offene Mengen in Lieferantenbestellungen (auch nicht abgeschlossene).
+    Sie sind im Bedarf schon abgezogen; die Liste zeigt, wo (Bestellvorschlag und Tab „Bedarf“, Wunsch des Nutzers 20.11.2026)."""
+    je_artikel = defaultdict(dict)
+    for p in BestellPosition.objects.filter(
+            bestellung__mandant=mandant, artikel__in=artikel_liste,
+            bestellung__status__in=[BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL],
+    ).select_related("bestellung__lieferant").order_by("bestellung_id"):
+        offen = p.menge - p.geliefert
+        if offen > 0:
+            eintrag = je_artikel[p.artikel_id].setdefault(p.bestellung_id, {"bestellung": p.bestellung, "menge": Decimal("0")})
+            eintrag["menge"] += offen
+    return {a: list(d.values()) for a, d in je_artikel.items()}
+
+
+def bedarf_zeilen(mandant, lieferant=None, nur_lieferant=False) -> list:
+    """Eine Bedarfsliste für das Menü „Bestellvorschlag“ (lieferant=None) und den Tab „Bedarf“ einer Lieferantenbestellung:
+    Mindestbestand, Verkaufsverlauf, Fehlmenge aus Kundenbestellungen, abzüglich schon bestellter Mengen. Je Zeile die günstigsten
+    Lieferanten (Anzeige), alle Lieferanten mit Preis (Auswahl im Bestellvorschlag) und wo die Ware schon bestellt ist."""
     zeilen_ = []
-    vorschlag = bestellvorschlag(bestellung.mandant)
+    vorschlag = bestellvorschlag(mandant)
     artikel_liste = [z["artikel"] for z in vorschlag]
-    preise = {al.artikel_id: al for al in ArtikelLieferant.objects.filter(lieferant=bestellung.lieferant, artikel__in=artikel_liste)}
-    guenstigste = guenstigste_lieferanten(artikel_liste)
+    preise = {al.artikel_id: al for al in ArtikelLieferant.objects.filter(lieferant=lieferant, artikel__in=artikel_liste)} \
+        if lieferant else {}
+    alle = guenstigste_lieferanten(artikel_liste, anzahl=None)
+    schon = unterwegs(mandant, artikel_liste)
     for z in vorschlag:
         al = preise.get(z["artikel"].pk)
-        if al is None and nur_lieferant:
+        if lieferant and al is None and nur_lieferant:
             continue
         z["fuehrt"] = al is not None
         z["ek_hier"] = al.ek if al else None
         z["bestellnr_hier"] = al.bestellnummer if al else ""
         z["bestand_hier"] = al.bestand if al else None
-        z["guenstiger"] = (z["lieferant"] is not None and z["lieferant"] != bestellung.lieferant and z["ek"] is not None
-                           and (z["ek_hier"] is None or z["ek"] < z["ek_hier"]))
-        z["guenstigste"] = [{"lieferant": g.lieferant, "ek": g.ek, "bestand": g.bestand, "hier": g.lieferant_id == bestellung.lieferant_id}
-                            for g in guenstigste.get(z["artikel"].pk, [])]
+        z["guenstiger"] = bool(lieferant and z["lieferant"] is not None and z["lieferant"] != lieferant and z["ek"] is not None
+                               and (z["ek_hier"] is None or z["ek"] < z["ek_hier"]))
+        z["alle_lieferanten"] = [{"lieferant": g.lieferant, "ek": g.ek, "bestand": g.bestand,
+                                  "hier": bool(lieferant) and g.lieferant_id == lieferant.pk} for g in alle.get(z["artikel"].pk, [])]
+        z["guenstigste"] = z["alle_lieferanten"][:GUENSTIGSTE_MAX]
+        z["unterwegs"] = schon.get(z["artikel"].pk, [])
         # ohne Preis bei diesem Lieferanten: der günstigste EK überhaupt wird übernommen (Wunsch des Nutzers 19.11.2026)
         ersatz = z["guenstigste"][0] if z["ek_hier"] is None and z["guenstigste"] else None
         z["ek_ersatz"], z["ek_ersatz_von"] = (ersatz["ek"], ersatz["lieferant"]) if ersatz else (None, None)
         zeilen_.append(z)
     return zeilen_
+
+
+def bedarf_fuer_lieferant(bestellung, nur_lieferant=False) -> list:
+    """Tab „Bedarf“: der Bestellvorschlag für diese Bestellung. Standard (Wunsch des Nutzers 19.11.2026): der gesamte Bedarf,
+    auch Artikel, die dieser Lieferant nicht führt. nur_lieferant=True zeigt nur Artikel aus seiner Preisliste."""
+    return bedarf_zeilen(bestellung.mandant, bestellung.lieferant, nur_lieferant)
 
 
 @transaction.atomic

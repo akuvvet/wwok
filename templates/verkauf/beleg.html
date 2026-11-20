@@ -60,6 +60,21 @@
         {% if v.kauf_status %} · {{ v.get_kauf_status_display }}{% elif v.gedruckt_am %} · gedruckt {{ v.gedruckt_am|date:"d.m. H:i" }}{% else %} · noch nicht gedruckt{% endif %}</a>
     {% endfor %}</p>{% endif %}
   </div>
+  {% if ansprechpartner or beleg.ansprechpartner %}<div class="beleg-ap" style="min-width:200px;max-width:280px">
+    <div class="fein" style="opacity:.7">Ansprechpartner</div>
+    {% if not beleg.gesperrt and ansprechpartner %}<form method="post" action="{% url 'verkauf:beleg_ansprechpartner' beleg.pk %}" data-bleibt>{% csrf_token %}
+      <select name="ansprechpartner" aria-label="Ansprechpartner wählen" onchange="this.form.submit()" style="margin:2px 0 4px">
+        <option value="">– keiner –</option>
+        {% for a in ansprechpartner %}<option value="{{ a.pk }}"{% if a.pk == beleg.ansprechpartner_id %} selected{% endif %}>{{ a.vorname }} {{ a.nachname }}{% if a.hauptkontakt %} ★{% endif %}</option>{% endfor %}
+      </select><noscript><button type="submit" class="leise">Übernehmen</button></noscript></form>{% endif %}
+    {% with a=beleg.ansprechpartner %}{% if a %}<div class="ap-daten">
+      <div><strong>{% if a.anrede %}{{ a.anrede }} {% endif %}{{ a.vorname }} {{ a.nachname }}</strong></div>
+      {% if a.abteilung %}<div class="fein">{{ a.abteilung }}</div>{% endif %}
+      <div>Tel. {% if a.telefon %}<a href="tel:{{ a.telefon }}{{ a.durchwahl }}">{{ a.telefon }}{% if a.durchwahl %}-{{ a.durchwahl }}{% endif %}</a>{% else %}–{% endif %}</div>
+      {% if a.mobil %}<div>Mobil <a href="tel:{{ a.mobil }}">{{ a.mobil }}</a></div>{% endif %}
+      <div>{% if a.email %}<a href="mailto:{{ a.email }}">{{ a.email }}</a>{% else %}E-Mail –{% endif %}</div>
+    </div>{% elif beleg.gesperrt %}<div>–</div>{% endif %}{% endwith %}
+  </div>{% endif %}
   <div class="summe">
     {% if beleg.ek_marge_code %}<div style="opacity:.55;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.5px" title="EK und Marge (intern)">{{ beleg.ek_marge_code }}</div>
     <div id="ekzeile" style="opacity:.55;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.5px;min-height:15px" title="EK und Marge der markierten Position (intern)"></div>{% endif %}
@@ -238,10 +253,6 @@
       </select></div>
     <div><label>Versandart</label><input name="versandart" value="{{ beleg.versandart }}" list="versandarten">
       <datalist id="versandarten">{% for v in versandarten %}<option value="{{ v.name }}">{% endfor %}</datalist></div>
-    <div><label>Ansprechpartner</label>
-      <select name="ansprechpartner" {% if beleg.gesperrt %}disabled{% endif %}><option value="">–</option>
-        {% for a in ansprechpartner %}<option value="{{ a.pk }}" {% if a.pk == beleg.ansprechpartner_id %}selected{% endif %}>{{ a }}</option>{% endfor %}
-      </select></div>
     <div><label>Ihre Referenz / Bestellnummer des Kunden</label><input name="referenz" value="{{ beleg.referenz }}" {% if beleg.gesperrt %}disabled{% endif %}></div>
     <div><label>Bezugnahme</label><input name="bezugnahme" value="{{ beleg.bezugnahme }}" list="bezugnahmen" {% if beleg.gesperrt %}disabled{% endif %}>
       <datalist id="bezugnahmen"><option value="telefonisch"><option value="schriftlich"><option value="E-Mail"><option value="persönlich"><option value="eBay"><option value="Shop"></datalist></div>

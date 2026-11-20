@@ -696,15 +696,18 @@ def vorschlag(request):
             for artikel_id in request.POST.getlist("auswahl"):
                 if not artikel_id.isdigit():
                     raise ValueError("Ungültige Artikelauswahl.")
-                auswahl.append((int(artikel_id), zahl(request.POST.get(f"menge_{artikel_id}"), Decimal("1"))))
+                lieferant_id = request.POST.get(f"lieferant_{artikel_id}", "")
+                auswahl.append((int(artikel_id), zahl(request.POST.get(f"menge_{artikel_id}"), Decimal("1")),
+                                int(lieferant_id) if lieferant_id.isdigit() else None))
             if not auswahl:
                 raise ValueError("Bitte mindestens einen Artikel auswählen.")
             liste = services.bestellungen_aus_vorschlag(request.mandant, auswahl)
-            messages.success(request, f"{len(liste)} Bestellung(en) angelegt (nicht abgeschlossen).")
+            messages.success(request, f"{len(liste)} Bestellung(en) angelegt (nicht abgeschlossen): "
+                             + ", ".join(f"{b.lieferant.kurz}" for b in liste) + ".")
             return redirect("einkauf:bestellungen")
         except ValueError as fehler:
             messages.error(request, str(fehler))
-    return render(request, "einkauf/vorschlag.html", {"zeilen": services.bestellvorschlag(request.mandant)})
+    return render(request, "einkauf/vorschlag.html", {"zeilen": services.bedarf_zeilen(request.mandant)})
 
 
 # ---- Wareneingang ---------------------------------------------------------------------------------
