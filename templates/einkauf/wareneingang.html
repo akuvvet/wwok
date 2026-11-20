@@ -56,21 +56,29 @@
   <table style="margin-top:12px">
     <tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">bestellt</th><th class="zahl">Menge</th><th class="zahl">EK netto</th><th>Seriennummern</th><th></th></tr>
     {% for p in positionen %}
-    <tr><td>{{ p.artikel.nummer }}</td><td>{{ p.artikel.bezeichnung }}{% if p.bestellposition and p.bestellposition.bestellung_id != we.bestellung_id %}<br><small class="fein">aus {{ p.bestellposition.bestellung.nummer }}</small>{% endif %}</td><td class="zahl">{% if p.bestellposition %}{% if we.gebucht %}{{ p.bestellposition.menge|floatformat:"-3" }}{% else %}{{ p.bestellposition.offen|floatformat:"-3" }} offen{% endif %}{% endif %}</td>
+    <tr{% if not we.gebucht %} data-zeile{% endif %}><td>{{ p.artikel.nummer }}</td><td>{{ p.artikel.bezeichnung }}{% if p.bestellposition and p.bestellposition.bestellung_id != we.bestellung_id %}<br><small class="fein">aus {{ p.bestellposition.bestellung.nummer }}</small>{% endif %}</td><td class="zahl">{% if p.bestellposition %}{% if we.gebucht %}{{ p.bestellposition.menge|floatformat:"-3" }}{% else %}{{ p.bestellposition.offen|floatformat:"-3" }} offen{% endif %}{% endif %}</td>
       {% if we.gebucht %}<td class="zahl">{{ p.menge|floatformat:"-3" }}</td><td class="zahl">{{ p.ek|floatformat:"2g" }}{% if p.kalk != p.ek %}<br><small title="EK inkl. anteiliger Nebenkosten">Kalk. {{ p.kalk|floatformat:"2g" }}</small>{% endif %}</td><td>{{ p.seriennummern|linebreaksbr }}{% if p.artikel.esd_key %}<small>ESD-Keys:</small><br>{{ p.esd_keys|linebreaksbr }}{% endif %}</td><td></td>
       {% else %}
       <td colspan="4"><form method="post" action="{% url 'einkauf:wareneingang_zeile' we.pk p.pk %}" class="zeile">{% csrf_token %}
-        <input name="menge" value="{{ p.menge|floatformat:'-3' }}" size="5"><input name="ek" value="{{ p.ek|floatformat:2 }}" size="8">
+        <input name="menge" value="{{ p.menge|floatformat:'-3' }}" size="5" inputmode="decimal" data-wert="menge" aria-label="Menge"><input name="ek" value="{{ p.ek|floatformat:2 }}" size="8" inputmode="decimal" data-wert="ek" aria-label="EK netto">
+        <span class="fein" style="align-self:center;white-space:nowrap">= <span data-ergibt="runde(menge * ek)">{{ p.netto|floatformat:"2g" }} €</span></span>
         <textarea name="seriennummern" rows="1" cols="22">{{ p.seriennummern }}</textarea>
         {% if p.artikel.esd_key %}<div style="flex-basis:100%"><label>ESD-Keys – für jedes Stück ein Key, einer pro Zeile ({{ p.menge|floatformat:"-3" }} erwartet)</label>
           <textarea name="esd_keys" rows="{{ p.menge|floatformat:0|default:1 }}" style="width:100%;font-family:monospace" placeholder="XXXXX-XXXXX-XXXXX&#10;oder Volumenkey: KEY;Anzahl">{{ p.esd_keys }}</textarea></div>{% endif %}
         <button type="submit" class="leise">OK</button><button type="submit" name="aktion" value="loeschen" class="gefahr"{% if p.bestellposition %} data-tip="nicht geliefert – bleibt in der Bestellung offen" aria-label="nicht geliefert"{% else %} aria-label="Zeile entfernen"{% endif %}>×</button>
-        {% if we.nebenkosten %}<small style="flex-basis:100%" title="EK inkl. anteiliger Nebenkosten">Kalkulations-EK: <strong>{{ p.kalk|floatformat:"2g" }}</strong></small>{% endif %}</form></td>{% endif %}
+        <small style="flex-basis:100%" title="EK inkl. anteiliger Nebenkosten (nach Warenwert verteilt)" data-zeige-wenn="nebenkosten != 0"{% if not we.nebenkosten %} hidden{% endif %}>Kalkulations-EK: <strong data-ergibt="wenn(ware > 0, ek * (ware + nebenkosten) / ware, wenn(stueck > 0, nebenkosten / stueck, ek))" data-format="betrag">{{ p.kalk|floatformat:"2g" }}</strong></small></form></td>{% endif %}
     </tr>
     {% empty %}<tr><td colspan="7">Noch nichts erfasst – Artikel scannen{% if laufende_anzahl %} oder im Tab <a href="#bestellungen">Bestellungen</a> übernehmen{% endif %}.</td></tr>{% endfor %}
+    {% if we.gebucht %}
     <tr><td colspan="4"><strong>Summe netto</strong></td><td class="zahl"><strong>{{ netto|floatformat:"2g" }}</strong></td><td colspan="2"></td></tr>
     {% if we.nebenkosten %}<tr><td colspan="4">Nebenkosten (Versand {{ we.versandkosten }}, Versicherung {{ we.versicherung }}, Verpackung {{ we.verpackung }}){% if we.nebenkosten_extern %} · auf eigener Rechnung{% endif %}</td><td class="zahl">{{ we.nebenkosten }}</td><td colspan="2"></td></tr>
     <tr><td colspan="4"><strong>Gesamt netto</strong></td><td class="zahl"><strong>{{ we.gesamt_netto|floatformat:"2g" }}</strong></td><td colspan="2"></td></tr>{% endif %}
+    {% else %}{# Live-Rechnen (templates/rechnen.html): Mengen, EK und Nebenkosten im Tab „Lieferschein & Kosten“ #}
+    <tr hidden><td data-wert="ware" data-ergibt="summe(menge * ek)"></td><td data-wert="stueck" data-ergibt="summe(menge)"></td><td data-wert="nebenkosten" data-ergibt="versand + versicherung + verpackung"></td></tr>
+    <tr><td colspan="4"><strong>Summe netto</strong></td><td class="zahl"><strong data-wert="summe_netto" data-ergibt="summe(runde(menge * ek))" data-format="betrag">{{ netto|floatformat:"2g" }}</strong></td><td colspan="2"></td></tr>
+    <tr data-zeige-wenn="nebenkosten != 0"{% if not we.nebenkosten %} hidden{% endif %}><td colspan="4">Nebenkosten (Versand <span data-ergibt="versand" data-format="betrag">{{ we.versandkosten }}</span>, Versicherung <span data-ergibt="versicherung" data-format="betrag">{{ we.versicherung }}</span>, Verpackung <span data-ergibt="verpackung" data-format="betrag">{{ we.verpackung }}</span>)<span data-zeige-wenn="extern"{% if not we.nebenkosten_extern %} hidden{% endif %}> · auf eigener Rechnung</span></td><td class="zahl" data-ergibt="nebenkosten" data-format="betrag">{{ we.nebenkosten }}</td><td colspan="2"></td></tr>
+    <tr data-zeige-wenn="nebenkosten != 0"{% if not we.nebenkosten %} hidden{% endif %}><td colspan="4"><strong>Gesamt netto</strong></td><td class="zahl"><strong data-ergibt="summe_netto + nebenkosten" data-format="betrag">{{ we.gesamt_netto|floatformat:"2g" }}</strong></td><td colspan="2"></td></tr>
+    {% endif %}
   </table>
   {% if bleibt_offen %}
   <h2 style="margin-top:16px">Teillieferung: bleibt in der Bestellung {{ we.bestellung.nummer }} offen</h2>
@@ -135,11 +143,11 @@
   <form method="post" action="{% url 'einkauf:wareneingang_buchen' we.pk %}" id="buchform">{% csrf_token %}
     <div class="raster">
       <div><label for="lieferschein">Lieferschein des Lieferanten</label><input id="lieferschein" name="lieferschein" value="{{ we.lieferschein }}"></div>
-      <div><label for="versandkosten">Versandkosten netto</label><input id="versandkosten" name="versandkosten" value="{{ we.versandkosten }}" inputmode="decimal"></div>
-      <div><label for="versicherung">Versicherung netto</label><input id="versicherung" name="versicherung" value="{{ we.versicherung }}" inputmode="decimal"></div>
-      <div><label for="verpackung">Verpackung netto</label><input id="verpackung" name="verpackung" value="{{ we.verpackung }}" inputmode="decimal"></div>
+      <div><label for="versandkosten">Versandkosten netto</label><input id="versandkosten" name="versandkosten" value="{{ we.versandkosten }}" inputmode="decimal" data-wert="versand"></div>
+      <div><label for="versicherung">Versicherung netto</label><input id="versicherung" name="versicherung" value="{{ we.versicherung }}" inputmode="decimal" data-wert="versicherung"></div>
+      <div><label for="verpackung">Verpackung netto</label><input id="verpackung" name="verpackung" value="{{ we.verpackung }}" inputmode="decimal" data-wert="verpackung"></div>
     </div>
-    <p><label style="display:flex;gap:6px;align-items:center;font-weight:normal;opacity:1"><input type="checkbox" name="nebenkosten_extern" {% if we.nebenkosten_extern %}checked{% endif %}> Nebenkosten kommen auf eigener Rechnung (Spedition)</label></p>
+    <p><label style="display:flex;gap:6px;align-items:center;font-weight:normal;opacity:1"><input type="checkbox" name="nebenkosten_extern" {% if we.nebenkosten_extern %}checked{% endif %} data-wert="extern"> Nebenkosten kommen auf eigener Rechnung (Spedition)</label></p>
     {% if we.bestellung and we.bestellung.nebenkosten %}<p class="fein">Erwartet laut Bestellung {{ we.bestellung.nummer }}: {{ we.bestellung.nebenkosten|floatformat:"2g" }} € (beim ersten Wareneingang vorbelegt).</p>{% endif %}
     <p class="zeile"><button type="submit" name="aktion" value="kosten" class="leise" formnovalidate>Speichern</button>{% if positionen %}{% if request.GET.rueckfrage %}<label style="display:flex;gap:6px;align-items:center;font-weight:bold;opacity:1"><input type="checkbox" name="preis_bestaetigt" required> Angaben geprüft, trotzdem buchen</label>{% endif %}<button type="submit">Ins Lager buchen</button>{% endif %}</p>
   </form>

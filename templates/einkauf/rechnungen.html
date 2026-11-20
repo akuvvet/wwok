@@ -35,7 +35,7 @@
     var vorwahl = (document.getElementById('re-we-vorwahl').value || '').split(',');  // nach einem Fehler: wieder angehakt
     if (!box) return;
     var fmt = function (z) { return z.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €'; };
-    var zahl = function (t) { t = (t || '').trim().replace(/\./g, '').replace(',', '.'); return t ? parseFloat(t) : NaN; };
+    var zahl = function (t) { return (t || '').trim() ? window.wwokZahl(t) : NaN; };  // gemeinsame Zahlenlogik
     function rechnen() {
       var summe = 0, anzahl = 0;
       zeilen.querySelectorAll('input:checked').forEach(function (k) { summe += parseFloat(k.dataset.netto) || 0; anzahl++; });

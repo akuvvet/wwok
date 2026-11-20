@@ -128,7 +128,8 @@ class SkontoFeldTest(SkontoTest):
         b = self.rechnung()
         r = self.client.get(reverse("finanzen:beleg", args=[b.pk]))
         self.assertContains(r, 'name="skonto" value="0,00"')
-        self.assertContains(r, 'data-offen="119,00"')
+        self.assertContains(r, 'name="offen_bisher" value="119,00" data-wert="offen"')  # Vorschlag über die gemeinsame Live-Rechnung
+        self.assertContains(r, 'data-ergibt="wenn(betrag > 0, max(runde(offen - betrag), 0), 0)"')
         self.assertContains(r, "Skonto (gewährter Rest)")
 
     def test_rest_als_skonto_gleicht_aus(self):

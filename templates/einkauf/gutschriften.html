@@ -13,20 +13,7 @@
     }
     feld.addEventListener('input', pruefen);
     feld.addEventListener('change', pruefen);
-    // Brutto aus Netto und USt vorschlagen, solange Brutto nicht von Hand geändert wurde
-    var netto = document.getElementById('g_netto'), steuer = document.getElementById('g_steuer'), brutto = document.getElementById('g_brutto');
-    var bruttoHand = false;
-    function wert(f) { var v = parseFloat((f.value || '').replace(/\./g, '').replace(',', '.')); return isNaN(v) ? null : v; }
-    function rechnen(ustNeu) {
-      var n = wert(netto);
-      if (n === null) return;
-      if (ustNeu) steuer.value = (Math.round(n * 19) / 100).toFixed(2).replace('.', ',');
-      var s = wert(steuer);
-      if (!bruttoHand && s !== null) brutto.value = (Math.round((n + s) * 100) / 100).toFixed(2).replace('.', ',');
-    }
-    netto.addEventListener('input', function () { rechnen(true); });
-    steuer.addEventListener('input', function () { rechnen(false); });
-    brutto.addEventListener('input', function () { bruttoHand = true; });
+    // USt und Brutto schlägt die gemeinsame Live-Rechnung vor (templates/rechnen.html: data-ergibt, überschreibbar)
   })();
 </script>
 {% endblock %}
@@ -43,9 +30,9 @@
       <datalist id="lieferantenliste">{% for l in lieferanten %}<option value="{{ l.kurz }} – {{ l.name1 }} ({{ l.nummer }})" data-pk="{{ l.pk }}"></option>{% endfor %}</datalist></div>
     <div><label for="g_nummer">Gutschrift-Nr. des Lieferanten</label><input id="g_nummer" name="nummer" size="14" maxlength="60" required></div>
     <div><label for="g_datum">Gutschriftdatum</label><input id="g_datum" type="date" name="datum" max="{{ heute }}" value="{{ heute }}" required></div>
-    <div><label for="g_netto">Netto (€)</label><input id="g_netto" name="netto" size="9" inputmode="decimal" required></div>
-    <div><label for="g_steuer">USt (€)</label><input id="g_steuer" name="steuer" size="9" inputmode="decimal" required></div>
-    <div><label for="g_brutto">Brutto (€)</label><input id="g_brutto" name="brutto" size="9" inputmode="decimal" required></div>
+    <div><label for="g_netto">Netto (€)</label><input id="g_netto" name="netto" size="9" inputmode="decimal" required data-wert="netto"></div>
+    <div><label for="g_steuer">USt (€)</label><input id="g_steuer" name="steuer" size="9" inputmode="decimal" required data-wert="steuer" data-ergibt="runde(netto * 0.19)" title="Vorschlag 19 % aus Netto – überschreibbar"></div>
+    <div><label for="g_brutto">Brutto (€)</label><input id="g_brutto" name="brutto" size="9" inputmode="decimal" required data-ergibt="netto + steuer" title="Vorschlag Netto + USt – überschreibbar"></div>
     <div><label for="g_notiz">Notiz</label><input id="g_notiz" name="notiz" size="24" maxlength="200"></div>
     <button type="submit">Gutschrift erfassen</button>
   </form>

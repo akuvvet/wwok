@@ -31,7 +31,7 @@ Der Knopf erscheint nur, wenn der Browser Barcodes lesen kann – auf Geräten m
       try { if (navigator.vibrate) navigator.vibrate(gut ? 40 : [60, 50, 60]); } catch (e) {}
     }
     function sollMenge(feld) {  // Menge der Zeile: so viele Seriennummern werden erwartet
-      var f = feld.form && feld.form.querySelector('[name=menge]'), z = f ? parseFloat(String(f.value).replace(',', '.')) : NaN;
+      var f = feld.form && feld.form.querySelector('[name=menge]'), z = f ? window.wwokZahl(f.value) : NaN;
       return z > 0 && z === Math.floor(z) ? z : null;
     }
 

@@ -85,32 +85,17 @@
 {% if beleg.art != 'GS' %}
 <div class="karte">
   <h2>Zahlung buchen</h2>
-  <form method="post" action="{% url 'finanzen:zahlung' beleg.pk %}" class="zeile">{% csrf_token %}<input type="hidden" name="offen_bisher" value="{{ offen|floatformat:2 }}">
+  <form method="post" action="{% url 'finanzen:zahlung' beleg.pk %}" class="zeile" data-rechnen>{% csrf_token %}<input type="hidden" name="offen_bisher" value="{{ offen|floatformat:2 }}" data-wert="offen">
     <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
-    <div><label>Betrag brutto (negativ = Gegenbuchung)</label><input name="betrag" value="{{ offen|floatformat:2 }}" size="10" autofocus{% if beleg.art == 'RE' and offen > 0 %} data-offen="{{ offen|floatformat:2 }}"{% endif %}></div>
-    {% if beleg.art == 'RE' and offen > 0 %}<div><label for="skonto" title="Bei einer Teilzahlung steht hier der Rest. So stehen lassen = dem Kunden als Skonto gewährt, die Rechnung ist ausgeglichen. Auf 0 setzen = der Rest bleibt offen.">Skonto (gewährter Rest)</label><input id="skonto" name="skonto" value="0,00" size="8" inputmode="decimal"></div>{% endif %}
+    <div><label>Betrag brutto (negativ = Gegenbuchung)</label><input name="betrag" value="{{ offen|floatformat:2 }}" size="10" autofocus inputmode="decimal" data-wert="betrag"></div>
+    {% if beleg.art == 'RE' and offen > 0 %}<div><label for="skonto" title="Bei einer Teilzahlung steht hier der Rest. So stehen lassen = dem Kunden als Skonto gewährt, die Rechnung ist ausgeglichen. Auf 0 setzen = der Rest bleibt offen.">Skonto (gewährter Rest)</label><input id="skonto" name="skonto" value="0,00" size="8" inputmode="decimal" data-wert="skonto" data-ergibt="wenn(betrag > 0, max(runde(offen - betrag), 0), 0)" title="Vorschlag: Rest (offen − Betrag); überschreibbar, 0 = Rest bleibt offen"></div>{% endif %}
     <div><label>Zahlart</label><select name="zahlart">{% for w, n in zahlarten %}<option value="{{ w }}">{{ n }}</option>{% endfor %}</select></div>
     <div><label>Bemerkung</label><input name="bemerkung" size="26"></div>
+    <div><label>danach offen</label><div style="padding:6px 0"><strong data-ergibt="offen - betrag{% if beleg.art == 'RE' and offen > 0 %} - skonto{% endif %}" data-negativ>{{ 0|floatformat:2 }} €</strong></div></div>
     <button type="submit">Buchen</button>
   </form>
   {% if beleg.art == 'RE' and offen > 0 %}<p style="opacity:.8;margin:8px 0 0">Bei einer Teilzahlung steht der Rest im Feld „Skonto“: so lassen = dem Kunden gewährt, die Rechnung ist ausgeglichen; auf 0 setzen = der Rest bleibt offen.{% if skonto %}
-    Skontofrist laut Zahlungsbedingung: bis {{ skonto.1|date:"d.m.Y" }}, höchstens {{ skonto.0|floatformat:"2g" }} €.{% endif %}</p>
-  <script>
-  // Feld Skonto: schlägt den Rest vor (offen − Betrag), solange es nicht von Hand geändert wurde
-  (function () {
-    var b = document.querySelector('input[name=betrag][data-offen]'), s = document.getElementById('skonto');
-    if (!b || !s) return;
-    var vonHand = false, zahl = function (t) { t = (t || '').trim(); return parseFloat(t.indexOf(',') >= 0 ? t.replace(/\./g, '').replace(',', '.') : t) || 0; };
-    function vorschlag() {
-      if (vonHand) return;
-      var rest = Math.round((zahl(b.dataset.offen) - zahl(b.value)) * 100) / 100;
-      s.value = (rest > 0 && zahl(b.value) > 0 ? rest : 0).toFixed(2).replace('.', ',');
-    }
-    s.addEventListener('input', function () { vonHand = true; });
-    b.addEventListener('input', vorschlag);
-    vorschlag();
-  })();
-  </script>{% endif %}
+    Skontofrist laut Zahlungsbedingung: bis {{ skonto.1|date:"d.m.Y" }}, höchstens {{ skonto.0|floatformat:"2g" }} €.{% endif %}</p>{% endif %}
   <table style="margin-top:12px">
     <tr><th>Datum</th><th>Zahlart</th><th class="zahl">Betrag</th><th>Bemerkung / Stornogrund</th><th>Benutzer</th><th></th></tr>
     {% for z in zahlungen %}<tr><td>{{ z.datum|date:"d.m.Y" }}</td><td>{{ z.get_zahlart_display }}</td><td class="zahl">{{ z.betrag }}</td><td>{{ z.bemerkung }}{% if z.storno_zu_id %} <em>(Storno)</em>{% endif %}</td><td>{{ z.benutzer|default:"" }}</td>

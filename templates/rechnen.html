@@ -7,6 +7,8 @@
   // Bereich: Namen gelten im nächsten [data-rechnen] (sonst Seite); in einer Zeile [data-zeile] zuerst die Größen dieser Zeile.
   // Ausdrücke: + - * / ( ), Vergleiche < <= > >= == != (1/0), Funktionen summe(ausdruck je Zeile), runde(x; n), min, max,
   //   wenn(bedingung, dann, sonst), betrag(x). Formate: euro (Standard, „1.234,56 €“), betrag (ohne €), zahl, prozent, menge.
+  //   <input data-ergibt="runde(netto * 0.19)"> Vorschlag im Eingabefeld: rechnet mit, bis von Hand geändert (leer = wieder Vorschlag)
+  //   data-zeige-wenn="ausdruck"  blendet ein, solange der Ausdruck ≠ 0 ist; input[data-zeile-aktiv] (Haken) schaltet eine Zeile in summe()
   // Nach DOM-Änderungen (Zeilen per JS) window.wwokRechnen() aufrufen. Ungültige Eingabe: Ergebnis „–“, Feld rot markiert.
   (function () {
     function lesen(text) {  // wie zahl() auf dem Server (apps/einkauf/views.py): mit Komma ist der Punkt Tausendertrenner
@@ -105,7 +107,7 @@
     function istFeld(el) { return /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName); }
     function wertVon(el) {
       if (istFeld(el)) {
-        if (el.type === 'checkbox' || el.type === 'radio') return el.checked ? lesen(el.dataset.rechenwert || el.value || '1') : 0;
+        if (el.type === 'checkbox' || el.type === 'radio') return el.checked ? lesen(el.dataset.rechenwert || '1') : 0;  // Haken = 1 (oder data-rechenwert)
         if (el.disabled && el.dataset.rechenwertAus !== undefined) return lesen(el.dataset.rechenwertAus);
         var opt = el.tagName === 'SELECT' && el.selectedOptions[0];
         return lesen(opt && opt.dataset.rechenwert !== undefined ? opt.dataset.rechenwert : el.value);
@@ -130,39 +132,56 @@
         summe: function (f) {
           var zeilen = Array.from(bereich.querySelectorAll('[data-zeile]')).filter(function (z) { return gehoertZu(z, bereich); });
           return zeilen.reduce(function (s, z) {
-            if (z.hidden || z.dataset.zeileAus !== undefined) return s;  // ausgeblendete oder abgewählte Zeilen zählen nicht
+            // ausgeblendete Zeilen zählen nicht, ebenso Zeilen mit nicht angehaktem Auswahlfeld (input[data-zeile-aktiv])
+            var aktiv = z.querySelector('input[data-zeile-aktiv]');
+            if (z.hidden || aktiv && !aktiv.checked) return s;
             return s + f(kontext(bereich, z));
           }, 0);
         }
       };
     }
     var cache = {};
+    function auswerten(el, ausdruck) {
+      var f = cache[ausdruck] || (cache[ausdruck] = baum(ausdruck));
+      return f(kontext(el.closest('[data-rechnen]') || document, el.closest('[data-zeile]')));
+    }
     function rechnen(wurzel) {
       wurzel = wurzel || document;
       var ergebnisse = Array.from(wurzel.querySelectorAll('[data-ergibt]'));
       for (var durchgang = 0; durchgang < 2; durchgang++) {  // zweiter Durchgang: Ergebnisse, die auf weiter unten stehende Ergebnisse zeigen
         ergebnisse.forEach(function (el) {
+          // Eingabefeld mit Vorschlag (z. B. USt aus Netto): rechnet mit, bis es von Hand geändert wird; leer = wieder Vorschlag
+          if (istFeld(el) && el.dataset.vonHand) return;
           var x;
-          try {
-            var f = cache[el.dataset.ergibt] || (cache[el.dataset.ergibt] = baum(el.dataset.ergibt));
-            x = f(kontext(el.closest('[data-rechnen]') || document, el.closest('[data-zeile]')));
-          } catch (fehler) {
+          try { x = auswerten(el, el.dataset.ergibt); } catch (fehler) {
             if (durchgang) console.warn('wwokRechnen:', fehler.message, el);
             x = NaN;
           }
           el.dataset.rechenwert = isFinite(x) ? String(runde(x, 6)) : 'NaN';
-          var text = isFinite(x) ? (FORMATE[el.dataset.format || 'euro'] || FORMATE.euro)(x) : '–';
-          if (istFeld(el)) { if (el.value !== text) el.value = text; }
-          else if (el.textContent !== text) el.textContent = text;
+          var format = FORMATE[el.dataset.format || (istFeld(el) ? 'betrag' : 'euro')] || FORMATE.euro;
+          if (istFeld(el)) {  // Vorschlagsfeld: 0 bleibt leer (frisches Formular), Tausenderpunkte weg (Eingabeformat)
+            var wert = isFinite(x) && x !== 0 ? format(x).replace(/\./g, '') : '';
+            if (el.value !== wert) el.value = wert;
+          }
+          else { var text = isFinite(x) ? format(x) : '–'; if (el.textContent !== text) el.textContent = text; }
           el.classList.toggle('rechnen-negativ', isFinite(x) && x < 0 && el.dataset.negativ !== undefined);
-          if (el.dataset.zeigeWenn !== undefined) el.hidden = !(isFinite(x) && x !== 0);  // z. B. Warnung „unter Mindestbestellwert“
         });
       }
+      // Ein-/Ausblenden: data-zeige-wenn="ausdruck" (z. B. „nebenkosten > 0“, „offen - betrag != 0“)
+      wurzel.querySelectorAll('[data-zeige-wenn]').forEach(function (el) {
+        var x;
+        try { x = auswerten(el, el.dataset.zeigeWenn); } catch (fehler) { x = 0; }
+        el.hidden = !(isFinite(x) && x !== 0);
+      });
     }
     function eingabe(e) {
       var el = e.target;
-      if (!el || !el.matches || !el.matches('[data-wert]') || !istFeld(el)) return;
-      el.classList.toggle('rechnen-fehler', el.type !== 'checkbox' && el.type !== 'radio' && isNaN(lesen(el.value)));
+      if (!el || !el.matches || !istFeld(el)) return;
+      if (el.matches('[data-ergibt]') && e.type === 'input') {
+        if (el.value.trim()) el.dataset.vonHand = '1'; else delete el.dataset.vonHand;
+      }
+      if (!el.matches('[data-wert]') && !el.matches('[data-ergibt]') && !el.closest('[data-zeile]')) return;
+      if (el.matches('[data-wert]')) el.classList.toggle('rechnen-fehler', el.type !== 'checkbox' && el.type !== 'radio' && isNaN(lesen(el.value)));
       rechnen();
     }
     document.addEventListener('input', eingabe);
