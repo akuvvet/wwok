@@ -129,17 +129,129 @@ def lieferant_detail(request, lieferant_id):
 @mit_mandant
 def lieferant_kontoauszug(request, lieferant_id):
     """Kontoauszug des Lieferanten wie beim Kunden: Rechnungen, Zahlungen, Gutschriften, Verrechnungen, laufender Saldo."""
-    from . import lieferantenkonto
     lieferant = get_object_or_404(Lieferant, pk=lieferant_id)
-    zeilen, saldo = lieferantenkonto.kontoauszug(request.mandant, lieferant)
+    zeilen, saldo, von, bis, text, saldotext, pdf = lieferant_kontoauszug_daten(request, lieferant)
     if request.GET.get("format") == "pdf":
-        from apps.finanzen.pdf import kontoauszug_pdf
-        text = "Guthaben beim Lieferanten" if saldo < 0 else "Offener Saldo (wir schulden dem Lieferanten)"
-        antwort = HttpResponse(kontoauszug_pdf(request.mandant, lieferant, "Lieferanten", zeilen, saldo, text),
-                               content_type="application/pdf")
+        antwort = HttpResponse(pdf(), content_type="application/pdf")
         antwort["Content-Disposition"] = f'inline; filename="Kontoauszug-{lieferant.nummer}.pdf"'
         return antwort
-    return render(request, "einkauf/kontoauszug.html", {"lieferant": lieferant, "zeilen": zeilen, "saldo": saldo, "bereich": "einkauf"})
+    from apps.finanzen.views import zeitraum_query
+    return render(request, "einkauf/kontoauszug.html", {"lieferant": lieferant, "zeilen": zeilen, "saldo": saldo, "bereich": "einkauf",
+                                                        "von": von, "bis": bis, "zeitraum": text, "query": zeitraum_query(von, bis)})
+
+
+def lieferant_kontoauszug_daten(request, lieferant):
+    """Kontoauszug des Lieferanten im gewählten Zeitraum: (zeilen, saldo, von, bis, zeitraum_text, saldo_text, PDF)."""
+    from apps.finanzen.pdf import kontoauszug_pdf
+    from apps.finanzen.services import zeitraum, zeitraum_aus
+
+    from . import lieferantenkonto
+    von, bis, text = zeitraum_aus(request.GET)
+    alle, _ = lieferantenkonto.kontoauszug(request.mandant, lieferant)
+    zeilen, saldo = zeitraum(alle, von, bis)
+    saldotext = "Guthaben beim Lieferanten" if saldo < 0 else "Offener Saldo (wir schulden dem Lieferanten)"
+    pdf = lambda: kontoauszug_pdf(request.mandant, lieferant, "Lieferanten", zeilen, saldo, saldotext, zeitraum_text=text)  # noqa: E731
+    return zeilen, saldo, von, bis, text, saldotext, pdf
+
+
+def avis_daten(request, lieferant):
+    """Auswahl (?r=…, Zahltag ?datum=…) und Aufstellung für das Zahlungsavis."""
+    kandidaten = list(services.avis_kandidaten(request.mandant, lieferant))
+    gewaehlt = {int(x) for x in request.GET.getlist("r") if x.isdigit()} if "r" in request.GET else services.avis_vorauswahl(kandidaten)
+    try:
+        datum = date.fromisoformat(request.GET.get("datum", ""))
+    except ValueError:
+        datum = timezone.localdate()
+    auswahl = [r for r in kandidaten if r.pk in gewaehlt]
+    return kandidaten, auswahl, datum, services.zahlungsavis(auswahl, datum)
+
+
+def avis_query(auswahl, datum) -> str:
+    return urlencode([("r", r.pk) for r in auswahl] + [("datum", datum.isoformat())])
+
+
+@mit_mandant
+def zahlungsavis(request, lieferant_id):
+    """Zahlungsavis an den Lieferanten: Rechnungen wählen, als PDF drucken oder per E-Mail senden (Wunsch des Nutzers 20.11.2026)."""
+    from apps.finanzen.pdf import zahlungsavis_pdf
+    lieferant = get_object_or_404(Lieferant, pk=lieferant_id)
+    kandidaten, auswahl, datum, avis = avis_daten(request, lieferant)
+    aktion = request.GET.get("aktion", "")
+    if aktion in ("pdf", "mail") and not auswahl:
+        messages.error(request, "Bitte mindestens eine Rechnung auswählen.")
+    elif aktion == "pdf":
+        antwort = HttpResponse(zahlungsavis_pdf(request.mandant, lieferant, avis), content_type="application/pdf")
+        antwort["Content-Disposition"] = f'inline; filename="Zahlungsavis-{lieferant.nummer}-{datum:%Y%m%d}.pdf"'
+        return antwort
+    elif aktion == "mail":
+        return redirect(reverse("einkauf:zahlungsavis_mail", args=[lieferant.pk]) + "?" + avis_query(auswahl, datum))
+    gewaehlt = {r.pk for r in auswahl}
+    zeilen = {z["rechnung"].pk: z for z in services.zahlungsavis(kandidaten, datum)["zeilen"]}
+    return render(request, "einkauf/zahlungsavis.html", {
+        "lieferant": lieferant, "zeilen": [dict(zeilen[r.pk], gewaehlt=r.pk in gewaehlt) for r in kandidaten],
+        "datum": datum, "summe": avis["summe"], "tage": services.AVIS_TAGE, "bereich": "einkauf"})
+
+
+@mit_mandant
+def zahlungsavis_mail(request, lieferant_id):
+    from apps.finanzen.pdf import zahlungsavis_pdf
+    from apps.verkauf.mail import anrede_ap, empfaenger_vorschlag
+    lieferant = get_object_or_404(Lieferant, pk=lieferant_id)
+    _, auswahl, datum, avis = avis_daten(request, lieferant)
+    query = avis_query(auswahl, datum)
+    zurueck = reverse("einkauf:zahlungsavis", args=[lieferant.pk]) + "?" + query
+    if not auswahl:
+        messages.error(request, "Bitte mindestens eine Rechnung auswählen.")
+        return redirect(zurueck)
+    an, ap = empfaenger_vorschlag(lieferant, services.lieferant_ansprechpartner(request.mandant, lieferant))
+    betreff, mailtext = ausfuellen(request.mandant, Mailart.ZAHLUNGSAVIS, {
+        "anrede": anrede_ap(ap), "lieferant": lieferant.name1, "firma": request.mandant.firmenname, "datum": f"{datum:%d.%m.%Y}",
+        "betrag": euro_text(avis["summe"]["zahlung"]), "anzahl": len(auswahl),
+        "rechnungen": ", ".join(r.rechnungsnummer for r in auswahl)})
+    dateiname = f"Zahlungsavis-{lieferant.nummer}-{datum:%Y%m%d}.pdf"
+    if request.method == "POST":
+        an, betreff, mailtext = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
+        try:
+            senden_an(request.mandant, an, betreff, mailtext, zahlungsavis_pdf(request.mandant, lieferant, avis), dateiname,
+                      bezug=f"Zahlungsavis {lieferant.nummer}", benutzer=request.user)
+            messages.success(request, f"Zahlungsavis an {an} gesendet.")
+            return redirect(zurueck)
+        except MailFehler as fehler:
+            messages.error(request, str(fehler))
+    return render(request, "finanzen/partner_mail.html", {
+        "titel": f"Zahlungsavis an {lieferant.name1} senden", "an": an, "betreff": betreff, "text": mailtext, "zurueck": zurueck,
+        "anhang": dateiname, "anhang_url": zurueck + "&aktion=pdf", "bereich": "einkauf"})
+
+
+def euro_text(betrag) -> str:
+    return f"{betrag:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+@mit_mandant
+def lieferant_kontoauszug_mail(request, lieferant_id):
+    """Kontoauszug als PDF per E-Mail an den Lieferanten (Wunsch des Nutzers 20.11.2026)."""
+    from apps.finanzen.views import zeitraum_query
+    from apps.verkauf.mail import anrede_ap, empfaenger_vorschlag
+    lieferant = get_object_or_404(Lieferant, pk=lieferant_id)
+    zeilen, saldo, von, bis, text, saldotext, pdf = lieferant_kontoauszug_daten(request, lieferant)
+    an, ap = empfaenger_vorschlag(lieferant, services.lieferant_ansprechpartner(request.mandant, lieferant))
+    betreff, mailtext = ausfuellen(request.mandant, Mailart.KONTOAUSZUG, {
+        "anrede": anrede_ap(ap), "partner": lieferant.name1, "nummer": lieferant.nummer, "firma": request.mandant.firmenname,
+        "zeitraum": text, "saldo": euro_text(saldo), "saldotext": saldotext})
+    query = zeitraum_query(von, bis)
+    zurueck = reverse("einkauf:lieferant_kontoauszug", args=[lieferant.pk]) + (f"?{query}" if query else "")
+    if request.method == "POST":
+        an, betreff, mailtext = request.POST.get("an", ""), request.POST.get("betreff", ""), request.POST.get("text", "")
+        try:
+            senden_an(request.mandant, an, betreff, mailtext, pdf(), f"Kontoauszug-{lieferant.nummer}.pdf",
+                      bezug=f"Kontoauszug {lieferant.nummer}", benutzer=request.user)
+            messages.success(request, f"Kontoauszug an {an} gesendet.")
+            return redirect(zurueck)
+        except MailFehler as fehler:
+            messages.error(request, str(fehler))
+    return render(request, "finanzen/partner_mail.html", {
+        "titel": f"Kontoauszug an {lieferant.name1} senden", "an": an, "betreff": betreff, "text": mailtext, "zurueck": zurueck,
+        "anhang": f"Kontoauszug-{lieferant.nummer}.pdf", "anhang_url": zurueck + ("&" if query else "?") + "format=pdf", "bereich": "einkauf"})
 
 
 @mit_mandant

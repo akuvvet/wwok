@@ -1,0 +1,8 @@
+{# Zeitraum für Kontoauszüge: von/bis; leer = alle Buchungen. Buchungen vor „von“ stehen als Anfangssaldo in der ersten Zeile. #}
+<form method="get" class="zeile" style="align-items:flex-end;margin:0 0 10px">
+  <div><label for="z-von">von</label><input type="date" id="z-von" name="von" value="{{ von|date:'Y-m-d' }}"></div>
+  <div><label for="z-bis">bis</label><input type="date" id="z-bis" name="bis" value="{{ bis|date:'Y-m-d' }}"></div>
+  <button type="submit" class="leise">Zeitraum anzeigen</button>
+  {% if von or bis %}<a class="knopf leise" href="?">alle Buchungen</a>{% endif %}
+  <span class="fein">Zeitraum: {{ zeitraum }}</span>
+</form>

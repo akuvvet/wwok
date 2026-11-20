@@ -5,15 +5,19 @@
 <div class="karte">
   <h1>Lieferantenkontoauszug · Mandant {{ request.mandant }}</h1>
   <p><a href="{% url 'einkauf:lieferant' lieferant.pk %}">{{ lieferant.nummer }} – {{ lieferant.name1 }}</a>{% if lieferant.strasse %}, {{ lieferant.strasse }}{% endif %}{% if lieferant.ort %}, {{ lieferant.plz }} {{ lieferant.ort }}{% endif %}</p>
+  {% include "finanzen/_zeitraum.html" %}
   <div class="scroll"><table>
     <tr><th>Datum</th><th>Buchung</th><th class="zahl">Betrag</th><th class="zahl">Saldo</th></tr>
     {% for z in zeilen %}
-    <tr><td>{{ z.datum|date:"d.m.Y" }}</td><td><a href="{{ z.url }}">{{ z.text }}</a></td>
-        <td class="zahl">{% if z.betrag is None %}<span style="opacity:.65" title="Verrechnung zwischen Belegen, ändert den Saldo nicht">({{ z.info|floatformat:"2g" }})</span>{% else %}{{ z.betrag|floatformat:"2g" }}{% endif %}</td><td class="zahl">{{ z.saldo|floatformat:"2g" }}</td></tr>
+    <tr><td>{{ z.datum|date:"d.m.Y" }}</td><td>{% if z.anfang %}<strong>Anfangssaldo</strong>{% else %}<a href="{{ z.url }}">{{ z.text }}</a>{% endif %}</td>
+        <td class="zahl">{% if z.anfang %}{% elif z.betrag is None %}<span style="opacity:.65" title="Verrechnung zwischen Belegen, ändert den Saldo nicht">({{ z.info|floatformat:"2g" }})</span>{% else %}{{ z.betrag|floatformat:"2g" }}{% endif %}</td><td class="zahl">{{ z.saldo|floatformat:"2g" }}</td></tr>
     {% empty %}<tr><td colspan="4">Keine Buchungen.</td></tr>{% endfor %}
-    <tr><td colspan="3"><strong>{% if saldo < 0 %}Guthaben beim Lieferanten{% else %}Offener Saldo (wir schulden dem Lieferanten){% endif %}</strong></td><td class="zahl"><strong>{{ saldo|floatformat:"2g" }} €</strong></td></tr>
+    <tr><td colspan="3"><strong>{% if saldo < 0 %}Guthaben beim Lieferanten{% else %}Offener Saldo (wir schulden dem Lieferanten){% endif %}{% if bis %} am {{ bis|date:"d.m.Y" }}{% endif %}</strong></td><td class="zahl"><strong>{{ saldo|floatformat:"2g" }} €</strong></td></tr>
   </table></div>
   <p class="fein">Rechnungen erhöhen den Saldo, Zahlungen, Skonto und Gutschriften senken ihn; zahlt der Lieferant eine Gutschrift aus, steigt er wieder. Verrechnungen stehen in Klammern und ändern den Saldo nicht.</p>
-  <p><a class="knopf" href="?format=pdf" target="_blank" rel="noopener">PDF drucken</a> <button class="leise" onclick="window.print()">Seite drucken</button></p>
+  <p class="zeile"><a class="knopf" href="?{% if query %}{{ query }}&amp;{% endif %}format=pdf" target="_blank" rel="noopener">PDF drucken</a>
+    <a class="knopf" href="{% url 'einkauf:lieferant_kontoauszug_mail' lieferant.pk %}{% if query %}?{{ query }}{% endif %}">Per E-Mail senden</a>
+    <a class="knopf leise" href="{% url 'einkauf:zahlungsavis' lieferant.pk %}">Zahlungsavis</a>
+    <button class="leise" onclick="window.print()">Seite drucken</button></p>
 </div>
 {% endblock %}

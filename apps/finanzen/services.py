@@ -469,6 +469,46 @@ def kassenstand(mandant) -> Decimal:
     return Kassenbuch.objects.filter(mandant=mandant).aggregate(s=models.Sum(vorzeichen, output_field=dez))["s"] or Decimal("0")
 
 
+def zeitraum(zeilen, von=None, bis=None):
+    """Kontoauszug auf einen Zeitraum begrenzen (Wunsch des Nutzers 20.11.2026): Buchungen vor „von“ fließen in den
+    Anfangssaldo (erste Zeile), Buchungen nach „bis“ entfallen. Rückgabe (zeilen, Saldo am Ende des Zeitraums).
+    Gilt für Kunden- und Lieferantenkontoauszug (beide nach Datum sortiert, mit laufendem Saldo)."""
+    anfang, auswahl = Decimal("0"), []
+    for z in zeilen:
+        if von and z["datum"] < von:
+            anfang = z["saldo"]
+        elif bis and z["datum"] > bis:
+            break
+        else:
+            auswahl.append(z)
+    if von:
+        auswahl.insert(0, {"datum": von, "text": "Anfangssaldo", "betrag": None, "info": None, "saldo": anfang, "anfang": True})
+    return auswahl, (auswahl[-1]["saldo"] if auswahl else anfang)
+
+
+def zeitraum_aus(get):
+    """(von, bis, Text) aus ?von=JJJJ-MM-TT&bis=…; ungültige Angaben werden ignoriert, „von“ nach „bis“ getauscht."""
+    from datetime import date
+
+    def tag(name):
+        try:
+            return date.fromisoformat(get.get(name, ""))
+        except ValueError:
+            return None
+    von, bis = tag("von"), tag("bis")
+    if von and bis and von > bis:
+        von, bis = bis, von
+    if von and bis:
+        text = f"{von:%d.%m.%Y} – {bis:%d.%m.%Y}"
+    elif von:
+        text = f"ab {von:%d.%m.%Y}"
+    elif bis:
+        text = f"bis {bis:%d.%m.%Y}"
+    else:
+        text = "alle Buchungen"
+    return von, bis, text
+
+
 def kontoauszug(mandant, kunde):
     """Buchungen eines Kunden (Rechnungen +, Gutschriften und Zahlungen −) mit laufendem Saldo."""
     posten = []
