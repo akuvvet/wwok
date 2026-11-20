@@ -42,10 +42,10 @@
         <a class="symbol" data-tip="Kontoauszug" aria-label="Kontoauszug" href="{% url 'finanzen:kontoauszug' kunde.pk %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6H6zm7 1.5L18.5 9H13V3.5zM8 13h8v1.6H8V13zm0 3.4h8V18H8v-1.6zM8 9.6h3.5v1.6H8V9.6z"/></svg></a></div></dd>
     </dl>
-    {% if ansprechpartner %}<div>{% for a in ansprechpartner %}{{ a }}{% if a.hauptkontakt %} ★{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
+    {% include "stammdaten/_ansprechpartner_wahl.html" with ap_art="kunde" ap_id=kunde.pk ap_form="beleg-neu" %}
   </div>
   {% if not kunde.gesperrt %}
-  <form method="post" action="{% url 'verkauf:beleg_neu' kunde.pk %}" class="zeile" style="margin-top:10px">{% csrf_token %}
+  <form method="post" action="{% url 'verkauf:beleg_neu' kunde.pk %}" id="beleg-neu" class="zeile" style="margin-top:10px">{% csrf_token %}
     <button name="art" value="AN" type="submit" title="Neues Angebot für {{ kunde.name1 }}">+ Angebot</button>
     <button name="art" value="AB" type="submit" class="leise" title="Neue Bestellung für {{ kunde.name1 }}">+ Bestellung</button>
     <button name="art" value="GS" type="submit" class="leise" title="Gutschrift ohne Rechnung (z. B. Kulanz, Preisnachlass). Zu einer Rechnung: dort „Storno / Gutschrift“.">+ Gutschrift</button>

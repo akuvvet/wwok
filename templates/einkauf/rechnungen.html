@@ -13,6 +13,53 @@
     }
     feld.addEventListener('input', pruefen);
     feld.addEventListener('change', pruefen);
+
+    // Freie Wareneingänge des gewählten Lieferanten zum Anhaken laden; Summe und Differenz zum Netto sofort
+    var box = document.getElementById('re-we'), zeilen = document.getElementById('re-we-zeilen'),
+        leer = document.getElementById('re-we-leer'), netto = document.getElementById('re-netto'), geladen = '', nettoVonHand = false;
+    if (!box) return;
+    var fmt = function (z) { return z.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €'; };
+    var zahl = function (t) { t = (t || '').trim().replace(/\./g, '').replace(',', '.'); return t ? parseFloat(t) : NaN; };
+    function rechnen() {
+      var summe = 0, anzahl = 0;
+      zeilen.querySelectorAll('input:checked').forEach(function (k) { summe += parseFloat(k.dataset.netto) || 0; anzahl++; });
+      summe = Math.round(summe * 100) / 100;
+      document.getElementById('re-we-summe').textContent = fmt(summe);
+      document.getElementById('re-we-anzahl').textContent = anzahl;
+      if (!nettoVonHand) netto.value = anzahl ? summe.toFixed(2).replace('.', ',') : '';
+      var n = zahl(netto.value), d = document.getElementById('re-we-diff');
+      if (!anzahl || isNaN(n)) { d.textContent = ''; return; }
+      var diff = Math.round((n - summe) * 100) / 100;
+      d.textContent = Math.abs(diff) <= 0.01 ? '· passt zum Netto' : '· Differenz zum Netto ' + fmt(diff);
+      d.style.color = Math.abs(diff) <= 0.01 ? 'var(--ok, green)' : 'var(--warn, #b45309)';
+    }
+    function zelle(tr, text) { var td = document.createElement('td'); td.textContent = text; tr.appendChild(td); return td; }
+    function laden() {
+      if (id.value === geladen) return;
+      geladen = id.value; zeilen.innerHTML = ''; box.hidden = true; leer.hidden = true;
+      if (!id.value) { rechnen(); return; }
+      fetch(box.dataset.url + '?lieferant=' + encodeURIComponent(id.value), {credentials: 'same-origin'})
+        .then(function (r) { return r.json(); })
+        .then(function (daten) {
+          if (geladen !== id.value) return;
+          daten.wareneingaenge.forEach(function (w) {
+            var tr = document.createElement('tr'), td = document.createElement('td'), k = document.createElement('input');
+            k.type = 'checkbox'; k.name = 'wareneingang'; k.value = w.pk; k.dataset.netto = w.netto;
+            k.setAttribute('aria-label', w.nummer + ' verknüpfen');
+            td.appendChild(k); tr.appendChild(td);
+            zelle(tr, w.nummer); zelle(tr, w.datum); zelle(tr, w.bestellung || '–'); zelle(tr, w.lieferschein || '–');
+            zelle(tr, fmt(parseFloat(w.netto))).className = 'zahl';
+            tr.addEventListener('click', function (e) { if (e.target !== k) { k.checked = !k.checked; rechnen(); } });
+            zeilen.appendChild(tr);
+          });
+          box.hidden = !daten.wareneingaenge.length; leer.hidden = !!daten.wareneingaenge.length;
+          rechnen();
+        });
+    }
+    feld.addEventListener('change', laden);
+    feld.addEventListener('input', laden);
+    zeilen.addEventListener('change', rechnen);
+    netto.addEventListener('input', function () { nettoVonHand = netto.value.trim() !== ''; rechnen(); });
   })();
 </script>
 {% endif %}{% endblock %}
@@ -34,9 +81,19 @@
       <datalist id="lieferantenliste">{% for l in lieferanten %}<option value="{{ l.kurz }} – {{ l.name1 }} ({{ l.nummer }})" data-pk="{{ l.pk }}"></option>{% endfor %}</datalist></div>
     <div><label>Rechnungsnr.</label><input name="rechnungsnummer" size="14"></div>
     <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
-    <div><label>Netto</label><input name="netto" size="9"></div>
+    <div><label>Netto</label><input name="netto" id="re-netto" size="9"></div>
     <div><label>Brutto</label><input name="brutto" size="9"></div>
     <button type="submit">Erfassen</button>
+    <div id="re-we" style="flex-basis:100%" data-url="{% url 'einkauf:rechnung_wareneingaenge' %}" hidden>
+      <p class="fein" style="margin:6px 0 4px">Wareneingänge gleich verknüpfen (bei Teillieferungen mehrere anhaken):</p>
+      <div class="scroll"><table>
+        <thead><tr><th></th><th>Wareneingang</th><th>Datum</th><th>Bestellung</th><th>Lieferschein</th><th class="zahl">Netto</th></tr></thead>
+        <tbody id="re-we-zeilen"></tbody>
+        <tfoot><tr><td></td><td colspan="4"><strong>Angehakt</strong> <span class="fein">(<span id="re-we-anzahl">0</span>)</span> <span id="re-we-diff"></span></td>
+          <td class="zahl"><strong id="re-we-summe">0,00 €</strong></td></tr></tfoot>
+      </table></div>
+    </div>
+    <p id="re-we-leer" class="fein" style="flex-basis:100%;margin:6px 0 0" hidden>Keine freien gebuchten Wareneingänge bei diesem Lieferanten.</p>
   </form>
   <form method="post" action="{% url 'einkauf:rechnung_erechnung' %}" enctype="multipart/form-data" class="zeile" style="margin-top:10px">{% csrf_token %}
     <div><label>E-Rechnung einlesen (XRechnung/ZUGFeRD: XML oder PDF)</label><input type="file" name="datei" accept=".xml,.pdf"></div>

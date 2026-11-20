@@ -83,6 +83,7 @@ def lieferanten(request):
             return redirect("einkauf:lieferant", lieferant_id=treffer.first().pk)
         seite, parameter = blaettern(request, treffer)
     else:
+        services.leere_wareneingaenge_entfernen(request.mandant, benutzer=request.user)  # ohne Position wird nicht aufbewahrt
         offene = lieferantenkonto.belege(request.mandant)
     return render(request, "einkauf/lieferanten.html", {
         "lieferanten": seite, "seite": seite, "parameter": parameter, "q": q, "offene": offene, "bereich": "einkauf"})
@@ -98,6 +99,7 @@ def lieferant_detail(request, lieferant_id):
     from . import lieferantenkonto
     lieferant = get_object_or_404(Lieferant, pk=lieferant_id)
     services.leere_bestellungen_entfernen(request.mandant, lieferant)  # Bestellungen ohne Position werden nicht gespeichert
+    services.leere_wareneingaenge_entfernen(request.mandant, lieferant, benutzer=request.user)  # Wareneingänge ebenso
     services.vorlaeufige_bestellungen_verwerfen(request.mandant, lieferant)  # nicht gespeichert und ohne Lebenszeichen: verworfen
     art =request.GET.get("art") or "offen"  # beim Öffnen: nur offene Belege; „alle“ schickt art=alle (der Live-Filter lässt leere Werte weg)
     nur_offen = art == "offen"
@@ -116,7 +118,8 @@ def lieferant_detail(request, lieferant_id):
         "lieferant": lieferant, "seite": seite, "parameter": parameter, "filter": art, "ab": ab,
         "arten": lieferantenkonto.ARTEN, "offen_rechnungen": offen_rechnungen, "offen_gutschriften": offen_gutschriften,
         "unsere_kundennummer": md.unsere_kundennummer if md else "",
-        "ansprechpartner": lieferant.ansprechpartner.all(),
+        # Ansprechpartner von Lieferanten gelten je Mandant (ohne Mandant: für alle); Hauptkontakt zuerst
+        "ansprechpartner": list(services.lieferant_ansprechpartner(request.mandant, lieferant)),
         "offene_bestellungen": Bestellung.objects.filter(mandant=request.mandant, lieferant=lieferant,
                                                          status__in=[BestellStatus.BESTELLT, BestellStatus.TEIL]),
         # „+ WE-Rücksendung“ steht wie „+ Bestellung“ beim Lieferanten, nicht mehr in der Seitenleiste (Wunsch des Nutzers 19.11.2026)
@@ -162,7 +165,8 @@ def bestellungen(request):
 def bestellung_neu(request):
     lieferant = get_object_or_404(Lieferant, pk=request.POST.get("lieferant"))
     # „+ Bestellung“: vorläufig, ohne Nummer – die Nummer vergibt erst „Speichern: abschließen & Nummer vergeben“ (Wunsch des Nutzers 19.11.2026)
-    b = services.bestellung_anlegen(request.mandant, lieferant, benutzer=request.user, vorlaeufig=True)
+    b = services.bestellung_anlegen(request.mandant, lieferant, benutzer=request.user, vorlaeufig=True,
+                                    ansprechpartner_id=request.POST.get("ansprechpartner"))  # im Lieferantenkopf gewählt
     return redirect("einkauf:bestellung", bestellung_id=b.pk)
 
 
@@ -215,7 +219,8 @@ def bestellung_detail(request, bestellung_id):
         "b": b, "positionen": positionen, "netto": netto, "konditionen": konditionen, "mit_lieferung": any(p.geliefert for p in positionen),
         "wareneingaenge": b.alle_wareneingaenge().prefetch_related("positionen", "ruecksendungen"), "aus_beleg": b.aus_beleg,
         "bedarf": services.bedarf_fuer_lieferant(b, nur_lieferant=bedarf_nur) if offen_fuer_positionen else [], "bedarf_nur": bedarf_nur,
-        "offen_fuer_positionen": offen_fuer_positionen})
+        "offen_fuer_positionen": offen_fuer_positionen,
+        "ansprechpartner_liste": list(services.lieferant_ansprechpartner(request.mandant, b.lieferant))})
 
 
 @mit_mandant
@@ -242,7 +247,7 @@ def bestellung_kopf(request, bestellung_id):
     """Tabs „Versand & Konditionen“ und „Texte & Notizen“ speichern."""
     b = bestellung_holen(request, bestellung_id)
     daten = {}
-    for feld in ("liefertermin", "bezugnahme", "versandart", "bemerkung", "notiz"):
+    for feld in ("liefertermin", "bezugnahme", "versandart", "bemerkung", "notiz", "ansprechpartner"):
         if feld in request.POST:
             daten[feld] = request.POST[feld]
     for feld in ("versandkosten", "verpackung", "versicherung"):
@@ -626,7 +631,8 @@ def bestellung_mail(request, bestellung_id):
     frage = _erst_abschliessen(request, b, "mail")
     if frage:
         return frage
-    ap = b.lieferant.ansprechpartner.filter(Q(mandant=request.mandant) | Q(mandant__isnull=True)).exclude(email="").first()
+    ap = (b.ansprechpartner if b.ansprechpartner_id and b.ansprechpartner.email else None) \
+        or services.lieferant_ansprechpartner(request.mandant, b.lieferant).exclude(email="").first()
     an = (ap.email if ap else b.lieferant.email) or ""
     betreff, text = ausfuellen(request.mandant, Mailart.LIEFERANT, {
         "anrede": "Sehr geehrte Damen und Herren", "nummer": b.nummer, "firma": request.mandant.firmenname,
@@ -705,6 +711,7 @@ def vorschlag(request):
 
 @mit_mandant
 def wareneingaenge(request):
+    services.leere_wareneingaenge_entfernen(request.mandant, benutzer=request.user)  # ohne Position wird nicht aufbewahrt
     seite, parameter = blaettern(request, Wareneingang.objects.filter(mandant=request.mandant)
                                  .select_related("lieferant", "bestellung").order_by("-datum", "-id"))
     return render(request, "einkauf/wareneingaenge.html", {
@@ -955,9 +962,28 @@ def rechnung_neu(request):
         raise ValueError("Rechnungsnummer und Bruttobetrag sind Pflicht.")
     if netto is None:
         netto = (brutto / Decimal("1.19")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    ids = {i for i in request.POST.getlist("wareneingang") if i.isdigit()}
+    frei = list(services.freie_wareneingaenge(request.mandant, lieferant).filter(pk__in=ids)) if ids else []
     r = services.rechnung_erfassen(request.mandant, lieferant, request.POST["rechnungsnummer"].strip(),
-                                   tag(request.POST.get("datum")), netto, brutto)
+                                   tag(request.POST.get("datum")), netto, brutto, wareneingaenge=frei)
+    if len(frei) < len(ids):
+        messages.warning(request, "Wareneingänge, die inzwischen zu einer anderen Rechnung gehören, wurden nicht verknüpft.")
+    elif frei:
+        messages.success(request, f"Rechnung erfasst und mit {len(frei)} Wareneingang{'' if len(frei) == 1 else 'en'} verknüpft.")
     return redirect("einkauf:rechnung", rechnung_id=r.pk)
+
+
+@mit_mandant
+def rechnung_wareneingaenge(request):
+    """Für das Erfassen einer Lieferantenrechnung: freie gebuchte Wareneingänge des gewählten Lieferanten (JSON)."""
+    lieferant_id = request.GET.get("lieferant", "")
+    lieferant = Lieferant.objects.filter(pk=lieferant_id).first() if lieferant_id.isdigit() else None
+    if lieferant is None:
+        return JsonResponse({"wareneingaenge": []})
+    return JsonResponse({"wareneingaenge": [
+        {"pk": w.pk, "nummer": w.nummer, "datum": f"{w.datum:%d.%m.%Y}", "bestellung": w.bestellung.nummer if w.bestellung_id else "",
+         "lieferschein": w.lieferschein, "netto": f"{w.rechnungswert:.2f}"}
+        for w in services.freie_wareneingaenge(request.mandant, lieferant)[:200]]})
 
 
 @mit_mandant
@@ -1011,10 +1037,7 @@ def rechnung_detail(request, rechnung_id):
         messages.success(request, "Verknüpfung gespeichert.")
         return redirect("einkauf:rechnung", rechnung_id=r.pk)
     verknuepft = set(r.wareneingaenge.values_list("pk", flat=True))
-    kandidaten = Wareneingang.objects.filter(mandant=request.mandant, lieferant=r.lieferant, gebucht=True) \
-        .filter(Q(rechnungen__isnull=True) | Q(pk__in=verknuepft)).distinct() \
-        .filter(Q(ersatz_fuer__isnull=True) | Q(pk__in=verknuepft)) \
-        .select_related("bestellung").prefetch_related("positionen").order_by("-datum", "-id")  # Ersatz aus einer Rücksendung gehört zu keiner Rechnung
+    kandidaten = services.freie_wareneingaenge(request.mandant, r.lieferant, r)
     return render(request, "einkauf/rechnung.html", {
         "r": r, "abgleich": r.abgleich(), "zahlbetrag": r.zahlbetrag(), "kandidaten": kandidaten, "verknuepft": verknuepft,
         "verrechnungen": r.verrechnungen.select_related("gutschrift"), "verrechnet": r.verrechnet,

@@ -42,6 +42,10 @@ class Bestellung(Zeitstempel):
                                   help_text="Angebot oder Kundenbestellung, aus dem die Lieferantenbestellung kopiert wurde")
     angelegt_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name="+", verbose_name="angelegt von", editable=False)
+    # Ansprechpartner beim Lieferanten (Wunsch des Nutzers 20.11.2026): beim Anlegen der im Lieferantenkopf gewählte, sonst
+    # Hauptkontakt bzw. der erste; im Tab „Versand & Konditionen“ änderbar, steht auf dem PDF und ist Empfänger der Mail.
+    ansprechpartner = models.ForeignKey("stammdaten.Ansprechpartner", on_delete=models.SET_NULL, null=True, blank=True,
+                                        related_name="+", verbose_name="Ansprechpartner")
     # Tab „Versand & Konditionen“ (Wunsch des Nutzers 18.11.2026, wie die Kundenbestellung): erwartete Nebenkosten gehen in den
     # ersten Wareneingang zur Bestellung (dort änderbar); Liefertermin, Bezugnahme und Versandart stehen auf dem PDF.
     liefertermin = models.DateField("Liefertermin", null=True, blank=True)

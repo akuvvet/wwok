@@ -30,11 +30,11 @@
       <dt>Offene Rechnungen:</dt><dd><a href="?art=LR">{{ offen_rechnungen|floatformat:"2g" }} €</a></dd>
       {% if offen_gutschriften %}<dt>Offenes Guthaben:</dt><dd><a href="?art=LG" title="Restguthaben aus Lieferanten-Gutschriften">{{ offen_gutschriften|floatformat:"2g" }} €</a></dd>{% endif %}
     </dl>
-    {% if ansprechpartner %}<div>{% for a in ansprechpartner %}{{ a }}{% if a.hauptkontakt %} ★{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
+    {% include "stammdaten/_ansprechpartner_wahl.html" with ap_art="lieferant" ap_id=lieferant.pk ap_form="bestellung-neu" %}
   </div>
   {% if not lieferant.gesperrt %}
   <div class="zeile" style="margin-top:10px">
-    <form method="post" action="{% url 'einkauf:bestellung_neu' %}">{% csrf_token %}<input type="hidden" name="lieferant" value="{{ lieferant.pk }}">
+    <form method="post" action="{% url 'einkauf:bestellung_neu' %}" id="bestellung-neu">{% csrf_token %}<input type="hidden" name="lieferant" value="{{ lieferant.pk }}">
       <button type="submit">+ Bestellung</button></form>
     <form method="post" action="{% url 'einkauf:wareneingang_neu' %}" class="zeile">{% csrf_token %}
       {% if offene_bestellungen %}<select name="bestellung" aria-label="Wareneingang zu Bestellung"><option value="">ohne Bestellung</option>

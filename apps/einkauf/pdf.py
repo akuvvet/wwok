@@ -30,7 +30,9 @@ def bestellung_pdf(bestellung) -> bytes:
     puffer = BytesIO()
     doc = SimpleDocTemplate(puffer, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=15 * mm,
                             bottomMargin=28 * mm, title=bestellung.nummer, author=m.firmenname)
-    anschrift = "\n".join(t for t in (lf.name1, lf.name2, lf.strasse, f"{lf.plz} {lf.ort}") if t)
+    ap = bestellung.ansprechpartner
+    z_hd = ("z. Hd. " + " ".join(t for t in (str(ap.anrede) if ap.anrede_id else "", ap.vorname, ap.nachname) if t)) if ap else ""
+    anschrift = "\n".join(t for t in (lf.name1, lf.name2, z_hd, lf.strasse, f"{lf.plz} {lf.ort}") if t)
     daten = [["Bestellnummer", bestellung.nummer], ["Datum", bestellung.datum.strftime("%d.%m.%Y")]]
     if kundennr:
         daten.append(["Unsere Kundennr.", kundennr])
