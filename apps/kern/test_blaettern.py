@@ -47,6 +47,21 @@ class BlaetternTest(TestCase):
         r = self.client.get(reverse("lager:inventur_liste"), {"seite": "2"})
         self.assertEqual(len(r.context["zeilen"]), 5)
 
+    def test_kundenliste_im_verkauf_blaettert(self):
+        for i in range(30):
+            Kunde.objects.create(nummer=f"{2000 + i}", name1=f"Muster {i:02d} GmbH")
+        url = reverse("verkauf:start")
+        r = self.client.get(url, {"q": "muster", "pro_seite": "25"})
+        self.assertEqual([k.nummer for k in r.context["treffer"]][:2], ["2000", "2001"])
+        self.assertEqual(len(r.context["treffer"]), 25)
+        self.assertContains(r, "Seite 1 von 2")
+        self.assertContains(r, "(1–25 von 30)")
+        self.assertContains(r, "data-pro-seite")
+        r = self.client.get(url, {"q": "muster", "seite": "2"})
+        self.assertEqual([k.nummer for k in r.context["treffer"]], [f"{2025 + i}" for i in range(5)])
+        self.assertRedirects(self.client.get(url, {"q": "Muster 07"}), reverse("verkauf:kunde", args=[Kunde.objects.get(nummer="2007").pk]),
+                             fetch_redirect_response=False)  # ein Treffer öffnet den Kunden wie bisher
+
     def admin_liste(self, url, **get):
         return self.client.get(url, get)
 
