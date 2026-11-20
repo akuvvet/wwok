@@ -909,6 +909,7 @@ Der Befehl `preislisten_abrufen` übernimmt danach auch den günstigsten Liefera
 - [x] Lieferanten-Gutschriften im Lieferantenkonto (19.11.2026): Belegart „Lieferanten-Gutschrift“ in der Belegliste des Lieferanten und in den offenen Belegen (offen = Restguthaben > 0, Betrag = Restguthaben), „Offenes Guthaben“ im Kopf
 - [x] Lieferantenkontoauszug (19.11.2026): Symbol „Kontoauszug“ beim Lieferanten; Rechnungen +, Zahlungsausgänge und Skonto −, Gutschriften −, Auszahlungen des Lieferanten auf Gutschriften +, Verrechnungen in Klammern (ohne Saldowirkung), laufender Saldo (negativ = Guthaben)
 - [x] Kontoauszug als PDF (19.11.2026): „PDF drucken“ beim Kunden- und Lieferantenkontoauszug (A4 mit Anschrift, Stand, Buchungen, Schlusssaldo, Seitenzahl)
+- [x] Lieferantenrechnung mit mehreren Wareneingängen (20.11.2026): Auswahl als Tabelle mit Bestell-Nr. und Lieferschein, Summe der angehakten Wareneingänge und Differenz zur Rechnung sofort sichtbar
 - [x] WE-Rücksendung (19.11.2026): Auswahl beim Lieferanten zeigt nur Wareneingänge mit noch zurücksendbarer Menge; ist alles zurückgesendet, klarer Hinweis statt leerem Mengenfeld
 - [ ] Auswertungen mit Marge, Excel-Ausgabe und freiem Zeitraum
 - [x] Gesamtprüfung vom 14.11.2026 (`docs/pruefbericht-2026-11-14.md`): Abschnitt A und C behoben, darunter automatisches Kunden-Skonto, Lastschrift erst mit der Gutschrift im Bankabgleich, Kasse nie im Minus, Belegnummern bleiben nach dem Löschen verbraucht, Kundensperre auch bei Kopie und wiederkehrender Rechnung, Warnung bei doppelter EAN und doppeltem Lieferanten
