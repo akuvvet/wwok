@@ -1013,7 +1013,8 @@ def rechnung_detail(request, rechnung_id):
     verknuepft = set(r.wareneingaenge.values_list("pk", flat=True))
     kandidaten = Wareneingang.objects.filter(mandant=request.mandant, lieferant=r.lieferant, gebucht=True) \
         .filter(Q(rechnungen__isnull=True) | Q(pk__in=verknuepft)).distinct() \
-        .filter(Q(ersatz_fuer__isnull=True) | Q(pk__in=verknuepft))  # Ersatz aus einer Rücksendung gehört zu keiner Rechnung
+        .filter(Q(ersatz_fuer__isnull=True) | Q(pk__in=verknuepft)) \
+        .select_related("bestellung").prefetch_related("positionen").order_by("-datum", "-id")  # Ersatz aus einer Rücksendung gehört zu keiner Rechnung
     return render(request, "einkauf/rechnung.html", {
         "r": r, "abgleich": r.abgleich(), "zahlbetrag": r.zahlbetrag(), "kandidaten": kandidaten, "verknuepft": verknuepft,
         "verrechnungen": r.verrechnungen.select_related("gutschrift"), "verrechnet": r.verrechnet,

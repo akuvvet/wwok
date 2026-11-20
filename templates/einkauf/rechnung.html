@@ -61,11 +61,43 @@
 </div>{% endif %}
 <div class="karte">
   <h2>Verknüpfte Wareneingänge</h2>
-  <form method="post">{% csrf_token %}
-    {% for w in kandidaten %}<label style="display:flex;gap:8px;align-items:center;opacity:1"><input type="checkbox" name="wareneingang" value="{{ w.pk }}" {% if w.pk in verknuepft %}checked{% endif %}>
-      {{ w.nummer }} · {{ w.datum|date:"d.m.Y" }} · {{ w.rechnungswert|floatformat:"2g" }} € netto · {{ w.lieferschein }}</label>
-    {% empty %}<p>Keine gebuchten Wareneingänge dieses Lieferanten.</p>{% endfor %}
-    <p><button type="submit" class="leise">Verknüpfung speichern</button></p>
+  <p class="fein">Mehrere anhaken, z. B. alle Teillieferungen, die diese Rechnung abrechnet. Ein Wareneingang gehört zu höchstens einer Rechnung.</p>
+  <form method="post" id="we-verknuepfung">{% csrf_token %}
+    {% if kandidaten %}<div class="scroll"><table>
+      <thead><tr><th></th><th>Wareneingang</th><th>Datum</th><th>Bestellung</th><th>Lieferschein</th><th class="zahl">Netto</th></tr></thead>
+      <tbody>{% for w in kandidaten %}<tr>
+        <td><input type="checkbox" name="wareneingang" value="{{ w.pk }}" data-netto="{{ w.rechnungswert|stringformat:'s' }}" id="we-{{ w.pk }}"
+             aria-label="{{ w.nummer }} verknüpfen"{% if w.pk in verknuepft %} checked{% endif %}{% if r.status == 'bezahlt' %} disabled{% endif %}></td>
+        <td><label for="we-{{ w.pk }}" style="opacity:1;font-size:inherit"><a href="{% url 'einkauf:wareneingang' w.pk %}">{{ w.nummer }}</a></label></td>
+        <td>{{ w.datum|date:"d.m.Y" }}</td>
+        <td>{% if w.bestellung_id %}<a href="{% url 'einkauf:bestellung' w.bestellung_id %}">{{ w.bestellung.nummer }}</a>{% else %}–{% endif %}</td>
+        <td>{{ w.lieferschein|default:"–" }}</td>
+        <td class="zahl">{{ w.rechnungswert|floatformat:"2g" }} €</td></tr>{% endfor %}</tbody>
+      <tfoot><tr><td></td><td colspan="4"><strong>Angehakt</strong> <span class="fein">(<span id="we-anzahl">0</span>)</span> · Rechnung netto {{ r.netto|floatformat:"2g" }} € · <span id="we-diff"></span></td>
+        <td class="zahl"><strong id="we-summe">0,00 €</strong></td></tr></tfoot>
+    </table></div>
+    {% if r.status != 'bezahlt' %}<p><button type="submit" class="leise">Verknüpfung speichern</button></p>{% endif %}
+    {% else %}<p>Keine gebuchten Wareneingänge dieses Lieferanten.</p>{% endif %}
   </form>
+  <script>
+  (function () {
+    var form = document.getElementById("we-verknuepfung"), rechnung = {{ r.netto|stringformat:'s' }};
+    if (!form) return;
+    var fmt = function (z) { return z.toLocaleString("de-DE", {minimumFractionDigits: 2, maximumFractionDigits: 2}) + " €"; };
+    function rechnen() {
+      var summe = 0, anzahl = 0;
+      form.querySelectorAll('input[name="wareneingang"]:checked').forEach(function (k) { summe += parseFloat(k.dataset.netto) || 0; anzahl++; });
+      summe = Math.round(summe * 100) / 100;
+      var diff = Math.round((rechnung - summe) * 100) / 100, d = document.getElementById("we-diff");
+      document.getElementById("we-summe").textContent = fmt(summe);
+      document.getElementById("we-anzahl").textContent = anzahl;
+      if (!d) return;
+      d.textContent = Math.abs(diff) <= 0.01 ? "passt" : "Differenz " + fmt(diff);
+      d.style.color = Math.abs(diff) <= 0.01 ? "var(--ok, green)" : "var(--warn, #b45309)";
+    }
+    form.addEventListener("change", rechnen);
+    rechnen();
+  })();
+  </script>
 </div>
 {% endblock %}
