@@ -73,19 +73,21 @@ def lieferant_ansprechpartner(mandant, lieferant):
             .select_related("anrede").order_by("-hauptkontakt", "nachname", "id"))
 
 
-def bestellung_anlegen(mandant, lieferant, bemerkung="", aus_beleg=None, benutzer=None, vorlaeufig=False,
+def bestellung_anlegen(mandant, lieferant, notiz="", aus_beleg=None, benutzer=None, vorlaeufig=False,
                        ansprechpartner_id=None) -> Bestellung:
     """vorlaeufig (nur die Bestellmaske, Wunsch des Nutzers 19.11.2026): ohne Nummer; sie wird erst mit
     bestellung_abschliessen() vergeben, sonst wird die Bestellung verworfen (Nummernkreis bleibt lückenlos).
     Vom Programm in einem Rutsch angelegte Bestellungen (Vorschlag, Vergleich) bekommen sofort ihre Nummer.
-    Ansprechpartner: der übergebene (nur einer dieses Lieferanten und Mandanten), sonst Hauptkontakt, sonst der erste."""
+    Ansprechpartner: der übergebene (nur einer dieses Lieferanten und Mandanten), sonst Hauptkontakt, sonst der erste.
+    notiz: Herkunft („Bestellvorschlag“, „Aus Angebot …“) – nur intern; der Text für den Lieferanten (bemerkung, steht auf dem
+    PDF) bleibt leer (Wunsch des Nutzers 20.11.2026)."""
     if lieferant.gesperrt:  # wie in der Oberfläche: bei gesperrten Lieferanten entstehen keine neuen Belege
         raise ValueError(f"Lieferant {lieferant.name1} ist gesperrt – es lässt sich keine Bestellung anlegen.")
     aps = lieferant_ansprechpartner(mandant, lieferant)
     ap = (aps.filter(pk=ansprechpartner_id).first() if str(ansprechpartner_id or "").isdigit() else None) or aps.first()
     return Bestellung.objects.create(mandant=mandant, lieferant=lieferant, nummer=None if vorlaeufig else nummer(mandant, "BE"),
                                      vorlaeufig=vorlaeufig, zuletzt_aktiv=timezone.now() if vorlaeufig else None,
-                                     bemerkung=bemerkung, aus_beleg=aus_beleg, ansprechpartner=ap,
+                                     notiz=notiz, aus_beleg=aus_beleg, ansprechpartner=ap,
                                      angelegt_von=benutzer if benutzer is not None and benutzer.is_authenticated else None)
 
 
@@ -560,10 +562,10 @@ def rest_schliessen(bestellung) -> list:
             p.menge = p.geliefert
             p.save(update_fields=["menge"])
     zeile = f"Rest nicht mehr lieferbar ({timezone.localdate():%d.%m.%Y}): " + ", ".join(weg)
-    b.bemerkung = f"{b.bemerkung}\n{zeile}" if b.bemerkung else zeile
-    b.save(update_fields=["bemerkung"])
+    b.notiz = f"{b.notiz}\n{zeile}" if b.notiz else zeile  # intern, nicht auf das PDF für den Lieferanten
+    b.save(update_fields=["notiz"])
     b.status_aktualisieren()
-    bestellung.status, bestellung.bemerkung = b.status, b.bemerkung
+    bestellung.status, bestellung.notiz = b.status, b.notiz
     return weg
 
 

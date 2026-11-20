@@ -1,0 +1,174 @@
+<script>
+  // Live-Rechnen für alle Masken (Wunsch des Nutzers 20.11.2026): Beträge rechnen sich beim Tippen neu, ohne Speichern.
+  // Eine Funktion für alle Seiten – die Maske beschreibt nur per Attribut, was sich woraus ergibt:
+  //   <input data-wert="versand">                       Eingabefeld als Rechengröße (deutsches Format: 1.234,56 oder 12,5)
+  //   <span data-wert="ware" data-rechenwert="3513.69">  feste Größe vom Server (Punkt als Dezimalzeichen)
+  //   <td data-ergibt="ware + versand" data-format="euro"></td>   Ergebnis; mit data-wert="…" selbst wieder Rechengröße
+  // Bereich: Namen gelten im nächsten [data-rechnen] (sonst Seite); in einer Zeile [data-zeile] zuerst die Größen dieser Zeile.
+  // Ausdrücke: + - * / ( ), Vergleiche < <= > >= == != (1/0), Funktionen summe(ausdruck je Zeile), runde(x; n), min, max,
+  //   wenn(bedingung, dann, sonst), betrag(x). Formate: euro (Standard, „1.234,56 €“), betrag (ohne €), zahl, prozent, menge.
+  // Nach DOM-Änderungen (Zeilen per JS) window.wwokRechnen() aufrufen. Ungültige Eingabe: Ergebnis „–“, Feld rot markiert.
+  (function () {
+    function lesen(text) {  // wie zahl() auf dem Server (apps/einkauf/views.py): mit Komma ist der Punkt Tausendertrenner
+      var t = String(text == null ? '' : text).replace(/[€\s ]/g, '');
+      if (t === '') return 0;
+      if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+      return /^[-+]?(\d+\.?\d*|\.\d+)$/.test(t) ? parseFloat(t) : NaN;
+    }
+    function runde(x, n) {  // kaufmännisch (halb auf), wie Decimal ROUND_HALF_UP
+      var f = Math.pow(10, n == null ? 2 : n);
+      return Math.sign(x) * Math.round(Math.abs(x) * f + 1e-9) / f;
+    }
+    var FORMATE = {
+      euro: function (x) { return zahlText(x, 2, 2) + ' €'; },
+      betrag: function (x) { return zahlText(x, 2, 2); },
+      zahl: function (x) { return zahlText(x, 0, 3); },
+      menge: function (x) { return zahlText(x, 0, 3); },
+      prozent: function (x) { return zahlText(x, 0, 2) + ' %'; }
+    };
+    function zahlText(x, min, max) {
+      return runde(x, max).toLocaleString('de-DE', {minimumFractionDigits: min, maximumFractionDigits: max});
+    }
+
+    // ---- Ausdrücke: kleiner Parser statt eval ----
+    function zerlegen(text) {
+      var teile = [], re = /\s*(\d+(?:\.\d+)?|[A-Za-zÄÖÜäöüß_][\wÄÖÜäöüß]*|<=|>=|==|!=|[-+*\/(),;<>])/gy, m;
+      while (re.lastIndex < text.length && (m = re.exec(text))) teile.push(m[1]);
+      if (re.lastIndex < text.trimEnd().length) throw new Error('Ausdruck: ' + text);
+      return teile;
+    }
+    function baum(text) {  // liefert eine Funktion (kontext) => Zahl
+      var t = zerlegen(text), i = 0;
+      function sieh() { return t[i]; }
+      function nimm(erwartet) { var x = t[i++]; if (erwartet && x !== erwartet) throw new Error('erwartet ' + erwartet); return x; }
+      function vergleich() {
+        var a = summand();
+        while (/^(<|<=|>|>=|==|!=)$/.test(sieh() || '')) {
+          var op = nimm(), b = summand(), l = a;
+          a = (function (l, b, op) { return function (k) {
+            var x = l(k), y = b(k);
+            return (op === '<' ? x < y : op === '<=' ? x <= y : op === '>' ? x > y : op === '>=' ? x >= y : op === '==' ? Math.abs(x - y) < 1e-9 : Math.abs(x - y) >= 1e-9) ? 1 : 0;
+          }; })(l, b, op);
+        }
+        return a;
+      }
+      function summand() {
+        var a = faktor();
+        while (sieh() === '+' || sieh() === '-') {
+          var op = nimm(), b = faktor();
+          a = (function (l, b, op) { return op === '+' ? function (k) { return l(k) + b(k); } : function (k) { return l(k) - b(k); }; })(a, b, op);
+        }
+        return a;
+      }
+      function faktor() {
+        var a = einzeln();
+        while (sieh() === '*' || sieh() === '/') {
+          var op = nimm(), b = einzeln();
+          a = (function (l, b, op) { return op === '*' ? function (k) { return l(k) * b(k); }
+            : function (k) { var y = b(k); return y === 0 ? NaN : l(k) / y; }; })(a, b, op);
+        }
+        return a;
+      }
+      function einzeln() {
+        var x = nimm();
+        if (x === undefined) throw new Error('Ausdruck unvollständig: ' + text);
+        if (x === '-') { var e = einzeln(); return function (k) { return -e(k); }; }
+        if (x === '+') return einzeln();
+        if (x === '(') { var v = vergleich(); nimm(')'); return v; }
+        if (/^\d/.test(x)) { var z = parseFloat(x); return function () { return z; }; }
+        if (sieh() === '(') {  // Funktion
+          nimm('(');
+          var args = [];
+          if (sieh() !== ')') { args.push(vergleich()); while (sieh() === ',' || sieh() === ';') { nimm(); args.push(vergleich()); } }
+          nimm(')');
+          return funktion(x, args);
+        }
+        return function (k) { return k.wert(x); };
+      }
+      var f = vergleich();
+      if (i < t.length) throw new Error('Ausdruck: ' + text);
+      return f;
+    }
+    function funktion(name, a) {
+      switch (name) {
+        case 'summe': return function (k) { return k.summe(a[0]); };
+        case 'runde': return function (k) { return runde(a[0](k), a[1] ? a[1](k) : 2); };
+        case 'min': return function (k) { return Math.min.apply(null, a.map(function (f) { return f(k); })); };
+        case 'max': return function (k) { return Math.max.apply(null, a.map(function (f) { return f(k); })); };
+        case 'betrag': return function (k) { return Math.abs(a[0](k)); };
+        case 'wenn': return function (k) { return a[0](k) ? a[1](k) : (a[2] ? a[2](k) : 0); };
+      }
+      throw new Error('Unbekannte Funktion ' + name);
+    }
+
+    // ---- Werte aus der Seite ----
+    function istFeld(el) { return /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName); }
+    function wertVon(el) {
+      if (istFeld(el)) {
+        if (el.type === 'checkbox' || el.type === 'radio') return el.checked ? lesen(el.dataset.rechenwert || el.value || '1') : 0;
+        if (el.disabled && el.dataset.rechenwertAus !== undefined) return lesen(el.dataset.rechenwertAus);
+        var opt = el.tagName === 'SELECT' && el.selectedOptions[0];
+        return lesen(opt && opt.dataset.rechenwert !== undefined ? opt.dataset.rechenwert : el.value);
+      }
+      return el.dataset.rechenwert !== undefined ? parseFloat(el.dataset.rechenwert) : lesen(el.textContent);
+    }
+    function gehoertZu(el, bereich) {  // nur die eigenen Größen, nicht die eines inneren Bereichs
+      return (el.closest('[data-rechnen]') || document) === bereich;
+    }
+    function kontext(bereich, zeile) {
+      function finden(wurzel, name) {
+        return Array.from(wurzel.querySelectorAll('[data-wert="' + name + '"]')).filter(function (el) { return gehoertZu(el, bereich); });
+      }
+      return {
+        wert: function (name) {
+          var els = zeile ? finden(zeile, name) : [];  // 1. eigene Zeile, 2. Größen außerhalb von Zeilen, 3. erste passende
+          if (!els.length) els = finden(bereich, name).filter(function (el) { return !el.closest('[data-zeile]'); });
+          if (!els.length) els = finden(bereich, name);
+          if (!els.length) throw new Error('Unbekannte Größe ' + name);
+          return wertVon(els[0]);
+        },
+        summe: function (f) {
+          var zeilen = Array.from(bereich.querySelectorAll('[data-zeile]')).filter(function (z) { return gehoertZu(z, bereich); });
+          return zeilen.reduce(function (s, z) {
+            if (z.hidden || z.dataset.zeileAus !== undefined) return s;  // ausgeblendete oder abgewählte Zeilen zählen nicht
+            return s + f(kontext(bereich, z));
+          }, 0);
+        }
+      };
+    }
+    var cache = {};
+    function rechnen(wurzel) {
+      wurzel = wurzel || document;
+      var ergebnisse = Array.from(wurzel.querySelectorAll('[data-ergibt]'));
+      for (var durchgang = 0; durchgang < 2; durchgang++) {  // zweiter Durchgang: Ergebnisse, die auf weiter unten stehende Ergebnisse zeigen
+        ergebnisse.forEach(function (el) {
+          var x;
+          try {
+            var f = cache[el.dataset.ergibt] || (cache[el.dataset.ergibt] = baum(el.dataset.ergibt));
+            x = f(kontext(el.closest('[data-rechnen]') || document, el.closest('[data-zeile]')));
+          } catch (fehler) {
+            if (durchgang) console.warn('wwokRechnen:', fehler.message, el);
+            x = NaN;
+          }
+          el.dataset.rechenwert = isFinite(x) ? String(runde(x, 6)) : 'NaN';
+          var text = isFinite(x) ? (FORMATE[el.dataset.format || 'euro'] || FORMATE.euro)(x) : '–';
+          if (istFeld(el)) { if (el.value !== text) el.value = text; }
+          else if (el.textContent !== text) el.textContent = text;
+          el.classList.toggle('rechnen-negativ', isFinite(x) && x < 0 && el.dataset.negativ !== undefined);
+          if (el.dataset.zeigeWenn !== undefined) el.hidden = !(isFinite(x) && x !== 0);  // z. B. Warnung „unter Mindestbestellwert“
+        });
+      }
+    }
+    function eingabe(e) {
+      var el = e.target;
+      if (!el || !el.matches || !el.matches('[data-wert]') || !istFeld(el)) return;
+      el.classList.toggle('rechnen-fehler', el.type !== 'checkbox' && el.type !== 'radio' && isNaN(lesen(el.value)));
+      rechnen();
+    }
+    document.addEventListener('input', eingabe);
+    document.addEventListener('change', eingabe);
+    window.wwokRechnen = rechnen;
+    window.wwokZahl = lesen;
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { rechnen(); }); else rechnen();
+  })();
+</script>

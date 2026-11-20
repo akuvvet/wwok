@@ -102,6 +102,8 @@
   .mfeld input:not([type=checkbox]), .mfeld select, .mfeld textarea { width:100%; }
   .mfeld small { opacity:.65; font-size:12px; }
   .mfeld.fehler input, .mfeld.fehler select, .mfeld.fehler textarea { border-color:var(--warn); }
+  input.rechnen-fehler { border-color:var(--warn); outline:1px solid var(--warn); }  /* Live-Rechnen: Zahl nicht lesbar */
+  .rechnen-negativ { color:var(--warn); }
   .fehlertext { color:var(--warn); font-size:12px; display:block; }
   .tab.mit-fehler { color:var(--warn); }
   .zeilenblock { border:1px dashed var(--rand); border-radius:8px; padding:10px; margin:0 0 10px; }
@@ -930,6 +932,7 @@
     if (window.ResizeObserver) new ResizeObserver(gleich).observe(main);
   })();
 </script>
+{% include "rechnen.html" %}
 {% block skript %}{% endblock %}
 {% if user.is_authenticated %}{% include "kern/_listen.html" %}{% include "kern/_palette.html" %}{% include "kern/_scan.html" %}{% endif %}
 </body>

@@ -44,6 +44,44 @@ class BedarfZusammenTest(Basis):
         services.bestellungen_aus_vorschlag(self.m, [(self.maus.pk, D("3"))])
         self.assertEqual(Bestellung.objects.get().lieferant, self.lf2)
 
+    def test_herkunft_nur_intern_nicht_auf_dem_pdf(self):
+        """Wunsch 20.11.2026: „Bestellvorschlag“ stand im Lieferantentext und damit auf dem PDF."""
+        import io
+        from pypdf import PdfReader
+        from .pdf import bestellung_pdf
+        self.kundenbestellung(self.maus, "3")
+        services.bestellungen_aus_vorschlag(self.m, [(self.maus.pk, D("3"))])
+        b = Bestellung.objects.get()
+        self.assertEqual((b.bemerkung, b.notiz), ("", "Bestellvorschlag"))
+        text = "\n".join(s.extract_text() or "" for s in PdfReader(io.BytesIO(bestellung_pdf(b))).pages)
+        self.assertNotIn("Bestellvorschlag", text)
+
+    def test_versand_tab_rechnet_live(self):
+        """Wunsch 20.11.2026: Nebenkosten und Gesamt rechnen sich beim Tippen (gemeinsame Funktion templates/rechnen.html)."""
+        b = services.bestellung_anlegen(self.m, self.lf2)
+        services.bestellposition(b, self.maus, D("1000"), ek=D("1.5"))
+        Bestellung.objects.filter(pk=b.pk).update(versandkosten=D("10.25"))
+        r = self.client.get(reverse("einkauf:bestellung", args=[b.pk]))
+        self.assertEqual(r.context["gesamt_netto"], D("1510.25"))
+        self.assertContains(r, 'data-ergibt="versand + verpackung + versicherung"')
+        self.assertContains(r, 'data-wert="ware" data-rechenwert="1500.00"')
+        self.assertContains(r, "1.510,25 €")  # ohne JavaScript schon richtig (nicht auf ganze Euro abgeschnitten)
+        self.assertContains(r, "window.wwokRechnen")
+
+    def test_migration_verschiebt_vermerke_in_die_notiz(self):
+        import importlib
+        from django.apps import apps as django_apps
+        mig = importlib.import_module("apps.einkauf.migrations.0027_herkunft_in_notiz")
+        b1 = services.bestellung_anlegen(self.m, self.lf2)
+        b2 = services.bestellung_anlegen(self.m, self.lf2)
+        Bestellung.objects.filter(pk=b1.pk).update(bemerkung="Aus Bestellung AB2026-00002 – nur fehlende Mengen\nBitte mit Lieferschein",
+                                                   notiz="alt")
+        Bestellung.objects.filter(pk=b2.pk).update(bemerkung="Bitte schnell liefern")
+        mig.verschieben(django_apps, None)
+        b1.refresh_from_db(), b2.refresh_from_db()
+        self.assertEqual((b1.bemerkung, b1.notiz), ("Bitte mit Lieferschein", "Aus Bestellung AB2026-00002 – nur fehlende Mengen\nalt"))
+        self.assertEqual((b2.bemerkung, b2.notiz), ("Bitte schnell liefern", ""))
+
     def test_schon_bestellt_wird_angezeigt(self):
         self.kundenbestellung(self.maus, "5")
         entwurf = services.bestellung_anlegen(self.m, self.lf2)
