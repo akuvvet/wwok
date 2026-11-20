@@ -1699,6 +1699,13 @@ def suche(request):
         kunden_treffer = list(Kunde.objects.filter(nummer__iexact=q, anonymisiert=False).values_list("pk", flat=True)[:2])
         if len(kunden_treffer) == 1:
             return redirect("verkauf:kunde", kunde_id=kunden_treffer[0])
+        # Einkauf: eindeutige Nummer von Wareneingang, Lieferantenbestellung oder Lieferantenrechnung (Wunsch 20.11.2026)
+        from apps.einkauf.models import Bestellung, Lieferantenrechnung, Wareneingang
+        for modell, feld, ziel in ((Wareneingang, "nummer", "einkauf:wareneingang"), (Bestellung, "nummer", "einkauf:bestellung"),
+                                   (Lieferantenrechnung, "rechnungsnummer", "einkauf:rechnung")):
+            treffer = list(modell.objects.filter(mandant=request.mandant, **{feld + "__iexact": q}).values_list("pk", flat=True)[:2])
+            if len(treffer) == 1:
+                return redirect(ziel, treffer[0])
     ziel = reverse("verkauf:belege")
     return redirect(ziel + "?" + urlencode({"q": q}) if q else ziel)
 

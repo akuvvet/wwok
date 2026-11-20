@@ -7,6 +7,7 @@
   <p>{{ we.datum|date:"d.m.Y" }}{% if we.bestellung %} · Bestellung <a href="{% url 'einkauf:bestellung' we.bestellung.pk %}">{{ we.bestellung.nummer }}</a>{% endif %}
      {% if we.lieferschein %}· Lieferschein {{ we.lieferschein }}{% endif %}
      {% if we.gebucht %}· <strong>ins Lager gebucht</strong>{% endif %}
+     {% for r in rechnungen %}· Rechnung <a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a> ({{ r.get_status_display }}){% empty %}{% if we.gebucht and not we.ersatz_fuer %}· <span class="fein">noch keine Lieferantenrechnung</span>{% endif %}{% endfor %}
      {% if we.ersatz_fuer %}· Ersatz zur Rücksendung <a href="{% url 'einkauf:ruecksendung' we.ersatz_fuer.pk %}">{{ we.ersatz_fuer.nummer }}</a>{% endif %}</p>
   <div class="aktionen" style="margin-bottom:0">
     {% if we.gebucht %}<a class="knopf leise" href="{% url 'einkauf:ruecksendung_neu' we.pk %}">Ware zurücksenden (WE-Rücksendung)</a>{% endif %}

@@ -829,7 +829,7 @@ def vorschlag(request):
 def wareneingaenge(request):
     services.leere_wareneingaenge_entfernen(request.mandant, benutzer=request.user)  # ohne Position wird nicht aufbewahrt
     seite, parameter = blaettern(request, Wareneingang.objects.filter(mandant=request.mandant)
-                                 .select_related("lieferant", "bestellung").order_by("-datum", "-id"))
+                                 .select_related("lieferant", "bestellung").prefetch_related("rechnungen").order_by("-datum", "-id"))
     return render(request, "einkauf/wareneingaenge.html", {
         "liste": seite, "seite": seite, "parameter": parameter,
         "lieferanten": lieferanten_auswahl(),
@@ -878,6 +878,7 @@ def wareneingang_detail(request, we_id):
     laufende = [] if we.gebucht else services.laufende_bestellungen(we)
     return render(request, "einkauf/wareneingang.html", {
         "we": we, "positionen": positionen, "netto": we.summe_netto, "bleibt_offen": services.bleibt_offen(we),
+        "rechnungen": list(we.rechnungen.filter(mandant=request.mandant).order_by("datum", "pk")),
         "p_offen": p_offen, "p_rueckfrage": p_rueckfrage, "laufende": laufende,
         "laufende_anzahl": sum(1 for g in laufende for bp in g["positionen"] if bp.rest > 0)})
 
@@ -1053,27 +1054,74 @@ def rechnungen(request, sicht=""):
         liste = liste.exclude(status=RechnungStatus.BEZAHLT)
     elif status in RechnungStatus.values:  # u. a. „exportiert“: SEPA-Datei erzeugt, Zahlung noch nicht gebucht
         liste = liste.filter(status=status)
+    q = request.GET.get("q", "").strip()[:100]
+    for wort in q.split()[:6]:  # Suche: Rechnungsnr., Lieferant (Kurzname, Name, Nummer) oder Nummer eines verknüpften Wareneingangs
+        liste = liste.filter(Q(rechnungsnummer__icontains=wort) | Q(lieferant__kurzname__icontains=wort) | Q(lieferant__name1__icontains=wort)
+                             | Q(lieferant__nummer__iexact=wort) | Q(wareneingaenge__nummer__icontains=wort))
+    if q:
+        liste = liste.distinct()
     seite, parameter = blaettern(request, liste)  # Modellsortierung: fällig, id
     zeilen =[(r, r.abgleich(), r.zahlbetrag()) for r in seite]
     return render(request, "einkauf/rechnungen.html", {
         "abweichungen": sum(1 for _, a, _ in zeilen if a["offen"]),
         "seite": seite, "parameter": parameter,
-        "zeilen": zeilen, "status": status, "sicht": sicht, "lieferanten": lieferanten_auswahl(),
+        "zeilen": zeilen, "status": status, "q": q, "sicht": sicht, "lieferanten": lieferanten_auswahl(),
         "gutschriften": services.offene_gutschriften(request.mandant) if sicht in ("op", "zahlung") else [],
         "eingaenge": LieferantengutschriftZahlung.objects.filter(gutschrift__mandant=request.mandant).select_related("gutschrift", "gutschrift__lieferant")[:30]
         if sicht == "zahlung" else [],
         "heute": date.today().isoformat(), "summe": sum((z[2] for z in zeilen), Decimal("0")),
-        "sepa_avis": sepa_avis_gruppen(request)})
+        "sepa_avis": sepa_avis_gruppen(request), "entwurf": rechnung_entwurf(request)})
+
+
+def rechnung_entwurf(request) -> dict:
+    """Eingaben einer nicht gespeicherten Rechnung (einmalig, nur im selben Mandanten)."""
+    entwurf = request.session.pop(RECHNUNG_ENTWURF, None) or {}
+    return entwurf if entwurf.get("mandant") == request.mandant.pk else {}
+
+
+RECHNUNG_ENTWURF = "rechnung_entwurf"
+
+
+def lieferant_aus_text(text):
+    """Getippter Lieferant ohne Auswahl aus der Liste: genau ein Treffer über Kurzname, Nummer oder Name, sonst None."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    for abfrage in (Q(kurzname__iexact=text) | Q(nummer__iexact=text) | Q(name1__iexact=text),
+                    Q(kurzname__icontains=text) | Q(name1__icontains=text)):
+        treffer = list(Lieferant.objects.filter(abfrage, gesperrt=False)[:2])
+        if len(treffer) == 1:
+            return treffer[0]
+        if treffer:
+            return None  # mehrdeutig: nicht raten
+    return None
 
 
 @mit_mandant
 @require_POST
-@schutz("einkauf:rechnungen")
 def rechnung_neu(request):
+    """Lieferantenrechnung von Hand erfassen. Bei einem Fehler bleiben alle Eingaben (auch die angehakten Wareneingänge)
+    stehen und die Meldung steht direkt am Formular (Wunsch des Nutzers 20.11.2026: eine Rechnung ging unbemerkt verloren)."""
+    zurueck = request.POST.get("zurueck", "")
+    zurueck = zurueck if zurueck.startswith("/") and not zurueck.startswith("//") else reverse("einkauf:rechnungen")
+    try:
+        return _rechnung_neu(request)
+    except ValueError as fehler:
+        request.session[RECHNUNG_ENTWURF] = {
+            "fehler": str(fehler), "mandant": request.mandant.pk,
+            **{f: request.POST.get(f, "")[:200] for f in ("lieferant", "lieferant_text", "rechnungsnummer", "datum", "netto", "brutto")},
+            "wareneingaenge": [i for i in request.POST.getlist("wareneingang") if i.isdigit()][:50]}
+        messages.error(request, f"Rechnung nicht gespeichert: {fehler}")
+        return redirect(zurueck + "#rechnung-erfassen")
+
+
+def _rechnung_neu(request):
     lieferant_id = request.POST.get("lieferant", "")
     lieferant = Lieferant.objects.filter(pk=lieferant_id).first() if lieferant_id.isdigit() else None
     if lieferant is None:
-        raise ValueError("Bitte einen Lieferanten aus der Liste wählen.")
+        lieferant = lieferant_aus_text(request.POST.get("lieferant_text"))
+    if lieferant is None:
+        raise ValueError("Lieferant nicht eindeutig – bitte aus der Liste wählen.")
     netto, brutto = zahl(request.POST.get("netto")), zahl(request.POST.get("brutto"))
     if brutto is None or not request.POST.get("rechnungsnummer", "").strip():
         raise ValueError("Rechnungsnummer und Bruttobetrag sind Pflicht.")

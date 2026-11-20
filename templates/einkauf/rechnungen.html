@@ -2,21 +2,37 @@
 {% block titel %}{% if sicht == 'op' %}Offene Posten Lieferanten{% elif sicht == 'zahlung' %}Zahlungen Lieferanten{% else %}Lieferantenrechnungen{% endif %} – wwok{% endblock %}
 {% block skript %}{% if sicht != 'zahlung' %}
 <script>
-  // Lieferant per Suchfeld: die getippte Auswahl wird zur Lieferanten-ID, freier Text gilt nicht
+  // Lieferant per Suchfeld: Auswahl aus der Liste oder getippter Text, der genau einen Lieferanten trifft (Kurzname, Name oder
+  // Nummer, z. B. „kosatec“). Das Ergebnis steht sichtbar unter dem Feld; mehrdeutig oder unbekannt = klarer Hinweis
+  // (Wunsch des Nutzers 20.11.2026: eine Rechnung wurde nicht gespeichert, weil der Lieferant nicht aus der Liste gewählt war)
   (function () {
     var feld = document.getElementById('lieferantsuche'), id = document.getElementById('lieferantid');
-    var liste = document.getElementById('lieferantenliste');
+    var liste = document.getElementById('lieferantenliste'), info = document.getElementById('lieferant-info');
+    function treffer() {
+      var text = feld.value.trim().toLowerCase(), optionen = Array.prototype.slice.call(liste.options);
+      if (!text) return [];
+      var genau = optionen.filter(function (o) { return o.value.toLowerCase() === text; });
+      if (genau.length) return genau;
+      var kurz = optionen.filter(function (o) { return (o.dataset.kurz || '').toLowerCase() === text || o.dataset.nummer === feld.value.trim(); });
+      return kurz.length ? kurz : optionen.filter(function (o) { return o.value.toLowerCase().indexOf(text) >= 0; });
+    }
     function pruefen() {
-      var treffer = Array.prototype.find.call(liste.options, function (o) { return o.value === feld.value; });
-      id.value = treffer ? treffer.dataset.pk : '';
-      feld.setCustomValidity(treffer || !feld.value ? '' : 'Bitte einen Lieferanten aus der Liste wählen.');
+      var t = treffer();
+      id.value = t.length === 1 ? t[0].dataset.pk : '';
+      var meldung = !feld.value.trim() || t.length === 1 ? '' : t.length ? 'Mehrere Lieferanten passen – bitte genauer tippen oder aus der Liste wählen.'
+        : 'Kein Lieferant passt zu „' + feld.value.trim() + '“.';
+      feld.setCustomValidity(meldung);
+      info.textContent = t.length === 1 ? '→ ' + t[0].value : meldung;
+      info.style.color = t.length === 1 ? '' : 'var(--warn)';
     }
     feld.addEventListener('input', pruefen);
     feld.addEventListener('change', pruefen);
+    pruefen();
 
     // Freie Wareneingänge des gewählten Lieferanten zum Anhaken laden; Summe und Differenz zum Netto sofort
     var box = document.getElementById('re-we'), zeilen = document.getElementById('re-we-zeilen'),
-        leer = document.getElementById('re-we-leer'), netto = document.getElementById('re-netto'), geladen = '', nettoVonHand = false;
+        leer = document.getElementById('re-we-leer'), netto = document.getElementById('re-netto'), geladen = '', nettoVonHand = !!netto.value.trim();
+    var vorwahl = (document.getElementById('re-we-vorwahl').value || '').split(',');  // nach einem Fehler: wieder angehakt
     if (!box) return;
     var fmt = function (z) { return z.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €'; };
     var zahl = function (t) { t = (t || '').trim().replace(/\./g, '').replace(',', '.'); return t ? parseFloat(t) : NaN; };
@@ -45,6 +61,7 @@
           daten.wareneingaenge.forEach(function (w) {
             var tr = document.createElement('tr'), td = document.createElement('td'), k = document.createElement('input');
             k.type = 'checkbox'; k.name = 'wareneingang'; k.value = w.pk; k.dataset.netto = w.netto;
+            k.checked = vorwahl.indexOf(String(w.pk)) >= 0;
             k.setAttribute('aria-label', w.nummer + ' verknüpfen');
             td.appendChild(k); tr.appendChild(td);
             zelle(tr, w.nummer); zelle(tr, w.datum); zelle(tr, w.bestellung || '–'); zelle(tr, w.lieferschein || '–');
@@ -60,6 +77,7 @@
     feld.addEventListener('input', laden);
     zeilen.addEventListener('change', rechnen);
     netto.addEventListener('input', function () { nettoVonHand = netto.value.trim() !== ''; rechnen(); });
+    laden();  // nach einem Fehler steht der Lieferant schon da
   })();
 </script>
 {% endif %}{% endblock %}
@@ -74,15 +92,24 @@
     <a class="knopf {% if status != 'exportiert' %}leise{% endif %}" href="?status=exportiert" title="SEPA-Datei erzeugt, Zahlung noch nicht als bezahlt gebucht">SEPA erstellt, nicht gebucht</a>
     <a class="knopf {% if status != 'bezahlt' %}leise{% endif %}" href="?status=bezahlt">Bezahlt</a>
     <a class="knopf {% if status != 'alle' %}leise{% endif %}" href="?status=alle">Alle</a></p>
-  {% if sicht != 'zahlung' %}<form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile">{% csrf_token %}
+  <form method="get" class="zeile" data-livefilter role="search" style="margin-top:0">
+    <input type="hidden" name="status" value="{{ status }}">
+    <div><label for="re-suche">Suchen: Rechnungsnr., Lieferant oder Wareneingang (WE-Nr.)</label>
+      <input type="search" id="re-suche" name="q" value="{{ q }}" size="34" autocomplete="off"></div>
+    <noscript><button type="submit" class="leise">Suchen</button></noscript>
+  </form>
+  {% if sicht != 'zahlung' %}<form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile" id="rechnung-erfassen">{% csrf_token %}<input type="hidden" name="zurueck" value="{{ request.get_full_path }}">
+    {% if entwurf.fehler %}<p class="warnung" style="flex-basis:100%;margin:0" role="alert">Nicht gespeichert: {{ entwurf.fehler }}</p>{% endif %}
     <div><label for="lieferantsuche">Lieferant (Name, Kurzname oder Nummer tippen)</label>
-      <input id="lieferantsuche" list="lieferantenliste" size="30" autocomplete="off" required>
-      <input type="hidden" name="lieferant" id="lieferantid">
-      <datalist id="lieferantenliste">{% for l in lieferanten %}<option value="{{ l.kurz }} – {{ l.name1 }} ({{ l.nummer }})" data-pk="{{ l.pk }}"></option>{% endfor %}</datalist></div>
-    <div><label>Rechnungsnr.</label><input name="rechnungsnummer" size="14"></div>
-    <div><label>Datum</label><input type="date" name="datum" value="{{ heute }}"></div>
-    <div><label>Netto</label><input name="netto" id="re-netto" size="9"></div>
-    <div><label>Brutto</label><input name="brutto" size="9"></div>
+      <input id="lieferantsuche" name="lieferant_text" list="lieferantenliste" size="30" autocomplete="off" required value="{{ entwurf.lieferant_text }}">
+      <input type="hidden" name="lieferant" id="lieferantid" value="{{ entwurf.lieferant }}">
+      <datalist id="lieferantenliste">{% for l in lieferanten %}<option value="{{ l.kurz }} – {{ l.name1 }} ({{ l.nummer }})" data-pk="{{ l.pk }}" data-kurz="{{ l.kurz }}" data-nummer="{{ l.nummer }}"></option>{% endfor %}</datalist>
+      <small id="lieferant-info" class="fein" style="display:block;min-height:1.2em" aria-live="polite"></small></div>
+    <div><label>Rechnungsnr.</label><input name="rechnungsnummer" size="14" required value="{{ entwurf.rechnungsnummer }}"></div>
+    <div><label>Datum</label><input type="date" name="datum" value="{{ entwurf.datum|default:heute }}" required></div>
+    <div><label>Netto</label><input name="netto" id="re-netto" size="9" inputmode="decimal" value="{{ entwurf.netto }}"></div>
+    <div><label>Brutto</label><input name="brutto" size="9" inputmode="decimal" required value="{{ entwurf.brutto }}"></div>
+    <input type="hidden" id="re-we-vorwahl" value="{{ entwurf.wareneingaenge|join:',' }}">
     <button type="submit">Erfassen</button>
     <div id="re-we" style="flex-basis:100%" data-url="{% url 'einkauf:rechnung_wareneingaenge' %}" hidden>
       <p class="fein" style="margin:6px 0 4px">Wareneingänge gleich verknüpfen (bei Teillieferungen mehrere anhaken):</p>
@@ -120,6 +147,7 @@
 </div>{% endif %}
 <div class="karte">
   <form method="post" action="{% url 'einkauf:sepa' %}" data-sepa-export>{% csrf_token %}
+  <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
   <table>
     <tr><th></th><th>Lieferant</th><th>Rechnung</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">zu zahlen</th><th>Abgleich</th><th>Status{% status_legende "lieferantenrechnung" "ueberfaellig" "skonto" %}</th></tr>
     {% for r, abgleich, zahlbetrag in zeilen %}
@@ -129,9 +157,10 @@
         <td class="zahl">{{ zahlbetrag }}{% if r.verrechnet %} <small>(nach Gutschrift)</small>{% elif zahlbetrag != r.brutto %} <small>(Skonto)</small>{% endif %}</td>
         <td>{% if not abgleich.verknuepft %}<span style="opacity:.6">kein Wareneingang</span>{% elif abgleich.ok %}passt{% else %}{% if abgleich.bestaetigt %}Abweichung {{ abgleich.differenz }} € bestätigt{% else %}<span style="color:var(--warn)">Abweichung {{ abgleich.differenz }} € – klären</span>{% endif %}{% endif %}{% if r.bemerkung %}<br><small>{{ r.bemerkung }}</small>{% endif %}</td>
         <td>{% status_symbol "lieferantenrechnung" r.status r.get_status_display faellig=r.faellig skonto_bis=r.skonto_bis %}</td></tr>
-    {% empty %}<tr><td colspan="9">Keine Rechnungen.</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="9">{% if q %}Keine Rechnung zu „{{ q }}“{% if status != 'alle' %} – <a href="?status=alle&amp;q={{ q|urlencode }}">in allen suchen</a>{% endif %}.{% else %}Keine Rechnungen.{% endif %}</td></tr>{% endfor %}
   </table>
   {% include "seiten.html" %}
+  </div>
   <p class="zeile" style="margin-top:12px"><span><label>Ausführungsdatum</label><input type="date" name="ausfuehrung" value="{{ heute }}"></span>
     <button type="submit">SEPA-Datei für Auswahl erzeugen (StarMoney)</button></p>
   </form>
