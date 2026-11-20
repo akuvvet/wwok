@@ -54,9 +54,9 @@ class PruefberichtATest(TestCase):
         self.client.post(reverse("einkauf:bestellung_rest_schliessen", args=[b.pk]))
         b.refresh_from_db(), p1.refresh_from_db(), p2.refresh_from_db()
         self.assertEqual((b.status, p1.menge, p2.menge), (BestellStatus.GELIEFERT, Decimal("2"), Decimal("0")))
-        self.assertIn("Rest nicht mehr lieferbar", b.bemerkung)
-        self.assertIn("3 × M1", b.bemerkung)
-        self.assertIn("3 × K1", b.bemerkung)
+        self.assertIn("Rest nicht mehr lieferbar", b.notiz)
+        self.assertIn("3 × M1", b.notiz)
+        self.assertIn("3 × K1", b.notiz)
         self.assertEqual(einkauf.offen_bestellt(self.m, self.maus), Decimal("0"))  # Bestellvorschlag rechnet den Rest nicht mehr ein
         self.assertNotContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), "bestellung_rest_schliessen")
         with self.assertRaises(ValueError):

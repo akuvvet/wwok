@@ -168,5 +168,35 @@ class LieferantTest(Basis):
         self.assertEqual(leer["Content-Type"].split(";")[0], "text/html")
         self.assertContains(leer, "Bitte mindestens eine Rechnung auswählen.")
 
+    def test_zahlungsavis_nach_sepa_export(self):
+        """Wunsch 20.11.2026: nach dem SEPA-Export auf der Rechnungsliste das Zahlungsavis je Lieferant anbieten."""
+        Mandant.objects.filter(pk=self.m.pk).update(iban="DE89370400440532013000")
+        r1, r2 = self.rechnung("R-100", "119"), self.rechnung("R-200", "59.50")
+        self.rechnung("R-NICHT", "10")  # nicht exportiert: nicht im Hinweis
+        liste = reverse("finanzen:zahlungen_lieferanten")
+        self.assertNotContains(self.client.get(liste), 'id="sepa-avis"')
+        ausfuehrung = self.heute + timedelta(days=1)
+        antwort = self.client.post(reverse("einkauf:sepa"), {"auswahl": [r1.pk, r2.pk], "ausfuehrung": ausfuehrung.isoformat()})
+        self.assertEqual(antwort["Content-Type"], "application/xml")
+        seite = self.client.get(liste)
+        avis = seite.context["sepa_avis"]
+        self.assertEqual(avis["datum"], ausfuehrung)
+        (gruppe,) = avis["gruppen"]
+        self.assertEqual([r.rechnungsnummer for r in gruppe["rechnungen"]], ["R-100", "R-200"])
+        self.assertEqual(gruppe["summe"], D("178.50"))
+        mail_url = reverse("einkauf:zahlungsavis_mail", args=[self.lf.pk]) + "?" + gruppe["query"]
+        self.assertContains(seite, mail_url.replace("&", "&amp;"))
+        self.assertNotContains(seite, "R-NICHT, ")
+        self.assertFalse(gruppe["gesendet"])
+        self.senden(mail_url, {"an": "buchhaltung@kosatec.test", "betreff": "Avis", "text": "Anbei."})
+        self.assertIn("R-200", pdf_text(mail.outbox[-1].attachments[0][1]))
+        seite = self.client.get(liste)
+        self.assertTrue(seite.context["sepa_avis"]["gruppen"][0]["gesendet"])
+        self.assertContains(seite, "✓ gesendet")
+        self.client.post(reverse("einkauf:sepa_avis_ausblenden"), {"weiter": liste})
+        self.assertIsNone(self.client.get(liste).context["sepa_avis"])
+        self.assertRedirects(self.client.post(reverse("einkauf:sepa_avis_ausblenden"), {"weiter": "//boese.test/"}),
+                             reverse("einkauf:rechnungen"), fetch_redirect_response=False)
+
     def test_symbol_auf_der_lieferantenseite(self):
         self.assertContains(self.client.get(reverse("einkauf:lieferant", args=[self.lf.pk])), 'aria-label="Zahlungsavis"')

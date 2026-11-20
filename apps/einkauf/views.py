@@ -215,6 +215,7 @@ def zahlungsavis_mail(request, lieferant_id):
             senden_an(request.mandant, an, betreff, mailtext, zahlungsavis_pdf(request.mandant, lieferant, avis), dateiname,
                       bezug=f"Zahlungsavis {lieferant.nummer}", benutzer=request.user)
             messages.success(request, f"Zahlungsavis an {an} gesendet.")
+            sepa_avis_gesendet(request, lieferant, auswahl)
             return redirect(zurueck)
         except MailFehler as fehler:
             messages.error(request, str(fehler))
@@ -328,7 +329,7 @@ def bestellung_detail(request, bestellung_id):
     bedarf_nur = request.GET.get("bedarf") == "lieferant"  # Standard: der gesamte Bedarf
     offen_fuer_positionen = b.status in (BestellStatus.ENTWURF, BestellStatus.BESTELLT, BestellStatus.TEIL)
     return render(request, "einkauf/bestellung.html", {
-        "b": b, "positionen": positionen, "netto": netto, "konditionen": konditionen, "mit_lieferung": any(p.geliefert for p in positionen),
+        "b": b, "positionen": positionen, "netto": netto, "gesamt_netto": netto + b.nebenkosten, "konditionen": konditionen, "mit_lieferung": any(p.geliefert for p in positionen),
         "wareneingaenge": b.alle_wareneingaenge().prefetch_related("positionen", "ruecksendungen"), "aus_beleg": b.aus_beleg,
         "bedarf": services.bedarf_fuer_lieferant(b, nur_lieferant=bedarf_nur) if offen_fuer_positionen else [], "bedarf_nur": bedarf_nur,
         "offen_fuer_positionen": offen_fuer_positionen,
@@ -1061,7 +1062,8 @@ def rechnungen(request, sicht=""):
         "gutschriften": services.offene_gutschriften(request.mandant) if sicht in ("op", "zahlung") else [],
         "eingaenge": LieferantengutschriftZahlung.objects.filter(gutschrift__mandant=request.mandant).select_related("gutschrift", "gutschrift__lieferant")[:30]
         if sicht == "zahlung" else [],
-        "heute": date.today().isoformat(), "summe": sum((z[2] for z in zeilen), Decimal("0"))})
+        "heute": date.today().isoformat(), "summe": sum((z[2] for z in zeilen), Decimal("0")),
+        "sepa_avis": sepa_avis_gruppen(request)})
 
 
 @mit_mandant
@@ -1251,9 +1253,56 @@ def sepa_export(request):
             messages.warning(request, "Achtung: Die Auswahl enthält Rechnungen, die schon einmal exportiert wurden – nicht doppelt bei der Bank einreichen.")
         daten = sepa.erzeuge(request.mandant, auswahl, ausfuehrung)
         Lieferantenrechnung.objects.filter(pk__in=[r.pk for r in auswahl]).update(status=RechnungStatus.EXPORTIERT)
+    # Merken für den Hinweis „Zahlungsavis senden“ auf der Rechnungsliste (Wunsch des Nutzers 20.11.2026)
+    request.session[sepa_avis_schluessel(request.mandant)] = {
+        "datum": ausfuehrung.isoformat(), "ids": [r.pk for r in auswahl], "gesendet": []}
     antwort = HttpResponse(daten, content_type="application/xml")
     antwort["Content-Disposition"] = f'attachment; filename="SEPA_{request.mandant.kurzname}_{ausfuehrung:%Y%m%d}.xml"'
     return antwort
+
+
+def sepa_avis_schluessel(mandant) -> str:
+    return f"sepa_avis_{mandant.pk}"
+
+
+def sepa_avis_gruppen(request):
+    """Letzter SEPA-Export dieser Sitzung je Lieferant: Rechnungen, Zahlbetrag am Ausführungstag, Links zum Zahlungsavis."""
+    gemerkt = request.session.get(sepa_avis_schluessel(request.mandant))
+    if not gemerkt:
+        return None
+    try:
+        datum = date.fromisoformat(gemerkt["datum"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    rechnungen = Lieferantenrechnung.objects.filter(mandant=request.mandant, pk__in=gemerkt.get("ids", [])) \
+        .exclude(status=RechnungStatus.OFFEN).select_related("lieferant").order_by("lieferant__name1", "pk")
+    gruppen = {}
+    for r in rechnungen:
+        gruppen.setdefault(r.lieferant_id, {"lieferant": r.lieferant, "rechnungen": []})["rechnungen"].append(r)
+    if not gruppen:
+        return None
+    for lieferant_id, g in gruppen.items():
+        g["summe"] = services.zahlungsavis(g["rechnungen"], datum)["summe"]["zahlung"]
+        g["query"] = avis_query(g["rechnungen"], datum)
+        g["gesendet"] = lieferant_id in gemerkt.get("gesendet", [])
+    return {"datum": datum, "gruppen": list(gruppen.values())}
+
+
+def sepa_avis_gesendet(request, lieferant, auswahl):
+    """Nach dem Mailversand den Lieferanten im Hinweis als erledigt markieren, wenn das Avis zum letzten Export gehört."""
+    schluessel = sepa_avis_schluessel(request.mandant)
+    gemerkt = request.session.get(schluessel)
+    if gemerkt and {r.pk for r in auswahl} & set(gemerkt.get("ids", [])) and lieferant.pk not in gemerkt.get("gesendet", []):
+        gemerkt.setdefault("gesendet", []).append(lieferant.pk)
+        request.session[schluessel] = gemerkt
+
+
+@mit_mandant
+@require_POST
+def sepa_avis_ausblenden(request):
+    request.session.pop(sepa_avis_schluessel(request.mandant), None)
+    weiter = request.POST.get("weiter", "")
+    return redirect(weiter if weiter.startswith("/") and not weiter.startswith("//") else "einkauf:rechnungen")
 
 
 # ---- RMA --------------------------------------------------------------------------------------------

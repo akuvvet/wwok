@@ -135,8 +135,6 @@
 </div>
 
 <div class="karte tabinhalt" id="tab-positionen">
-  {% if b.vorlaeufig and not positionen %}<div class="warnung" style="margin-top:0">Ohne Position lässt sich die Bestellung nicht abschließen (Nummer vergeben). Artikel unten erfassen oder aus dem Tab „Bedarf“ übernehmen; ohne Abschließen wird die Bestellung beim Verlassen verworfen.</div>
-  {% elif b.status == 'entwurf' and not positionen %}<div class="warnung" style="margin-top:0">Ohne Position wird die Bestellung nicht gespeichert: Ein leerer Entwurf wird nach ein paar Minuten automatisch entfernt. Artikel unten erfassen oder aus dem Tab „Bedarf“ übernehmen.</div>{% endif %}
   <div class="scroll"><table>
     <thead><tr><th>Artikel</th><th class="zahl">Menge</th>{% if mit_lieferung %}<th class="zahl">geliefert</th>{% endif %}<th class="zahl">EK netto</th><th class="zahl">Netto</th><th></th></tr></thead>
     <tbody>{% for p in positionen %}
@@ -222,7 +220,7 @@
 </div>
 {% endif %}
 
-<div class="karte tabinhalt" id="tab-versand" hidden>
+<div class="karte tabinhalt" id="tab-versand" hidden data-rechnen>
   <form method="post" action="{% url 'einkauf:bestellung_kopf' b.pk %}">{% csrf_token %}<input type="hidden" name="tab" value="versand">
     <fieldset {% if b.status == 'storniert' %}disabled{% endif %} style="border:0;padding:0;margin:0">
     <div class="raster">
@@ -236,17 +234,18 @@
     </div>
     <h2 style="margin-top:14px">Erwartete Nebenkosten (netto)</h2>
     <div class="raster">
-      <div><label for="versandkosten">Versandkosten</label><input id="versandkosten" name="versandkosten" value="{{ b.versandkosten|floatformat:2 }}" inputmode="decimal"></div>
-      <div><label for="verpackung">Verpackung</label><input id="verpackung" name="verpackung" value="{{ b.verpackung|floatformat:2 }}" inputmode="decimal"></div>
-      <div><label for="versicherung">Versicherung</label><input id="versicherung" name="versicherung" value="{{ b.versicherung|floatformat:2 }}" inputmode="decimal"></div>
+      <div><label for="versandkosten">Versandkosten</label><input id="versandkosten" name="versandkosten" value="{{ b.versandkosten|floatformat:2 }}" inputmode="decimal" data-wert="versand"></div>
+      <div><label for="verpackung">Verpackung</label><input id="verpackung" name="verpackung" value="{{ b.verpackung|floatformat:2 }}" inputmode="decimal" data-wert="verpackung"></div>
+      <div><label for="versicherung">Versicherung</label><input id="versicherung" name="versicherung" value="{{ b.versicherung|floatformat:2 }}" inputmode="decimal" data-wert="versicherung"></div>
     </div>
     <p class="fein">Die Nebenkosten gehen in den ersten Wareneingang zu dieser Bestellung (dort änderbar) und werden dort auf den Kalkulations-EK verteilt. Liefertermin, Bezugnahme, Versandart und Ansprechpartner stehen auf dem PDF; die Bestell-Mail geht an die E-Mail des Ansprechpartners.</p>
     <p><button type="submit">Speichern</button></p>
     </fieldset>
   </form>
   <table class="summentabelle" style="margin-top:0">
-    <tr><td>Ware netto</td><td class="zahl">{{ netto|floatformat:"2g" }} €</td></tr>
-    <tr><td>Nebenkosten</td><td class="zahl">{{ b.nebenkosten|floatformat:"2g" }} €</td></tr>
+    <tr><td>Ware netto</td><td class="zahl" data-wert="ware" data-rechenwert="{{ netto|stringformat:'s' }}">{{ netto|floatformat:"2g" }} €</td></tr>
+    <tr><td>Nebenkosten</td><td class="zahl" data-wert="nebenkosten" data-ergibt="versand + verpackung + versicherung">{{ b.nebenkosten|floatformat:"2g" }} €</td></tr>
+    <tr><td><strong>Gesamt netto</strong></td><td class="zahl"><strong data-ergibt="ware + nebenkosten">{{ gesamt_netto|floatformat:"2g" }} €</strong></td></tr>
   </table>
   {% with l=b.lieferant %}
   <h2>Konditionen von {{ l.name1 }}</h2>

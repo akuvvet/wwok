@@ -49,6 +49,7 @@ urlpatterns = [
     path("rechnungen/wareneingaenge/", views.rechnung_wareneingaenge, name="rechnung_wareneingaenge"),
     path("rechnungen/e-rechnung/", views.rechnung_erechnung, name="rechnung_erechnung"),
     path("rechnungen/sepa/", views.sepa_export, name="sepa"),
+    path("rechnungen/sepa/avis-ausblenden/", views.sepa_avis_ausblenden, name="sepa_avis_ausblenden"),
     path("rechnungen/<int:rechnung_id>/", views.rechnung_detail, name="rechnung"),
     path("rechnungen/<int:rechnung_id>/notiz/", views.rechnung_notiz, name="rechnung_notiz"),
     path("rechnungen/<int:rechnung_id>/abweichung-bestaetigen/", views.rechnung_abweichung_bestaetigen, name="rechnung_abweichung_bestaetigen"),

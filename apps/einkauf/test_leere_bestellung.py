@@ -79,12 +79,12 @@ class LeereBestellungTest(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertFalse(Bestellung.objects.exists())
 
-    def test_hinweis_in_der_leeren_bestellung(self):
+    def test_kein_hinweistext_in_der_leeren_bestellung(self):
+        """Der Warnkasten „Ohne Position …“ ist entfallen (Wunsch des Nutzers 20.11.2026: überflüssig)."""
         b = services.bestellung_anlegen(self.m, self.lf)
         r = self.client.get(reverse("einkauf:bestellung", args=[b.pk]))
-        self.assertContains(r, "Ohne Position wird die Bestellung nicht gespeichert")
-        services.bestellposition(b, self.maus, D("1"), ek=D("5"))
-        self.assertNotContains(self.client.get(reverse("einkauf:bestellung", args=[b.pk])), "Ohne Position wird die Bestellung nicht gespeichert")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, "Ohne Position")
 
     def test_nummernkreis_nur_freigegeben_wenn_letzte(self):
         b1 = services.bestellung_anlegen(self.m, self.lf)

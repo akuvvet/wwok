@@ -100,8 +100,26 @@
     <button type="submit" class="leise">Einlesen</button>
   </form>{% endif %}
 </div>
+{% if sepa_avis %}<div class="karte" id="sepa-avis">
+  <h2>Zahlungsavis zum SEPA-Export (Ausführung {{ sepa_avis.datum|date:"d.m.Y" }})</h2>
+  <p class="fein">Die Lieferanten wissen so, welche Rechnungen mit der Überweisung bezahlt werden.</p>
+  <div class="scroll"><table>
+    <tr><th>Lieferant</th><th>Rechnungen</th><th class="zahl">Zahlung</th><th></th></tr>
+    {% for g in sepa_avis.gruppen %}<tr>
+      <td><a href="{% url 'einkauf:lieferant' g.lieferant.pk %}">{{ g.lieferant.name1 }}</a></td>
+      <td>{% for r in g.rechnungen %}{{ r.rechnungsnummer }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+      <td class="zahl">{{ g.summe|floatformat:"2g" }} €</td>
+      <td>{% if g.gesendet %}<span class="fein">✓ gesendet</span> {% endif %}
+        <a class="knopf{% if g.gesendet %} leise{% endif %}" href="{% url 'einkauf:zahlungsavis_mail' g.lieferant.pk %}?{{ g.query }}">Per E-Mail senden</a>
+        <a class="knopf leise" href="{% url 'einkauf:zahlungsavis' g.lieferant.pk %}?{{ g.query }}&amp;aktion=pdf" target="_blank">PDF</a>
+        <a class="knopf leise" href="{% url 'einkauf:zahlungsavis' g.lieferant.pk %}?{{ g.query }}">Anpassen</a></td></tr>{% endfor %}
+  </table></div>
+  <form method="post" action="{% url 'einkauf:sepa_avis_ausblenden' %}" style="margin-top:8px">{% csrf_token %}
+    <input type="hidden" name="weiter" value="{{ request.get_full_path }}">
+    <button type="submit" class="leise">Hinweis ausblenden</button></form>
+</div>{% endif %}
 <div class="karte">
-  <form method="post" action="{% url 'einkauf:sepa' %}">{% csrf_token %}
+  <form method="post" action="{% url 'einkauf:sepa' %}" data-sepa-export>{% csrf_token %}
   <table>
     <tr><th></th><th>Lieferant</th><th>Rechnung</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">zu zahlen</th><th>Abgleich</th><th>Status{% status_legende "lieferantenrechnung" "ueberfaellig" "skonto" %}</th></tr>
     {% for r, abgleich, zahlbetrag in zeilen %}
@@ -117,6 +135,14 @@
   <p class="zeile" style="margin-top:12px"><span><label>Ausführungsdatum</label><input type="date" name="ausfuehrung" value="{{ heute }}"></span>
     <button type="submit">SEPA-Datei für Auswahl erzeugen (StarMoney)</button></p>
   </form>
+  <script>
+    // Die SEPA-Datei kommt als Download, die Seite bleibt stehen: kurz danach neu laden, damit Status und Zahlungsavis erscheinen
+    document.querySelector('form[data-sepa-export]').addEventListener('submit', function (e) {
+      if (!e.defaultPrevented && this.querySelector('input[name=auswahl]:checked')) {
+        setTimeout(function () { window.location.href = window.location.pathname + window.location.search + '#sepa-avis'; window.location.reload(); }, 1500);
+      }
+    });
+  </script>
 </div>
 {% if gutschriften %}<div class="karte">
   <h2>Guthaben bei Lieferanten (Gutschriften)</h2>

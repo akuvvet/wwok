@@ -87,7 +87,7 @@ class LieferantenkopieTest(TestCase):
         self.pos(self.ab, self.tast, "1")  # neue Position desselben Artikels
         b = self.kopieren(modus=services.MODUS_FEHLEND)[0]
         self.assertEqual(sorted((p.artikel.nummer, p.menge) for p in b.positionen.all()), [("M1", D("3")), ("T1", D("1"))])
-        self.assertIn("nur fehlende Mengen", b.bemerkung)
+        self.assertIn("nur fehlende Mengen", b.notiz)
 
     def test_alles_bestellt_nur_fehlendes_meldet(self):
         self.bestellt(self.kopieren())
@@ -100,7 +100,7 @@ class LieferantenkopieTest(TestCase):
             self.kopieren(modus=services.MODUS_KOMPLETT, grund="  ")
         b = self.kopieren(modus=services.MODUS_KOMPLETT, grund="Lieferant liefert nicht")[0]
         self.assertEqual(b.positionen.count(), 2)
-        self.assertIn("erneut komplett bestellt: Lieferant liefert nicht", b.bemerkung)
+        self.assertIn("erneut komplett bestellt: Lieferant liefert nicht", b.notiz)
 
     def test_storno_zaehlt_nicht_bleibt_in_historie(self):
         liste = self.kopieren()
