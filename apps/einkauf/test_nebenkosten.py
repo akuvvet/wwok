@@ -144,10 +144,30 @@ class NebenkostenTest(TestCase):
         daten = {"rechnungsnummer": "R-1", "brutto": "119", "netto": "100", "datum": date.today().isoformat()}
         for lieferant in ("", "abc", "999999"):
             r = self.client.post(url, {**daten, "lieferant": lieferant}, follow=True)
-            self.assertContains(r, "Bitte einen Lieferanten aus der Liste wählen.")
+            self.assertContains(r, "Lieferant nicht eindeutig – bitte aus der Liste wählen.")
         self.assertFalse(Lieferantenrechnung.objects.exists())
         self.client.post(url, {**daten, "lieferant": self.lf.pk})
         self.assertEqual(Lieferantenrechnung.objects.get().lieferant, self.lf)
+
+    def test_lieferant_getippt_und_eingaben_bleiben_nach_fehler(self):
+        """Wunsch 20.11.2026: Rechnung ging verloren, weil der Lieferant nur getippt (nicht aus der Liste gewählt) war."""
+        url = reverse("einkauf:rechnung_neu")
+        heute = date.today().isoformat()
+        r = self.client.post(url, {"lieferant": "", "lieferant_text": "api", "rechnungsnummer": "R-7", "brutto": "119",
+                                   "netto": "100", "datum": heute})
+        self.assertEqual(Lieferantenrechnung.objects.get().lieferant, self.lf)  # „api“ trifft genau einen Lieferanten
+        # Fehler (doppelte Nummer): Meldung am Formular, alle Eingaben bleiben stehen – einmalig
+        r = self.client.post(url, {"lieferant": self.lf.pk, "lieferant_text": "API – API GmbH (L1)", "rechnungsnummer": "R-7",
+                                   "brutto": "59,50", "netto": "50", "datum": heute, "wareneingang": ["12"],
+                                   "zurueck": reverse("finanzen:op_lieferanten")})
+        self.assertRedirects(r, reverse("finanzen:op_lieferanten") + "#rechnung-erfassen", fetch_redirect_response=False)
+        seite = self.client.get(reverse("finanzen:op_lieferanten"))
+        self.assertContains(seite, "Nicht gespeichert: Die Rechnung R-7 von API GmbH ist bereits erfasst.")
+        for wert in ('value="59,50"', 'value="R-7"', 'value="API – API GmbH (L1)"', 'id="re-we-vorwahl" value="12"'):
+            self.assertContains(seite, wert)
+        self.assertNotContains(self.client.get(reverse("finanzen:op_lieferanten")), "Nicht gespeichert")
+        self.assertRedirects(self.client.post(url, {"zurueck": "//boese.test/"}), reverse("einkauf:rechnungen") + "#rechnung-erfassen",
+                             fetch_redirect_response=False)
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)

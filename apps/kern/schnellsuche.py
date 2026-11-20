@@ -8,7 +8,7 @@ from django.db.models import Case, Exists, IntegerField, OuterRef, Q, Value, Whe
 from django.http import JsonResponse
 from django.urls import reverse
 
-from apps.einkauf.models import Bestellung
+from apps.einkauf.models import Bestellung, Lieferantenrechnung, RechnungStatus, Wareneingang
 from apps.kern.hilfe import als_treffer as hilfe_als_treffer, hilfe_suchen, ist_frage
 from apps.stammdaten.models import KENNUNGEN, Artikel, Kunde, Lieferant
 from apps.verkauf.models import Beleg, BelegUmwandlung
@@ -82,6 +82,21 @@ def suchen(q, mandant):
     bestellungen = Bestellung.objects.filter(_filter(woerter, ["nummer", "lieferant__name1"]), mandant=mandant)
     for z in _exakt_zuerst(bestellungen, q).values("pk", "nummer", "lieferant__name1")[:MAX_JE_GRUPPE]:
         hinzu("Bestellung", z["nummer"] or "(nicht gespeichert)", z["lieferant__name1"], reverse("einkauf:bestellung", args=[z["pk"]]))
+
+    # Wareneingänge und Lieferantenrechnungen (Wunsch des Nutzers 20.11.2026: erfasste Rechnung war nirgends zu finden)
+    eingaenge = Wareneingang.objects.filter(_filter(woerter, ["nummer", "lieferschein", "lieferant__name1", "lieferant__kurzname"]),
+                                            mandant=mandant, nummer__isnull=False)
+    for z in _exakt_zuerst(eingaenge, q).values("pk", "nummer", "lieferant__name1", "gebucht")[:MAX_JE_GRUPPE]:
+        hinzu("Wareneingang", z["nummer"], f"{z['lieferant__name1']}{'' if z['gebucht'] else ' · nicht gebucht'}",
+              reverse("einkauf:wareneingang", args=[z["pk"]]))
+
+    rechnungen = Lieferantenrechnung.objects.filter(
+        _filter(woerter, ["rechnungsnummer", "lieferant__name1", "lieferant__kurzname"],
+                lambda wort: Exists(Lieferantenrechnung.wareneingaenge.through.objects.filter(
+                    lieferantenrechnung=OuterRef("pk"), wareneingang__nummer__icontains=wort))), mandant=mandant)
+    for z in _exakt_zuerst(rechnungen, q, "rechnungsnummer").values("pk", "rechnungsnummer", "lieferant__name1", "status")[:MAX_JE_GRUPPE]:
+        status = dict(RechnungStatus.choices).get(z["status"], "")
+        hinzu("Lieferantenrechnung", z["rechnungsnummer"], f"{z['lieferant__name1']} · {status}", reverse("einkauf:rechnung", args=[z["pk"]]))
 
     reparaturen = Reparatur.objects.filter(_filter(woerter, ["nummer", "geraet", "kunde__name1"]), mandant=mandant)
     for z in _exakt_zuerst(reparaturen, q).values("pk", "nummer", "geraet", "kunde__name1", "kunde__anonymisiert")[:MAX_JE_GRUPPE]:
