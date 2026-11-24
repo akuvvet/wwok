@@ -34,13 +34,16 @@ def kontoauszug(mandant, lieferant):
 
     from .models import LieferantengutschriftVerrechnung, LieferantengutschriftZahlung
     posten = []  # (datum, rang, id, text, betrag oder None, url, info)
-    for r in Lieferantenrechnung.objects.filter(mandant=mandant, lieferant=lieferant).prefetch_related("verrechnungen"):
+    for r in Lieferantenrechnung.objects.filter(mandant=mandant, lieferant=lieferant).prefetch_related("verrechnungen", "teilzahlungen"):
         url = reverse("einkauf:rechnung", args=[r.pk])
         posten.append((r.datum, 0, r.pk, f"Rechnung {r.rechnungsnummer}", r.brutto, url, None))
+        for t in r.teilzahlungen.all():
+            if not t.storniert:
+                posten.append((t.datum, 1, r.pk, f"Teilzahlung an Lieferanten zu Rechnung {r.rechnungsnummer}", -t.betrag, url, None))
         if r.status == RechnungStatus.BEZAHLT and r.bezahlt_am:
             if r.bezahlter_betrag:
                 posten.append((r.bezahlt_am, 1, r.pk, f"Zahlung an Lieferanten zu Rechnung {r.rechnungsnummer}", -r.bezahlter_betrag, url, None))
-            rest = r.brutto - r.verrechnet - (r.bezahlter_betrag or Decimal("0"))
+            rest = r.brutto - r.verrechnet - r.teilgezahlt - (r.bezahlter_betrag or Decimal("0"))
             if rest:
                 posten.append((r.bezahlt_am, 1, r.pk, f"Skonto/Differenz zu Rechnung {r.rechnungsnummer}", -rest, url, None))
     for g in Lieferantengutschrift.objects.filter(mandant=mandant, lieferant=lieferant).select_related("ruecksendung"):

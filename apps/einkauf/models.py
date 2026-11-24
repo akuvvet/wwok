@@ -237,6 +237,11 @@ class Lieferantenrechnung(Zeitstempel):
     abweichung_bestaetigt = models.DecimalField(
         "bestätigte Abweichung", **GELD, null=True, blank=True, editable=False,
         help_text="Differenz zum Wareneingang, die ein Benutzer bewusst bestätigt hat; ändert sich die Differenz, gilt die Bestätigung nicht mehr.")
+    # Wunsch des Nutzers 24.11.2026 (wie in Mention): Zahlsperre hält die Rechnung aus SEPA-Export und Schnellauswahl heraus
+    zahlsperre = models.BooleanField("Zahlsperre", default=False, db_index=True)
+    zahlsperre_grund = models.CharField("Grund der Zahlsperre", max_length=200, blank=True)
+    sepa_betrag = models.DecimalField("Teilbetrag im letzten SEPA-Export", **GELD, null=True, blank=True,
+                                      help_text="Nur bei einer Teilzahlung per SEPA; beim Buchen als Teilzahlung vorgeschlagen.")
 
     class Meta:
         verbose_name = "Lieferantenrechnung"
@@ -278,9 +283,16 @@ class Lieferantenrechnung(Zeitstempel):
         return sum((v.betrag for v in self.verrechnungen.all() if not v.aufgehoben), Decimal("0"))
 
     @property
+    def teilgezahlt(self) -> Decimal:
+        """Summe der gebuchten Teilzahlungen (ohne stornierte)."""
+        if self.pk is None:
+            return Decimal("0")
+        return sum((t.betrag for t in self.teilzahlungen.all() if not t.storniert), Decimal("0"))
+
+    @property
     def offener_betrag(self) -> Decimal:
-        """Brutto minus Verrechnungen (ohne Skonto): bis zu diesem Betrag lässt sich noch verrechnen."""
-        return max(self.brutto - self.verrechnet, Decimal("0"))
+        """Brutto minus Verrechnungen und Teilzahlungen (ohne Skonto): bis zu diesem Betrag lässt sich noch verrechnen."""
+        return max(self.brutto - self.verrechnet - self.teilgezahlt, Decimal("0"))
 
     @property
     def durch_verrechnung_bezahlt(self) -> bool:
@@ -289,13 +301,13 @@ class Lieferantenrechnung(Zeitstempel):
 
     def zahlbetrag(self, am=None) -> Decimal:
         """Betrag für die Überweisung; Skonto nur, wenn die Skontofrist am Zahlungstag noch läuft. Verrechnungen mit
-        Gutschriften des Lieferanten mindern ihn (nie unter 0); das Skonto bezieht sich auf das Rechnungsbrutto."""
+        Gutschriften des Lieferanten und Teilzahlungen mindern ihn (nie unter 0); das Skonto bezieht sich auf das Rechnungsbrutto."""
         am = am or timezone.localdate()
         if self.skonto_prozent and self.skonto_bis and am <= self.skonto_bis:
             basis = (self.brutto * (Decimal("100") - self.skonto_prozent) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         else:
             basis = self.brutto
-        return max(basis - self.verrechnet, Decimal("0"))
+        return max(basis - self.verrechnet - self.teilgezahlt, Decimal("0"))
 
     def abgleich(self) -> dict:
         """Netto der verknüpften Wareneingänge gegen Rechnung, Nebenkosten mitgerechnet, außer sie kommen auf eigener Rechnung:
@@ -346,10 +358,35 @@ class Lieferantenrechnung(Zeitstempel):
             raise ValueError("Netto plus Steuer ergibt nicht den Bruttobetrag.")
         if brutto < self.verrechnet:
             raise ValueError(f"Der Bruttobetrag liegt unter den schon verrechneten {self.verrechnet} € – bitte erst die Verrechnung rückgängig machen.")
+        if brutto < self.verrechnet + self.teilgezahlt:
+            raise ValueError(f"Der Bruttobetrag liegt unter dem schon Bezahlten (Teilzahlungen {self.teilgezahlt} €) – bitte erst die Teilzahlung stornieren.")
         self.historie_eintrag(f"Beträge korrigiert: netto {self.netto} → {netto}, steuer {self.steuer} → {steuer}, "
                               f"brutto {self.brutto} → {brutto}", benutzer)
         self.netto, self.steuer, self.brutto = netto, steuer, brutto
         self.save()
+
+
+class Lieferantenteilzahlung(models.Model):
+    """Teilzahlung an den Lieferanten auf eine Rechnung (Wunsch des Nutzers 24.11.2026); der Rest bleibt offen.
+    Unveränderlich; Korrektur nur per Storno mit Grund."""
+
+    rechnung = models.ForeignKey(Lieferantenrechnung, on_delete=models.PROTECT, related_name="teilzahlungen")
+    datum = models.DateField(default=timezone.localdate)
+    betrag = models.DecimalField(**GELD)
+    benutzer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    angelegt_am = models.DateTimeField(default=timezone.now)
+    storniert = models.BooleanField(default=False, db_index=True)
+    storno_grund = models.CharField(max_length=300, blank=True)
+    storno_am = models.DateTimeField(null=True, blank=True)
+    storno_von = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    class Meta:
+        verbose_name = "Teilzahlung an Lieferanten"
+        verbose_name_plural = "Teilzahlungen an Lieferanten"
+        ordering = ["datum", "id"]
+
+    def __str__(self):
+        return f"{self.betrag} € am {self.datum:%d.%m.%Y} zu {self.rechnung.rechnungsnummer}"
 
 
 class RmaStatus(models.TextChoices):
