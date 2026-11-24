@@ -189,15 +189,16 @@ class LieferantengutschriftTest(TestCase):
                 services.gutschrift_verrechnen(g, fremd, D("10"))
         self.assertEqual(services.verrechenbare_rechnungen(g), [])
 
-    def test_offene_abweichung_sperrt_verrechnung(self):
+    def test_offene_abweichung_sperrt_verrechnung_nicht(self):  # Entscheidung des Nutzers 24.11.2026
         from .models import Wareneingang  # noqa: F401
         we = services.wareneingang_anlegen(self.m, self.lf)
         services.wareneingang_erfassen(we, self.maus, D("10"), D("9"))
         services.wareneingang_buchen(we, bestaetigt=True)
         r = self.rechnung("R1", D("595.00"))  # Wareneingang 90 netto, Rechnung 500 netto
         r.wareneingaenge.set([we])
-        with self.assertRaisesMessage(ValueError, "weicht"):
-            services.gutschrift_verrechnen(self.gutschrift(), r, D("10"))
+        services.gutschrift_verrechnen(self.gutschrift(), r, D("10"))
+        r.refresh_from_db()
+        self.assertEqual(r.verrechnet, D("10"))
 
     def test_skonto_bezieht_sich_auf_rechnungsbrutto(self):
         r = self.rechnung("R1", D("100.00"), skonto_prozent=D("2"), skonto_bis=HEUTE + timedelta(days=5))

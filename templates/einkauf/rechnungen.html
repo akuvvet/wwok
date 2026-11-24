@@ -42,7 +42,7 @@
       summe = Math.round(summe * 100) / 100;
       document.getElementById('re-we-summe').textContent = fmt(summe);
       document.getElementById('re-we-anzahl').textContent = anzahl;
-      if (!nettoVonHand) netto.value = anzahl ? summe.toFixed(2).replace('.', ',') : '';
+      if (!nettoVonHand) { netto.value = anzahl ? summe.toFixed(2).replace('.', ',') : ''; if (anzahl) window.wwokUst(netto); }  // Brutto mit 19 %
       var n = zahl(netto.value), d = document.getElementById('re-we-diff');
       if (!anzahl || isNaN(n)) { d.textContent = ''; return; }
       var diff = Math.round((n - summe) * 100) / 100;
@@ -87,7 +87,7 @@
   <h1>{% if sicht == 'op' %}Offene Posten Lieferanten{% elif sicht == 'zahlung' %}Zahlungen Lieferanten{% else %}Lieferantenrechnungen{% endif %} · Mandant {{ request.mandant }}</h1>
   {% if sicht == 'zahlung' %}<p style="opacity:.85">Rechnungen ankreuzen und unten die <strong>SEPA-Datei</strong> für die Bank erzeugen. Sie stehen danach unter „SEPA erstellt, nicht gebucht“,
      bis du die Zahlung in der Rechnung als bezahlt buchst. Neue Rechnungen erfasst du unter <a href="{% url 'finanzen:op_lieferanten' %}">Offene Posten → Lieferanten</a>.</p>{% endif %}
-  {% if abweichungen %}<p class="warnung">{{ abweichungen }} Rechnung{{ abweichungen|pluralize:"en" }} weich{{ abweichungen|pluralize:"t,en" }} vom Wareneingang ab – bitte korrigieren oder bestätigen (Zahlung und SEPA-Export sind gesperrt).</p>{% endif %}
+  {% if abweichungen %}<p class="warnung">{{ abweichungen }} Rechnung{{ abweichungen|pluralize:"en" }} weich{{ abweichungen|pluralize:"t,en" }} vom Wareneingang ab – bitte prüfen und korrigieren oder bestätigen (Zahlung und SEPA-Export sind trotzdem möglich).</p>{% endif %}
   <p class="zeile"><a class="knopf {% if status != 'offen' %}leise{% endif %}" href="?status=offen">{% if sicht == 'zahlung' %}Zu zahlen{% else %}Nicht bezahlt{% endif %}</a>
     <a class="knopf {% if status != 'exportiert' %}leise{% endif %}" href="?status=exportiert" title="SEPA-Datei erzeugt, Zahlung noch nicht als bezahlt gebucht">SEPA erstellt, nicht gebucht</a>
     <a class="knopf {% if status != 'bezahlt' %}leise{% endif %}" href="?status=bezahlt">Bezahlt</a>
@@ -98,7 +98,7 @@
       <input type="search" id="re-suche" name="q" value="{{ q }}" size="34" autocomplete="off"></div>
     <noscript><button type="submit" class="leise">Suchen</button></noscript>
   </form>
-  {% if sicht != 'zahlung' %}<form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile" id="rechnung-erfassen">{% csrf_token %}<input type="hidden" name="zurueck" value="{{ request.get_full_path }}">
+  {% if sicht != 'zahlung' %}<form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile" id="rechnung-erfassen" data-ust-gruppe>{% csrf_token %}<input type="hidden" name="zurueck" value="{{ request.get_full_path }}">
     {% if entwurf.fehler %}<p class="warnung" style="flex-basis:100%;margin:0" role="alert">Nicht gespeichert: {{ entwurf.fehler }}</p>{% endif %}
     <div><label for="lieferantsuche">Lieferant (Name, Kurzname oder Nummer tippen)</label>
       <input id="lieferantsuche" name="lieferant_text" list="lieferantenliste" size="30" autocomplete="off" required value="{{ entwurf.lieferant_text }}">
@@ -107,8 +107,8 @@
       <small id="lieferant-info" class="fein" style="display:block;min-height:1.2em" aria-live="polite"></small></div>
     <div><label>Rechnungsnr.</label><input name="rechnungsnummer" size="14" required value="{{ entwurf.rechnungsnummer }}"></div>
     <div><label>Datum</label><input type="date" name="datum" value="{{ entwurf.datum|default:heute }}" required></div>
-    <div><label>Netto</label><input name="netto" id="re-netto" size="9" inputmode="decimal" value="{{ entwurf.netto }}"></div>
-    <div><label>Brutto</label><input name="brutto" size="9" inputmode="decimal" required value="{{ entwurf.brutto }}"></div>
+    <div><label>Netto</label><input name="netto" id="re-netto" size="9" inputmode="decimal" value="{{ entwurf.netto }}" data-ust="netto" title="Netto eingeben → Brutto mit 19 %; oder Brutto eingeben → Netto"></div>
+    <div><label>Brutto</label><input name="brutto" size="9" inputmode="decimal" required value="{{ entwurf.brutto }}" data-ust="brutto"></div>
     <input type="hidden" id="re-we-vorwahl" value="{{ entwurf.wareneingaenge|join:',' }}">
     <button type="submit">Erfassen</button>
     <div id="re-we" style="flex-basis:100%" data-url="{% url 'einkauf:rechnung_wareneingaenge' %}" hidden>

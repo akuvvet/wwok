@@ -1218,7 +1218,8 @@ def rechnung_bezahlt(request, rechnung_id):
         r = Lieferantenrechnung.objects.select_for_update().select_related("lieferant").get(pk=rechnung_id)
         if r.status == RechnungStatus.BEZAHLT:
             raise ValueError("Die Rechnung ist schon als bezahlt gebucht.")
-        r.freigabe_pruefen()
+        if hinweis := r.abweichung_hinweis():  # nur Hinweis, keine Sperre (Wunsch des Nutzers 24.11.2026)
+            messages.warning(request, f"Bezahlt gebucht trotz Abweichung: {hinweis}")
         betrag = zahl(request.POST.get("betrag"), r.zahlbetrag(tag(request.POST.get("datum"))))
         if betrag <= 0:
             raise ValueError("Der bezahlte Betrag muss größer als 0 sein.")
@@ -1295,8 +1296,9 @@ def sepa_export(request):
     with transaction.atomic():  # keine Überweisung für eine Rechnung, die gerade gelöscht wird
         auswahl = list(Lieferantenrechnung.objects.select_for_update().filter(pk__in=request.POST.getlist("auswahl"), mandant=request.mandant)
                        .exclude(status=RechnungStatus.BEZAHLT).select_related("lieferant"))
-        for r in auswahl:
-            r.freigabe_pruefen()
+        abweichend = [h for r in auswahl if (h := r.abweichung_hinweis())]  # nur Hinweis, keine Sperre (24.11.2026)
+        if abweichend:
+            messages.warning(request, "Exportiert trotz Abweichung zum Wareneingang: " + " ".join(abweichend))
         if any(r.status == RechnungStatus.EXPORTIERT for r in auswahl):
             messages.warning(request, "Achtung: Die Auswahl enthält Rechnungen, die schon einmal exportiert wurden – nicht doppelt bei der Bank einreichen.")
         daten = sepa.erzeuge(request.mandant, auswahl, ausfuehrung)

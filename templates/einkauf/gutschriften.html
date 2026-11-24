@@ -23,16 +23,16 @@
   <h1>Lieferanten-Gutschriften · Mandant {{ request.mandant }}</h1>
   <p style="opacity:.85">Gutschriften des Lieferanten ohne Rücksendung (z. B. Bonus, Preisnachlass, Gutschrift zu einer Rechnung) hier erfassen.
      Gutschriften aus einer WE-Rücksendung (Lieferant → + WE-Rücksendung) entstehen dort mit „Gutschrift erhalten“ und stehen ebenfalls in dieser Liste.</p>
-  <form method="post" action="{% url 'einkauf:gutschrift_neu' %}" class="zeile" style="align-items:flex-end">{% csrf_token %}
+  <form method="post" action="{% url 'einkauf:gutschrift_neu' %}" class="zeile" style="align-items:flex-end" data-ust-gruppe>{% csrf_token %}
     <div><label for="lieferantsuche">Lieferant (Name, Kurzname oder Nummer tippen)</label>
       <input id="lieferantsuche" list="lieferantenliste" size="30" autocomplete="off" required>
       <input type="hidden" name="lieferant" id="lieferantid">
       <datalist id="lieferantenliste">{% for l in lieferanten %}<option value="{{ l.kurz }} – {{ l.name1 }} ({{ l.nummer }})" data-pk="{{ l.pk }}"></option>{% endfor %}</datalist></div>
     <div><label for="g_nummer">Gutschrift-Nr. des Lieferanten</label><input id="g_nummer" name="nummer" size="14" maxlength="60" required></div>
     <div><label for="g_datum">Gutschriftdatum</label><input id="g_datum" type="date" name="datum" max="{{ heute }}" value="{{ heute }}" required></div>
-    <div><label for="g_netto">Netto (€)</label><input id="g_netto" name="netto" size="9" inputmode="decimal" required data-wert="netto"></div>
-    <div><label for="g_steuer">USt (€)</label><input id="g_steuer" name="steuer" size="9" inputmode="decimal" required data-wert="steuer" data-ergibt="runde(netto * 0.19)" title="Vorschlag 19 % aus Netto – überschreibbar"></div>
-    <div><label for="g_brutto">Brutto (€)</label><input id="g_brutto" name="brutto" size="9" inputmode="decimal" required data-ergibt="netto + steuer" title="Vorschlag Netto + USt – überschreibbar"></div>
+    <div><label for="g_netto">Netto (€)</label><input id="g_netto" name="netto" size="9" inputmode="decimal" required data-wert="netto" data-ust="netto"></div>
+    <div><label for="g_steuer">USt (€)</label><input id="g_steuer" name="steuer" size="9" inputmode="decimal" required data-wert="steuer" data-ust="steuer"></div>
+    <div><label for="g_brutto">Brutto (€)</label><input id="g_brutto" name="brutto" size="9" inputmode="decimal" required data-ust="brutto"></div>
     <div><label for="g_notiz">Notiz</label><input id="g_notiz" name="notiz" size="24" maxlength="200"></div>
     <button type="submit">Gutschrift erfassen</button>
   </form>

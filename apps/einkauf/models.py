@@ -310,12 +310,14 @@ class Lieferantenrechnung(Zeitstempel):
         return {"verknuepft": True, "wareneingang_netto": soll, "differenz": differenz, "ok": ok,
                 "bestaetigt": bestaetigt, "offen": not ok and not bestaetigt}
 
-    def freigabe_pruefen(self):
-        """Zahlung oder SEPA-Export nur ohne offene Abweichung: erst korrigieren oder mit Begründung bestätigen."""
+    def abweichung_hinweis(self):
+        """Offene Abweichung zum Wareneingang als Hinweistext, sonst None. Sie sperrt Zahlung, SEPA-Export und Verrechnung nicht
+        mehr (Wunsch des Nutzers 24.11.2026: der Wareneingang lässt sich nachträglich schwer korrigieren, die Rechnung gilt)."""
         a = self.abgleich()
         if a["offen"]:
-            raise ValueError(f"Rechnung {self.rechnungsnummer} ({self.lieferant.name1}) weicht um {a['differenz']} € vom Wareneingang ab – "
-                             "bitte erst korrigieren oder die Abweichung mit Begründung bestätigen.")
+            return (f"Rechnung {self.rechnungsnummer} ({self.lieferant.name1}) weicht um {a['differenz']} € vom Wareneingang ab "
+                    "(nicht bestätigt).")
+        return None
 
     def historie_eintrag(self, text, benutzer=None):
         zeile = f"{timezone.localtime():%d.%m.%Y %H:%M} {benutzer or '-'}: {text}"

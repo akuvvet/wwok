@@ -186,6 +186,34 @@
     }
     document.addEventListener('input', eingabe);
     document.addEventListener('change', eingabe);
+
+    // Netto / USt / Brutto gegenseitig (Wunsch des Nutzers 24.11.2026): Felder mit data-ust="netto|steuer|brutto" im Bereich
+    // [data-ust-gruppe] (Satz data-ust-satz, Standard 19). Netto getippt → USt und Brutto; Brutto getippt → Netto und USt;
+    // USt getippt → Brutto. Geänderte Felder melden ein input-Ereignis (andere Skripte rechnen mit). Nach dem Setzen per
+    // Skript (z. B. Netto aus angehakten Wareneingängen): window.wwokUst(feld).
+    var ustLaeuft = false;
+    function ustText(x) { return isFinite(x) ? runde(x, 2).toFixed(2).replace('.', ',') : ''; }
+    function ust(feld) {
+      var gruppe = feld && feld.closest('[data-ust-gruppe]');
+      if (!gruppe || ustLaeuft) return;
+      var f = {};
+      gruppe.querySelectorAll('[data-ust]').forEach(function (el) { f[el.dataset.ust] = el; });
+      var satz = lesen(gruppe.dataset.ustSatz || '19') / 100, art = feld.dataset.ust, x = lesen(feld.value);
+      if (!feld.value.trim() || isNaN(x)) return;
+      var neu = {};
+      if (art === 'netto') { var st = runde(x * satz, 2); neu.steuer = st; neu.brutto = x + st; }
+      else if (art === 'brutto') { var n = runde(x / (1 + satz), 2); neu.netto = n; neu.steuer = x - n; }
+      else if (art === 'steuer' && f.netto && f.netto.value.trim()) { neu.brutto = lesen(f.netto.value) + x; }
+      ustLaeuft = true;
+      try {
+        Object.keys(neu).forEach(function (k) {
+          var el = f[k], text = ustText(neu[k]);
+          if (el && el.value !== text) { el.value = text; el.dispatchEvent(new Event('input', {bubbles: true})); }
+        });
+      } finally { ustLaeuft = false; }
+    }
+    document.addEventListener('input', function (e) { if (e.target && e.target.dataset && e.target.dataset.ust) ust(e.target); });
+    window.wwokUst = ust;
     window.wwokRechnen = rechnen;
     window.wwokZahl = lesen;
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { rechnen(); }); else rechnen();
