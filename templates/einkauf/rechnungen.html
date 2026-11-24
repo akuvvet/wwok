@@ -96,6 +96,7 @@
     <input type="hidden" name="status" value="{{ status }}">
     <div><label for="re-suche">Suchen: Rechnungsnr., Lieferant oder Wareneingang (WE-Nr.)</label>
       <input type="search" id="re-suche" name="q" value="{{ q }}" size="34" autocomplete="off"></div>
+    <div><label for="re-bis">fällig bis</label><input type="date" id="re-bis" name="bis" value="{{ bis|date:'Y-m-d' }}"></div>
     <noscript><button type="submit" class="leise">Suchen</button></noscript>
   </form>
   {% if sicht != 'zahlung' %}<form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile" id="rechnung-erfassen" data-ust-gruppe>{% csrf_token %}<input type="hidden" name="zurueck" value="{{ request.get_full_path }}">
@@ -148,22 +149,62 @@
 <div class="karte">
   <form method="post" action="{% url 'einkauf:sepa' %}" data-sepa-export>{% csrf_token %}
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
+  {% if status != 'bezahlt' and summen.anzahl %}<div class="raster" id="op-summen" style="margin-bottom:10px">
+    <div>Fällig (bis heute)<br><strong style="color:var(--warn)">{{ summen.faellig|floatformat:"2g" }} €</strong> <small class="fein">({{ summen.faellig_anzahl }})</small></div>
+    <div>Nicht fällig<br><strong>{{ summen.nicht_faellig|floatformat:"2g" }} €</strong></div>
+    <div>Gesamt zu zahlen<br><strong>{{ summen.gesamt|floatformat:"2g" }} €</strong> <small class="fein">({{ summen.anzahl }} Rechnung{{ summen.anzahl|pluralize:"en" }})</small></div>
+    {% if summen.skonto_anzahl %}<div>Skonto möglich<br><strong style="color:var(--ok, green)">{{ summen.skonto|floatformat:"2g" }} €</strong> <small class="fein">bei {{ summen.skonto_anzahl }} Rechnung{{ summen.skonto_anzahl|pluralize:"en" }}, bereits abgezogen</small></div>{% endif %}
+    {% if summen.guthaben %}<div>Guthaben (Gutschriften)<br><strong>{{ summen.guthaben|floatformat:"2g" }} €</strong> <small class="fein">unten verrechnen</small></div>{% endif %}
+  </div>{% endif %}
   <table>
     <tr><th></th><th>Lieferant</th><th>Rechnung</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">zu zahlen</th><th>Abgleich</th><th>Status{% status_legende "lieferantenrechnung" "ueberfaellig" "skonto" %}</th></tr>
     {% for r, abgleich, zahlbetrag in zeilen %}
-    <tr><td>{% if r.status != 'bezahlt' %}<input type="checkbox" name="auswahl" value="{{ r.pk }}">{% endif %}</td>
+    <tr><td>{% if r.status != 'bezahlt' %}<input type="checkbox" name="auswahl" value="{{ r.pk }}" data-betrag="{{ zahlbetrag|stringformat:'s' }}"
+          {% if r.ist_faellig %}data-faellig{% endif %} {% if r.skonto_laeuft %}data-skonto{% endif %} aria-label="{{ r.rechnungsnummer }} markieren">{% endif %}</td>
         <td><a href="{% url 'einkauf:lieferant' r.lieferant_id %}" title="{{ r.lieferant.nummer }} – {{ r.lieferant.name1 }}">{{ r.lieferant.kurz }}</a></td><td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a></td>
         <td>{{ r.datum|date:"d.m.Y" }}</td><td>{{ r.faellig|date:"d.m.Y" }}</td><td class="zahl">{{ r.brutto }}</td>
-        <td class="zahl">{{ zahlbetrag }}{% if r.verrechnet %} <small>(nach Gutschrift)</small>{% elif zahlbetrag != r.brutto %} <small>(Skonto)</small>{% endif %}</td>
+        <td class="zahl">{{ zahlbetrag }}{% if r.verrechnet %} <small>(nach Gutschrift)</small>{% elif zahlbetrag != r.brutto %} <small>(Skonto)</small>{% endif %}
+          {% if r.guthaben %}<br><small style="color:var(--ok, green)" title="Gutschrift des Lieferanten noch nicht verrechnet">Guthaben {{ r.guthaben|floatformat:"2g" }} € verrechenbar</small>{% endif %}</td>
         <td>{% if not abgleich.verknuepft %}<span style="opacity:.6">kein Wareneingang</span>{% elif abgleich.ok %}passt{% else %}{% if abgleich.bestaetigt %}Abweichung {{ abgleich.differenz }} € bestätigt{% else %}<span style="color:var(--warn)">Abweichung {{ abgleich.differenz }} € – klären</span>{% endif %}{% endif %}{% if r.bemerkung %}<br><small>{{ r.bemerkung }}</small>{% endif %}</td>
         <td>{% status_symbol "lieferantenrechnung" r.status r.get_status_display faellig=r.faellig skonto_bis=r.skonto_bis %}</td></tr>
     {% empty %}<tr><td colspan="9">{% if q %}Keine Rechnung zu „{{ q }}“{% if status != 'alle' %} – <a href="?status=alle&amp;q={{ q|urlencode }}">in allen suchen</a>{% endif %}.{% else %}Keine Rechnungen.{% endif %}</td></tr>{% endfor %}
   </table>
   {% include "seiten.html" %}
   </div>
-  <p class="zeile" style="margin-top:12px"><span><label>Ausführungsdatum</label><input type="date" name="ausfuehrung" value="{{ heute }}"></span>
+  <p class="zeile" id="op-auswahl" style="margin-top:12px">
+    <button type="button" class="leise" data-markieren="faellig">Fällige markieren</button>
+    <button type="button" class="leise" data-markieren="skonto">Skonto-Rechnungen markieren</button>
+    <button type="button" class="leise" data-markieren="keine">Keine</button>
+    <span aria-live="polite">Markiert: <strong id="op-anzahl">0</strong> · Zahlsumme <strong id="op-zahlsumme">0,00 €</strong></span></p>
+  <p class="zeile" style="margin-top:8px"><span><label>Ausführungsdatum</label><input type="date" name="ausfuehrung" value="{{ heute }}"></span>
     <button type="submit">SEPA-Datei für Auswahl erzeugen (StarMoney)</button></p>
   </form>
+  <script>
+    // Zahlsumme der markierten Rechnungen sofort (wie „Zahlsumme“ in Mention); Schnellauswahl fällig / Skonto / keine.
+    // Über das Formular delegiert, damit es auch nach dem Live-Filter (neue Tabelle) weiter rechnet.
+    (function () {
+      var form = document.querySelector('form[data-sepa-export]');
+      var fmt = function (z) { return z.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €'; };
+      function rechnen() {
+        var summe = 0, anzahl = 0;
+        form.querySelectorAll('input[name=auswahl]:checked').forEach(function (k) { summe += parseFloat(k.dataset.betrag) || 0; anzahl++; });
+        setzen('op-anzahl', String(anzahl));
+        setzen('op-zahlsumme', fmt(Math.round(summe * 100) / 100));
+      }
+      function setzen(id, text) { var el = document.getElementById(id); if (el.textContent !== text) el.textContent = text; }  // sonst Endlosschleife mit dem Observer
+      form.addEventListener('change', function (e) { if (e.target.name === 'auswahl') rechnen(); });
+      form.addEventListener('click', function (e) {
+        var art = e.target.dataset && e.target.dataset.markieren;
+        if (!art) return;
+        form.querySelectorAll('input[name=auswahl]').forEach(function (k) {
+          k.checked = art === 'faellig' ? k.hasAttribute('data-faellig') : art === 'skonto' ? k.hasAttribute('data-skonto') : false;
+        });
+        rechnen();
+      });
+      new MutationObserver(rechnen).observe(form, {childList: true, subtree: true});
+      rechnen();
+    })();
+  </script>
   <script>
     // Die SEPA-Datei kommt als Download, die Seite bleibt stehen: kurz danach neu laden, damit Status und Zahlungsavis erscheinen
     document.querySelector('form[data-sepa-export]').addEventListener('submit', function (e) {
@@ -176,12 +217,20 @@
 {% if gutschriften %}<div class="karte">
   <h2>Guthaben bei Lieferanten (Gutschriften)</h2>
   <table>
-    <tr><th>Lieferant</th><th>Gutschrift</th><th>Datum</th><th class="zahl">Brutto</th><th class="zahl">Restguthaben</th></tr>
+    <tr><th>Lieferant</th><th>Gutschrift</th><th>Datum</th><th class="zahl">Brutto</th><th class="zahl">Restguthaben</th><th>Mit Rechnung verrechnen</th></tr>
     {% for g in gutschriften %}<tr><td><a href="{% url 'einkauf:lieferant' g.lieferant_id %}" title="{{ g.lieferant.nummer }} – {{ g.lieferant.name1 }}">{{ g.lieferant.kurz }}</a></td>
       <td><a href="{% url 'einkauf:gutschrift' g.pk %}">{{ g.nummer }}</a></td><td>{{ g.datum|date:"d.m.Y" }}</td>
-      <td class="zahl">{{ g.brutto|floatformat:"2g" }}</td><td class="zahl"><strong>{{ g.restguthaben|floatformat:"2g" }} €</strong></td></tr>{% endfor %}
+      <td class="zahl">{{ g.brutto|floatformat:"2g" }}</td><td class="zahl"><strong>{{ g.restguthaben|floatformat:"2g" }} €</strong></td>
+      <td>{% if g.rechnungen_offen %}<form method="post" action="{% url 'einkauf:gutschrift_verrechnen' g.pk %}" class="zeile" style="margin:0">{% csrf_token %}
+          <input type="hidden" name="zurueck" value="{{ request.get_full_path }}">
+          <select name="rechnung" aria-label="Rechnung für {{ g.nummer }}">{% for r in g.rechnungen_offen %}
+            <option value="{{ r.pk }}">{{ r.rechnungsnummer }} – offen {{ r.offener_betrag|floatformat:"2g" }} €</option>{% endfor %}</select>
+          <input name="betrag" size="8" inputmode="decimal" placeholder="max." aria-label="Betrag (leer = so viel wie möglich)" title="Leer = so viel wie möglich (Restguthaben bzw. offener Betrag)">
+          <button type="submit" class="leise">Verrechnen</button></form>
+        {% else %}<span class="fein">keine offene Rechnung</span>{% endif %}</td></tr>{% endfor %}
   </table>
-  <p style="opacity:.8">Das Guthaben mindert die Zahlung, sobald du es in der Gutschrift mit einer offenen Rechnung verrechnest, oder wird als Zahlung des Lieferanten gebucht.</p>
+  <p style="opacity:.8">Das Guthaben mindert die Zahlung, sobald du es mit einer offenen Rechnung verrechnest (hier oder in der Gutschrift), oder wird als Zahlung des Lieferanten gebucht.
+    Bereits per SEPA exportierte Rechnungen lassen sich nicht verrechnen.</p>
 </div>{% endif %}
 {% if eingaenge %}<div class="karte">
   <h2>Zahlungseingänge von Lieferanten (Gutschriften)</h2>

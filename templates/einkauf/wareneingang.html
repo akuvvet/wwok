@@ -14,6 +14,31 @@
     {% if not we.gebucht %}<form method="post" action="{% url 'einkauf:wareneingang_loeschen' we.pk %}" data-frage="Wareneingang {{ we.nummer }} löschen? Die Mengen bleiben in der Bestellung offen.">{% csrf_token %}<button type="submit" class="gefahr leise">Wareneingang löschen</button></form>{% endif %}
   </div>
 </div>
+{% if rechnung_erfassen %}{% with e=rechnung_erfassen.entwurf %}<div class="karte" id="rechnung-erfassen">
+  <h2>Lieferantenrechnung zu {{ we.nummer }} erfassen</h2>
+  <p class="fein" style="margin-top:0">Netto aus dem Wareneingang ist vorbelegt, Brutto rechnet mit 19 % – nur Rechnungsnummer eintragen und Beträge mit der Rechnung vergleichen.
+    Fälligkeit und Skonto kommen aus der Zahlungsbedingung des Lieferanten.</p>
+  <form method="post" action="{% url 'einkauf:rechnung_neu' %}" class="zeile" data-ust-gruppe>{% csrf_token %}
+    <input type="hidden" name="zurueck" value="{{ request.path }}">
+    <input type="hidden" name="lieferant" value="{{ we.lieferant_id }}">
+    <input type="hidden" name="wareneingang" value="{{ we.pk }}">
+    {% if e.fehler %}<p class="warnung" style="flex-basis:100%;margin:0" role="alert">Nicht gespeichert: {{ e.fehler }}</p>{% endif %}
+    <div><label for="we-re-nummer">Rechnungsnr.</label><input id="we-re-nummer" name="rechnungsnummer" size="16" required value="{{ e.rechnungsnummer }}"></div>
+    <div><label>Rechnungsdatum</label><input type="date" name="datum" value="{{ e.datum|default:heute }}" required></div>
+    <div><label>Netto</label><input name="netto" size="10" inputmode="decimal" data-ust="netto" value="{% if e.netto %}{{ e.netto }}{% else %}{{ rechnung_erfassen.netto|floatformat:'2' }}{% endif %}"></div>
+    <div><label>Brutto</label><input name="brutto" size="10" inputmode="decimal" required data-ust="brutto" value="{{ e.brutto }}"></div>
+    <button type="submit">Rechnung erfassen</button>
+  </form>
+  {% if rechnung_erfassen.andere %}<p class="fein" style="margin-bottom:0">Rechnet die Rechnung mehrere Lieferungen ab ({% for w in rechnung_erfassen.andere %}{{ w.nummer }}{% if not forloop.last %}, {% endif %}{% endfor %} {{ rechnung_erfassen.andere|length|pluralize:"ist,sind" }} auch noch ohne Rechnung)?
+    Dann unter <a href="{% url 'einkauf:rechnungen' %}?lieferant={{ we.lieferant_id }}#rechnung-erfassen">Lieferantenrechnungen</a> erfassen und alle anhaken.</p>{% endif %}
+</div>
+<script>
+  // Brutto aus dem vorbelegten Netto gleich mitrechnen (gemeinsame Funktion aus rechnen.html)
+  (function () {
+    var netto = document.querySelector('#rechnung-erfassen [data-ust=netto]'), brutto = document.querySelector('#rechnung-erfassen [data-ust=brutto]');
+    if (netto && brutto && !brutto.value.trim() && netto.value.trim() && window.wwokUst) window.wwokUst(netto);
+  })();
+</script>{% endwith %}{% endif %}
 
 <div class="tabs" role="tablist">
   <button type="button" class="tab aktiv" data-tab="positionen" role="tab">Positionen <span class="zaehler">{{ positionen|length }}</span></button>

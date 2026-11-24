@@ -16,7 +16,12 @@
     <button class="knopf" type="submit">Suchen</button>
     {% if q %}<a class="knopf leise" href="?{% if nur %}nur={{ nur }}{% endif %}{% if kunde %}&kunde={{ kunde.pk }}{% endif %}">Zurücksetzen</a>{% endif %}
   </form>
-  <p>Offen gesamt: <strong>{{ summe|floatformat:"2g" }} €</strong> · davon überfällig: <strong style="color:var(--warn)">{{ ueberfaellig|floatformat:"2g" }} €</strong></p>
+  <div class="raster" id="op-summen" style="margin-bottom:10px">
+    <div>Überfällig<br><strong style="color:var(--warn)">{{ summen.ueberfaellig|floatformat:"2g" }} €</strong></div>
+    <div>Noch nicht fällig<br><strong>{{ summen.nicht_faellig|floatformat:"2g" }} €</strong></div>
+    <div>Gutschriften / Guthaben<br><strong>{{ summen.gutschriften|floatformat:"2g" }} €</strong>{% if summen.gutschriften %} <small class="fein">im Beleg verrechnen oder auszahlen</small>{% endif %}</div>
+    <div>Gesamt offen<br><strong>{{ summen.gesamt|floatformat:"2g" }} €</strong></div>
+  </div>
   <table>
     <tr><th>Beleg</th><th>Kunde</th><th>Datum</th><th><a href="{{ kopf.faellig.url }}">fällig {{ kopf.faellig.pfeil }}</a></th><th class="zahl">Brutto</th><th class="zahl">bezahlt/verrechnet</th><th class="zahl"><a href="{{ kopf.offen.url }}">offen {{ kopf.offen.pfeil }}</a></th><th class="zahl"><a href="{{ kopf.ueberfaellig.url }}">überfällig {{ kopf.ueberfaellig.pfeil }}</a></th><th>Mahnstufe</th></tr>
     {% for z in zeilen %}

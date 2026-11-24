@@ -84,6 +84,9 @@ def offene_posten(request):
         zeilen = [z for z in zeilen if wort in op_text(z)]
     summe = sum((z["offen"] for z in zeilen), Decimal("0"))
     ueberfaellig = sum((z["offen"] for z in zeilen if z["ueberfaellig"] > 0), Decimal("0"))
+    gutschriften = sum((z["offen"] for z in zeilen if z["offen"] < 0), Decimal("0"))  # Guthaben der Kunden (negativ)
+    summen = {"ueberfaellig": ueberfaellig, "gutschriften": gutschriften, "gesamt": summe,
+              "nicht_faellig": summe - ueberfaellig - gutschriften}  # wie Mention: Fällig / Nicht fällig / Gesamt
     seite, parameter = blaettern(request, zeilen)
     Beleg.versand_markieren(z["beleg"] for z in seite)  # Versand-Symbol in der Liste
     # Spaltenköpfe: erster Klick aufsteigend, zweiter absteigend; übrige Filter bleiben erhalten
@@ -101,7 +104,7 @@ def offene_posten(request):
         proformas = [z for z in proformas if wort in op_text(z)]
     return render(request, "finanzen/offene_posten.html", {
         "proformas": proformas, "proformas_summe": sum((z["offen"] for z in proformas), Decimal("0")),
-        "zeilen": seite, "seite": seite, "parameter": parameter, "summe": summe, "ueberfaellig": ueberfaellig,
+        "zeilen": seite, "seite": seite, "parameter": parameter, "summe": summe, "ueberfaellig": ueberfaellig, "summen": summen,
         "kunde": kunde, "nur": request.GET.get("nur", ""), "q": q, "sort": sort, "kopf": kopf})
 
 
