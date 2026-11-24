@@ -99,11 +99,12 @@ def zahlungsavis_pdf(mandant, lieferant, avis) -> bytes:
               Paragraph("Zahlungsavis", titel), Spacer(1, 5 * mm),
               absatz(f"Sehr geehrte Damen und Herren,\n\nam {datum:%d.%m.%Y} überweisen wir Ihnen{konto} den Betrag von "
                      f"{euro(summe['zahlung'])} € für die folgenden Rechnungen:", normal), Spacer(1, 5 * mm)]
-    daten = [["Rechnung", "Datum", "Betrag", "Gutschrift", "Skonto/Abzug", "Zahlung"]]
+    daten = [["Rechnung", "Datum", "Betrag", "Gutschrift/Teilz.", "Skonto/Abzug", "Zahlung"]]
     for z in avis["zeilen"]:
         r = z["rechnung"]
         gs = "\n".join(f"{nr}: {euro(b)}" for nr, b in z["gutschriften"])
-        daten.append([absatz(r.rechnungsnummer, zelle), r.datum.strftime("%d.%m.%Y"), euro(z["brutto"]),
+        hinweis = chr(10) + z["hinweis"] if z.get("hinweis") else ""  # Teilzahlung: Rest bleibt offen
+        daten.append([absatz(r.rechnungsnummer + hinweis, zelle), r.datum.strftime("%d.%m.%Y"), euro(z["brutto"]),
                       absatz(gs, zelle) if gs else "", euro(z["skonto"]) if z["skonto"] else "", euro(z["zahlung"])])
     daten.append([absatz("Summe", fett), "", euro(summe["brutto"]), euro(summe["gutschriften"]) if summe["gutschriften"] else "",
                   euro(summe["skonto"]) if summe["skonto"] else "", euro(summe["zahlung"])])
@@ -113,7 +114,7 @@ def zahlungsavis_pdf(mandant, lieferant, avis) -> bytes:
                            ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.black), ("LINEABOVE", (0, -1), (-1, -1), 0.8, colors.black),
                            ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 9)]))
     inhalt += [t, Spacer(1, 6 * mm),
-               absatz("Gutschriften: mit der Rechnung verrechnete Gutschriften von Ihnen. Skonto/Abzug: Skonto innerhalb der "
+               absatz("Gutschrift/Teilz.: mit der Rechnung verrechnete Gutschriften von Ihnen bzw. schon geleistete Teilzahlungen. Skonto/Abzug: Skonto innerhalb der "
                       "Zahlungsfrist bzw. sonstige Differenz zum Rechnungsbetrag.", klein),
                Spacer(1, 6 * mm), absatz(f"Mit freundlichen Grüßen\n{m.firmenname}", normal)]
     seite = fusszeile(m)

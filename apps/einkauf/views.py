@@ -1060,7 +1060,7 @@ def rechnungen(request, sicht=""):
     """sicht: „“ = Einkauf, „op“ = Finanzen → Offene Posten Lieferanten, „zahlung“ = Finanzen → Zahlungen Lieferanten."""
     status = request.GET.get("status", "offen")
     liste = Lieferantenrechnung.objects.filter(mandant=request.mandant).select_related("lieferant") \
-        .prefetch_related("wareneingaenge__positionen", "verrechnungen")
+        .prefetch_related("wareneingaenge__positionen", "verrechnungen", "teilzahlungen")
     if status == "offen":  # nicht bezahlt: noch offen oder schon per SEPA exportiert
         liste = liste.exclude(status=RechnungStatus.BEZAHLT)
     elif status in RechnungStatus.values:  # u. a. „exportiert“: SEPA-Datei erzeugt, Zahlung noch nicht gebucht
@@ -1084,8 +1084,8 @@ def rechnungen(request, sicht=""):
     seite, parameter = blaettern(request, liste)  # Modellsortierung: fällig, id
     zeilen =[(r, r.abgleich(), r.zahlbetrag()) for r in seite]
     for r, _, _ in zeilen:
-        r.ist_faellig = r.status != RechnungStatus.BEZAHLT and r.faellig <= heute
-        r.skonto_laeuft = r.status != RechnungStatus.BEZAHLT and bool(r.skonto_prozent and r.skonto_bis and heute <= r.skonto_bis)
+        r.ist_faellig = r.status != RechnungStatus.BEZAHLT and not r.zahlsperre and r.faellig <= heute
+        r.skonto_laeuft = r.status != RechnungStatus.BEZAHLT and not r.zahlsperre and bool(r.skonto_prozent and r.skonto_bis and heute <= r.skonto_bis)
         r.guthaben = guthaben.get(r.lieferant_id) if r.status == RechnungStatus.OFFEN else None
     gutschriften = services.offene_gutschriften(request.mandant) if sicht in ("op", "zahlung") else []
     for g in gutschriften:  # direkt in der Liste mit einer offenen Rechnung desselben Lieferanten verrechnen
@@ -1113,9 +1113,13 @@ def rechnung_summen(liste, heute, guthaben) -> dict:
     """Summenblock über alle gefilterten, nicht bezahlten Rechnungen (nicht nur die Seite), wie in Mention:
     fällig, nicht fällig, davon mit laufendem Skonto (Ersparnis), Gesamt und Guthaben aus Gutschriften."""
     s = {"faellig": Decimal("0"), "nicht_faellig": Decimal("0"), "skonto": Decimal("0"), "skonto_anzahl": 0,
-         "anzahl": 0, "faellig_anzahl": 0, "guthaben": guthaben}
-    for r in liste.exclude(status=RechnungStatus.BEZAHLT).prefetch_related(None).prefetch_related("verrechnungen"):
+         "anzahl": 0, "faellig_anzahl": 0, "guthaben": guthaben, "gesperrt": Decimal("0"), "gesperrt_anzahl": 0}
+    for r in liste.exclude(status=RechnungStatus.BEZAHLT).prefetch_related(None).prefetch_related("verrechnungen", "teilzahlungen"):
         betrag = r.zahlbetrag(heute)
+        if r.zahlsperre:  # gesperrt: eigener Posten wie in Mention, nicht in fällig/gesamt
+            s["gesperrt"] += betrag
+            s["gesperrt_anzahl"] += 1
+            continue
         s["anzahl"] += 1
         if r.faellig <= heute:
             s["faellig"] += betrag
@@ -1123,7 +1127,7 @@ def rechnung_summen(liste, heute, guthaben) -> dict:
         else:
             s["nicht_faellig"] += betrag
         if r.skonto_prozent and r.skonto_bis and heute <= r.skonto_bis:
-            s["skonto"] += max(r.brutto - r.verrechnet, Decimal("0")) - betrag
+            s["skonto"] += max(r.brutto - r.verrechnet - r.teilgezahlt, Decimal("0")) - betrag
             s["skonto_anzahl"] += 1
     s["gesamt"] = s["faellig"] + s["nicht_faellig"]
     return s
@@ -1262,6 +1266,7 @@ def rechnung_detail(request, rechnung_id):
     return render(request, "einkauf/rechnung.html", {
         "r": r, "abgleich": r.abgleich(), "zahlbetrag": r.zahlbetrag(), "kandidaten": kandidaten, "verknuepft": verknuepft,
         "verrechnungen": r.verrechnungen.select_related("gutschrift"), "verrechnet": r.verrechnet,
+        "teilzahlungen": r.teilzahlungen.select_related("benutzer", "storno_von"), "teilgezahlt": r.teilgezahlt,
         "heute": date.today().isoformat()})
 
 
@@ -1279,10 +1284,52 @@ def rechnung_bezahlt(request, rechnung_id):
         betrag = zahl(request.POST.get("betrag"), r.zahlbetrag(tag(request.POST.get("datum"))))
         if betrag <= 0:
             raise ValueError("Der bezahlte Betrag muss größer als 0 sein.")
+        if r.zahlsperre:  # Zahlung ist trotzdem erfolgt: Sperre ist erledigt
+            r.historie_eintrag(f"Zahlsperre mit der Zahlung aufgehoben (war: {r.zahlsperre_grund})", request.user)
+            messages.warning(request, "Die Rechnung hatte eine Zahlsperre; sie ist mit der Zahlung aufgehoben.")
+            r.zahlsperre, r.zahlsperre_grund = False, ""
         r.status = RechnungStatus.BEZAHLT
         r.bezahlt_am = tag(request.POST.get("datum"))
         r.bezahlter_betrag = betrag
+        r.sepa_betrag = None
         r.save()
+    return redirect("einkauf:rechnung", rechnung_id=r.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:rechnung", "rechnung_id")
+def rechnung_zahlsperre(request, rechnung_id):
+    r = get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
+    if request.POST.get("aktion") == "aufheben":
+        services.zahlsperre_aufheben(r, request.user)
+        messages.success(request, "Zahlsperre aufgehoben.")
+    else:
+        services.zahlsperre_setzen(r, request.POST.get("grund"), request.user)
+        messages.success(request, "Zahlsperre gesetzt: die Rechnung wird nicht per SEPA bezahlt.")
+    return redirect("einkauf:rechnung", rechnung_id=r.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:rechnung", "rechnung_id")
+def rechnung_teilzahlung(request, rechnung_id):
+    r = get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
+    t = services.teilzahlung_buchen(r, zahl(request.POST.get("betrag")), tag(request.POST.get("datum")), request.user)
+    r.refresh_from_db()
+    messages.success(request, f"Teilzahlung {t.betrag} € gebucht, offen bleiben {r.zahlbetrag()} €.".replace(".", ","))
+    return redirect("einkauf:rechnung", rechnung_id=r.pk)
+
+
+@mit_mandant
+@require_POST
+@schutz("einkauf:rechnung", "rechnung_id")
+@nur_admin
+def rechnung_teilzahlung_storno(request, rechnung_id, teilzahlung_id):
+    r = get_object_or_404(Lieferantenrechnung, pk=rechnung_id, mandant=request.mandant)
+    t = get_object_or_404(r.teilzahlungen, pk=teilzahlung_id)
+    services.teilzahlung_stornieren(t, request.POST.get("grund"), request.user)
+    messages.success(request, "Teilzahlung storniert.")
     return redirect("einkauf:rechnung", rechnung_id=r.pk)
 
 
@@ -1355,10 +1402,26 @@ def sepa_export(request):
         abweichend = [h for r in auswahl if (h := r.abweichung_hinweis())]  # nur Hinweis, keine Sperre (24.11.2026)
         if abweichend:
             messages.warning(request, "Exportiert trotz Abweichung zum Wareneingang: " + " ".join(abweichend))
+        if gesperrt := [r.rechnungsnummer for r in auswahl if r.zahlsperre]:
+            raise ValueError(f"Nichts exportiert: Zahlsperre bei {', '.join(gesperrt)} – bitte abwählen oder die Sperre in der Rechnung aufheben.")
         if any(r.status == RechnungStatus.EXPORTIERT for r in auswahl):
             messages.warning(request, "Achtung: Die Auswahl enthält Rechnungen, die schon einmal exportiert wurden – nicht doppelt bei der Bank einreichen.")
+        for r in auswahl:  # Teilzahlung: abweichender (kleinerer) Betrag je Rechnung, der Rest bleibt offen
+            r.sepa_betrag = None
+            text = request.POST.get(f"betrag_{r.pk}", "").strip()
+            if text:
+                betrag, voll = zahl(text), r.zahlbetrag(ausfuehrung)
+                if betrag <= 0 or betrag > voll:
+                    raise ValueError(f"Nichts exportiert: Betrag für {r.rechnungsnummer} muss größer 0 und höchstens {voll} € sein.")
+                if betrag < voll:
+                    r.sepa_betrag = betrag.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         daten = sepa.erzeuge(request.mandant, auswahl, ausfuehrung)
         Lieferantenrechnung.objects.filter(pk__in=[r.pk for r in auswahl]).update(status=RechnungStatus.EXPORTIERT)
+        for r in auswahl:
+            Lieferantenrechnung.objects.filter(pk=r.pk).update(sepa_betrag=r.sepa_betrag)
+        if teil := [r for r in auswahl if r.sepa_betrag]:
+            messages.info(request, "Teilzahlung exportiert: " + ", ".join(r.rechnungsnummer + " " + f"{r.sepa_betrag} €".replace(".", ",") for r in teil)
+                          + ". Nach der Überweisung in der Rechnung „Teilzahlung buchen“ – der Rest bleibt offen.")
     # Merken für den Hinweis „Zahlungsavis senden“ auf der Rechnungsliste (Wunsch des Nutzers 20.11.2026)
     request.session[sepa_avis_schluessel(request.mandant)] = {
         "datum": ausfuehrung.isoformat(), "ids": [r.pk for r in auswahl], "gesendet": []}

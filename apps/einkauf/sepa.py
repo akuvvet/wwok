@@ -32,7 +32,7 @@ def erzeuge(mandant, rechnungen, ausfuehrung=None) -> bytes:
     for r in rechnungen:
         if not iban(r.lieferant.iban):
             raise SepaFehler(f"Lieferant {r.lieferant.name1} hat keine IBAN.")
-        zeilen.append((r, r.zahlbetrag(ausfuehrung)))
+        zeilen.append((r, r.sepa_betrag or r.zahlbetrag(ausfuehrung)))  # Teilzahlung: gewählter Teilbetrag
     if not zeilen:
         raise SepaFehler("Keine Rechnungen ausgewählt.")
     summe = sum((b for _, b in zeilen), Decimal("0"))

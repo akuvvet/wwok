@@ -149,26 +149,32 @@
 <div class="karte">
   <form method="post" action="{% url 'einkauf:sepa' %}" data-sepa-export>{% csrf_token %}
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
-  {% if status != 'bezahlt' and summen.anzahl %}<div class="raster" id="op-summen" style="margin-bottom:10px">
+  {% if status != 'bezahlt' and summen.anzahl or status != 'bezahlt' and summen.gesperrt_anzahl %}<div class="raster" id="op-summen" style="margin-bottom:10px">
     <div>Fällig (bis heute)<br><strong style="color:var(--warn)">{{ summen.faellig|floatformat:"2g" }} €</strong> <small class="fein">({{ summen.faellig_anzahl }})</small></div>
     <div>Nicht fällig<br><strong>{{ summen.nicht_faellig|floatformat:"2g" }} €</strong></div>
     <div>Gesamt zu zahlen<br><strong>{{ summen.gesamt|floatformat:"2g" }} €</strong> <small class="fein">({{ summen.anzahl }} Rechnung{{ summen.anzahl|pluralize:"en" }})</small></div>
     {% if summen.skonto_anzahl %}<div>Skonto möglich<br><strong style="color:var(--ok, green)">{{ summen.skonto|floatformat:"2g" }} €</strong> <small class="fein">bei {{ summen.skonto_anzahl }} Rechnung{{ summen.skonto_anzahl|pluralize:"en" }}, bereits abgezogen</small></div>{% endif %}
+    {% if summen.gesperrt_anzahl %}<div>Zahlsperre<br><strong>{{ summen.gesperrt|floatformat:"2g" }} €</strong> <small class="fein">({{ summen.gesperrt_anzahl }}, nicht enthalten)</small></div>{% endif %}
     {% if summen.guthaben %}<div>Guthaben (Gutschriften)<br><strong>{{ summen.guthaben|floatformat:"2g" }} €</strong> <small class="fein">unten verrechnen</small></div>{% endif %}
   </div>{% endif %}
-  <table>
+  <div class="scroll"><table>
     <tr><th></th><th>Lieferant</th><th>Rechnung</th><th>Datum</th><th>fällig</th><th class="zahl">Brutto</th><th class="zahl">zu zahlen</th><th>Abgleich</th><th>Status{% status_legende "lieferantenrechnung" "ueberfaellig" "skonto" %}</th></tr>
     {% for r, abgleich, zahlbetrag in zeilen %}
-    <tr><td>{% if r.status != 'bezahlt' %}<input type="checkbox" name="auswahl" value="{{ r.pk }}" data-betrag="{{ zahlbetrag|stringformat:'s' }}"
+    <tr><td>{% if r.zahlsperre %}<span title="Zahlsperre: {{ r.zahlsperre_grund }}" aria-label="Zahlsperre">⛔</span>{% elif r.status != 'bezahlt' %}<input type="checkbox" name="auswahl" value="{{ r.pk }}" data-betrag="{{ zahlbetrag|stringformat:'s' }}"
           {% if r.ist_faellig %}data-faellig{% endif %} {% if r.skonto_laeuft %}data-skonto{% endif %} aria-label="{{ r.rechnungsnummer }} markieren">{% endif %}</td>
         <td><a href="{% url 'einkauf:lieferant' r.lieferant_id %}" title="{{ r.lieferant.nummer }} – {{ r.lieferant.name1 }}">{{ r.lieferant.kurz }}</a></td><td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a></td>
         <td>{{ r.datum|date:"d.m.Y" }}</td><td>{{ r.faellig|date:"d.m.Y" }}</td><td class="zahl">{{ r.brutto }}</td>
         <td class="zahl">{{ zahlbetrag }}{% if r.verrechnet %} <small>(nach Gutschrift)</small>{% elif zahlbetrag != r.brutto %} <small>(Skonto)</small>{% endif %}
+          {% if r.zahlsperre %}<br><small style="color:var(--warn)">Zahlsperre: {{ r.zahlsperre_grund }}</small>
+          {% elif r.status != 'bezahlt' %}<br><input name="betrag_{{ r.pk }}" size="7" inputmode="decimal" placeholder="Teilbetrag" data-teilbetrag
+            aria-label="Teilbetrag für {{ r.rechnungsnummer }} (leer = voller Betrag)" title="Leer = voller Betrag; kleiner = Teilzahlung, der Rest bleibt offen">{% endif %}
+          {% if r.teilgezahlt %}<br><small>davon {{ r.teilgezahlt|floatformat:"2g" }} € schon teilbezahlt</small>{% endif %}
+          {% if r.status == 'exportiert' and r.sepa_betrag %}<br><small style="color:var(--warn)">Teilzahlung {{ r.sepa_betrag|floatformat:"2g" }} € exportiert</small>{% endif %}
           {% if r.guthaben %}<br><small style="color:var(--ok, green)" title="Gutschrift des Lieferanten noch nicht verrechnet">Guthaben {{ r.guthaben|floatformat:"2g" }} € verrechenbar</small>{% endif %}</td>
         <td>{% if not abgleich.verknuepft %}<span style="opacity:.6">kein Wareneingang</span>{% elif abgleich.ok %}passt{% else %}{% if abgleich.bestaetigt %}Abweichung {{ abgleich.differenz }} € bestätigt{% else %}<span style="color:var(--warn)">Abweichung {{ abgleich.differenz }} € – klären</span>{% endif %}{% endif %}{% if r.bemerkung %}<br><small>{{ r.bemerkung }}</small>{% endif %}</td>
         <td>{% status_symbol "lieferantenrechnung" r.status r.get_status_display faellig=r.faellig skonto_bis=r.skonto_bis %}</td></tr>
     {% empty %}<tr><td colspan="9">{% if q %}Keine Rechnung zu „{{ q }}“{% if status != 'alle' %} – <a href="?status=alle&amp;q={{ q|urlencode }}">in allen suchen</a>{% endif %}.{% else %}Keine Rechnungen.{% endif %}</td></tr>{% endfor %}
-  </table>
+  </table></div>
   {% include "seiten.html" %}
   </div>
   <p class="zeile" id="op-auswahl" style="margin-top:12px">
@@ -187,12 +193,21 @@
       var fmt = function (z) { return z.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €'; };
       function rechnen() {
         var summe = 0, anzahl = 0;
-        form.querySelectorAll('input[name=auswahl]:checked').forEach(function (k) { summe += parseFloat(k.dataset.betrag) || 0; anzahl++; });
+        form.querySelectorAll('input[name=auswahl]:checked').forEach(function (k) {
+          var teil = k.closest('tr').querySelector('[data-teilbetrag]'), t = teil && teil.value.trim() ? window.wwokZahl(teil.value) : NaN;
+          summe += isNaN(t) ? (parseFloat(k.dataset.betrag) || 0) : t; anzahl++;  // Teilbetrag statt vollem Betrag
+        });
         setzen('op-anzahl', String(anzahl));
         setzen('op-zahlsumme', fmt(Math.round(summe * 100) / 100));
       }
       function setzen(id, text) { var el = document.getElementById(id); if (el.textContent !== text) el.textContent = text; }  // sonst Endlosschleife mit dem Observer
       form.addEventListener('change', function (e) { if (e.target.name === 'auswahl') rechnen(); });
+      form.addEventListener('input', function (e) {  // Teilbetrag eingetippt: Rechnung gleich mit markieren
+        if (!e.target.hasAttribute('data-teilbetrag')) return;
+        var k = e.target.closest('tr').querySelector('input[name=auswahl]');
+        if (k && e.target.value.trim()) k.checked = true;
+        rechnen();
+      });
       form.addEventListener('click', function (e) {
         var art = e.target.dataset && e.target.dataset.markieren;
         if (!art) return;

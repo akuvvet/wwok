@@ -15,7 +15,7 @@ from apps.stammdaten.models import (KENNUNGEN, Artikel, ArtikelLieferant, Artike
 from apps.verkauf.models import Belegart, Nummernkreis, Position
 
 from .models import (RUECKSENDUNG_OFFEN, BestellPosition, BestellStatus, Bestellung, Lieferantengutschrift,
-                     LieferantengutschriftVerrechnung, LieferantengutschriftZahlung, Lieferantenrechnung, Rma, RmaStatus,
+                     LieferantengutschriftVerrechnung, LieferantengutschriftZahlung, Lieferantenrechnung, Lieferantenteilzahlung, Rma, RmaStatus,
                      RechnungStatus, Ruecksendung, RuecksendungArt, RuecksendungPosition, RuecksendungStatus, Wareneingang,
                      WareneingangPosition)
 
@@ -1102,6 +1102,8 @@ def rechnung_loeschen(rechnung, notiz, benutzer=None) -> list:
             raise ValueError("Die Rechnung wurde schon zur Zahlung exportiert (SEPA-Datei) und lässt sich nicht löschen. Bitte erst mit der Bank klären.")
         if r.verrechnet > 0:
             raise ValueError("Die Rechnung ist mit einer Gutschrift verrechnet – bitte erst die Verrechnung rückgängig machen.")
+        if r.teilzahlungen.exists():  # auch stornierte bleiben als Nachweis stehen
+            raise ValueError("Zur Rechnung gibt es Teilzahlungen; sie bleibt als Nachweis bestehen und lässt sich nicht löschen.")
         if r.verrechnungen.exists():  # auch rückgängig gemachte bleiben als Nachweis stehen
             raise ValueError("Zur Rechnung gibt es (rückgängig gemachte) Verrechnungen mit Gutschriften; sie bleibt als Nachweis bestehen und lässt sich nicht löschen.")
         nummern = list(r.wareneingaenge.values_list("nummer", flat=True))
@@ -1741,15 +1743,88 @@ def zahlungsavis(rechnungen, datum) -> dict:
     zeilen_, summe = [], {"brutto": Decimal("0"), "gutschriften": Decimal("0"), "skonto": Decimal("0"), "zahlung": Decimal("0")}
     for r in rechnungen:
         gutschriften = [(v.gutschrift.nummer, v.betrag) for v in r.verrechnungen.all() if not v.aufgehoben]
+        gutschriften += [(f"Teilzahlung {t.datum:%d.%m.%Y}", t.betrag) for t in r.teilzahlungen.all() if not t.storniert]  # früher gezahlt
         verrechnet = sum((b for _, b in gutschriften), Decimal("0"))
+        hinweis = ""
         if r.status == RechnungStatus.BEZAHLT:
             zahlung = r.bezahlter_betrag or Decimal("0")
+        elif r.status == RechnungStatus.EXPORTIERT and r.sepa_betrag:  # Teilzahlung per SEPA: der Rest ist kein Abzug, er bleibt offen
+            zahlung = r.sepa_betrag
+            hinweis = f"Teilzahlung, offen bleiben {r.brutto - verrechnet - zahlung} €".replace(".", ",")
         else:
             zahlung = r.zahlbetrag(datum)
-        skonto = r.brutto - verrechnet - zahlung
+        skonto = Decimal("0") if hinweis else r.brutto - verrechnet - zahlung
         zeile = {"rechnung": r, "brutto": r.brutto, "gutschriften": gutschriften, "verrechnet": verrechnet, "skonto": skonto,
-                 "zahlung": zahlung}
+                 "zahlung": zahlung, "hinweis": hinweis}
         zeilen_.append(zeile)
         for k, wert in (("brutto", r.brutto), ("gutschriften", verrechnet), ("skonto", skonto), ("zahlung", zahlung)):
             summe[k] += wert
     return {"zeilen": zeilen_, "summe": summe, "datum": datum}
+
+
+# ---- Zahlsperre und Teilzahlung (Wunsch des Nutzers 24.11.2026, wie in Mention) -------------------
+
+@transaction.atomic
+def zahlsperre_setzen(rechnung, grund, benutzer=None) -> Lieferantenrechnung:
+    """Rechnung nicht zahlen, bis die Sperre aufgehoben ist: kein SEPA-Export, nicht in der Schnellauswahl. Grund ist Pflicht."""
+    grund = (grund or "").strip()[:200]
+    if not grund:
+        raise ValueError("Bitte einen Grund für die Zahlsperre angeben.")
+    r = Lieferantenrechnung.objects.select_for_update().get(pk=rechnung.pk)
+    if r.status == RechnungStatus.BEZAHLT:
+        raise ValueError("Die Rechnung ist schon bezahlt.")
+    if r.status == RechnungStatus.EXPORTIERT:
+        raise ValueError("Die Rechnung wurde schon zur Zahlung exportiert (SEPA-Datei) – die Überweisung bitte bei der Bank stoppen.")
+    r.zahlsperre, r.zahlsperre_grund = True, grund
+    r.historie_eintrag(f"Zahlsperre gesetzt – {grund}", benutzer)
+    r.save()
+    return r
+
+
+@transaction.atomic
+def zahlsperre_aufheben(rechnung, benutzer=None) -> Lieferantenrechnung:
+    r = Lieferantenrechnung.objects.select_for_update().get(pk=rechnung.pk)
+    if not r.zahlsperre:
+        raise ValueError("Die Rechnung hat keine Zahlsperre.")
+    r.historie_eintrag(f"Zahlsperre aufgehoben (war: {r.zahlsperre_grund})", benutzer)
+    r.zahlsperre, r.zahlsperre_grund = False, ""
+    r.save()
+    return r
+
+
+@transaction.atomic
+def teilzahlung_buchen(rechnung, betrag, datum=None, benutzer=None) -> Lieferantenteilzahlung:
+    """Teilzahlung an den Lieferanten: Betrag größer 0 und kleiner als der offene Zahlbetrag, der Rest bleibt offen. War die
+    Rechnung per SEPA exportiert (z. B. mit Teilbetrag), ist sie danach wieder offen."""
+    r = Lieferantenrechnung.objects.select_for_update().get(pk=rechnung.pk)
+    if r.status == RechnungStatus.BEZAHLT:
+        raise ValueError("Die Rechnung ist schon als bezahlt gebucht.")
+    betrag, datum = _teilbetrag_pruefen(betrag), _datum_pruefen(datum)
+    rest = r.zahlbetrag(datum)
+    if betrag >= rest:
+        raise ValueError(f"Die Teilzahlung muss kleiner als der offene Betrag ({rest} €) sein – für den ganzen Rest „Als bezahlt buchen“ nehmen.")
+    t = Lieferantenteilzahlung.objects.create(rechnung=r, datum=datum, betrag=betrag, benutzer=benutzer)
+    r.historie_eintrag(f"Teilzahlung {betrag} € vom {datum:%d.%m.%Y} gebucht, offen bleiben {rest - betrag} €", benutzer)
+    if r.status == RechnungStatus.EXPORTIERT:
+        r.status = RechnungStatus.OFFEN
+    r.sepa_betrag = None
+    r.save()
+    return t
+
+
+@transaction.atomic
+def teilzahlung_stornieren(teilzahlung, grund, benutzer=None) -> Lieferantenteilzahlung:
+    grund = (grund or "").strip()[:300]
+    if not grund:
+        raise ValueError("Bitte einen Stornogrund angeben.")
+    t = Lieferantenteilzahlung.objects.select_for_update().get(pk=teilzahlung.pk)
+    r = Lieferantenrechnung.objects.select_for_update().get(pk=t.rechnung_id)
+    if t.storniert:
+        raise ValueError("Die Teilzahlung ist schon storniert.")
+    if r.status == RechnungStatus.BEZAHLT:
+        raise ValueError("Die Rechnung ist inzwischen ganz bezahlt – bitte erst diese Zahlung stornieren.")
+    t.storniert, t.storno_grund, t.storno_am, t.storno_von = True, grund, timezone.now(), benutzer
+    t.save()
+    r.historie_eintrag(f"Teilzahlung {t.betrag} € vom {t.datum:%d.%m.%Y} storniert – {grund}", benutzer)
+    r.save()
+    return t

@@ -13,11 +13,11 @@
       <span class="fein">Skonto gilt bei exportierten Rechnungen nur, wenn der Zahltag in der Skontofrist liegt.</span>
     </div>
     <div class="scroll"><table>
-      <thead><tr><th></th><th>Rechnung</th><th>Datum</th><th>Status</th><th class="zahl">Betrag</th><th>Gutschrift verrechnet</th><th class="zahl">Skonto/Abzug</th><th class="zahl">Zahlung</th></tr></thead>
+      <thead><tr><th></th><th>Rechnung</th><th>Datum</th><th>Status</th><th class="zahl">Betrag</th><th>Gutschrift / Teilzahlung</th><th class="zahl">Skonto/Abzug</th><th class="zahl">Zahlung</th></tr></thead>
       <tbody>
       {% for z in zeilen %}{% with r=z.rechnung %}<tr>
         <td><input type="checkbox" name="r" value="{{ r.pk }}" aria-label="Rechnung {{ r.rechnungsnummer }}"{% if z.gewaehlt %} checked{% endif %} onchange="this.form.submit()"></td>
-        <td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a></td><td>{{ r.datum|date:"d.m.Y" }}</td>
+        <td><a href="{% url 'einkauf:rechnung' r.pk %}">{{ r.rechnungsnummer }}</a>{% if z.hinweis %}<br><small>{{ z.hinweis }}</small>{% endif %}</td><td>{{ r.datum|date:"d.m.Y" }}</td>
         <td>{{ r.get_status_display }}{% if r.bezahlt_am %} am {{ r.bezahlt_am|date:"d.m.Y" }}{% endif %}</td>
         <td class="zahl">{{ z.brutto|floatformat:"2g" }}</td>
         <td>{% for nr, b in z.gutschriften %}{{ nr }}: {{ b|floatformat:"2g" }}{% if not forloop.last %}<br>{% endif %}{% empty %}–{% endfor %}</td>
