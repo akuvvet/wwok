@@ -125,6 +125,19 @@ def skonto(beleg):
     return (betrag, beleg.belegdatum + timedelta(days=zb.skonto_tage)) if betrag > 0 else None
 
 
+SKONTO_KLEINBETRAG = Decimal("1.00")  # Kleinstdifferenz (Rundung, Bankspesen): darf ohne Zahlungsbedingung als Skonto weg
+
+
+def skonto_grenze(beleg, datum=None) -> Decimal:
+    """Höchstes Skonto ohne ausdrückliche Bestätigung (Wunsch des Nutzers 24.11.2026: 1.800 € wurden versehentlich als Skonto
+    erlassen, weil das Feld den ganzen Rest vorschlug): der Skontobetrag der Zahlungsbedingung, solange die Frist am Zahltag läuft,
+    mindestens SKONTO_KLEINBETRAG."""
+    datum = datum or timezone.localdate()
+    bedingung = skonto(beleg)
+    laut_bedingung = bedingung[0] if bedingung and datum <= bedingung[1] else Decimal("0")
+    return max(laut_bedingung, SKONTO_KLEINBETRAG)
+
+
 def aktive_skonti(beleg):
     return beleg.zahlungen.filter(zahlart=Zahlart.SKONTO, storno_zu__isnull=True, storniert_durch__isnull=True)
 
@@ -359,9 +372,11 @@ def zahlung_buchen(beleg, betrag, datum, zahlart, bemerkung="", benutzer=None, s
 
 
 @transaction.atomic
-def zahlung_mit_skonto(rechnung, betrag, skonto, datum, zahlart, bemerkung="", benutzer=None, offen_bisher=None) -> tuple:
+def zahlung_mit_skonto(rechnung, betrag, skonto, datum, zahlart, bemerkung="", benutzer=None, offen_bisher=None,
+                       bestaetigt=False) -> tuple:
     """Maske „Zahlung buchen“ (Wunsch des Nutzers 19.11.2026): Zahlungseingang plus von Hand gewährtes Skonto. Das Feld Skonto
     schlägt den Rest vor (100 € offen, 80 € gezahlt → 20 € Skonto, Rechnung ausgeglichen); auf 0 gesetzt bleibt der Rest offen.
+    Mehr als skonto_grenze() (Zahlungsbedingung in der Frist, sonst 1 €) nur mit bestaetigt=True (Häkchen in der Maske).
     Rückgabe (Zahlung, Skonto-Buchung oder None)."""
     skonto = skonto or Decimal("0")
     if rechnung.art != Belegart.RECHNUNG:
@@ -377,6 +392,11 @@ def zahlung_mit_skonto(rechnung, betrag, skonto, datum, zahlart, bemerkung="", b
     if skonto and betrag + skonto > vorher + CENT / 2:
         euro = lambda x: f"{x:.2f}".replace(".", ",")
         raise ValueError(f"Zahlung und Skonto ({euro(betrag + skonto)} €) sind mehr als offen ({euro(vorher)} €). Skonto verringern.")
+    grenze = skonto_grenze(rechnung, datum)
+    if skonto > grenze + CENT / 2 and not bestaetigt:
+        euro = lambda x: f"{x:.2f}".replace(".", ",")
+        raise ValueError(f"Nichts gebucht: {euro(skonto)} € Skonto sind mehr als erlaubt ({euro(grenze)} € – laut Zahlungsbedingung bzw. "
+                         f"Kleinbetrag). Soll der Rest offen bleiben, Skonto auf 0 setzen; sonst „Höheres Skonto bestätigt“ ankreuzen.")
     zahlung = zahlung_buchen(rechnung, betrag, datum, zahlart, bemerkung, benutzer, offen_bisher=offen_bisher, auto_skonto=False)
     gewaehrt = None
     if skonto:

@@ -162,7 +162,7 @@ def beleg_op(request, beleg_id):
         "beleg": beleg, "zahlungen": beleg.zahlungen.all(), "bezahlt": services.bezahlt(beleg),
         "gutschrift": services.gutgeschrieben(beleg), "offen": offen, "gutschriften": gutschriften,
         "verrechnungen": beleg.gutschrift_verrechnungen.select_related("gutschrift", "storniert_durch"),
-        "skonto": services.skonto(beleg), "faellig": services.faellig_am(beleg), "mahnungen": beleg.mahnungen.all(), "zahlarten": Zahlart.choices,
+        "skonto": services.skonto(beleg), "skonto_grenze": services.skonto_grenze(beleg), "faellig": services.faellig_am(beleg), "mahnungen": beleg.mahnungen.all(), "zahlarten": Zahlart.choices,
         "heute": date.today().isoformat()})
 
 
@@ -180,7 +180,8 @@ def zahlung_buchen(request, beleg_id):
             z, gewaehrt = services.zahlung_mit_skonto(
                 beleg, betrag(request.POST.get("betrag")), betrag(skonto_feld) if skonto_feld else Decimal("0"),
                 datum(request.POST.get("datum")), request.POST.get("zahlart", Zahlart.UEBERWEISUNG),
-                request.POST.get("bemerkung", "").strip(), request.user, offen_bisher=betrag(bisher) if bisher else None)
+                request.POST.get("bemerkung", "").strip(), request.user, offen_bisher=betrag(bisher) if bisher else None,
+                bestaetigt=request.POST.get("skonto_bestaetigt") == "1")
             rest = services.offen(beleg)
             messages.success(request, "Zahlung gebucht." + (f" {gewaehrt.betrag:.2f} € Skonto gewährt.".replace(".", ",", 1) if gewaehrt else "")
                              + (" Die Rechnung ist ausgeglichen." if abs(rest) < services.CENT else

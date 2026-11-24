@@ -127,14 +127,18 @@ class SkontoFeldTest(SkontoTest):
     def test_maske_hat_feld_skonto_mit_vorschlag(self):
         b = self.rechnung()
         r = self.client.get(reverse("finanzen:beleg", args=[b.pk]))
-        self.assertContains(r, 'name="skonto" value="0,00"')
+        self.assertContains(r, 'name="skonto" value="" placeholder="0,00"')
         self.assertContains(r, 'name="offen_bisher" value="119,00" data-wert="offen"')  # Vorschlag über die gemeinsame Live-Rechnung
-        self.assertContains(r, 'data-ergibt="wenn(betrag > 0, max(runde(offen - betrag), 0), 0)"')
+        self.assertContains(r, 'data-ergibt="wenn(betrag > 0, wenn(runde(offen - betrag) <= grenze, max(runde(offen - betrag), 0), 0), 0)"')
+        self.assertContains(r, 'name="skonto_bestaetigt"')
         self.assertContains(r, "Skonto (gewährter Rest)")
 
     def test_rest_als_skonto_gleicht_aus(self):
         b = self.rechnung()
-        r = self.buchen(b, "80,00", "39,00")
+        r = self.buchen(b, "80,00", "39,00")  # mehr als erlaubt (Frist vorbei: 1 €) – ohne Bestätigung nichts gebucht
+        self.assertContains(r, "Nichts gebucht: 39,00 € Skonto sind mehr als erlaubt (1,00 €")
+        self.assertFalse(b.zahlungen.exists())
+        r = self.buchen(b, "80,00", "39,00", skonto_bestaetigt="1")
         self.assertContains(r, "39,00 € Skonto gewährt")
         self.assertContains(r, "ausgeglichen")
         self.assertEqual((self.skonti(b), services.offen(b)), ([Decimal("39.00")], Decimal("0.00")))
@@ -153,7 +157,7 @@ class SkontoFeldTest(SkontoTest):
 
     def test_teil_skonto_und_zu_viel(self):
         b = self.rechnung()
-        self.buchen(b, "80,00", "9,00")
+        self.buchen(b, "80,00", "9,00", skonto_bestaetigt="1")
         self.assertEqual((self.skonti(b), services.offen(b)), ([Decimal("9.00")], Decimal("30.00")))
         c = self.rechnung()
         r = self.buchen(c, "80,00", "40,00")
@@ -161,6 +165,19 @@ class SkontoFeldTest(SkontoTest):
         self.assertFalse(c.zahlungen.exists())  # nichts gebucht, auch nicht die Zahlung
         r = self.buchen(c, "80,00", "-1")
         self.assertContains(r, "nicht negativ")
+
+    def test_grenze_laut_zahlungsbedingung_und_kleinbetrag(self):
+        """Wunsch 24.11.2026: 1.800 € wurden versehentlich als Skonto erlassen. Ohne Bestätigung nur bis zur Grenze."""
+        b = self.rechnung()  # 2 % von 119 € = 2,38 € bis 11.11.
+        self.assertEqual(services.skonto_grenze(b, date(2026, 11, 5)), Decimal("2.38"))
+        self.assertEqual(services.skonto_grenze(b, date(2026, 11, 20)), Decimal("1.00"))  # Frist vorbei: Kleinbetrag
+        self.assertEqual(services.skonto_grenze(self.rechnung(zb="nein")), Decimal("1.00"))
+        self.client.post(reverse("finanzen:zahlung", args=[b.pk]),
+                         {"betrag": "116,62", "skonto": "2,38", "datum": "2026-11-05", "zahlart": Zahlart.UEBERWEISUNG})
+        self.assertEqual((self.skonti(b), services.offen(b)), ([Decimal("2.38")], Decimal("0.00")))
+        c = self.rechnung()
+        self.buchen(c, "118,50", "0,50")  # Kleinbetrag nach der Frist ohne Bestätigung
+        self.assertEqual((self.skonti(c), services.offen(c)), ([Decimal("0.50")], Decimal("0.00")))
 
     def test_skonto_nur_mit_zahlungseingang(self):
         b = self.rechnung()
@@ -170,7 +187,7 @@ class SkontoFeldTest(SkontoTest):
 
     def test_storno_der_zahlung_nimmt_das_skonto_mit(self):
         b = self.rechnung()
-        self.buchen(b, "80,00", "39,00")
+        self.buchen(b, "80,00", "39,00", skonto_bestaetigt="1")
         zahlung = b.zahlungen.exclude(zahlart=Zahlart.SKONTO).get()
         services.zahlung_stornieren(zahlung, "Fehlbuchung")
         self.assertEqual(services.offen(b), Decimal("119.00"))
