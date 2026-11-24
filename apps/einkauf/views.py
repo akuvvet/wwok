@@ -876,9 +876,20 @@ def wareneingang_detail(request, we_id):
     for bp in p_offen:  # „Im Formular anlegen …“: Artikelmaske mit den Lieferantendaten, nach dem Speichern übernommen
         bp.formular_url = artikel_formular_url(bp.preisliste_artikel, we, we_bp=bp.pk)
     laufende = [] if we.gebucht else services.laufende_bestellungen(we)
+    rechnungen = list(we.rechnungen.filter(mandant=request.mandant).order_by("datum", "pk"))
+    rechnung_erfassen = None
+    if we.gebucht and not rechnungen and not Ruecksendung.objects.filter(ersatz_wareneingang=we).exists():  # Ersatz: keine Rechnung
+        # Wie in Mention nach dem Speichern des Wareneingangs: Rechnung gleich hier erfassen, Beträge und Verknüpfung vorbelegt
+        entwurf = request.session.get(RECHNUNG_ENTWURF) or {}
+        if entwurf.get("mandant") == request.mandant.pk and str(we.pk) in entwurf.get("wareneingaenge", []):
+            request.session.pop(RECHNUNG_ENTWURF)
+        else:
+            entwurf = {}
+        andere = services.freie_wareneingaenge(request.mandant, we.lieferant).exclude(pk=we.pk)
+        rechnung_erfassen = {"netto": we.rechnungswert, "entwurf": entwurf, "andere": list(andere[:20])}
     return render(request, "einkauf/wareneingang.html", {
         "we": we, "positionen": positionen, "netto": we.summe_netto, "bleibt_offen": services.bleibt_offen(we),
-        "rechnungen": list(we.rechnungen.filter(mandant=request.mandant).order_by("datum", "pk")),
+        "rechnungen": rechnungen, "rechnung_erfassen": rechnung_erfassen, "heute": date.today().isoformat(),
         "p_offen": p_offen, "p_rueckfrage": p_rueckfrage, "laufende": laufende,
         "laufende_anzahl": sum(1 for g in laufende for bp in g["positionen"] if bp.rest > 0)})
 
@@ -1060,17 +1071,62 @@ def rechnungen(request, sicht=""):
                              | Q(lieferant__nummer__iexact=wort) | Q(wareneingaenge__nummer__icontains=wort))
     if q:
         liste = liste.distinct()
+    try:
+        bis = date.fromisoformat(request.GET.get("bis", ""))  # „fällig bis“ wie in Mention
+    except ValueError:
+        bis = None
+    if bis:
+        liste = liste.filter(faellig__lte=bis)
+    heute = timezone.localdate()
+    guthaben = {}  # Restguthaben aus Gutschriften je Lieferant: Hinweis in der Liste, verrechnen vor dem Zahlen
+    for g in services.offene_gutschriften(request.mandant):
+        guthaben[g.lieferant_id] = guthaben.get(g.lieferant_id, Decimal("0")) + g.restguthaben
     seite, parameter = blaettern(request, liste)  # Modellsortierung: fällig, id
     zeilen =[(r, r.abgleich(), r.zahlbetrag()) for r in seite]
+    for r, _, _ in zeilen:
+        r.ist_faellig = r.status != RechnungStatus.BEZAHLT and r.faellig <= heute
+        r.skonto_laeuft = r.status != RechnungStatus.BEZAHLT and bool(r.skonto_prozent and r.skonto_bis and heute <= r.skonto_bis)
+        r.guthaben = guthaben.get(r.lieferant_id) if r.status == RechnungStatus.OFFEN else None
+    gutschriften = services.offene_gutschriften(request.mandant) if sicht in ("op", "zahlung") else []
+    for g in gutschriften:  # direkt in der Liste mit einer offenen Rechnung desselben Lieferanten verrechnen
+        g.rechnungen_offen = services.verrechenbare_rechnungen(g)
     return render(request, "einkauf/rechnungen.html", {
+        "summen": rechnung_summen(liste, heute, sum(guthaben.values(), Decimal("0"))), "bis": bis,
         "abweichungen": sum(1 for _, a, _ in zeilen if a["offen"]),
         "seite": seite, "parameter": parameter,
         "zeilen": zeilen, "status": status, "q": q, "sicht": sicht, "lieferanten": lieferanten_auswahl(),
-        "gutschriften": services.offene_gutschriften(request.mandant) if sicht in ("op", "zahlung") else [],
+        "gutschriften": gutschriften,
         "eingaenge": LieferantengutschriftZahlung.objects.filter(gutschrift__mandant=request.mandant).select_related("gutschrift", "gutschrift__lieferant")[:30]
         if sicht == "zahlung" else [],
         "heute": date.today().isoformat(), "summe": sum((z[2] for z in zeilen), Decimal("0")),
-        "sepa_avis": sepa_avis_gruppen(request), "entwurf": rechnung_entwurf(request)})
+        "sepa_avis": sepa_avis_gruppen(request), "entwurf": rechnung_entwurf(request) or lieferant_vorwahl(request)})
+
+
+def lieferant_vorwahl(request) -> dict:
+    """?lieferant=ID (z. B. vom Wareneingang): Lieferant im Erfassen-Formular vorbelegen, seine freien Wareneingänge erscheinen."""
+    lieferant_id = request.GET.get("lieferant", "")
+    l = Lieferant.objects.filter(pk=lieferant_id).first() if lieferant_id.isdigit() else None
+    return {"lieferant": l.pk, "lieferant_text": f"{l.kurz} – {l.name1} ({l.nummer})"} if l else {}
+
+
+def rechnung_summen(liste, heute, guthaben) -> dict:
+    """Summenblock über alle gefilterten, nicht bezahlten Rechnungen (nicht nur die Seite), wie in Mention:
+    fällig, nicht fällig, davon mit laufendem Skonto (Ersparnis), Gesamt und Guthaben aus Gutschriften."""
+    s = {"faellig": Decimal("0"), "nicht_faellig": Decimal("0"), "skonto": Decimal("0"), "skonto_anzahl": 0,
+         "anzahl": 0, "faellig_anzahl": 0, "guthaben": guthaben}
+    for r in liste.exclude(status=RechnungStatus.BEZAHLT).prefetch_related(None).prefetch_related("verrechnungen"):
+        betrag = r.zahlbetrag(heute)
+        s["anzahl"] += 1
+        if r.faellig <= heute:
+            s["faellig"] += betrag
+            s["faellig_anzahl"] += 1
+        else:
+            s["nicht_faellig"] += betrag
+        if r.skonto_prozent and r.skonto_bis and heute <= r.skonto_bis:
+            s["skonto"] += max(r.brutto - r.verrechnet, Decimal("0")) - betrag
+            s["skonto_anzahl"] += 1
+    s["gesamt"] = s["faellig"] + s["nicht_faellig"]
+    return s
 
 
 def rechnung_entwurf(request) -> dict:
@@ -1704,9 +1760,13 @@ def gutschrift_verrechnen(request, gutschrift_id):
     if rechnung is None:
         raise ValueError("Bitte eine offene Rechnung dieses Lieferanten wählen.")
     betrag = zahl(request.POST.get("betrag"), None)
+    zurueck = request.POST.get("zurueck", "")  # aus Offene Posten Lieferanten: leer = so viel wie möglich, danach zurück zur Liste
+    zurueck = zurueck if zurueck.startswith("/") and not zurueck.startswith("//") else ""
+    if betrag is None and zurueck:
+        betrag = min(g.restguthaben, rechnung.offener_betrag)
     v = services.gutschrift_verrechnen(g, rechnung, betrag, tag(request.POST.get("datum")), request.user)
-    messages.success(request, f"{v.betrag:.2f} € mit Rechnung {rechnung.rechnungsnummer} verrechnet.".replace(".", ","))
-    return redirect("einkauf:gutschrift", gutschrift_id=g.pk)
+    messages.success(request, f"{v.betrag:.2f} € ".replace(".", ",") + f"mit Rechnung {rechnung.rechnungsnummer} verrechnet ({g.nummer}).")
+    return redirect(zurueck) if zurueck else redirect("einkauf:gutschrift", gutschrift_id=g.pk)
 
 
 @mit_mandant
