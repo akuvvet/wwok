@@ -35,20 +35,25 @@ class AbweichungTest(TestCase):
         return services.rechnung_erfassen(self.m, self.lf, nummer, date.today(), Decimal(netto), Decimal(brutto),
                                           wareneingaenge=[self.we])
 
-    def test_abweichung_ist_offen_und_sperrt_zahlung(self):
+    def test_abweichung_wird_gemeldet_zahlung_bleibt_erlaubt(self):
+        """Entscheidung des Nutzers 24.11.2026: Abweichung zum Wareneingang nur melden, Zahlung trotzdem erlauben."""
         r = self.rechnung()  # Wareneingang netto 95,00, Rechnung 100,00
         a = r.abgleich()
         self.assertEqual((a["ok"], a["offen"], a["differenz"]), (False, True, Decimal("5.00")))
-        with self.assertRaises(ValueError):
-            r.freigabe_pruefen()
+        self.assertIn("weicht um 5.00", r.abweichung_hinweis())
+        seite = self.client.get(reverse("einkauf:rechnung", args=[r.pk]))
+        self.assertContains(seite, "Zahlung und SEPA-Export sind trotzdem möglich")
+        self.assertNotContains(seite, "Erst Abweichung klären")  # Knopf „Als bezahlt buchen“ nicht gesperrt
+        for text in ('id="korrektur"', "data-ust-gruppe", 'data-ust="netto"', 'data-ust="brutto"'):  # Netto/USt/Brutto gegenseitig
+            self.assertContains(seite, text)
         antwort = self.client.post(reverse("einkauf:rechnung_bezahlt", args=[r.pk]), {"datum": date.today().isoformat()}, follow=True)
-        self.assertContains(antwort, "weicht um 5.00")
+        self.assertContains(antwort, "Bezahlt gebucht trotz Abweichung")
         r.refresh_from_db()
-        self.assertEqual(r.status, RechnungStatus.OFFEN)
+        self.assertEqual((r.status, r.bezahlter_betrag), (RechnungStatus.BEZAHLT, Decimal("119.00")))
 
     def test_passende_rechnung_ist_frei(self):
         r = self.rechnung("95.00", "113.05")
-        r.freigabe_pruefen()
+        self.assertIsNone(r.abweichung_hinweis())
         self.client.post(reverse("einkauf:rechnung_bezahlt", args=[r.pk]), {"datum": date.today().isoformat()})
         r.refresh_from_db()
         self.assertEqual(r.status, RechnungStatus.BEZAHLT)
@@ -63,7 +68,7 @@ class AbweichungTest(TestCase):
         self.assertEqual((a["offen"], a["bestaetigt"]), (False, True))
         self.assertIn("Preis telefonisch abgestimmt", r.historie)
         self.assertIn("t:", r.historie)
-        r.freigabe_pruefen()  # kein Fehler mehr
+        self.assertIsNone(r.abweichung_hinweis())  # bestätigt: kein Hinweis mehr
 
     def test_bestaetigung_verfaellt_bei_geaenderter_differenz(self):
         r = self.rechnung()
@@ -88,16 +93,16 @@ class AbweichungTest(TestCase):
         with self.assertRaises(ValueError):
             r.betraege_korrigieren(Decimal("90.00"), Decimal("17.10"), Decimal("107.10"))
 
-    def test_sepa_export_mit_offener_abweichung_gesperrt(self):
+    def test_sepa_export_mit_offener_abweichung_erlaubt_mit_meldung(self):
         gut = self.rechnung("95.00", "113.05", "R-OK")
         schlecht = self.rechnung("100.00", "119.00", "R-BAD")
-        antwort = self.client.post(reverse("einkauf:sepa"), {"auswahl": [gut.pk, schlecht.pk], "ausfuehrung": date.today().isoformat()},
-                                   follow=True)
-        self.assertContains(antwort, "weicht um 5.00")
-        gut.refresh_from_db()
-        self.assertEqual(gut.status, RechnungStatus.OFFEN)  # nichts exportiert
-        antwort = self.client.post(reverse("einkauf:sepa"), {"auswahl": [gut.pk], "ausfuehrung": date.today().isoformat()})
-        self.assertEqual(antwort.status_code, 200)
+        antwort = self.client.post(reverse("einkauf:sepa"), {"auswahl": [gut.pk, schlecht.pk], "ausfuehrung": date.today().isoformat()})
+        self.assertEqual(antwort["Content-Type"], "application/xml")
+        for r in (gut, schlecht):
+            r.refresh_from_db()
+            self.assertEqual(r.status, RechnungStatus.EXPORTIERT)
+        meldungen = [str(m) for m in self.client.get(reverse("einkauf:rechnungen")).context["messages"]]
+        self.assertTrue(any("Exportiert trotz Abweichung" in m and "R-BAD" in m and "R-OK" not in m for m in meldungen), meldungen)
 
     def test_notiz_und_meldung_in_der_liste(self):
         r = self.rechnung()

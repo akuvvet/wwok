@@ -1342,8 +1342,7 @@ def gutschrift_verrechnen(gutschrift, rechnung, betrag, datum=None, benutzer=Non
     if r.status == RechnungStatus.EXPORTIERT:
         raise ValueError(f"Die Rechnung {r.rechnungsnummer} wurde schon zur Zahlung exportiert (SEPA-Datei) – eine Verrechnung könnte doppelt zahlen lassen. "
                          "Bitte erst mit der Bank klären.")
-    r.freigabe_pruefen()
-    betrag, datum = _teilbetrag_pruefen(betrag), _datum_pruefen(datum)
+    betrag, datum = _teilbetrag_pruefen(betrag), _datum_pruefen(datum)  # eine Abweichung zum WE sperrt nicht (24.11.2026)
     rest = g.restguthaben
     if betrag > rest:
         raise ValueError(f"Höchstens {rest} € möglich (Restguthaben der Gutschrift {g.nummer}).")
