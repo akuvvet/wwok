@@ -36,8 +36,20 @@ class AnsprechpartnerKundeInline(admin.TabularInline):
     extra = 0
 
 
+class VerwendungsschutzMixin:
+    """Verwendete Datensätze erscheinen in der Löschbestätigung als „geschützt“ – Löschen ist dann nicht möglich (25.11.2026)."""
+
+    def get_deleted_objects(self, objs, request):
+        from .verwendung import geprueft, text, verwendungen
+        geloescht, anzahl, rechte, geschuetzt = super().get_deleted_objects(objs, request)
+        gruende = [text(obj, treffer) for obj in objs if geprueft(obj) and (treffer := verwendungen(obj))]
+        if gruende:  # klare Begründung statt Djangos „fehlende Rechte für Belege …“
+            return geloescht, anzahl, set(), gruende
+        return geloescht, anzahl, rechte, geschuetzt
+
+
 @admin.register(m.Kunde)
-class KundeAdmin(BlaetternAdminMixin, admin.ModelAdmin):
+class KundeAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, admin.ModelAdmin):
     list_display = ["nummer", "name1", "plz", "ort", "kundenart", "preisstufe", "gesperrt"]
     list_filter = ["kundenart", "preisstufe", "gesperrt", "land"]
     search_fields = ["nummer", "name1", "name2", "ort", "email", "ust_id"]
@@ -67,7 +79,7 @@ class AnsprechpartnerLieferantInline(admin.TabularInline):
 
 
 @admin.register(m.Lieferant)
-class LieferantAdmin(BlaetternAdminMixin, admin.ModelAdmin):
+class LieferantAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, admin.ModelAdmin):
     list_display = ["nummer", "kurzname", "name1", "ort", "lieferzeit_tage", "gesperrt"]
     search_fields = ["nummer", "kurzname", "name1", "ort", "ust_id"]
     readonly_fields = ["angelegt_am", "geaendert_am", "geaendert_von"]
@@ -178,7 +190,7 @@ class StandardVkMixin:
 
 
 @admin.register(m.Artikel)
-class ArtikelAdmin(BlaetternAdminMixin, StandardVkMixin, admin.ModelAdmin):
+class ArtikelAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, StandardVkMixin, admin.ModelAdmin):
     form = VkVorschlagForm
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "radar_ampel", "online", "aktiv"]
     list_filter = [AuffaelligFilter, "typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
@@ -296,7 +308,7 @@ class LeistungskategorieAdmin(admin.ModelAdmin):
 
 
 @admin.register(m.Leistungsartikel)
-class LeistungsartikelAdmin(BlaetternAdminMixin, StandardVkMixin, admin.ModelAdmin):
+class LeistungsartikelAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, StandardVkMixin, admin.ModelAdmin):
     """Leistungen (Typ L) mit eigenen Kategorien und Kosten, dazu der Import aus CSV oder Excel."""
 
     list_display = ["nummer", "bezeichnung", "leistungskategorie", "kosten", "vk1", "mengeneinheit", "aktiv"]
