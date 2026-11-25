@@ -111,7 +111,8 @@
         </form></details>
       {% if beleg.art == 'AN' and not beleg.vorlaeufig or beleg.art == 'AB' and not beleg.vorlaeufig %}<form method="post" action="{% url 'einkauf:aus_beleg' beleg.pk %}">{% csrf_token %}<button class="leise" type="submit">In Lieferantenbestellung kopieren</button></form>{% endif %}
       {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'LS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'werkstatt:reklamation' beleg.pk %}">Gerät reklamiert → Werkstatt</a>{% endif %}
-      {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'GS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'verkauf:beleg_xrechnung' beleg.pk %}">XRechnung (XML) herunterladen</a>{% endif %}
+      {% if beleg.art == 'RE' and beleg.abgeschlossen or beleg.art == 'GS' and beleg.abgeschlossen %}<a class="knopf leise" href="{% url 'verkauf:beleg_xrechnung' beleg.pk %}">XRechnung (XML) herunterladen</a>
+        {% with a=beleg.erechnung_archiv %}{% if a %}<span class="fein" title="SHA-256 {{ a.pdf_sha256 }}">E-Rechnung (PDF/A-3) archiviert am {{ a.erstellt_am|date:"d.m.Y H:i" }}{% if a.xrechnung_am %}, XRechnung am {{ a.xrechnung_am|date:"d.m.Y H:i" }}{% endif %} – wird unverändert ausgeliefert</span>{% endif %}{% endwith %}{% endif %}
       {% if beleg.art == 'RE' and positionen and not beleg.vorlaeufig %}<form method="post" action="{% url 'verkauf:abo_aus_rechnung' beleg.pk %}" class="kopieren">{% csrf_token %}
         <input name="bezeichnung" maxlength="100" placeholder="Bezeichnung" aria-label="Bezeichnung">
         <select name="monate" aria-label="Rhythmus"><option value="15">an Stichtagen (frei wählbar)</option><option value="1" selected>monatlich</option><option value="3">vierteljährlich</option><option value="6">halbjährlich</option><option value="12">jährlich</option></select>

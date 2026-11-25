@@ -1214,12 +1214,12 @@ def beleg_gutschrift(request, beleg_id):
 @mit_mandant
 def beleg_xrechnung(request, beleg_id):
     """Reine XRechnung (XML, Standard für Behörden) zu einer abgeschlossenen Rechnung/Gutschrift."""
-    from .zugferd import ERechnungAusgangFehler, xml_erzeugen
+    from .zugferd import ERechnungAusgangFehler, xrechnung_archiviert
     beleg = beleg_holen(request, beleg_id)
     if (gesperrt := _vorlaeufig_gesperrt(request, beleg, "Die XRechnung")) is not None:
         return gesperrt
     try:
-        xml = xml_erzeugen(beleg, xrechnung=True)
+        xml = xrechnung_archiviert(beleg)  # beim ersten Abruf festgeschrieben (GoBD)
     except ERechnungAusgangFehler as fehler:
         messages.error(request, str(fehler))
         return redirect("verkauf:beleg", beleg_id=beleg.pk)

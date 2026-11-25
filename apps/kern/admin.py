@@ -62,8 +62,24 @@ class MandantForm(forms.ModelForm):
 class MandantAdmin(admin.ModelAdmin):
     form = MandantForm
     list_display = ["kurzname", "firmenname", "ort", "aktiv"]
-    readonly_fields = ["logo_vorschau", "aussehen_zuruecksetzen_knopf", "smtp_passwort_status", "testmail_knopf", "angelegt_am", "geaendert_am", "geaendert_von"]
+    readonly_fields = ["erechnung_bereit", "logo_vorschau", "aussehen_zuruecksetzen_knopf", "smtp_passwort_status", "testmail_knopf", "angelegt_am", "geaendert_am", "geaendert_von"]
     actions = ["aussehen_zuruecksetzen"]
+
+    @admin.display(description="E-Rechnung")
+    def erechnung_bereit(self, obj):
+        """Was dem Mandanten für ZUGFeRD und XRechnung fehlt (Pflichtangaben des Verkäufers)."""
+        if not obj or not obj.pk:
+            return "– nach dem ersten Speichern –"
+        from apps.verkauf.zugferd import mandant_luecken
+        zugferd, xrechnung = mandant_luecken(obj)
+        if not zugferd and not xrechnung:
+            return "bereit für ZUGFeRD und XRechnung ✓"
+        teile = []
+        if zugferd:
+            teile.append("ZUGFeRD fehlt: " + ", ".join(zugferd))
+        if xrechnung:
+            teile.append("XRechnung zusätzlich: " + ", ".join(xrechnung))
+        return " · ".join(teile)
 
     @admin.display(description="Zurücksetzen")
     def aussehen_zuruecksetzen_knopf(self, obj):
@@ -139,7 +155,7 @@ class MandantAdmin(admin.ModelAdmin):
         ("Aussehen", {"fields": ["farbe", "flaechenmodus", "farbe_kopf", "farbe_leiste", "farbe_karte", "aussehen_zuruecksetzen_knopf"],
                       "description": "Layoutfarbe = Akzent (Links, Knöpfe, aktive Menüzeile). Flächenfarben = Hintergrund von Kopfbereich, "
                                      "Seitenleiste und Karten – neutral, in gleicher Tonart oder je Bereich frei gewählt."}),
-        ("Steuer und Bank", {"fields": ["ust_id", "steuernummer", "iban", "bic", "glaeubiger_id"]}),
+        ("Steuer und Bank", {"fields": ["ust_id", "steuernummer", "iban", "bic", "glaeubiger_id", "erechnung_bereit"]}),
         ("E-Mail-Versand", {"fields": ["smtp_host", "smtp_port", "smtp_sicherheit", "smtp_benutzer", "smtp_passwort_status",
                                        "smtp_passwort_neu", "smtp_passwort_loeschen", "absender_email", "absender_name",
                                        "kopie_an", "testmail_knopf"],

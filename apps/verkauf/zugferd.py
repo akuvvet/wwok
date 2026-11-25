@@ -1,9 +1,7 @@
 """Ausgehende E-Rechnung: ZUGFeRD/Factur-X (Profil EN 16931) als eingebettete XML im Beleg-PDF.
 
 Gilt für abgeschlossene Rechnungen und Gutschriften. Der Empfänger kann die XML maschinell auslesen, das PDF bleibt lesbar.
-Hinweis: Das PDF ist kein zertifiziertes PDF/A-3. Vor dem ersten Einsatz mit einem Prüfwerkzeug (z. B. Mustang oder KoSIT-Validator)
-und mit dem Steuerberater abstimmen."""
-import io
+Das PDF ist ein PDF/A-3B (apps/kern/pdfa.py: eingebettete Schrift, sRGB-Farbprofil, XMP mit Factur-X-Schema)."""
 import xml.etree.ElementTree as ET
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -15,6 +13,7 @@ NS = {
     "udt": "urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100",
 }
 LEITLINIE = "urn:cen.eu:en16931:2017"
+GESCHAEFTSPROZESS = "urn:fdc:peppol.eu:2017:poacc:billing:01:1.0"
 LEITLINIE_XRECHNUNG = "urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0"
 CENT = Decimal("0.01")
 
@@ -50,6 +49,27 @@ def kaeuferanschrift(beleg) -> dict:
                 "ort": beleg.kaeufer_ort, "land": beleg.kaeufer_land or "DE"}
     k = beleg.kunde
     return {"name": k.name1 + (" " + k.name2 if k.name2 else ""), "strasse": k.strasse, "plz": k.plz, "ort": k.ort, "land": k.land or "DE"}
+
+
+def mandant_luecken(m) -> tuple:
+    """(fehlt für ZUGFeRD, fehlt zusätzlich für XRechnung) – Verkäuferangaben wie in xml_erzeugen geprüft."""
+    zugferd = [t for t, ok in (("USt-ID oder Steuernummer", m.ust_id or m.steuernummer), ("Straße", m.strasse), ("PLZ", m.plz),
+                               ("Ort", m.ort), ("IBAN", m.iban)) if not ok]
+    xrechnung = [t for t, ok in (("Telefon", m.telefon), ("E-Mail", m.email)) if not ok]
+    return zugferd, xrechnung
+
+
+def liefertag(beleg):
+    """Liefer-/Leistungsdatum für die E-Rechnung: das der Rechnung; bei mehreren Lieferscheinen der letzte; bei einer
+    Gutschrift das der zugrunde liegenden Rechnung."""
+    if beleg.art == Belegart.GUTSCHRIFT:
+        vorgaenger = beleg.vorgaenger if beleg.vorgaenger_id else None
+        return liefertag(vorgaenger) if vorgaenger is not None and vorgaenger.art == Belegart.RECHNUNG else None
+    datum = beleg.lieferdatum
+    if datum is None and beleg.pk:
+        from django.db.models import Max
+        datum = beleg.positionen.filter(lieferschein__isnull=False).aggregate(d=Max("lieferschein__belegdatum"))["d"]
+    return datum
 
 
 def xml_erzeugen(beleg, xrechnung=False) -> bytes:
@@ -90,6 +110,8 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
 
     wurzel = ET.Element(q("rsm", "CrossIndustryInvoice"))
     kontext = kind(wurzel, "rsm", "ExchangedDocumentContext")
+    if xrechnung:  # BT-23 Geschäftsprozess, in XRechnung Pflicht (PEPPOL-EN16931-R001); steht vor der Leitlinie
+        kind(kind(kontext, "ram", "BusinessProcessSpecifiedDocumentContextParameter"), "ram", "ID", GESCHAEFTSPROZESS)
     kind(kind(kontext, "ram", "GuidelineSpecifiedDocumentContextParameter"), "ram", "ID", LEITLINIE_XRECHNUNG if xrechnung else LEITLINIE)
     dokument = kind(wurzel, "rsm", "ExchangedDocument")
     kind(dokument, "ram", "ID", beleg.nummer)
@@ -166,7 +188,11 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
     if k.ust_id:
         kind(kind(kaeufer_xml, "ram", "SpecifiedTaxRegistration"), "ram", "ID", k.ust_id.replace(" ", ""), schemeID="VA")
 
-    kind(handel, "ram", "ApplicableHeaderTradeDelivery")
+    lieferung = kind(handel, "ram", "ApplicableHeaderTradeDelivery")
+    lieferdatum = liefertag(beleg)  # BT-72; ein leeres Element mögen die Prüfregeln nicht (PEPPOL-EN16931-R008)
+    if lieferdatum:
+        ereignis = kind(kind(lieferung, "ram", "ActualDeliverySupplyChainEvent"), "ram", "OccurrenceDateTime")
+        kind(ereignis, "udt", "DateTimeString", _datum(lieferdatum), format="102")
 
     abrechnung = kind(handel, "ram", "ApplicableHeaderTradeSettlement")
     if lastschrift and m.glaeubiger_id:
@@ -242,53 +268,65 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(wurzel, encoding="utf-8")
 
 
-XMP = """<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/">
- <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-  <rdf:Description rdf:about="" xmlns:fx="urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#">
-   <fx:DocumentType>INVOICE</fx:DocumentType>
-   <fx:DocumentFileName>factur-x.xml</fx:DocumentFileName>
-   <fx:Version>1.0</fx:Version>
-   <fx:ConformanceLevel>EN 16931</fx:ConformanceLevel>
-  </rdf:Description>
- </rdf:RDF>
-</x:xmpmeta>
-<?xpacket end="w"?>"""
-
-
-def pdf_einbetten(pdf: bytes, xml: bytes) -> bytes:
-    """Hängt die XML als factur-x.xml (Beziehung „Data“) an das PDF und ergänzt die Factur-X-Metadaten."""
-    from pypdf import PdfReader, PdfWriter
-    from pypdf.generic import ArrayObject, DecodedStreamObject, NameObject
-
-    schreiber = PdfWriter(clone_from=PdfReader(io.BytesIO(pdf)))
-    schreiber.add_attachment("factur-x.xml", xml)
-    wurzel = schreiber._root_object
-    eintraege = wurzel["/Names"]["/EmbeddedFiles"]["/Names"]
-    spec = eintraege[-1]
-    spec_obj = spec.get_object()
-    spec_obj[NameObject("/AFRelationship")] = NameObject("/Data")
-    ein = spec_obj["/EF"]["/F"].get_object()
-    ein[NameObject("/Subtype")] = NameObject("/text#2Fxml")
-    wurzel[NameObject("/AF")] = ArrayObject([spec])
-    meta = DecodedStreamObject()
-    meta.set_data(XMP.encode("utf-8"))
-    meta[NameObject("/Type")] = NameObject("/Metadata")
-    meta[NameObject("/Subtype")] = NameObject("/XML")
-    wurzel[NameObject("/Metadata")] = schreiber._add_object(meta)
-    ausgabe = io.BytesIO()
-    schreiber.write(ausgabe)
-    return ausgabe.getvalue()
-
-
 def beleg_pdf_mit_xml(beleg):
-    """(PDF-Bytes, Hinweis): bei abgeschlossenen Rechnungen/Gutschriften mit eingebetteter E-Rechnung, sonst normales PDF.
-    Kann die XML nicht erzeugt werden (z. B. fehlende USt-ID), kommt das normale PDF mit einem Hinweistext zurück."""
+    """(PDF-Bytes, Hinweis): bei abgeschlossenen Rechnungen/Gutschriften das PDF/A-3 mit eingebetteter E-Rechnung, sonst das
+    normale PDF. Die erste E-Rechnung wird archiviert und danach unverändert ausgeliefert (GoBD, `ERechnungArchiv`).
+    Kann die XML nicht erzeugt werden (z. B. fehlende USt-ID), kommt das normale PDF mit Hinweis zurück, nichts wird archiviert."""
     from .pdf import beleg_pdf
+    if beleg.art not in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT) or not beleg.abgeschlossen or not beleg.nummer:
+        return beleg_pdf(beleg), ""
+    archiv = archiv_holen(beleg)
+    if archiv is not None:
+        return bytes(archiv.pdf), ""
     pdf = beleg_pdf(beleg)
-    if beleg.art not in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT) or not beleg.abgeschlossen:
-        return pdf, ""
     try:
-        return pdf_einbetten(pdf, xml_erzeugen(beleg)), ""
+        xml = xml_erzeugen(beleg)
     except ERechnungAusgangFehler as fehler:
         return pdf, f"Ohne E-Rechnung (ZUGFeRD): {fehler}"
+    from apps.kern.pdfa import pdfa3
+    pdf = pdfa3(pdf, str(beleg), beleg.mandant.firmenname, xml)  # PDF/A-3B mit factur-x.xml
+    return bytes(archivieren(beleg, pdf).pdf), ""
+
+
+def archiv_holen(beleg):
+    from .models import ERechnungArchiv
+    return ERechnungArchiv.objects.filter(beleg=beleg).first()
+
+
+def archivieren(beleg, pdf: bytes):
+    """Erste E-Rechnung festschreiben; gleichzeitiger zweiter Aufruf bekommt die schon gespeicherte (Unique auf beleg)."""
+    import hashlib
+
+    from django.db import IntegrityError, transaction
+
+    from .models import ERechnungArchiv
+    try:
+        with transaction.atomic():
+            return ERechnungArchiv.objects.create(beleg=beleg, pdf=pdf, pdf_sha256=hashlib.sha256(pdf).hexdigest())
+    except IntegrityError:
+        return ERechnungArchiv.objects.get(beleg=beleg)
+
+
+def xrechnung_archiviert(beleg) -> bytes:
+    """XRechnung (XML) zum Beleg: beim ersten Abruf erzeugt und im Archiv festgeschrieben, danach unverändert."""
+    import hashlib
+
+    from django.db import transaction
+    from django.utils import timezone
+
+    from .models import ERechnungArchiv
+    archiv = archiv_holen(beleg)
+    if archiv is not None and archiv.xrechnung:
+        return bytes(archiv.xrechnung)
+    xml = xml_erzeugen(beleg, xrechnung=True)
+    if archiv is None:  # das PDF dazu gleich mit festschreiben, damit beides zusammenpasst
+        beleg_pdf_mit_xml(beleg)
+        archiv = archiv_holen(beleg)
+        if archiv is None:
+            return xml
+    with transaction.atomic():
+        archiv = ERechnungArchiv.objects.select_for_update().get(pk=archiv.pk)
+        if not archiv.xrechnung:
+            archiv.xrechnung, archiv.xrechnung_sha256, archiv.xrechnung_am = xml, hashlib.sha256(xml).hexdigest(), timezone.now()
+            archiv.save()
+    return bytes(archiv.xrechnung)
