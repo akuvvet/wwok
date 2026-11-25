@@ -8,3 +8,5 @@ class KernConfig(AppConfig):
 
     def ready(self):
         from . import signals  # noqa: F401
+        from .pdfa import schriften_registrieren
+        schriften_registrieren()  # eingebettete Schrift in allen PDFs (PDF/A, E-Rechnung)

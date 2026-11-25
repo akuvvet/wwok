@@ -2315,3 +2315,35 @@ class Wiedervorlage(Zeitstempel):
 
     def __str__(self):
         return f"{self.faellig:%d.%m.%Y} {self.kunde} – {self.text}"
+
+
+class ERechnungArchiv(models.Model):
+    """Ausgestellte E-Rechnung unveränderlich aufbewahren (GoBD, 8 Jahre; Auftrag des Nutzers 25.11.2026): das PDF/A-3 mit
+    eingebetteter XML wird beim ersten Erzeugen (Ansicht, Mail, Download) eingefroren und danach immer genau so ausgeliefert,
+    auch wenn sich später Stammdaten, Logo oder Programm ändern. Die XRechnung (reine XML) ebenso beim ersten Download.
+    In der Datenbank, damit sie in jeder Datenbanksicherung enthalten ist."""
+
+    beleg = models.OneToOneField(Beleg, on_delete=models.PROTECT, related_name="erechnung_archiv")
+    pdf = models.BinaryField("ZUGFeRD-PDF (PDF/A-3)", editable=False)
+    pdf_sha256 = models.CharField(max_length=64, editable=False)
+    xrechnung = models.BinaryField("XRechnung (XML)", null=True, blank=True, editable=False)
+    xrechnung_sha256 = models.CharField(max_length=64, blank=True, editable=False)
+    erstellt_am = models.DateTimeField(default=timezone.now, editable=False)
+    xrechnung_am = models.DateTimeField(null=True, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "archivierte E-Rechnung"
+        verbose_name_plural = "archivierte E-Rechnungen"
+
+    def __str__(self):
+        return f"E-Rechnung {self.beleg}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:  # einmal geschrieben, bleibt das PDF; nur die XRechnung darf einmalig hinzukommen
+            alt = type(self).objects.filter(pk=self.pk).values("pdf_sha256", "xrechnung_sha256").first()
+            if alt and (alt["pdf_sha256"] != self.pdf_sha256 or (alt["xrechnung_sha256"] and alt["xrechnung_sha256"] != self.xrechnung_sha256)):
+                raise ValueError("Eine archivierte E-Rechnung lässt sich nicht ändern (GoBD).")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Eine archivierte E-Rechnung lässt sich nicht löschen (GoBD).")
