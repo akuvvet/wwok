@@ -213,6 +213,23 @@ class MandantAdmin(admin.ModelAdmin):
             aussehen_zuruecksetzen(mandant)
         self.message_user(request, f"Aussehen von {queryset.count()} Mandant(en) zurückgesetzt.", messages.SUCCESS)
 
+    def get_actions(self, request):
+        aktionen = super().get_actions(request)
+        aktionen.pop("delete_selected", None)  # Mandanten nur einzeln und mit Masterpasswort löschen
+        return aktionen
+
+    def delete_view(self, request, object_id, extra_context=None):
+        """Löschen nur mit Masterpasswort (Hash in der .env, Wunsch des Nutzers 25.11.2026)."""
+        from . import masterpasswort
+        if not masterpasswort.eingerichtet():
+            messages.error(request, "Mandanten lassen sich nur mit Masterpasswort löschen – auf dem Server ist keines eingerichtet "
+                                    "(python manage.py masterpasswort_hash, Zeile in die .env).")
+            return HttpResponseRedirect(request.path.rsplit("/delete/", 1)[0] + "/change/")
+        if request.method == "POST" and not masterpasswort.pruefen(request.POST.get("masterpasswort", "")):
+            messages.error(request, "Masterpasswort falsch – nichts gelöscht.")
+            return HttpResponseRedirect(request.path)
+        return super().delete_view(request, object_id, {**(extra_context or {}), "masterpasswort_noetig": True})
+
     def change_view(self, request, object_id, form_url="", extra_context=None):
         if request.method == "POST" and "_aussehen_zuruecksetzen" in request.POST:
             mandant = self.get_object(request, object_id)

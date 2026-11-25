@@ -1,0 +1,17 @@
+{% extends "admin/delete_confirmation.html" %}
+{% load i18n %}
+{% block delete_confirm %}
+    <p>Mandant „{{ object }}“ wirklich löschen? Folgende zugehörige Einträge werden mit gelöscht:</p>
+    {% include "admin/includes/object_delete_summary.html" %}
+    <h2>{% translate "Objects" %}</h2>
+    <ul id="deleted-objects">{{ deleted_objects|unordered_list }}</ul>
+    <form method="post">{% csrf_token %}
+    <div>
+    <input type="hidden" name="post" value="yes">
+    <p><label for="masterpasswort"><strong>Masterpasswort</strong> (Pflicht zum Löschen eines Mandanten)</label><br>
+      <input type="password" name="masterpasswort" id="masterpasswort" required autocomplete="off" size="30"></p>
+    <input type="submit" value="Mandant endgültig löschen">
+    <a href="#" class="button cancel-link">{% translate "No, take me back" %}</a>
+    </div>
+    </form>
+{% endblock %}
