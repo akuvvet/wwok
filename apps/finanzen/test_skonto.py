@@ -108,6 +108,7 @@ class SkontoTest(TestCase):
                                    {"betrag": "116,62", "datum": "2026-11-08", "zahlart": "ue", "offen_bisher": "119,00"}, follow=True)
         self.assertContains(antwort, "2,38 € Skonto gewährt")
         self.assertEqual(services.offen(b), Decimal("0.00"))
+        self.m.datev_zahlungen = True  # Zahlungen im Export eingeschaltet (seit 25.11.2026 aus als Standard)
         text = datev.export(self.m, date(2026, 11, 1), date(2026, 11, 30)).decode("cp1252")
         zeile = next(z for z in text.splitlines() if "Skonto Kunde GmbH" in z)
         self.assertTrue(zeile.startswith("2,38;"))

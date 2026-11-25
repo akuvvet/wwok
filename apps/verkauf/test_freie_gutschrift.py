@@ -229,6 +229,7 @@ class GutschriftAuszahlenTest(TestCase):
         heute = timezone.localdate().isoformat()
         self.client.post(self.url, {"betrag": "20,00", "datum": heute, "zahlart": "ba"})
         self.assertEqual(Kassenbuch.objects.order_by("-nummer").first().art, Kassenbuch.AUSGABE)
+        self.m.datev_zahlungen = True  # Zahlungen im Export eingeschaltet (seit 25.11.2026 aus als Standard)
         text = datev.export(self.m, date(2026, 1, 1), date(2026, 12, 31)).decode("cp1252")
         self.assertIn(f"20,00;H;EUR;;;;", text)
 

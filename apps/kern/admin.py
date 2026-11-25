@@ -161,7 +161,7 @@ class MandantAdmin(admin.ModelAdmin):
                                        "kopie_an", "testmail_knopf"],
                             "description": "Zugang zum Mail-Postfach dieses Mandanten. Alle Angaben einschließlich Passwort "
                                            "werden hier eingetragen; mit „Testmail senden“ lässt sich der Versand prüfen."}),
-        ("DATEV und Konten", {"fields": ["datev_berater", "datev_mandant", "konto_erloes_19", "konto_erloes_7", "konto_erloes_0",
+        ("DATEV und Konten", {"fields": ["datev_berater", "datev_mandant", "datev_zahlungen", "konto_erloes_19", "konto_erloes_7", "konto_erloes_0",
                                          "konto_bank", "konto_kasse", "konto_skonto"]}),
         ("Verlauf", {"fields": ["angelegt_am", "geaendert_am", "geaendert_von"]}),
     ]

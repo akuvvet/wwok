@@ -234,6 +234,7 @@ class BuchhaltungTest(TestCase):
         from . import datev
         b = self.rechnung()
         services.zahlung_buchen(b, Decimal("119"), date.today(), "ue")
+        self.m.datev_zahlungen = True  # Zahlungen im Export eingeschaltet (seit 25.11.2026 aus als Standard)
         daten = datev.export(self.m, date.today().replace(day=1), date.today()).decode("cp1252").splitlines()
         self.assertTrue(daten[0].startswith('EXTF;700;21;Buchungsstapel'))
         self.assertIn("12345", daten[0])
