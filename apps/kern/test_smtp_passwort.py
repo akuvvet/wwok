@@ -1,5 +1,6 @@
 """SMTP-Passwort je Mandant: in der Verwaltung eintragen, verschlüsselt speichern, nie anzeigen; Testmail-Knopf."""
 import os
+from apps.kern.testhilfe import MANDANT_INLINES_LEER
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -30,7 +31,7 @@ class SmtpPasswortTest(TestCase):
                 "smtp_port": 587, "smtp_sicherheit": "starttls", "smtp_benutzer": "post@zone.test",
                 "absender_email": "post@zone.test", "konto_erloes_19": "8400", "konto_erloes_7": "8300",
                 "konto_erloes_0": "8200", "konto_bank": "1200", "konto_kasse": "1000", "konto_skonto": "8736",
-                "aktiv": "on", "flaechenmodus": "standard", "standard_vk": "3", **mehr}
+                "aktiv": "on", "flaechenmodus": "standard", "standard_vk": "3", **MANDANT_INLINES_LEER, **mehr}
 
     def test_verschluesselung_hin_und_zurueck(self):
         geheim = verschluesseln(GEHEIM)

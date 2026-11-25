@@ -23,7 +23,7 @@ from django.utils import timezone
 PROJEKT_APPS = ("kern", "stammdaten", "verkauf", "einkauf", "lager", "finanzen", "esd", "shop", "werkstatt")
 
 BEHALTEN = {
-    "kern.Mandant", "kern.Listenansicht",
+    "kern.Mandant", "kern.Listenansicht", "kern.Zahlungskonto", "kern.Plattformkonto",
     "stammdaten.Zahlungsbedingung", "stammdaten.Anrede", "stammdaten.Steuersatz", "stammdaten.Kategorie",
     "stammdaten.Leistungskategorie", "stammdaten.Hersteller", "stammdaten.PreisVorgabe", "stammdaten.Stammnummer",
     "verkauf.Versandart", "verkauf.Mailvorlage", "verkauf.Briefprodukt",

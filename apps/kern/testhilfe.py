@@ -18,3 +18,8 @@ def mit_logo(mandant):
             yield
         finally:
             mandant.logo.delete(save=True)
+
+
+# Mandantenmaske in der Verwaltung: leere Unterbereiche (Zahlungs- und Plattformkonten) für POST-Daten
+MANDANT_INLINES_LEER = {f"{p}-{k}": v for p in ("zahlungskonten", "plattformkonten")
+                        for k, v in (("TOTAL_FORMS", "0"), ("INITIAL_FORMS", "0"), ("MIN_NUM_FORMS", "0"), ("MAX_NUM_FORMS", "1000"))}
