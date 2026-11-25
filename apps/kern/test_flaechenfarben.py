@@ -1,4 +1,5 @@
 """Flächenfarben je Mandant (Verwaltung → Mandanten → Aussehen): Kopfbereich, Seitenleiste und Karten getrennt oder in gleicher Tonart."""
+from apps.kern.testhilfe import MANDANT_INLINES_LEER
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -107,7 +108,7 @@ class FlaechenfarbenTest(TestCase):
         self.assertContains(r, 'name="farbe_kopf"')
         self.assertContains(r, "Leeren")
         daten = {k: ("" if v is None else v) for k, v in r.context["adminform"].form.initial.items() if k != "logo"}
-        daten.update(flaechenmodus="eigen", farbe_kopf="#102a43", farbe_leiste="", farbe_karte="#f5f0ff")
+        daten.update(flaechenmodus="eigen", farbe_kopf="#102a43", farbe_leiste="", farbe_karte="#f5f0ff", **MANDANT_INLINES_LEER)
         r = self.client.post(url, daten)
         self.assertEqual(r.status_code, 302, getattr(r, "context", None) and r.context["adminform"].form.errors)
         self.m.refresh_from_db()

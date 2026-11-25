@@ -8,7 +8,7 @@ from django.http import HttpResponseRedirect
 from django.utils.html import format_html
 
 from .layout import aussehen_zuruecksetzen, hausfarbe
-from .models import AenderungsProtokoll, Listenansicht, Mandant
+from .models import AenderungsProtokoll, Listenansicht, Mandant, Plattformkonto, Zahlungskonto
 
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 
@@ -58,11 +58,116 @@ class MandantForm(forms.ModelForm):
         return logo
 
 
+
+def _geheimfeld(label, hilfe=""):
+    return forms.CharField(label=label, required=False, strip=True,
+                           widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password", "size": 40}),
+                           help_text=(hilfe + " " if hilfe else "") + "Wird verschlüsselt gespeichert und nie wieder angezeigt; leer = unverändert.")
+
+
+class ZahlungskontoForm(forms.ModelForm):
+    class Meta:
+        model = Zahlungskonto
+        fields = "__all__"
+
+    paypal_secret_neu = _geheimfeld("REST-API Secret", "developer.paypal.com → Apps & Credentials (Live) → Secret.")
+    paypal_secret_loeschen = forms.BooleanField(label="Secret entfernen", required=False)
+
+    def clean(self):
+        daten = super().clean()
+        if daten.get("art") != Zahlungskonto.Art.KREDITKARTE:
+            for feld in ("karte_letzte4", "karte_ablauf", "karte_inhaber"):
+                if daten.get(feld):
+                    self.add_error(feld, "Nur bei Art „Kreditkarte“.")
+        return daten
+
+    def save(self, commit=True):
+        if self.cleaned_data.get("paypal_secret_neu"):
+            self.instance.secret_setzen(self.cleaned_data["paypal_secret_neu"])
+        elif self.cleaned_data.get("paypal_secret_loeschen"):
+            self.instance.secret_setzen("")
+        return super().save(commit)
+
+
+class ZahlungskontoInline(admin.StackedInline):
+    model = Zahlungskonto
+    form = ZahlungskontoForm
+    extra = 0
+    readonly_fields = ["status"]
+    fieldsets = [
+        (None, {"fields": ["art", "bezeichnung", "aktiv", "datev_konto", "status"]}),
+        ("PayPal", {"fields": ["paypal_email", "paypal_haendler_id", "paypal_umgebung", "paypal_client_id",
+                               "paypal_secret_neu", "paypal_secret_loeschen"], "classes": ["collapse"]}),
+        ("Kreditkarte (nie die volle Nummer oder die Prüfziffer eintragen)", {
+            "fields": ["karte_anbieter", "karte_inhaber", "karte_letzte4", "karte_ablauf", "karte_bank", "karte_abrechnung_iban"],
+            "classes": ["collapse"]}),
+        (None, {"fields": ["bemerkung"]}),
+    ]
+
+    @admin.display(description="Stand")
+    def status(self, obj):
+        if not obj or not obj.pk:
+            return "– nach dem Speichern –"
+        fehlt = obj.fehlende_angaben()
+        geheim = " · Secret hinterlegt (verschlüsselt)" if obj.art == Zahlungskonto.Art.PAYPAL and obj.secret else ""
+        return ("vollständig ✓" if not fehlt else "fehlt: " + ", ".join(fehlt)) + geheim
+
+
+class PlattformkontoForm(forms.ModelForm):
+    class Meta:
+        model = Plattformkonto
+        fields = "__all__"
+
+    client_secret_neu = _geheimfeld("Client Secret / Secret Key",
+                                    "eBay: Cert-ID. Amazon: LWA Client Secret. Kaufland: Secret Key (nur einmal sichtbar beim Erzeugen).")
+    refresh_token_neu = _geheimfeld("Refresh-Token",
+                                    "eBay: aus der Freigabe (User Token). Amazon: Seller Central → Apps → App autorisieren. Kaufland: nicht nötig.")
+    geheimnisse_loeschen = forms.BooleanField(label="Secret und Token entfernen", required=False)
+
+    def save(self, commit=True):
+        if self.cleaned_data.get("geheimnisse_loeschen"):
+            self.instance.geheimnis_setzen("client_secret", "")
+            self.instance.geheimnis_setzen("refresh_token", "")
+        for feld in ("client_secret", "refresh_token"):
+            if self.cleaned_data.get(f"{feld}_neu"):
+                self.instance.geheimnis_setzen(feld, self.cleaned_data[f"{feld}_neu"])
+        return super().save(commit)
+
+
+class PlattformkontoInline(admin.StackedInline):
+    model = Plattformkonto
+    form = PlattformkontoForm
+    extra = 0
+    readonly_fields = ["status"]
+    fieldsets = [
+        (None, {"fields": ["plattform", "bezeichnung", "aktiv", "umgebung", "status"]}),
+        ("Konto und Zugang", {"fields": ["kontoname", "haendler_id", "marktplatz", "client_id", "client_secret_neu",
+                                         "refresh_token_neu", "refresh_token_bis", "geheimnisse_loeschen"]}),
+        ("Nur eBay", {"fields": ["ebay_dev_id", "ebay_runame", "ebay_richtlinie_versand", "ebay_richtlinie_zahlung",
+                                 "ebay_richtlinie_ruecknahme", "ebay_lagerort"], "classes": ["collapse"]}),
+        ("Angebot", {"fields": ["preisstufe", "preisaufschlag", "bestand_puffer", "bemerkung"]}),
+    ]
+
+    @admin.display(description="Stand")
+    def status(self, obj):
+        if not obj or not obj.pk:
+            return "– nach dem Speichern –"
+        fehlt = obj.fehlende_angaben()
+        teile = ["bereit für die Anbindung ✓" if not fehlt else "fehlt: " + ", ".join(fehlt)]
+        if obj.refresh_token_bis:
+            from django.utils import timezone
+            tage = (obj.refresh_token_bis - timezone.localdate()).days
+            if tage < 30:
+                teile.append(f"Refresh-Token läuft {'ab' if tage < 0 else f'in {tage} Tagen ab'} – neu freigeben")
+        return " · ".join(teile)
+
+
 @admin.register(Mandant)
 class MandantAdmin(admin.ModelAdmin):
+    inlines = [ZahlungskontoInline, PlattformkontoInline]
     form = MandantForm
     list_display = ["kurzname", "firmenname", "ort", "aktiv"]
-    readonly_fields = ["erechnung_bereit", "logo_vorschau", "aussehen_zuruecksetzen_knopf", "smtp_passwort_status", "testmail_knopf", "angelegt_am", "geaendert_am", "geaendert_von"]
+    readonly_fields = ["erechnung_bereit", "shopware_shops", "logo_vorschau", "aussehen_zuruecksetzen_knopf", "smtp_passwort_status", "testmail_knopf", "angelegt_am", "geaendert_am", "geaendert_von"]
     actions = ["aussehen_zuruecksetzen"]
 
     @admin.display(description="E-Rechnung")
@@ -163,8 +268,22 @@ class MandantAdmin(admin.ModelAdmin):
                                            "werden hier eingetragen; mit „Testmail senden“ lässt sich der Versand prüfen."}),
         ("DATEV und Konten", {"fields": ["datev_berater", "datev_mandant", "datev_zahlungen", "konto_erloes_19", "konto_erloes_7", "konto_erloes_0",
                                          "konto_bank", "konto_kasse", "konto_skonto"]}),
+        ("Online-Shops (Shopware)", {"fields": ["shopware_shops"],
+                                     "description": "Shopware-Shops haben eine eigene Anbindung (Bestand, Preise, Bestellungen)."}),
         ("Verlauf", {"fields": ["angelegt_am", "geaendert_am", "geaendert_von"]}),
     ]
+
+    @admin.display(description="Shopware")
+    def shopware_shops(self, obj):
+        from django.urls import reverse
+        from django.utils.html import format_html_join
+        neu = reverse("admin:shop_shop_add")
+        if not obj or not obj.pk:
+            return "– nach dem ersten Speichern –"
+        shops = list(obj.shops.all())
+        liste = format_html_join(" · ", '<a href="{}">{}</a>{}', ((reverse("admin:shop_shop_change", args=[s.pk]), s.name,
+                                                                   "" if s.aktiv else " (inaktiv)") for s in shops))
+        return format_html('{}{}<a href="{}?mandant={}">+ Shopware-Shop anlegen</a>', liste, " · " if shops else "", neu, obj.pk)
 
     @admin.display(description="Vorschau")
     def logo_vorschau(self, obj):
