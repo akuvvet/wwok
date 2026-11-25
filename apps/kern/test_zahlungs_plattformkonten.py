@@ -35,7 +35,7 @@ class ZahlungsUndPlattformkontenTest(TestCase):
 
     def test_maske_zeigt_beide_bereiche_und_shopware(self):
         seite = self.client.get(self.url)
-        self.assertContains(seite, "Zahlungskonten (PayPal/Kreditkarte)")
+        self.assertContains(seite, "Konten (Bank, PayPal, Karte …)")
         self.assertContains(seite, "Plattformkonten (eBay/Amazon/Kaufland)")
         self.assertContains(seite, "+ Shopware-Shop anlegen")
 
@@ -61,9 +61,9 @@ class ZahlungsUndPlattformkontenTest(TestCase):
 
     def test_fehlende_angaben_je_plattform(self):
         amazon = Plattformkonto(mandant=self.m, plattform="amazon", bezeichnung="Amazon")
-        self.assertEqual(amazon.fehlende_angaben(), ["Händler-ID", "LWA Client-ID", "LWA Client Secret", "Refresh-Token"])
+        self.assertEqual(amazon.fehlende_angaben(), ["Händler-ID", "LWA Client-ID", "LWA Client Secret", "Refresh-Token", "DATEV-Konto"])
         self.assertEqual(amazon.marktplatz_wert, "A1PA6795UKMFR9")
-        kaufland = Plattformkonto(mandant=self.m, plattform="kaufland", bezeichnung="Kaufland", client_id="KEY")
+        kaufland = Plattformkonto(mandant=self.m, plattform="kaufland", bezeichnung="Kaufland", client_id="KEY", datev_konto="1250")
         kaufland.geheimnis_setzen("client_secret", "SECRET")
         self.assertEqual((kaufland.fehlende_angaben(), kaufland.marktplatz_wert), ([], "de"))
 
@@ -82,7 +82,7 @@ class ZahlungsUndPlattformkontenTest(TestCase):
 
     def test_paypal_secret_verschluesselt_und_entfernbar(self):
         pp = Zahlungskonto.objects.create(mandant=self.m, art="paypal", bezeichnung="PayPal OKAY", paypal_email="pp@okay.test",
-                                          paypal_client_id="CID")
+                                          paypal_client_id="CID", datev_konto="1240")
         self.assertEqual(pp.fehlende_angaben(), ["Secret"])
         pp.secret_setzen("pp-geheim")
         pp.save()
@@ -100,3 +100,32 @@ class ZahlungsUndPlattformkontenTest(TestCase):
         Plattformkonto.objects.create(mandant=self.m, plattform="ebay", bezeichnung="eBay 1",
                                       refresh_token_bis=timezone.localdate() + timedelta(days=10))
         self.assertContains(self.client.get(self.url), "Refresh-Token läuft in 10 Tagen ab")
+
+    # ---- 0.34.0: Konten erweiterbar (Bank), DATEV-Konten laut Steuerberater, Kostenstellen -------------------
+    def test_mehrere_bankkonten_mit_datev_konto(self):
+        for name, iban, konto in (("Commerzbank", "DE89 3704 0044 0532 0130 00", "1200"), ("Postbank", "", "1100")):
+            k = Zahlungskonto(mandant=self.m, art="bank", bezeichnung=name, bank_name=name, iban=iban,
+                              kontonummer="" if iban else "0253 2544 61", datev_konto=konto)
+            k.full_clean()
+            k.save()
+        self.assertEqual(Zahlungskonto.objects.get(bezeichnung="Commerzbank").iban, "DE89370400440532013000")
+        self.assertEqual([k.fehlende_angaben() for k in Zahlungskonto.objects.filter(art="bank")], [[], []])
+        self.assertEqual(Zahlungskonto(mandant=self.m, art="bank", bezeichnung="X").fehlende_angaben(),
+                         ["IBAN oder Kontonummer", "DATEV-Konto"])
+        with self.assertRaises(ValidationError):
+            Zahlungskonto(mandant=self.m, art="bank", bezeichnung="Falsch", iban="1234", datev_konto="1210").full_clean()
+
+    def test_kartenpruefung_laesst_iban_und_kontonummer_zu(self):
+        from .models import keine_kartennummer
+        for erlaubt in ("DE89 3704 0044 0532 0130 00", "Konto 0363 8509 02", "Referenz 123456789012345"):
+            keine_kartennummer(erlaubt)
+        for verboten in ("4111 1111 1111 1111", "5500-0000-0000-0004", "378282246310005"):
+            with self.subTest(verboten), self.assertRaises(ValidationError):
+                keine_kartennummer(verboten)
+
+    def test_kostenstellen_zuordnung_und_pruefung(self):
+        self.m.kostenstellen_konten = "Apetito = 8401\n\nWerkstatt=8402"
+        self.assertEqual(self.m.kostenstellen_zuordnung(), {"apetito": "8401", "werkstatt": "8402"})
+        from .testhilfe import MANDANT_INLINES_LEER
+        daten = {**self.formular(), **MANDANT_INLINES_LEER, "kostenstellen_konten": "Apetito 8401"}
+        self.assertContains(self.client.post(self.url, daten), "Zeile 1: bitte „Kostenstelle = Kontonummer“")

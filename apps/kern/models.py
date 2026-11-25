@@ -103,6 +103,10 @@ class Mandant(Zeitstempel):
     konto_bank = models.CharField("Bankkonto", max_length=8, default="1200")
     konto_kasse = models.CharField("Kassenkonto", max_length=8, default="1000")
     konto_skonto = models.CharField("Konto gewährte Skonti", max_length=8, default="8736")
+    kostenstellen_konten = models.TextField(
+        "Erlöskonto je Kostenstelle", blank=True,
+        help_text="Eine Zeile je Kostenstelle: „Kostenstelle = Konto“, z. B. „Apetito = 8401“. Gilt für Positionen mit 19 %, deren Artikel "
+                  "diese Kostenstelle hat; alle anderen laufen auf das Erlöskonto 19 %.")
     kopie_an = models.EmailField("Kopie (BCC) an", blank=True, help_text="Optional: jede Belegmail zusätzlich hierhin.")
 
     class Meta:
@@ -112,6 +116,16 @@ class Mandant(Zeitstempel):
 
     def __str__(self):
         return self.kurzname
+
+    def kostenstellen_zuordnung(self) -> dict:
+        """{kostenstelle (klein): Erlöskonto} aus „Kostenstelle = Konto“ je Zeile."""
+        zuordnung = {}
+        for zeile in (self.kostenstellen_konten or "").splitlines():
+            if "=" in zeile:
+                stelle, konto = (t.strip() for t in zeile.split("=", 1))
+                if stelle and konto:
+                    zuordnung[stelle.lower()] = konto
+        return zuordnung
 
     def smtp_passwort_setzen(self, klartext: str):
         """Speichert das Passwort verschlüsselt; leer = entfernen (dann gilt wieder die .env)."""
@@ -197,20 +211,37 @@ class Listenansicht(models.Model):
 
 # ---- Zahlungskonten und Online-Plattformen je Mandant (Wunsch des Nutzers 25.11.2026) ----------------
 
-KARTENNUMMER = re.compile(r"(?:\d[ -]?){13,19}")
+KARTENNUMMER = re.compile(r"(?<!\d)[3-6](?:[ -]?\d){12,18}(?!\d)")
+
+
+def _luhn(ziffern: str) -> bool:
+    summe = 0
+    for i, z in enumerate(reversed(ziffern)):
+        n = int(z) * (2 if i % 2 else 1)
+        summe += n - 9 if n > 9 else n
+    return summe % 10 == 0
 
 
 def keine_kartennummer(wert):
-    """Volle Kartennummern dürfen nirgends gespeichert werden (PCI DSS) – nur die letzten 4 Ziffern."""
-    if wert and KARTENNUMMER.search(str(wert)):
-        raise ValidationError("Bitte keine vollständige Kartennummer speichern – nur die letzten 4 Ziffern.")
+    """Volle Kartennummern dürfen nirgends gespeichert werden (PCI DSS) – nur die letzten 4 Ziffern. Erkannt wird eine 13- bis
+    19-stellige Ziffernfolge mit gültiger Prüfziffer (Luhn), die wie eine Kartennummer beginnt; Konto- und IBAN-Angaben bleiben erlaubt."""
+    for treffer in KARTENNUMMER.finditer(str(wert or "")):
+        if _luhn(re.sub(r"\D", "", treffer.group())):
+            raise ValidationError("Bitte keine vollständige Kartennummer speichern – nur die letzten 4 Ziffern.")
+
+
+IBAN_PRUEFER = RegexValidator(r"^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$", "IBAN ohne Leerzeichen, z. B. DE89370400440532013000.")
 
 
 class Zahlungskonto(Zeitstempel):
-    """Weiteres Zahlungskonto des Mandanten neben der Bank: PayPal oder Kreditkarte. Das PayPal-Secret wird verschlüsselt
-    gespeichert und nie angezeigt; von Kreditkarten nur Kartenart, Inhaber, letzte 4 Ziffern und Ablauf – nie Kartennummer oder CVC."""
+    """Geldkonto des Mandanten, beliebig viele und erweiterbar (Wunsch des Nutzers 25.11.2026, auch für weitere Mandanten oder
+    Firmen): Bankkonten, PayPal, Kreditkarte, Sonstiges – je mit eigenem DATEV-Finanzkonto (Vorgabe des Steuerberaters, z. B.
+    Commerzbank 1200, Postbank 1100, PayPal 1240). Das PayPal-Secret wird verschlüsselt gespeichert und nie angezeigt; von
+    Kreditkarten nur Kartenart, Inhaber, letzte 4 Ziffern und Ablauf – nie Kartennummer oder CVC. Die Bankverbindung auf
+    Rechnungen und für SEPA bleibt die IBAN im Mandanten."""
 
     class Art(models.TextChoices):
+        BANK = "bank", "Bankkonto"
         PAYPAL = "paypal", "PayPal"
         KREDITKARTE = "karte", "Kreditkarte"
         SONSTIGES = "sonst", "Sonstiges (z. B. Stripe, SumUp)"
@@ -224,7 +255,12 @@ class Zahlungskonto(Zeitstempel):
     bezeichnung = models.CharField("Bezeichnung", max_length=60, help_text="z. B. „PayPal OKAY“ oder „Firmen-Visa“")
     aktiv = models.BooleanField(default=True)
     datev_konto = models.CharField("DATEV-Konto", max_length=10, blank=True,
-                                   help_text="Finanzkonto für dieses Zahlungsmittel – mit dem Steuerberater abstimmen.")
+                                   help_text="Finanzkonto laut Steuerberater, z. B. 1200 (Commerzbank), 1100 (Postbank), 1240 (PayPal).")
+    # Bank
+    bank_name = models.CharField("Bank", max_length=80, blank=True)
+    iban = models.CharField("IBAN", max_length=34, blank=True, validators=[IBAN_PRUEFER])
+    bic = models.CharField("BIC", max_length=11, blank=True)
+    kontonummer = models.CharField("Kontonummer", max_length=20, blank=True, help_text="Falls ohne IBAN bekannt, z. B. 0363 8509 00")
     # PayPal
     paypal_email = models.EmailField("PayPal-E-Mail", blank=True)
     paypal_haendler_id = models.CharField("PayPal-Händler-ID", max_length=20, blank=True,
@@ -247,14 +283,18 @@ class Zahlungskonto(Zeitstempel):
     bemerkung = models.CharField("Notiz", max_length=200, blank=True, validators=[keine_kartennummer])
 
     class Meta:
-        verbose_name = "Zahlungskonto (PayPal/Kreditkarte)"
-        verbose_name_plural = "Zahlungskonten (PayPal/Kreditkarte)"
+        verbose_name = "Konto (Bank, PayPal, Karte …)"
+        verbose_name_plural = "Konten (Bank, PayPal, Karte …)"
         ordering = ["mandant", "art", "bezeichnung"]
         constraints = [models.UniqueConstraint(fields=["mandant", "bezeichnung"], name="zahlungskonto_bezeichnung_je_mandant")]
 
     def __str__(self):
         zusatz = f" ••••{self.karte_letzte4}" if self.art == self.Art.KREDITKARTE and self.karte_letzte4 else ""
         return f"{self.bezeichnung}{zusatz}"
+
+    def clean_fields(self, exclude=None):
+        self.iban = (self.iban or "").replace(" ", "").upper()  # vor der Feldprüfung: Eingabe mit Leerzeichen ist erlaubt
+        super().clean_fields(exclude)
 
     def secret_setzen(self, klartext: str):
         from .geheim import verschluesseln
@@ -266,13 +306,15 @@ class Zahlungskonto(Zeitstempel):
         return entschluesseln(self.paypal_secret_geheim)
 
     def fehlende_angaben(self) -> list:
-        if self.art == self.Art.PAYPAL:
+        if self.art == self.Art.BANK:
+            pflicht = [("IBAN oder Kontonummer", self.iban or self.kontonummer)]
+        elif self.art == self.Art.PAYPAL:
             pflicht = [("PayPal-E-Mail", self.paypal_email), ("REST-API Client-ID", self.paypal_client_id), ("Secret", self.secret)]
         elif self.art == self.Art.KREDITKARTE:
             pflicht = [("Kartenart", self.karte_anbieter), ("letzte 4 Ziffern", self.karte_letzte4), ("gültig bis", self.karte_ablauf)]
         else:
             pflicht = []
-        return [name for name, wert in pflicht if not wert]
+        return [name for name, wert in pflicht + [("DATEV-Konto", self.datev_konto)] if not wert]
 
 
 class Plattformkonto(Zeitstempel):
@@ -296,6 +338,8 @@ class Plattformkonto(Zeitstempel):
     bezeichnung = models.CharField("Bezeichnung", max_length=60, help_text="z. B. „eBay Account 1“")
     aktiv = models.BooleanField(default=True)
     umgebung = models.CharField("Umgebung", max_length=7, choices=Umgebung.choices, default=Umgebung.LIVE)
+    datev_konto = models.CharField("DATEV-Konto", max_length=10, blank=True,
+                                   help_text="Verrechnungskonto der Plattform laut Steuerberater, z. B. eBay 1220, Kaufland 1250.")
     kontoname = models.CharField("Benutzer-/Shopname", max_length=100, blank=True,
                                  help_text="eBay-Benutzername, Amazon-Shopname bzw. Kaufland-Shopname")
     haendler_id = models.CharField("Händler-ID", max_length=40, blank=True,
@@ -360,4 +404,4 @@ class Plattformkonto(Zeitstempel):
                        ("LWA Client Secret", self.geheimnis("client_secret")), ("Refresh-Token", self.geheimnis("refresh_token"))],
             "kaufland": [("Client Key", self.client_id), ("Secret Key", self.geheimnis("client_secret"))],
         }.get(self.plattform, [])
-        return [name for name, wert in pflicht if not wert]
+        return [name for name, wert in pflicht + [("DATEV-Konto", self.datev_konto)] if not wert]

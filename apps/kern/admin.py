@@ -51,6 +51,16 @@ class MandantForm(forms.ModelForm):
             self.instance.smtp_passwort_setzen("")
         return super().save(commit)
 
+    def clean_kostenstellen_konten(self):
+        text = self.cleaned_data.get("kostenstellen_konten", "")
+        for nummer, zeile in enumerate(text.splitlines(), start=1):
+            if not zeile.strip():
+                continue
+            stelle, _, konto = zeile.partition("=")
+            if not stelle.strip() or not konto.strip().isdigit():
+                raise forms.ValidationError(f"Zeile {nummer}: bitte „Kostenstelle = Kontonummer“, z. B. „Apetito = 8401“.")
+        return text
+
     def clean_logo(self):
         logo = self.cleaned_data.get("logo")
         if logo and hasattr(logo, "size") and logo.size > LOGO_MAX_BYTES:
@@ -96,6 +106,7 @@ class ZahlungskontoInline(admin.StackedInline):
     readonly_fields = ["status"]
     fieldsets = [
         (None, {"fields": ["art", "bezeichnung", "aktiv", "datev_konto", "status"]}),
+        ("Bankkonto", {"fields": ["bank_name", "iban", "bic", "kontonummer"], "classes": ["collapse"]}),
         ("PayPal", {"fields": ["paypal_email", "paypal_haendler_id", "paypal_umgebung", "paypal_client_id",
                                "paypal_secret_neu", "paypal_secret_loeschen"], "classes": ["collapse"]}),
         ("Kreditkarte (nie die volle Nummer oder die Prüfziffer eintragen)", {
@@ -140,7 +151,7 @@ class PlattformkontoInline(admin.StackedInline):
     extra = 0
     readonly_fields = ["status"]
     fieldsets = [
-        (None, {"fields": ["plattform", "bezeichnung", "aktiv", "umgebung", "status"]}),
+        (None, {"fields": ["plattform", "bezeichnung", "aktiv", "umgebung", "datev_konto", "status"]}),
         ("Konto und Zugang", {"fields": ["kontoname", "haendler_id", "marktplatz", "client_id", "client_secret_neu",
                                          "refresh_token_neu", "refresh_token_bis", "geheimnisse_loeschen"]}),
         ("Nur eBay", {"fields": ["ebay_dev_id", "ebay_runame", "ebay_richtlinie_versand", "ebay_richtlinie_zahlung",
@@ -267,7 +278,7 @@ class MandantAdmin(admin.ModelAdmin):
                             "description": "Zugang zum Mail-Postfach dieses Mandanten. Alle Angaben einschließlich Passwort "
                                            "werden hier eingetragen; mit „Testmail senden“ lässt sich der Versand prüfen."}),
         ("DATEV und Konten", {"fields": ["datev_berater", "datev_mandant", "datev_zahlungen", "konto_erloes_19", "konto_erloes_7", "konto_erloes_0",
-                                         "konto_bank", "konto_kasse", "konto_skonto"]}),
+                                         "konto_bank", "konto_kasse", "konto_skonto", "kostenstellen_konten"]}),
         ("Online-Shops (Shopware)", {"fields": ["shopware_shops"],
                                      "description": "Shopware-Shops haben eine eigene Anbindung (Bestand, Preise, Bestellungen)."}),
         ("Verlauf", {"fields": ["angelegt_am", "geaendert_am", "geaendert_von"]}),

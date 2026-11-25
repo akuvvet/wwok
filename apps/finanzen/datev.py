@@ -36,16 +36,36 @@ def erloeskonto(mandant, prozent: Decimal) -> str:
 
 
 def beleg_zeilen(beleg):
-    """Je Steuersatz eine Buchung (brutto) Debitor an Erlöse; Versandkosten laufen mit dem höchsten Satz."""
-    netto = defaultdict(Decimal)
-    for p in beleg.positionen.all():
+    """(Erlöskonto, brutto) je Steuersatz und Erlöskonto, Debitor an Erlöse. Versandkosten laufen mit dem höchsten Satz auf dessen
+    Standardkonto. Positionen mit 19 %, deren Artikel eine zugeordnete Kostenstelle hat, laufen auf deren Erlöskonto (Vorgabe des
+    Steuerberaters 25.11.2026, z. B. Apetito = 8401). Rabatt und Rundung je Steuersatz wie bisher; die Summe je Satz wird auf die
+    Konten anteilig verteilt, der Rest auf das letzte Konto – die Belegsumme bleibt auf den Cent gleich."""
+    mandant = beleg.mandant
+    zuordnung = mandant.kostenstellen_zuordnung()
+    netto, je_konto = defaultdict(Decimal), defaultdict(lambda: defaultdict(Decimal))
+    for p in beleg.positionen.select_related("artikel"):
+        konto = erloeskonto(mandant, p.steuer_prozent)
+        stelle = (p.artikel.kostenstelle if p.artikel_id else "").strip().lower()
+        if p.steuer_prozent == Decimal("19") and stelle in zuordnung:
+            konto = zuordnung[stelle]
         netto[p.steuer_prozent] += p.netto_gesamt
+        je_konto[p.steuer_prozent][konto] += p.netto_gesamt
     netto = defaultdict(Decimal, beleg.nach_rabatt(netto)[0])  # Belegrabatt wirkt je Steuersatz
     nebenkosten = beleg.versandkosten + beleg.verpackung + beleg.versicherung
     if nebenkosten:
-        netto[max(netto, default=Decimal("19"))] += nebenkosten
+        hoechster = max(netto, default=Decimal("19"))
+        netto[hoechster] += nebenkosten
+        je_konto[hoechster][erloeskonto(mandant, hoechster)] += nebenkosten
     for satz, basis in sorted(netto.items()):
-        yield satz, runden(basis) + runden(basis * satz / 100)
+        brutto = runden(basis) + runden(basis * satz / 100)
+        konten = sorted(je_konto[satz].items()) or [(erloeskonto(mandant, satz), Decimal("1"))]
+        gesamt = sum((w for _, w in konten), Decimal("0"))
+        rest = brutto
+        for i, (konto, wert) in enumerate(konten):
+            teil = rest if i == len(konten) - 1 else runden(brutto * wert / gesamt) if gesamt else Decimal("0")
+            rest -= teil
+            if teil:
+                yield konto, teil
 
 
 def zahlungszeilen(mandant, von, bis) -> list:
@@ -79,9 +99,9 @@ def export(mandant, von, bis) -> bytes:
     belege = Beleg.objects.filter(mandant=mandant, abgeschlossen=True, belegdatum__range=(von, bis),
                                   art__in=[Belegart.RECHNUNG, Belegart.GUTSCHRIFT]).select_related("kunde").order_by("belegdatum", "id")
     for b in belege:
-        for satz, brutto in beleg_zeilen(b):
+        for konto, brutto in beleg_zeilen(b):
             zeilen.append([komma(brutto), "S" if b.art == Belegart.RECHNUNG else "H", "EUR", "", "", "", debitor(b.kunde),
-                           erloeskonto(mandant, satz), "", b.belegdatum.strftime("%d%m"), b.nummer, "", "",
+                           konto, "", b.belegdatum.strftime("%d%m"), b.nummer, "", "",
                            f"{b.get_art_display()} {b.kunde.name1}"[:60]])
     if mandant.datev_zahlungen:  # sonst bucht der Steuerberater die Bank selbst (Entscheidung des Nutzers 25.11.2026)
         zeilen += zahlungszeilen(mandant, von, bis)
