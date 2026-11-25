@@ -177,6 +177,7 @@ class ProformaTest(ProformaBasis):
         self.zahlen(pf, "238", Zahlart.BAR)
         re = anzahlung.proforma_umwandeln(pf)
         self.assertEqual(Kassenbuch.objects.count(), 1)
+        self.m.datev_zahlungen = True  # Zahlungen im Export eingeschaltet (seit 25.11.2026 aus als Standard)
         inhalt = datev.export(self.m, date(2000, 1, 1), date(2100, 1, 1)).decode("cp1252", errors="replace")
         self.assertEqual(inhalt.count("Zahlung Kunde GmbH"), 1)  # die Zahlung nur einmal, mit Proforma-Nummer und Zahldatum
         self.assertEqual(inhalt.count("Rechnung Kunde GmbH"), 1)  # Belegzeile nur für die Rechnung, nicht für die Proforma

@@ -9,7 +9,10 @@
     <div><label>bis</label><input type="date" name="bis" value="{{ bis }}"></div>
     <button type="submit">Buchungsstapel herunterladen</button>
   </form>
-  <p style="opacity:.8">Enthalten sind abgeschlossene Rechnungen und Gutschriften (Debitor an Erlöse, je Steuersatz) sowie Zahlungen (Bank bzw. Kasse an Debitor).
+  {% if not request.mandant.datev_berater or not request.mandant.datev_mandant %}<p class="warnung">Beraternummer oder Mandantennummer fehlt – ohne sie nimmt DATEV die Datei nicht an. Bitte unter Verwaltung → Mandanten → DATEV und Konten eintragen.</p>{% endif %}
+  <p style="opacity:.8">Enthalten sind abgeschlossene Rechnungen und Gutschriften (Debitor an Erlöse, je Steuersatz).
+     {% if request.mandant.datev_zahlungen %}Zahlungen sind eingeschaltet: Bank bzw. Kasse an Debitor; eine Zahlung und ihr Storno im selben Zeitraum entfallen, Anzahlungen tragen die Rechnungsnummer.
+     {% else %}<strong>Zahlungen sind nicht enthalten</strong> – die Bank bucht der Steuerberater aus den Kontoauszügen (umschaltbar unter Verwaltung → Mandanten).{% endif %}
      Debitor = Kundennummer. Beraternummer, Mandantennummer und Konten stellst du unter Verwaltung → Mandanten ein (Vorgabe SKR03: Erlöse 8400/8300, Bank 1200, Kasse 1000).
      Vor dem ersten Einsatz bitte mit dem Steuerberater prüfen.</p>
 </div>

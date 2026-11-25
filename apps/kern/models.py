@@ -90,6 +90,10 @@ class Mandant(Zeitstempel):
     # DATEV-Export (Kontenrahmen SKR03 als Vorgabe; mit dem Steuerberater abstimmen)
     datev_berater = models.CharField("DATEV Beraternummer", max_length=10, blank=True)
     datev_mandant = models.CharField("DATEV Mandantennummer", max_length=10, blank=True)
+    datev_zahlungen = models.BooleanField(
+        "Zahlungen im DATEV-Export", default=False,
+        help_text="Aus lassen, wenn der Steuerberater das Bankkonto selbst aus den Kontoauszügen bucht (sonst doppelt). "
+                  "Eingeschaltet: Bank/Kasse/Skonto an Debitor, Zahlung und ihr Storno im selben Zeitraum entfallen.")
     konto_erloes_19 = models.CharField("Erlöskonto 19 %", max_length=8, default="8400")
     konto_erloes_7 = models.CharField("Erlöskonto 7 %", max_length=8, default="8300")
     konto_erloes_0 = models.CharField("Erlöskonto steuerfrei", max_length=8, default="8200")
