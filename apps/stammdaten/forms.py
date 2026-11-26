@@ -7,7 +7,7 @@ from django.forms import inlineformset_factory
 from django.utils import formats, timezone
 
 from .models import (Anrede, Ansprechpartner, Artikel, ArtikelMandant, Artikeltyp, EkHerkunft, Kategorie, Kunde, KundeMandant, Kundenanschrift,
-                     Lieferant, LieferantMandant, Steuersatz, _ek_quelle, nummer_und_name)
+                     Lieferant, LieferantMandant, Steuerart, Steuersatz, _ek_quelle, nummer_und_name)
 
 from .preise import stufenpreis
 
@@ -47,7 +47,7 @@ def nummern_auswahl(form, *namen):
 KUNDE_TABS = [
     ("grund", "Grunddaten", ["nummer", "anrede"] + PARTNER_ADRESSE),
     ("einstufung", "Einstufung & Hinweis", ["kundenart", "preisstufe", "zahlungsbedingung", "standard_versandart", "gesperrt", "hinweis"]),
-    ("bank", "Steuer & Bank", PARTNER_BANK + ["sepa_mandatsreferenz", "sepa_mandat_datum", "leitweg_id"]),
+    ("bank", "Steuer & Bank", ["steuerart"] + PARTNER_BANK + ["sepa_mandatsreferenz", "sepa_mandat_datum", "leitweg_id"]),
 ]
 
 
@@ -64,6 +64,10 @@ class KundeForm(forms.ModelForm):
         nummern_auswahl(self, "anrede", "zahlungsbedingung", "standard_versandart")
         self.fields["land"].help_text = "Ländercode, z. B. DE"
         self.fields["email_weitere"].widget.attrs["rows"] = 2
+        self.fields["steuerart"].required = False  # leer = Standard 1 (mit MwSt)
+
+    def clean_steuerart(self):
+        return self.cleaned_data.get("steuerart") or Steuerart.INLAND
 
 
 class LieferantForm(forms.ModelForm):
@@ -377,9 +381,9 @@ class ArtikelForm(VkVorschlagForm):
                                               offline=Kategorie.offline_ids())
             feld.widget.choices = feld.choices
         if not self.instance.pk and not self.is_bound and not self.instance.steuersatz_id:
-            # neuer Artikel: Steuersatz 19 % vorbelegen (Entscheidung 19.11.2026); eine Kopie bringt ihren eigenen mit
-            standard = Steuersatz.objects.filter(prozent=Decimal("19")).order_by("pk").first()
-            if standard and "steuersatz" in self.fields:
+            # neuer Artikel: Standardsatz ID 1 = 19 % vorbelegen (Entscheidungen 19.11. und 26.11.2026); eine Kopie bringt ihren eigenen mit
+            standard = Steuersatz.standard()
+            if standard and (standard.nummer == 1 or standard.prozent == Decimal("19")) and "steuersatz" in self.fields:
                 self.initial.setdefault("steuersatz", standard.pk)
         # P-Artikel sind eine eigene Tabelle (Preislisten); hier nur A, L und G
         self.fields["typ"].choices = [(w, n) for w, n in Artikeltyp.choices if w != Artikeltyp.P]

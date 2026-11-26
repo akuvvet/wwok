@@ -107,13 +107,8 @@ def geld(wert) -> Decimal:
 
 
 def steuersatz_finden(wert, saetze):
-    """Steuersatz über die Mention-ID (1, 2) oder die Prozentzahl (19, 7 %)."""
-    try:
-        d = zahl(text(wert).replace("%", ""), ",")
-        treffer = next((s for s in saetze if s.nummer is not None and d == s.nummer), None)
-        treffer = treffer or next((s for s in saetze if d == s.prozent), None)
-    except (ValueError, InvalidOperation):
-        treffer = None
+    """Steuersatz über die ID (1 = 19 %, 2 = 7 %) oder die Prozentzahl (19, 7 %)."""
+    treffer = Steuersatz.finden(text(wert), saetze)
     if treffer is None:
         raise ValueError(f"Steuersatz unbekannt: '{text(wert)}'")
     return treffer
@@ -212,6 +207,7 @@ def importieren(dateiname: str, inhalt: bytes, typ=Artikeltyp.L):
         raise ImportFehler("Die Datei ist leer.")
     spalten = spalten_finden(zeilen[0], typ)
     saetze = list(Steuersatz.objects.all())
+    standard = Steuersatz.standard()
 
     def zellen(zeile):
         def zelle(feld):
@@ -249,7 +245,7 @@ def importieren(dateiname: str, inhalt: bytes, typ=Artikeltyp.L):
             fehler.append(f"Zeile {nr}: {nummer} ist schon als {a.get_typ_display()} angelegt.")
             continue
         if neu:
-            a = Artikel(nummer=nummer, typ=typ, steuersatz=saetze[0] if saetze else None)
+            a = Artikel(nummer=nummer, typ=typ, steuersatz=standard)  # ohne Angabe: Standard ID 1
         felder = ((*TEXTFELDER_A, *GELDFELDER_A, "gewicht_kg", "garantie_monate", "online") if typ == Artikeltyp.A
                   else (*TEXTFELDER, *GELDFELDER))
         vorher = {f: getattr(a, f) for f in (*felder, "nicht_aktiv", "steuersatz_id")}

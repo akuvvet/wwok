@@ -197,6 +197,8 @@ def beleg_pdf(beleg, als_lieferschein=False) -> bytes:
         inhalt += [absatz("Lieferanschrift:", fett), absatz(beleg.versandanschrift, normal), Spacer(1, 3 * mm)]
     if beleg.versandart:
         inhalt += [absatz(f"Versandart: {beleg.versandart}", normal)]
+    for hinweis in beleg.steuerhinweise():  # ohne MwSt (EG-Ausland, Drittland): Pflichthinweis nach § 14a UStG
+        inhalt += [absatz(hinweis, fett)]
     if beleg.art == Belegart.GUTSCHRIFT and beleg.gutschrift_grund:  # freie Gutschrift: der Grund gehört auf den Beleg
         inhalt += [Spacer(1, 3 * mm), absatz(f"Grund der Gutschrift: {beleg.gutschrift_grund}", normal)]
     for quelle, betrag, datum in vorab:

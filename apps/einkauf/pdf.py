@@ -16,7 +16,7 @@ from apps.verkauf.pdf import absatz, euro, zahl
 def steuer_aufteilung(bestellung) -> list:
     """[(Prozent, Steuer)] je Steuersatz (Wunsch des Nutzers 26.11.2026: Netto, USt und Endsumme wie in Mention).
     Steuersatz des Artikels; Positionen nur aus der Preisliste bekommen den Standardsatz (wie beim Anlegen im Wareneingang)."""
-    standard = Steuersatz.objects.filter(nummer=1).first() or Steuersatz.objects.order_by("-prozent").first()
+    standard = Steuersatz.standard()
     netto = {}
     for p in bestellung.positionen.select_related("artikel__steuersatz"):
         prozent = p.artikel.steuersatz.prozent if p.artikel_id else (standard.prozent if standard else Decimal("0"))

@@ -115,7 +115,7 @@ class StammImportMixin:
 @admin.register(m.Kunde)
 class KundeAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, admin.ModelAdmin):
     list_display = ["nummer", "name1", "plz", "ort", "kundenart", "preisstufe", "gesperrt"]
-    list_filter = ["kundenart", "preisstufe", "gesperrt", "land"]
+    list_filter = ["kundenart", "preisstufe", "steuerart", "gesperrt", "land"]
     search_fields = ["nummer", "name1", "name2", "ort", "email", "ust_id"]
     readonly_fields = ["erstkontakt", "angelegt_am", "geaendert_am", "geaendert_von"]
     inlines = [KundeMandantInline, KundenanschriftInline, AnsprechpartnerKundeInline, KundenpreisInline]
@@ -124,7 +124,7 @@ class KundeAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, admin.ModelAdmin):
                                    ("telefon", "email", "webseite"), ("gesellschaftsform", "inhaber_gf")]}),
         ("Einstufung", {"fields": [("kundenart", "preisstufe"), ("zahlungsbedingung", "standard_versandart"), "gesperrt"]}),
         ("Hinweis", {"fields": ["hinweis"]}),
-        ("Steuer und Bank", {"fields": [("ust_id", "ust_id_geprueft_am"), ("kontoinhaber", "bank"),
+        ("Steuer und Bank", {"fields": ["steuerart", ("ust_id", "ust_id_geprueft_am"), ("kontoinhaber", "bank"),
                                         ("iban", "bic"), ("sepa_mandatsreferenz", "sepa_mandat_datum"), "leitweg_id"]}),
         ("Automatisch", {"fields": [("erstkontakt", "angelegt_am"), ("geaendert_am", "geaendert_von")]}),
     ]
@@ -429,7 +429,7 @@ class LeistungsartikelAdmin(StammImportMixin, VerwendungsschutzMixin, BlaetternA
 
     def get_changeform_initial_data(self, request):
         daten = {**super().get_changeform_initial_data(request), "nummer": m.Stammnummer.vorschlag(m.Stammnummer.Art.LEISTUNG),
-                 "steuersatz": m.Steuersatz.objects.first()}
+                 "steuersatz": m.Steuersatz.standard()}
         vorlage = request.GET.get("kopie_von", "")
         vorlage = m.Artikel.objects.filter(pk=vorlage, typ=m.Artikeltyp.L).first() if vorlage.isdigit() else None
         if vorlage is not None:  # Kopie (Issue 15): dieselbe Logik wie bei den anderen Artikeln

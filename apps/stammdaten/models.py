@@ -89,6 +89,30 @@ class Steuersatz(Zeitstempel):
     def __str__(self):
         return f"{self.bezeichnung} ({self.prozent} %)"
 
+    @classmethod
+    def standard(cls):
+        """Standardsatz (Vorgabe des Nutzers 26.11.2026: ID 1 = Inland 19 %): ID 1, sonst Datensatz 1, sonst 19 %, sonst der höchste."""
+        return (cls.objects.filter(nummer=1).first() or cls.objects.filter(nummer=None, pk=1).first()
+                or cls.objects.filter(prozent=Decimal("19")).order_by("pk").first() or cls.objects.order_by("-prozent").first())
+
+    @classmethod
+    def finden(cls, wert, saetze=None):
+        """Steuersatz über die ID (Mention-ID bzw. Datensatz: 1 = 19 %, 2 = 7 %) oder die Prozentzahl (19, 7 %); None = unbekannt."""
+        saetze = list(cls.objects.all()) if saetze is None else saetze
+        t = str(wert).strip().replace("%", "").replace(",", ".").strip()
+        try:
+            d = Decimal(t)
+        except Exception:
+            return None
+        if not d.is_finite():
+            return None
+        if d == d.to_integral_value():
+            treffer = next((s for s in saetze if s.nummer is not None and s.nummer == int(d)), None)
+            treffer = treffer or next((s for s in saetze if s.nummer is None and s.pk == int(d)), None)
+            if treffer:
+                return treffer
+        return next((s for s in saetze if s.prozent == d), None)
+
 
 class Kategorie(Zeitstempel):
     nummer = models.CharField("Nummer", max_length=20, unique=True, null=True, blank=True)
@@ -248,6 +272,13 @@ class Kundenart(models.TextChoices):
     WIEDERVERKAEUFER = "wiederverkaeufer", "Wiederverkäufer"
 
 
+class Steuerart(models.IntegerChoices):
+    """Vorgabe des Nutzers 26.11.2026 (IDs wie in Mention): bei EG-Ausland und Drittland werden alle Preise ohne MwSt berechnet."""
+    INLAND = 1, "1 – mit MwSt (Inland)"
+    EG = 2, "2 – EG-Ausland (ohne MwSt)"
+    DRITTLAND = 3, "3 – Drittland (ohne MwSt)"
+
+
 class Preisstufe(models.IntegerChoices):
     VK1 = 1, "VK1 – Endkunden"
     VK2 = 2, "VK2 – gewerbliche Endkunden"
@@ -260,6 +291,10 @@ class Kunde(Partner):
                                  default=Kundenart.ENDKUNDE)
     preisstufe = models.PositiveSmallIntegerField("Preisstufe", choices=Preisstufe.choices,
                                                   default=Preisstufe.VK1)
+    steuerart = models.PositiveSmallIntegerField(
+        "Steuerart", choices=Steuerart.choices, default=Steuerart.INLAND,
+        help_text="EG-Ausland und Drittland: alle Preise ohne MwSt. EG-Ausland nur mit USt-ID – ohne sie lässt sich die Rechnung "
+                  "nicht abschließen. Offene Belege des Kunden werden beim Speichern neu gerechnet.")
     erstkontakt = models.DateField("Erstkontakt", auto_now_add=True)
     leitweg_id = models.CharField("Leitweg-ID (XRechnung)", max_length=46, blank=True,
                                   help_text="Nur für Behörden/öffentliche Auftraggeber: Pflichtangabe der XRechnung.")
@@ -271,6 +306,19 @@ class Kunde(Partner):
         verbose_name = "Kunde"
         verbose_name_plural = "Kunden"
         ordering = ["nummer"]
+
+    def save(self, *args, **kwargs):
+        vorher = Kunde.objects.filter(pk=self.pk).values_list("steuerart", "ust_id").first() if self.pk else None
+        super().save(*args, **kwargs)
+        if vorher and vorher[0] != self.steuerart:
+            self.offene_belege_neu_rechnen()
+
+    def offene_belege_neu_rechnen(self):
+        """Entscheidung des Nutzers 26.11.2026: ändert sich die Steuerart, bekommen offene Belege (Angebot, Bestellung, nicht
+        abgeschlossene Rechnung …) die neue Steuer; abgeschlossene bleiben unverändert (GoBD)."""
+        for beleg in self.belege.filter(abgeschlossen=False):
+            if beleg.steuerart_uebernehmen():
+                beleg.berechne()
 
 
 class KundeMandant(Zeitstempel):
