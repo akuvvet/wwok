@@ -5,7 +5,7 @@
 <div class="karte">
   <h1>Alle Belege · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile" data-livefilter>
-    <div><label for="q">Beleg-Nr., Kunde oder Referenz</label><input id="q" name="q" value="{{ q }}" size="30" autocomplete="off" autofocus></div>
+    <div><label for="q">Beleg-Nr., Kunde, Referenz oder Artikel</label><input id="q" name="q" value="{{ q }}" size="30" autocomplete="off" autofocus></div>
     <div><label for="art">Belegart</label><select id="art" name="art"><option value="">alle</option>
       {% for wert, name in arten %}<option value="{{ wert }}" {% if art == wert %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
     <div><label for="status">Status</label><select id="status" name="status">
@@ -23,12 +23,13 @@
   </form>
   <p data-zahl aria-live="polite">{{ anzahl }} Belege{% if standard_30 %} (nicht abgeschlossene der letzten 30 Tage) · <a href="?status=&amp;von=">alle anzeigen</a>{% endif %}</p>
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
+  <div class="belegliste{% if gewaehlt %} geteilt{% endif %}">
   <div class="scroll">
   <table>
     <thead><tr><th>Beleg</th><th>Datum</th><th>Kunde</th><th>Referenz</th><th>Status{% status_legende "zahlung" %}</th><th class="zahl">Netto</th><th class="zahl">Brutto</th></tr></thead>
     <tbody>
     {% for b in seite.object_list %}
-    <tr><td><a href="{% url 'verkauf:beleg' b.pk %}" title="{{ b.get_art_display }}">{% if b.vorlaeufig or not b.nummer %}{{ b.get_art_display }} {% endif %}{% if b.vorlaeufig %}<span class="marke gesperrt" title="Nicht gespeichert: wird verworfen, wenn er nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>{% else %}{{ b.nummer|default:"(nicht abgeschlossen)" }}{% endif %}</a>{% include "verkauf/versand_marke.html" %}{% if b.vormals %}<small style="display:block;opacity:.7">vormals {{ b.vormals }}</small>{% endif %}</td>
+    <tr data-beleg="{{ b.pk }}" tabindex="{% if gewaehlt.pk == b.pk or not gewaehlt and forloop.first %}0{% else %}-1{% endif %}"{% if gewaehlt.pk == b.pk %} aria-selected="true"{% endif %}><td><a href="{% url 'verkauf:beleg' b.pk %}" title="{{ b.get_art_display }}">{% if b.vorlaeufig or not b.nummer %}{{ b.get_art_display }} {% endif %}{% if b.vorlaeufig %}<span class="marke gesperrt" title="Nicht gespeichert: wird verworfen, wenn er nicht mit „Speichern: abschließen &amp; Nummer vergeben“ gespeichert wird">nicht gespeichert</span>{% else %}{{ b.nummer|default:"(nicht abgeschlossen)" }}{% endif %}</a>{% include "verkauf/versand_marke.html" %}{% if b.vormals %}<small style="display:block;opacity:.7">vormals {{ b.vormals }}</small>{% endif %}</td>
       <td>{{ b.belegdatum|date:"d.m.Y" }}</td>
       <td><a href="{% url 'verkauf:kunde' b.kunde_id %}">{{ b.kunde.name1 }}</a></td>
       <td>{{ b.referenz }}</td>
@@ -39,6 +40,87 @@
   </table>
   </div>
   {% include "seiten.html" %}
+  <div data-positionen>{% if gewaehlt %}{% include "verkauf/belege_positionen.html" %}{% elif seite.object_list %}<p class="hinweis-klick"><small>Eine Zeile anklicken (oder mit ↑ ↓ wählen) zeigt hier unten die Positionen des Belegs.</small></p>{% endif %}</div>
+  </div>
   </div>
 </div>
+<style>
+  /* Geteilte Ansicht: oben die Belege, unten die Positionen der markierten Zeile. Die Höhen stehen nur, wenn wirklich
+     geteilt ist – ohne Markierung bleibt die Liste die einzige .scroll und reicht wie gewohnt bis zum Fensterrand. */
+  .belegliste.geteilt > .scroll { --scrollhoehe:40vh; }
+  .belegliste.geteilt .positionen-liste { --scrollhoehe:28vh; }
+  .positionen-haelfte { margin-top:10px; padding-top:10px; border-top:2px solid var(--rand); }
+  .belegliste tbody tr[aria-selected=true] > td { background:var(--grund); }
+  .belegliste tbody tr[aria-selected=true] > td:first-child { box-shadow:inset 3px 0 0 var(--akzent); }
+  .hinweis-klick { display:none; }  /* der Hinweis gilt erst, wenn der Klick etwas tut (JavaScript) */
+  [data-ergebnis].klickzeilen .hinweis-klick { display:block; margin:8px 0 0; opacity:.7; }
+  [data-ergebnis].klickzeilen tbody tr[data-beleg] { cursor:pointer; }
+</style>
+<script>
+  // Klick auf eine Belegzeile zeigt unten ihre Positionen. Die Markierung steht in der Adresse (pos=…): Neuladen, der Weg
+  // zurück aus dem Beleg und ein geteilter Link zeigen dieselbe Zeile. Geholt wird dieselbe Seite, eingesetzt nur der untere Teil.
+  (function () {
+    var bereich = document.querySelector('[data-ergebnis]');
+    if (!bereich) return;
+    bereich.classList.add('klickzeilen');  // Zeiger und Hinweis erst jetzt: ohne JavaScript tut der Klick nichts
+    var timer, laufend;
+    function zeilen() { return Array.prototype.slice.call(bereich.querySelectorAll('tr[data-beleg]')); }
+    function laden(url) {
+      if (laufend) laufend.abort();  // schnelle Klicks: nur die letzte Antwort zählt
+      laufend = new AbortController();
+      fetch(url, {credentials: 'same-origin', signal: laufend.signal}).then(function (r) {
+        if (!r.ok || r.redirected) throw new Error('Status ' + r.status);
+        return r.text();
+      }).then(function (html) {
+        var seite = new DOMParser().parseFromString(html, 'text/html');
+        var neu = seite.querySelector('[data-positionen]'), ziel = bereich.querySelector('[data-positionen]');
+        if (!neu || !ziel) throw new Error('kein Positionsbereich');
+        ziel.innerHTML = neu.innerHTML;
+        var huelle = bereich.querySelector('.belegliste'), huelleNeu = seite.querySelector('.belegliste');
+        if (huelle && huelleNeu) huelle.className = huelleNeu.className;  // „geteilt“: die obere Liste wird kürzer
+        history.replaceState(null, '', url);
+      }).catch(function (fehler) {
+        if (fehler.name === 'AbortError') return;
+        location.href = url;  // Rückfall: ganze Seite laden (z. B. abgelaufene Anmeldung)
+      });
+    }
+    function markieren(tr) {
+      zeilen().forEach(function (z) {
+        if (z === tr) z.setAttribute('aria-selected', 'true'); else z.removeAttribute('aria-selected');
+        z.tabIndex = z === tr ? 0 : -1;  // nur eine Zeile im Tabulator-Weg
+      });
+    }
+    function adresse(pk) {
+      var p = new URLSearchParams(location.search);  // die gesetzten Filter bleiben, nur die Markierung wechselt
+      if (pk) p.set('pos', pk); else p.delete('pos');
+      var text = p.toString();
+      return location.pathname + (text ? '?' + text : '');
+    }
+    function waehlen(tr, sofort) {
+      markieren(tr);  // ohne auf die Antwort zu warten: die angeklickte Zeile muss sofort markiert sein
+      clearTimeout(timer);
+      var url = adresse(tr.dataset.beleg);
+      if (sofort) laden(url); else timer = setTimeout(function () { laden(url); }, 200);  // Pfeiltasten: Pause abwarten
+    }
+    bereich.addEventListener('click', function (e) {
+      if (e.target.closest('a[data-zu]')) {  // „Schließen“: Markierung weg, Liste wieder ganz
+        e.preventDefault(); markieren(null); clearTimeout(timer); laden(adresse(null)); return;
+      }
+      if (e.target.closest('a, button, input, select, textarea, label, form')) return;  // Links und Knöpfe behalten ihre Aufgabe
+      var tr = e.target.closest('tr[data-beleg]');
+      if (tr) waehlen(tr, true);
+    });
+    bereich.addEventListener('keydown', function (e) {
+      var tr = e.target.closest ? e.target.closest('tr[data-beleg]') : null;
+      if (!tr || e.ctrlKey || e.altKey || e.metaKey) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); waehlen(tr, true); return; }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      var alle = zeilen(), ziel = alle[alle.indexOf(tr) + (e.key === 'ArrowDown' ? 1 : -1)];
+      if (!ziel) return;
+      e.preventDefault();
+      ziel.focus();
+      waehlen(ziel);
+    });
+  })();
+</script>
 {% endblock %}
