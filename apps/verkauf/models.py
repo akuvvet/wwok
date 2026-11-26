@@ -292,7 +292,7 @@ class Beleg(Zeitstempel):
     zuletzt_aktiv = models.DateTimeField("zuletzt aktiv", null=True, blank=True, editable=False,
                                          help_text="Vorläufiger Beleg: letzte Aktivität des Benutzers; ohne Lebenszeichen der geöffneten Maske wird verworfen.")
     abo = models.ForeignKey("Abo", on_delete=models.SET_NULL, null=True, blank=True, related_name="belege", editable=False,
-                            help_text="Wiederkehrende Rechnung, aus der die Bestellung entstand")
+                            help_text="Wiederkehrende Bestellung, aus der die Bestellung entstand")
     summe_netto = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
     summe_steuer = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
     summe_brutto = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
@@ -646,6 +646,9 @@ class Beleg(Zeitstempel):
                 if getattr(vorher, feld) != getattr(self, feld):
                     raise BelegGesperrt(f"{self}: Feld '{feld}' ist nach Abschluss gesperrt.")
         self.nummer = self.nummer or None
+        if self.belegdatum and self.belegdatum > timezone.localdate() and not self.gesperrt:
+            # Entscheidung des Nutzers 26.11.2026: ein Belegdatum in der Zukunft ist für keine Belegart erlaubt
+            raise ValueError(f"Belegdatum {self.belegdatum:%d.%m.%Y} liegt in der Zukunft – das ist nicht erlaubt.")
         if not self.pk and not self.kaeufer_ort:
             self.kaeufer_aus_anschrift()
         if not self.pk and not self.nummer and self.art not in GESPERRT_NACH_ABSCHLUSS and not self.vorlaeufig:
@@ -1172,13 +1175,6 @@ class Beleg(Zeitstempel):
         if (self.art, self.nummer) != (art, nummer):
             raise ValueError(f"{self} wurde inzwischen umgewandelt – bitte den Beleg neu öffnen.")
 
-    def abo_stichtag_pruefen(self):
-        """Abo-Bestellung (wiederkehrende Rechnung): Sie entsteht vorab mit dem Stichtag als Datum. Die Rechnung dazu entsteht
-        frühestens am Stichtag (Entscheidung des Nutzers 19.11.2026: keine Rechnung mit Datum in der Zukunft)."""
-        if self.abo_id and self.belegdatum > timezone.localdate():
-            raise ValueError(f"Die Rechnung zu diesem Abo-Zeitraum entsteht frühestens am Stichtag {self.belegdatum:%d.%m.%Y}. "
-                             "Bis dahin lässt sich die Bestellung bearbeiten.")
-
     @transaction.atomic
     def folgebeleg_erzeugen(self, entscheidungen=None, art=None, vorlaeufig=False) -> "Beleg":
         """Nächste Stufe im Belegfluss. Bestellung -> Rechnung (art=RE) ist zusätzlich direkt möglich.
@@ -1196,8 +1192,6 @@ class Beleg(Zeitstempel):
             raise ValueError(f"Aus {self.get_art_display()} kann kein {Belegart(art).label} übernommen werden.")
         if self.art == Belegart.LIEFERSCHEIN and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
-        if art == Belegart.RECHNUNG:
-            self.abo_stichtag_pruefen()
         self.positionen_pruefen(art)
         self.folge_pruefen(art)
         p_ids, verschieben = self._p_vorbereiten(art)
@@ -1217,8 +1211,7 @@ class Beleg(Zeitstempel):
             versandkosten=self.versandkosten, verpackung=self.verpackung, versicherung=self.versicherung,
             rabatt_prozent=self.rabatt_prozent,
             referenz=self.referenz, vortext=self.vortext, schlusstext=self.schlusstext,
-            bemerkung=self.bemerkung, vorgaenger=self, vorlaeufig=vorlaeufig, abo=self.abo,
-            **({"belegdatum": max(timezone.localdate(), self.belegdatum)} if self.abo_id else {}))
+            bemerkung=self.bemerkung, vorgaenger=self, vorlaeufig=vorlaeufig, abo=self.abo)
         if vorlaeufig:
             vorgang.vorgang_beginnen(neu, Vorgangsweg.FOLGE, quelle=self, stand=stand)
         angebot = self._p_ins_angebot_verschieben(p_ids, ziel=neu) if verschieben else None
@@ -1321,8 +1314,7 @@ class Beleg(Zeitstempel):
             versandanschrift=ab.versandanschrift, versandart=ab.versandart,
             versandkosten=ab.versandkosten, verpackung=ab.verpackung, versicherung=ab.versicherung,
             rabatt_prozent=ab.rabatt_prozent, bezugnahme=ab.bezugnahme, bearbeiter=ab.bearbeiter,
-            referenz=ab.referenz, vortext=ab.vortext, schlusstext=ab.schlusstext, bemerkung=ab.bemerkung, vorgaenger=ab, abo=ab.abo,
-            **({"belegdatum": max(timezone.localdate(), ab.belegdatum)} if ab.abo_id else {}))
+            referenz=ab.referenz, vortext=ab.vortext, schlusstext=ab.schlusstext, bemerkung=ab.bemerkung, vorgaenger=ab, abo=ab.abo)
         neu.uebernahmen_neu = uebernahme.menge_verschieben(ab, neu, mengen)
         uebernahme.nebenkosten_mitgeben(ab, neu)
         neu.berechne()
@@ -1352,8 +1344,6 @@ class Beleg(Zeitstempel):
             raise ValueError("Ein Nachlieferschein entsteht nur aus einer abgeschlossenen Rechnung.")
         if self.art == Belegart.LIEFERSCHEIN and art == Belegart.RECHNUNG and not self.abgeschlossen:
             raise ValueError("Den Lieferschein erst abschließen (bucht das Lager ab), dann die Rechnung daraus erstellen.")
-        if art == Belegart.RECHNUNG:
-            self.abo_stichtag_pruefen()
         self.positionen_pruefen(art)
         self.folge_pruefen(art)
         p_ids, verschieben = self._p_vorbereiten(art)
@@ -1899,7 +1889,7 @@ class Abo(Zeitstempel):
     kunde = models.ForeignKey(Kunde, on_delete=models.PROTECT, related_name="abos")
     bezeichnung = models.CharField("Bezeichnung", max_length=100, help_text="z. B. Wartungsvertrag 2026")
     monate = models.PositiveSmallIntegerField("Rhythmus", choices=RHYTHMEN, default=1)
-    naechster_termin = models.DateField("nächste Rechnung am")
+    naechster_termin = models.DateField("nächste Bestellung am")
     ende = models.DateField("Ende (optional)", null=True, blank=True)
     aktiv = models.BooleanField(default=True)
     starttag = models.PositiveSmallIntegerField(
@@ -1922,8 +1912,8 @@ class Abo(Zeitstempel):
                                         verbose_name="letzter Beleg")
 
     class Meta:
-        verbose_name = "Wiederkehrende Rechnung"
-        verbose_name_plural = "Wiederkehrende Rechnungen"
+        verbose_name = "Wiederkehrende Bestellung"
+        verbose_name_plural = "Wiederkehrende Bestellungen"
         ordering = ["naechster_termin", "kunde"]
 
     def __str__(self):
@@ -2026,7 +2016,7 @@ class Abo(Zeitstempel):
         try:  # vor jeder Änderung: der Termin rückt bei gesperrtem Kunden nicht weiter
             kundensperre_pruefen(self.kunde_id)
         except ValueError as fehler:
-            raise ValueError(f"{self}: {fehler} Die wiederkehrende Rechnung wird nicht abgerechnet, bis die Sperre aufgehoben ist.")
+            raise ValueError(f"{self}: {fehler} Die wiederkehrende Bestellung wird nicht angelegt, bis die Sperre aufgehoben ist.")
         zeilen = self.zeilen(termin)
         if not zeilen and self.halbmonatlich and self.positionen.exists():
             self._termin_weiter(termin)
@@ -2036,7 +2026,7 @@ class Abo(Zeitstempel):
             raise ValueError(f"{self}: keine Positionen hinterlegt.")
         beleg = Beleg.objects.create(
             mandant=self.mandant, art=Belegart.AUFTRAG, abo=self, kunde=self.kunde,
-            belegdatum=max(heute, termin) if self.halbmonatlich else heute,
+            belegdatum=heute,  # Tag der Erstellung, auch bei vorzeitiger Abrechnung (Entscheidung des Nutzers 26.11.2026)
             ansprechpartner=self.kunde.ansprechpartner.filter(hauptkontakt=True).first(),
             zahlungsbedingung=self.zahlungsbedingung or self.kunde.zahlungsbedingung,
             rechnungsanschrift=adresse_text(self.kunde, Anschriftart.RECHNUNG),

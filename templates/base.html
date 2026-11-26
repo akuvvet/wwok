@@ -301,7 +301,7 @@
 <div class="gruppeninhalt">
 <a class="sl-link{% if namensraum == 'verkauf' and un != 'belege' and un != 'abos' %} aktiv{% endif %}" {% if namensraum == 'verkauf' and un != 'belege' and un != 'abos' %}aria-current="page" {% endif %}href="{% url 'verkauf:start' %}" title="Kunde"><svg class="ic"><use href="#i-suche"/></svg><span>Kunde</span></a>
 <a class="sl-link{% if namensraum == 'verkauf' and un == 'belege' %} aktiv{% endif %}" {% if namensraum == 'verkauf' and un == 'belege' %}aria-current="page" {% endif %}href="{% url 'verkauf:belege' %}" title="Alle Belege"><svg class="ic"><use href="#i-beleg"/></svg><span>Alle Belege</span></a>
-<a class="sl-link{% if namensraum == 'verkauf' and un == 'abos' %} aktiv{% endif %}" {% if namensraum == 'verkauf' and un == 'abos' %}aria-current="page" {% endif %}href="{% url 'verkauf:abos' %}" title="Wiederkehrende Rechnungen"><svg class="ic"><use href="#i-abo"/></svg><span>Wiederkehrende Rechnungen</span></a>
+<a class="sl-link{% if namensraum == 'verkauf' and un == 'abos' %} aktiv{% endif %}" {% if namensraum == 'verkauf' and un == 'abos' %}aria-current="page" {% endif %}href="{% url 'verkauf:abos' %}" title="Wiederkehrende Bestellungen"><svg class="ic"><use href="#i-abo"/></svg><span>Wiederkehrende Bestellungen</span></a>
 <a class="sl-link{% if namensraum == 'shop' %} aktiv{% endif %}" {% if namensraum == 'shop' %}aria-current="page" {% endif %}href="{% url 'shop:uebersicht' %}" title="Shop &amp; Online"><svg class="ic"><use href="#i-shop"/></svg><span>Shop &amp; Online</span></a>
 </div></details>
 

@@ -21,4 +21,4 @@ class Command(BaseCommand):
             anzahl += 1
             self.stdout.write(f"{abo}: Bestellung {beleg.nummer} für {abo.kunde.name1} angelegt (Beleg {beleg.pk})")
         if not anzahl:
-            self.stdout.write("Keine wiederkehrende Rechnung fällig.")
+            self.stdout.write("Keine wiederkehrende Bestellung fällig.")

@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block titel %}Wiederkehrende Rechnungen – wwok{% endblock %}
+{% block titel %}Wiederkehrende Bestellungen – wwok{% endblock %}
 {% block inhalt %}
 <a href="{% url 'verkauf:start' %}" data-escape style="display:none">zurück</a>
 <div class="karte">
-  <h1>Wiederkehrende Rechnungen · Mandant {{ request.mandant }}</h1>
-  <p style="opacity:.85">Zum Termin legt das System (täglicher Lauf) eine <strong>Bestellung</strong> an (mit Bestellnummer, sie wird nie automatisch verworfen). Daraus erstellen Sie von Hand die Rechnung (Übernehmen) oder den Lieferschein.
-     Neu einrichten: eine Rechnung öffnen → Mehr → „Wiederkehrend einrichten“. Positionen ändern: Verwaltung → Wiederkehrende Rechnungen.
-     Halbmonatlich entsteht die Bestellung am 15. und am Monatsletzten; die Mengen zählt das Programm je Position aus dem Kalender (Feiertage NRW). Netto zeigt die Positionen der nächsten Rechnung, vor Belegrabatt und ohne Versand, Verpackung und Versicherung.</p>
+  <h1>Wiederkehrende Bestellungen · Mandant {{ request.mandant }}</h1>
+  <p style="opacity:.85">Zum Termin legt das System (täglicher Lauf) eine <strong>Bestellung</strong> an (mit Bestellnummer und dem Tag der Erstellung als Datum, sie wird nie automatisch verworfen). Daraus erstellen Sie von Hand die Rechnung (Übernehmen) oder den Lieferschein.
+     Neu einrichten: eine Rechnung öffnen → Mehr → „Wiederkehrend einrichten“. Positionen ändern: Verwaltung → Wiederkehrende Bestellungen.
+     Halbmonatlich entsteht die Bestellung am 15. und am Monatsletzten; die Mengen zählt das Programm je Position aus dem Kalender (Feiertage NRW). Netto zeigt die Positionen der nächsten Bestellung, vor Belegrabatt und ohne Versand, Verpackung und Versicherung.</p>
   {% if abos %}
   <div class="scroll"><table>
     <thead><tr><th>Bezeichnung</th><th>Kunde</th><th>Rhythmus</th><th class="zahl">netto</th><th>nächste Bestellung</th><th>Ende</th><th>Status</th><th></th></tr></thead>
@@ -18,8 +18,8 @@
         <button name="aktion" value="jetzt" class="symbol unten" type="submit" data-tip="Bestellung bearbeiten" aria-label="Bestellung bearbeiten"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
         {% if a.aktiv %}<button name="aktion" value="pause" class="symbol unten" type="submit" data-tip="Pausieren" aria-label="Pausieren"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></button>
         {% else %}<button name="aktion" value="pause" class="symbol unten" type="submit" data-tip="Aktivieren" aria-label="Aktivieren"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>{% endif %}
-        <button name="aktion" value="loeschen" class="symbol unten gefahr" type="submit" data-frage="Wiederkehrende Rechnung löschen?" data-tip="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button></form></td>
+        <button name="aktion" value="loeschen" class="symbol unten gefahr" type="submit" data-frage="Wiederkehrende Bestellung löschen?" data-tip="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button></form></td>
     </tr>{% endfor %}</tbody></table></div>
-  {% else %}<p>Noch keine wiederkehrende Rechnung eingerichtet.</p>{% endif %}
+  {% else %}<p>Noch keine wiederkehrende Bestellung eingerichtet.</p>{% endif %}
 </div>
 {% endblock %}
