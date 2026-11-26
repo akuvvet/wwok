@@ -230,11 +230,8 @@ class RechnungsdatumTest(Basis):
         a.abschliessen()
         a.refresh_from_db()
         self.assertEqual(a.belegdatum, heute - timedelta(days=9))
-        r = self.beleg(Belegart.RECHNUNG, heute + timedelta(days=3))
-        with self.assertRaisesMessage(ValueError, "liegt in der Zukunft"):  # Entscheidung des Nutzers 19.11.2026: nie in der Zukunft
-            r.abschliessen()
-        r.refresh_from_db()
-        self.assertFalse(r.abgeschlossen)
+        with self.assertRaisesMessage(ValueError, "liegt in der Zukunft"):  # Entscheidung des Nutzers 19.11./26.11.2026: nie in der Zukunft
+            self.beleg(Belegart.RECHNUNG, heute + timedelta(days=3))
 
 
 class MinusbelegTest(Basis):

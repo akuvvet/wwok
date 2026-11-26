@@ -30,7 +30,7 @@ class SeitenpfadTest(TestCase):
         self.assertEqual(pfad_fuer(reverse("einkauf:preislistenartikel"), self.user)[1][0], "Preislistenartikel")
         self.assertEqual(pfad_fuer(reverse("einkauf:preislisten"), self.user)[1][0], "Preislisten & EK-Import")
         self.assertEqual(pfad_fuer(reverse("lager:inventur_liste"), self.user)[1][0], "Inventur / Zählliste")
-        self.assertEqual(pfad_fuer(reverse("verkauf:abos"), self.user)[1][0], "Wiederkehrende Rechnungen")
+        self.assertEqual(pfad_fuer(reverse("verkauf:abos"), self.user)[1][0], "Wiederkehrende Bestellungen")
 
     def test_shop_und_esd_unter_ihrem_bereich(self):
         self.assertEqual(pfad_fuer(reverse("shop:uebersicht"), self.user)[0][0], "Verkauf")

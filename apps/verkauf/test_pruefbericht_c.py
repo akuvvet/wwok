@@ -96,10 +96,10 @@ class PruefberichtCTest(TestCase):
     def test_abo_gruppenartikel_mit_komponenten(self):
         g = Artikel.objects.create(nummer="G1", bezeichnung="Paket", typ="G", steuersatz=self.st)
         GruppenKomponente.objects.create(gruppe=g, komponente=self.a, menge=Decimal("2"))
-        abo = Abo.objects.create(mandant=self.m, kunde=self.kunde, bezeichnung="Paket", monate=1, naechster_termin=date(2026, 12, 1))
+        abo = Abo.objects.create(mandant=self.m, kunde=self.kunde, bezeichnung="Paket", monate=1, naechster_termin=date(2026, 11, 1))
         AboPosition.objects.create(abo=abo, artikel=g, bezeichnung="Paket", menge=Decimal("3"), einzelpreis=Decimal("100"),
                                    steuer_prozent=Decimal("19"))
-        ab = abo.rechnung_erzeugen(date(2026, 12, 1))
+        ab = abo.rechnung_erzeugen(date(2026, 11, 1))
         kopf = ab.positionen.get(gruppe__isnull=True)
         self.assertEqual((kopf.typ, kopf.preis_fest, kopf.einzelpreis, kopf.menge), ("G", True, Decimal("100"), Decimal("3")))
         teil = kopf.unterpositionen.get()
@@ -107,9 +107,9 @@ class PruefberichtCTest(TestCase):
         self.assertEqual(ab.summe_netto, Decimal("300.00"))  # versteuert wird der Kopf, die Unterposition kostet nichts extra
 
     def test_abo_normaler_artikel_bleibt_einzelposition(self):
-        abo = Abo.objects.create(mandant=self.m, kunde=self.kunde, bezeichnung="Mäuse", monate=1, naechster_termin=date(2026, 12, 1))
+        abo = Abo.objects.create(mandant=self.m, kunde=self.kunde, bezeichnung="Mäuse", monate=1, naechster_termin=date(2026, 11, 1))
         AboPosition.objects.create(abo=abo, artikel=self.a, bezeichnung="Notebook", menge=Decimal("1"), einzelpreis=Decimal("10"))
-        ab = abo.rechnung_erzeugen(date(2026, 12, 1))
+        ab = abo.rechnung_erzeugen(date(2026, 11, 1))
         self.assertEqual([(p.typ, p.gruppe_id) for p in ab.positionen.all()], [("A", None)])
 
     # Befund 8: Seriennummern beim Löschen einer Position

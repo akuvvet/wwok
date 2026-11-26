@@ -248,34 +248,26 @@ class UmwandlungTest(VorlaeufigBasis):
         self.assertEqual((an.art, an.nummer, an.vorlaeufig), (Belegart.AUFTRAG, None, True))
         self.assertTrue(any("umgewandelt" in m for m in self.meldungen(r)))
 
-    def test_abo_bestellung_wird_nie_vor_dem_stichtag_zur_rechnung(self):
+    def test_abo_bestellung_traegt_den_tag_der_erstellung(self):
+        """Entscheidung des Nutzers 26.11.2026: auch vorzeitig erstellt trägt die wiederkehrende Bestellung den Tag der Erstellung
+        (früher den Stichtag in der Zukunft); die Rechnung daraus geht sofort, ebenfalls mit Tagesdatum."""
         abo = Abo.objects.create(mandant=self.m, kunde=self.kunde, bezeichnung="Wartung", monate=Abo.HALBMONATLICH,
                                  naechster_termin=timezone.localdate() + timedelta(days=40))
         AboPosition.objects.create(abo=abo, bezeichnung="Wartung", einzelpreis=D("100"))
         ab = abo.rechnung_erzeugen(timezone.localdate())
-        self.assertGreater(ab.belegdatum, timezone.localdate())
-        # keine Rechnung mit Datum in der Zukunft (Entscheidung des Nutzers 19.11.2026): erst ab dem Stichtag
-        with self.assertRaisesMessage(ValueError, f"frühestens am Stichtag {ab.belegdatum:%d.%m.%Y}"):
-            ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG, vorlaeufig=True)
-        with self.assertRaisesMessage(ValueError, "frühestens am Stichtag"):
-            ab.kopieren_als(Belegart.RECHNUNG, vorlaeufig=True)
-        ab.refresh_from_db()
-        self.assertEqual(ab.art, Belegart.AUFTRAG)
-        with mock.patch("django.utils.timezone.localdate", return_value=ab.belegdatum):  # am Stichtag geht es
-            re = ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG, vorlaeufig=True)
-            self.assertEqual((re.art, re.belegdatum, re.abo_id), (Belegart.RECHNUNG, ab.belegdatum, abo.pk))
+        self.assertEqual(ab.belegdatum, timezone.localdate())
+        re = ab.folgebeleg_erzeugen(art=Belegart.RECHNUNG, vorlaeufig=True)
+        self.assertEqual((re.art, re.belegdatum, re.abo_id), (Belegart.RECHNUNG, timezone.localdate(), abo.pk))
 
-    def test_rechnung_und_gutschrift_nie_mit_datum_in_der_zukunft(self):
-        re = self.beleg(Belegart.RECHNUNG, belegdatum=timezone.localdate() + timedelta(days=11))
-        self.pos(re, menge="1")
+    def test_kein_belegdatum_in_der_zukunft(self):
+        """Entscheidung des Nutzers 26.11.2026 (vorher nur Rechnung und Gutschrift): für keine Belegart."""
+        for art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT, Belegart.AUFTRAG, Belegart.ANGEBOT, Belegart.LIEFERSCHEIN):
+            with self.subTest(art), self.assertRaisesMessage(ValueError, "liegt in der Zukunft"):
+                self.beleg(art, belegdatum=timezone.localdate() + timedelta(days=1))
+        re = self.beleg(Belegart.RECHNUNG)
+        re.belegdatum = timezone.localdate() + timedelta(days=11)
         with self.assertRaisesMessage(ValueError, "liegt in der Zukunft"):
-            re.abschliessen()
-        self.assertFalse(Beleg.objects.get(pk=re.pk).abgeschlossen)
-        self.assertIsNone(Beleg.objects.get(pk=re.pk).nummer)
-        gs = self.beleg(Belegart.GUTSCHRIFT, belegdatum=timezone.localdate() + timedelta(days=1))
-        self.pos(gs, menge="1")
-        with self.assertRaisesMessage(ValueError, "liegt in der Zukunft"):
-            gs.abschliessen(gutschrift_grund="Kulanz")
+            re.save()
         heute = self.beleg(Belegart.RECHNUNG)
         self.pos(heute, menge="1")
         heute.abschliessen()

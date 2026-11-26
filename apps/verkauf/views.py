@@ -1399,7 +1399,7 @@ def api_artikel(request):
 
 @mit_mandant
 def abos(request):
-    """Wiederkehrende Rechnungen des Mandanten."""
+    """Wiederkehrende Bestellungen des Mandanten."""
     liste = Abo.objects.filter(mandant=request.mandant).select_related("kunde").prefetch_related("positionen")
     return render(request, "verkauf/abos.html", {"abos": liste})
 
@@ -1448,7 +1448,7 @@ def abo_aus_rechnung(request, beleg_id):
         AboPosition.objects.create(abo=abo, artikel=p.artikel, bezeichnung=p.bezeichnung, menge=p.menge, einzelpreis=p.einzelpreis,
                                    preiseinheit=p.preiseinheit, rabatt_prozent=p.rabatt_prozent, steuer_prozent=p.steuer_prozent, regel=regel, nur_monatsende=nur_monatsende)
     hinweis = f" {kalender} Position(en) rechnen nach dem Kalender, Mengenregeln bitte in der Verwaltung prüfen." if abo.halbmonatlich else ""
-    messages.success(request, f"Wiederkehrende Rechnung „{abo.bezeichnung}“ angelegt: nächste Rechnung am {abo.naechster_termin:%d.%m.%Y}.{hinweis}")
+    messages.success(request, f"Wiederkehrende Bestellung „{abo.bezeichnung}“ angelegt: nächste Bestellung am {abo.naechster_termin:%d.%m.%Y}.{hinweis}")
     return redirect("verkauf:abos")
 
 
@@ -1467,7 +1467,7 @@ def abo_aktion(request, abo_id):
             messages.error(request, str(fehler))
             return redirect("verkauf:abos")
         if beleg is None:
-            messages.info(request, "Zu diesem Stichtag ist nichts abzurechnen" + (f", nächste Bestellung am {abo.naechster_termin:%d.%m.%Y}." if abo.aktiv else "; die wiederkehrende Rechnung ist damit beendet."))
+            messages.info(request, "Zu diesem Stichtag ist nichts abzurechnen" + (f", nächste Bestellung am {abo.naechster_termin:%d.%m.%Y}." if abo.aktiv else "; die wiederkehrende Bestellung ist damit beendet."))
             return redirect("verkauf:abos")
         messages.success(request, f"Bestellung {beleg.nummer} für {abo.kunde.name1} angelegt – daraus die Rechnung erstellen.")
         return redirect("verkauf:beleg", beleg_id=beleg.pk)
@@ -1476,7 +1476,7 @@ def abo_aktion(request, abo_id):
         abo.save(update_fields=["aktiv"])
     elif aktion == "loeschen":
         abo.delete()
-        messages.success(request, "Wiederkehrende Rechnung gelöscht (bereits erzeugte Rechnungen bleiben).")
+        messages.success(request, "Wiederkehrende Bestellung gelöscht (bereits erzeugte Bestellungen und Rechnungen bleiben).")
     return redirect("verkauf:abos")
 
 

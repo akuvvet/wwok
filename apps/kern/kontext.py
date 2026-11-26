@@ -35,7 +35,7 @@ def hauptbereich(request):
 # URL-Namen, die zu ihnen gehören („name*“ = Präfix, „*“ = alle übrigen). Reihenfolge zählt: der erste Treffer gewinnt.
 PFAD = {
     "verkauf": ("Verkauf", [("Alle Belege", "verkauf:belege", ["belege"]),
-                            ("Wiederkehrende Rechnungen", "verkauf:abos", ["abo*"]),
+                            ("Wiederkehrende Bestellungen", "verkauf:abos", ["abo*"]),
                             ("Kunde", "verkauf:start", ["*"])]),
     "shop": ("Verkauf", [("Shop & Online", "shop:uebersicht", ["*"])]),
     "einkauf": ("Einkauf", [("Lieferant", "einkauf:lieferanten", ["lieferant*", "ruecksendung*"]),

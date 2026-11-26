@@ -2,6 +2,7 @@
 from datetime import date
 from decimal import Decimal
 from io import BytesIO
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -287,7 +288,8 @@ class HalbmonatTest(Grundlage):
         abo = self.abo(date(2027, 1, 31))
         termine = []
         for _ in range(4):
-            abo.rechnung_erzeugen(abo.naechster_termin)
+            with mock.patch("django.utils.timezone.localdate", return_value=abo.naechster_termin):  # Lauf an diesem Tag
+                abo.rechnung_erzeugen(abo.naechster_termin)
             termine.append(abo.naechster_termin)
         self.assertEqual(termine, [date(2027, 2, 15), date(2027, 2, 28), date(2027, 3, 15), date(2027, 3, 31)])
 
@@ -295,9 +297,9 @@ class HalbmonatTest(Grundlage):
         self.assertEqual(self.abo(date(2026, 11, 3)).naechster_termin, date(2026, 11, 15))
         self.assertEqual(self.abo(date(2026, 11, 20)).naechster_termin, date(2026, 11, 30))
 
-    def test_belegdatum_nie_vor_dem_stichtag_und_nachholen(self):
-        abo = self.abo()
-        self.assertEqual(abo.rechnung_erzeugen(date(2026, 10, 3)).belegdatum, date(2026, 10, 15))
+    def test_belegdatum_ist_der_tag_der_erstellung_und_nachholen(self):
+        abo = self.abo()  # Entscheidung des Nutzers 26.11.2026: vorzeitig erstellt trägt sie den Tag der Erstellung, nicht den Stichtag
+        self.assertEqual(abo.rechnung_erzeugen(date(2026, 10, 3)).belegdatum, date(2026, 10, 3))
         b = abo.rechnung_erzeugen(date(2026, 11, 4))  # versäumter Termin: Zeitraum des Termins, Datum des Laufs
         self.assertEqual(b.belegdatum, date(2026, 11, 4))
         self.assertEqual(b.positionen.first().zusatztext, "Abrechnungszeitraum 01.10.2026 - 31.10.2026")
@@ -331,7 +333,8 @@ class HalbmonatTest(Grundlage):
         AboPosition.objects.create(abo=abo, bezeichnung="Werbung", menge=11, einzelpreis=Decimal("350"), nur_monatsende=True)
         self.assertIsNone(abo.rechnung_erzeugen(date(2026, 11, 15)))
         self.assertEqual(abo.naechster_termin, date(2026, 11, 30))
-        self.assertEqual(abo.rechnung_erzeugen(date(2026, 11, 30)).summe_netto, Decimal("3850.00"))
+        with mock.patch("django.utils.timezone.localdate", return_value=date(2026, 11, 30)):  # Lauf am Monatsletzten
+            self.assertEqual(abo.rechnung_erzeugen(date(2026, 11, 30)).summe_netto, Decimal("3850.00"))
         self.assertEqual(abo.naechster_termin, date(2026, 12, 15))
         self.assertContains(self.client.get(reverse("verkauf:abos")), "Bestellung bearbeiten")
         entwurf = abo.letzte_rechnung

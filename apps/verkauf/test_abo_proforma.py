@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 from io import StringIO
+from unittest import mock
 
 from django.core.management import call_command
 from django.test import TestCase, override_settings
@@ -50,7 +51,8 @@ class AboProformaTest(TestCase):
         self.assertEqual(Beleg.objects.filter(art=Belegart.AUFTRAG).count(), 1)  # noch nicht fällig
         abo.naechster_termin = date(2027, 4, 1)
         abo.save()
-        abo.rechnung_erzeugen(date(2027, 4, 1))
+        with mock.patch("django.utils.timezone.localdate", return_value=date(2027, 4, 1)):  # Lauf an diesem Tag
+            abo.rechnung_erzeugen(date(2027, 4, 1))
         self.assertFalse(abo.aktiv)  # Ende erreicht
 
 
