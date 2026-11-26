@@ -48,6 +48,70 @@ class VerwendungsschutzMixin:
         return geloescht, anzahl, rechte, geschuetzt
 
 
+class StammImportMixin:
+    """Import aus CSV/Excel mit Beispieldatei zum Herunterladen (Wunsch des Nutzers 26.11.2026): Knopf „Importieren“ über der
+    Liste, Importseite mit Hinweisen und Beispieldatei (CSV oder Excel: Kopfzeile und eine Beispielzeile)."""
+    change_list_template = "admin/stammdaten/import_change_list.html"
+    import_art = ""  # Schlüssel in stamm_import.BEISPIELE
+    import_titel = ""
+    import_hinweis = ""  # HTML: Spalten und Regeln
+    import_rechte = ()  # zusätzliche Rechte, z. B. weil fehlende Kategorien angelegt werden
+
+    def import_ausfuehren(self, dateiname, inhalt) -> str:
+        raise NotImplementedError
+
+    def _import_name(self, teil):
+        return f"{self.opts.app_label}_{self.opts.model_name}_{teil}"
+
+    def get_urls(self):
+        return [path("import/", self.admin_site.admin_view(self.datei_import), name=self._import_name("import")),
+                path("import/beispiel.<str:format_>", self.admin_site.admin_view(self.import_beispiel),
+                     name=self._import_name("beispiel")),
+                ] + super().get_urls()
+
+    def darf_importieren(self, request):
+        return (self.has_add_permission(request) and self.has_change_permission(request)
+                and all(request.user.has_perm(r) for r in self.import_rechte))
+
+    def changelist_view(self, request, extra_context=None):
+        return super().changelist_view(request, {**(extra_context or {}), "darf_importieren": self.darf_importieren(request),
+                                                 "import_url": reverse(f"admin:{self._import_name('import')}")})
+
+    def import_beispiel(self, request, format_):
+        from django.http import Http404, HttpResponse
+        from . import stamm_import
+        if not self.darf_importieren(request):
+            raise PermissionDenied
+        if format_ not in ("csv", "xlsx"):
+            raise Http404
+        typ = "text/csv; charset=utf-8" if format_ == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        antwort = HttpResponse(stamm_import.beispiel(self.import_art, format_), content_type=typ)
+        antwort["Content-Disposition"] = f'attachment; filename="beispiel-{self.import_art}.{format_}"'
+        return antwort
+
+    def datei_import(self, request):
+        from .leistung_import import ImportFehler
+        if not self.darf_importieren(request):
+            raise PermissionDenied
+        fehler = []
+        if request.method == "POST":
+            datei = request.FILES.get("datei")
+            if datei is None or datei.size > 5 * 1024 * 1024:
+                fehler = ["Bitte eine CSV- oder Excel-Datei bis 5 MB auswählen."]
+            else:
+                try:
+                    messages.success(request, self.import_ausfuehren(datei.name, datei.read()))
+                    return redirect(reverse(f"admin:{self.opts.app_label}_{self.opts.model_name}_changelist"))
+                except ImportFehler as e:
+                    fehler = [str(e)] + e.fehler[:30] + (["…"] if len(e.fehler) > 30 else [])
+        return TemplateResponse(request, "admin/stammdaten/import.html", {
+            **self.admin_site.each_context(request), "title": self.import_titel, "opts": self.opts, "fehler": fehler,
+            "hinweis": self.import_hinweis,
+            "beispiel_csv": reverse(f"admin:{self._import_name('beispiel')}", args=["csv"]),
+            "beispiel_xlsx": reverse(f"admin:{self._import_name('beispiel')}", args=["xlsx"]),
+            "liste_url": reverse(f"admin:{self.opts.app_label}_{self.opts.model_name}_changelist")})
+
+
 @admin.register(m.Kunde)
 class KundeAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, admin.ModelAdmin):
     list_display = ["nummer", "name1", "plz", "ort", "kundenart", "preisstufe", "gesperrt"]
@@ -190,8 +254,24 @@ class StandardVkMixin:
 
 
 @admin.register(m.Artikel)
-class ArtikelAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, StandardVkMixin, admin.ModelAdmin):
+class ArtikelAdmin(StammImportMixin, VerwendungsschutzMixin, BlaetternAdminMixin, StandardVkMixin, admin.ModelAdmin):
     form = VkVorschlagForm
+    import_art = "artikel"
+    import_titel = "Artikel importieren"
+    import_rechte = ("stammdaten.add_kategorie", "stammdaten.add_hersteller")
+    import_hinweis = (
+        "Importiert Artikel (Typ A, Lagerartikel). Pflicht: <strong>Nummer; Bezeichnung</strong>, dazu wahlweise <strong>Erweiterte "
+        "Bezeichnung; Kategorie; Hersteller; Herstellernummer; EAN; EK; VK1; VK2; VK3; UVP; Einheit; Steuersatz; Gewicht (kg); "
+        "Garantie (Monate); Online; nicht aktiv; Kostenstelle</strong>.<ul>"
+        "<li>Vorhandene Nummer: Der Artikel wird aktualisiert, leere Zellen lassen den alten Wert stehen. Leistungen und Gruppen werden nicht verändert.</li>"
+        "<li>Kategorie über Nummer oder Namen; fehlende Kategorien werden auf oberster Ebene angelegt (offline). Fehlende Hersteller werden angelegt.</li>"
+        "<li>EK wird als manueller EK eingetragen. Ohne Steuersatz gilt der höchste Satz (19 oder 1 = 19 %, 7 oder 2 = 7 %).</li>"
+        "<li>Der Bestand wird nicht importiert, dafür die Inventur verwenden.</li>"
+        "<li>Bei einem Fehler in einer Zeile wird nichts importiert.</li></ul>")
+
+    def import_ausfuehren(self, dateiname, inhalt):
+        neu, geaendert, gleich, kategorien = leistung_import.importieren(dateiname, inhalt, m.Artikeltyp.A)
+        return f"{neu} neu, {geaendert} geändert, {gleich} unverändert, {kategorien} neue Kategorie(n)."
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "radar_ampel", "online", "aktiv"]
     list_filter = [AuffaelligFilter, "typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
     search_fields = ["nummer", "bezeichnung", "herstellernummer", *m.KENNUNGEN]
@@ -302,20 +382,38 @@ class ArtikelAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, StandardVkMixin,
 
 
 @admin.register(m.Leistungskategorie)
-class LeistungskategorieAdmin(admin.ModelAdmin):
+class LeistungskategorieAdmin(StammImportMixin, admin.ModelAdmin):
     list_display = ["name", "nummer"]
     search_fields = ["name", "nummer"]
+    import_art = "leistungskategorie"
+    import_titel = "Leistungskategorien importieren"
+    import_hinweis = ("Pflicht: <strong>Name</strong>, dazu wahlweise <strong>Nummer</strong>.<ul>"
+                      "<li>Vorhandene Nummer: Der Name wird übernommen. Ohne Nummer wird über den Namen verglichen.</li>"
+                      "<li>Bei einem Fehler in einer Zeile wird nichts importiert.</li></ul>")
+
+    def import_ausfuehren(self, dateiname, inhalt):
+        from .stamm_import import leistungskategorien_importieren
+        neu, geaendert, gleich = leistungskategorien_importieren(dateiname, inhalt)
+        return f"{neu} neu, {geaendert} geändert, {gleich} unverändert."
 
 
 @admin.register(m.Leistungsartikel)
-class LeistungsartikelAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, StandardVkMixin, admin.ModelAdmin):
+class LeistungsartikelAdmin(StammImportMixin, VerwendungsschutzMixin, BlaetternAdminMixin, StandardVkMixin, admin.ModelAdmin):
+    import_art = "leistungsartikel"
+    import_titel = "Leistungsartikel importieren"
+    import_rechte = ("stammdaten.add_leistungskategorie",)
+    import_hinweis = (
+        "Pflicht: <strong>Nummer; Bezeichnung</strong>, dazu wahlweise <strong>Erweiterte Bezeichnung; Kategorie; Kosten; VK1; VK2; "
+        "VK3; Einheit; Steuersatz; nicht aktiv</strong>.<ul>"
+        "<li>Vorhandene Nummer: Die Leistung wird aktualisiert, leere Zellen lassen den alten Wert stehen. Lagerartikel und Gruppen werden nicht verändert.</li>"
+        "<li>Fehlende Kategorien werden angelegt. Ohne Steuersatz gilt der höchste Satz.</li>"
+        "<li>Bei einem Fehler in einer Zeile wird nichts importiert.</li></ul>")
     """Leistungen (Typ L) mit eigenen Kategorien und Kosten, dazu der Import aus CSV oder Excel."""
 
     list_display = ["nummer", "bezeichnung", "leistungskategorie", "kosten", "vk1", "mengeneinheit", "aktiv"]
     list_filter = ["leistungskategorie", "nicht_aktiv"]
     search_fields = ["nummer", "bezeichnung"]
     list_select_related = ["leistungskategorie"]
-    change_list_template = "admin/stammdaten/leistungsartikel/change_list.html"
     fieldsets = [
         ("Grunddaten", {"fields": ["nummer", "bezeichnung", "bezeichnung_erweitert", "leistungskategorie",
                                    ("mengeneinheit", "steuersatz"), "kostenstelle", "nicht_aktiv"]}),
@@ -351,33 +449,9 @@ class LeistungsartikelAdmin(VerwendungsschutzMixin, BlaetternAdminMixin, Standar
             m.Stammnummer.belegen(m.Stammnummer.Art.LEISTUNG, obj.nummer)
         super().save_model(request, obj, form, change)
 
-    def get_urls(self):
-        return [path("import/", self.admin_site.admin_view(self.datei_import), name="stammdaten_leistungsartikel_import")] + super().get_urls()
-
-    def darf_importieren(self, request):
-        return (self.has_add_permission(request) and self.has_change_permission(request)
-                and request.user.has_perm("stammdaten.add_leistungskategorie"))
-
-    def changelist_view(self, request, extra_context=None):
-        return super().changelist_view(request, {**(extra_context or {}), "darf_importieren": self.darf_importieren(request)})
-
-    def datei_import(self, request):
-        if not self.darf_importieren(request):
-            raise PermissionDenied
-        fehler = []
-        if request.method == "POST":
-            datei = request.FILES.get("datei")
-            if datei is None or datei.size > 5 * 1024 * 1024:
-                fehler = ["Bitte eine CSV- oder Excel-Datei bis 5 MB auswählen."]
-            else:
-                try:
-                    neu, geaendert, gleich, kategorien = leistung_import.importieren(datei.name, datei.read())
-                    messages.success(request, f"{neu} neu, {geaendert} geändert, {gleich} unverändert, {kategorien} neue Kategorie(n).")
-                    return redirect(reverse("admin:stammdaten_leistungsartikel_changelist"))
-                except leistung_import.ImportFehler as e:
-                    fehler = [str(e)] + e.fehler[:30] + (["…"] if len(e.fehler) > 30 else [])
-        return TemplateResponse(request, "admin/stammdaten/leistungsartikel/import.html", {
-            **self.admin_site.each_context(request), "title": "Leistungsartikel importieren", "fehler": fehler})
+    def import_ausfuehren(self, dateiname, inhalt):
+        neu, geaendert, gleich, kategorien = leistung_import.importieren(dateiname, inhalt)
+        return f"{neu} neu, {geaendert} geändert, {gleich} unverändert, {kategorien} neue Kategorie(n)."
 
 
 admin.site.register([m.Steuersatz])
@@ -420,7 +494,21 @@ class OnlineStatusFilter(admin.SimpleListFilter):
 
 
 @admin.register(m.Kategorie)
-class KategorieAdmin(admin.ModelAdmin):
+class KategorieAdmin(StammImportMixin, admin.ModelAdmin):
+    import_art = "kategorie"
+    import_titel = "Kategorien importieren"
+    import_hinweis = (
+        "Pflicht: <strong>Name</strong>, dazu wahlweise <strong>Nummer; Übergeordnet; Aufschlag VK1; Aufschlag VK2; Aufschlag VK3; "
+        "Online</strong>.<ul>"
+        "<li>Übergeordnet: Nummer oder Name einer vorhandenen Kategorie oder einer, die weiter oben in der Datei steht; leer = oberste Ebene.</li>"
+        "<li>Vorhandene Kategorie (gleiche Nummer, sonst gleicher Name unter derselben übergeordneten) wird aktualisiert; leere Zellen lassen den alten Wert stehen.</li>"
+        "<li>Neue Kategorien sind offline, solange Online nicht „ja“ ist. Online „nein“ bei einer vorhandenen Kategorie nimmt ihre Artikel aus dem Shop.</li>"
+        "<li>Bei einem Fehler in einer Zeile wird nichts importiert.</li></ul>")
+
+    def import_ausfuehren(self, dateiname, inhalt):
+        from .stamm_import import kategorien_importieren
+        neu, geaendert, gleich = kategorien_importieren(dateiname, inhalt)
+        return f"{neu} neu, {geaendert} geändert, {gleich} unverändert."
     list_display = ["name", "nummer", "eltern", "online_status", "artikel_im_shop", "im_shop"]
     list_filter = [OnlineStatusFilter, "online"]
     search_fields = ["name", "nummer"]
@@ -477,9 +565,19 @@ class KategorieAdmin(admin.ModelAdmin):
 
 
 @admin.register(m.Hersteller)
-class HerstellerAdmin(admin.ModelAdmin):
+class HerstellerAdmin(StammImportMixin, admin.ModelAdmin):
     list_filter = ["online"]
     search_fields = ["name", "kennzeichen"]
+    import_art = "hersteller"
+    import_titel = "Hersteller importieren"
+    import_hinweis = ("Pflicht: <strong>Name</strong>, dazu wahlweise <strong>Kennzeichen; Online</strong>.<ul>"
+                      "<li>Vorhandenes Kennzeichen: Name und Online werden übernommen. Ohne Kennzeichen wird über den Namen verglichen.</li>"
+                      "<li>Bei einem Fehler in einer Zeile wird nichts importiert.</li></ul>")
+
+    def import_ausfuehren(self, dateiname, inhalt):
+        from .stamm_import import hersteller_importieren
+        neu, geaendert, gleich = hersteller_importieren(dateiname, inhalt)
+        return f"{neu} neu, {geaendert} geändert, {gleich} unverändert."
 
 
 @admin.register(m.PreisVorgabe)

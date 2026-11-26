@@ -1,0 +1,15 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Start</a> › <a href="{{ liste_url }}">{{ opts.verbose_name_plural|capfirst }}</a> › Import</div>
+{% endblock %}
+{% block content %}
+<p>CSV- oder Excel-Datei mit Kopfzeile. Die Spalten werden an ihrem Namen erkannt, die Reihenfolge ist egal.</p>
+<div>{{ hinweis|safe }}</div>
+<p><strong>Beispieldatei</strong> (Kopfzeile und Beispielzeile, zum Ausfüllen):
+  <a href="{{ beispiel_xlsx }}">Excel (.xlsx)</a> · <a href="{{ beispiel_csv }}">CSV (Semikolon, UTF-8)</a></p>
+{% if fehler %}<ul class="errorlist">{% for f in fehler %}<li>{{ f }}</li>{% endfor %}</ul>{% endif %}
+<form method="post" enctype="multipart/form-data">{% csrf_token %}
+  <p><input type="file" name="datei" accept=".csv,.txt,.xlsx,.xls" required></p>
+  <input type="submit" value="Importieren" class="default">
+</form>
+{% endblock %}
