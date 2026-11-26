@@ -5,7 +5,7 @@
 <div class="karte">
   <h1>Alle Belege · Mandant {{ request.mandant }}</h1>
   <form method="get" class="zeile" data-livefilter>
-    <div><label for="q">Beleg-Nr., Kunde oder Referenz</label><input id="q" name="q" value="{{ q }}" size="30" autocomplete="off" autofocus></div>
+    <div><label for="q">Beleg-Nr., Kunde, Referenz oder Artikel</label><input id="q" name="q" value="{{ q }}" size="30" autocomplete="off" autofocus></div>
     <div><label for="art">Belegart</label><select id="art" name="art"><option value="">alle</option>
       {% for wert, name in arten %}<option value="{{ wert }}" {% if art == wert %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
     <div><label for="status">Status</label><select id="status" name="status">

@@ -154,8 +154,9 @@ HILFE = (
     _h("beleg_suchen", "Wie finde ich einen Beleg?",
        "beleg suchen, rechnung finden, belegnummer, alle belege, rechnung suchen, lieferschein suchen, angebot suchen, belegliste",
        [_weg("Schnellbedienung", "Strg+K → Belegnummer oder Kundenname tippen → Enter"),
-        _weg("Belegliste", "Verkauf → Alle Belege → Beleg-Nr., Kunde oder Referenz eintragen → Belegart, Status, von/bis wählen → Filtern",
-             "Auch die alten Nummern umgewandelter Belege (Angebot, Bestellung) werden gefunden.")],
+        _weg("Belegliste", "Verkauf → Alle Belege → Beleg-Nr., Kunde, Referenz oder Artikel eintragen → Belegart, Status, von/bis wählen → Filtern",
+             "Auch die alten Nummern umgewandelter Belege (Angebot, Bestellung) werden gefunden. "
+             "Artikel zählt doppelt: die Bezeichnung, wie sie im Beleg steht, und Nummer wie Bezeichnung des Stammartikels.")],
        "verkauf:belege", "Verkauf → Alle Belege"),
     _h("positionen_import", "Wie importiere ich Positionen aus einer Datei?",
        "positionen importieren, excel import, csv, xlsx, stückliste einlesen, positionen aus datei, import beleg",

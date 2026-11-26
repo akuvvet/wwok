@@ -1631,8 +1631,14 @@ def belege(request):
     liste = Beleg.objects.filter(Q(positionen__isnull=False) | Q(uebernahmen_aus__isnull=False), mandant=request.mandant).distinct().select_related("kunde").prefetch_related("umwandlungen")
     q = request.GET.get("q", "").strip()
     for wort in q.split():
+        # Auch in den Positionen suchen: die Bezeichnung IM BELEG (die steht auf dem Papier und kann von Hand
+        # geändert sein) sowie Nummer und Bezeichnung des Stammartikels – nach einer Umbenennung fände man den
+        # Beleg sonst unter dem heutigen Artikelnamen nicht mehr. Positionen vom Typ P (Preislistenartikel ohne
+        # eigenen Artikel) haben kein `artikel` und sind über positionen__bezeichnung abgedeckt.
         liste = liste.filter(Q(nummer__icontains=wort) | Q(umwandlungen__von_nummer__icontains=wort) | Q(kunde__name1__icontains=wort) | Q(kunde__nummer__icontains=wort)
-                             | Q(referenz__icontains=wort))
+                             | Q(referenz__icontains=wort)
+                             | Q(positionen__bezeichnung__icontains=wort)
+                             | Q(positionen__artikel__nummer__icontains=wort) | Q(positionen__artikel__bezeichnung__icontains=wort))
     art = request.GET.get("art", "")
     if art in Belegart.values:
         liste = liste.filter(art=art)
