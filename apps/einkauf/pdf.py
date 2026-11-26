@@ -1,4 +1,5 @@
 """Lieferantenbestellung als PDF."""
+from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO
 
 from reportlab.lib import colors
@@ -6,9 +7,21 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from apps.kern.pdfhilfe import logo_elemente
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from apps.stammdaten.models import Steuersatz
 from apps.verkauf.pdf import absatz, euro, zahl
+
+
+def steuer_aufteilung(bestellung) -> list:
+    """[(Prozent, Steuer)] je Steuersatz (Wunsch des Nutzers 26.11.2026: Netto, USt und Endsumme wie in Mention).
+    Steuersatz des Artikels; Positionen nur aus der Preisliste bekommen den Standardsatz (wie beim Anlegen im Wareneingang)."""
+    standard = Steuersatz.objects.filter(nummer=1).first() or Steuersatz.objects.order_by("-prozent").first()
+    netto = {}
+    for p in bestellung.positionen.select_related("artikel__steuersatz"):
+        prozent = p.artikel.steuersatz.prozent if p.artikel_id else (standard.prozent if standard else Decimal("0"))
+        netto[prozent] = netto.get(prozent, Decimal("0")) + p.netto
+    return [(pr, (n * pr / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) for pr, n in sorted(netto.items(), reverse=True)]
 
 
 def bestellung_pdf(bestellung) -> bytes:
@@ -34,6 +47,8 @@ def bestellung_pdf(bestellung) -> bytes:
     z_hd = ("z. Hd. " + " ".join(t for t in (str(ap.anrede) if ap.anrede_id else "", ap.vorname, ap.nachname) if t)) if ap else ""
     anschrift = "\n".join(t for t in (lf.name1, lf.name2, z_hd, lf.strasse, f"{lf.plz} {lf.ort}") if t)
     daten = [["Bestellnummer", bestellung.nummer], ["Datum", bestellung.datum.strftime("%d.%m.%Y")]]
+    if lf.nummer:
+        daten.append(["Lieferanten-Nr.", lf.nummer])
     if kundennr:
         daten.append(["Unsere Kundennr.", kundennr])
     if bestellung.bezugnahme:
@@ -47,15 +62,24 @@ def bestellung_pdf(bestellung) -> bytes:
     kopf.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
     inhalt = [*logo_elemente(m), absatz(f"{m.firmenname} · {m.strasse} · {m.plz} {m.ort}", klein), Spacer(1, 4 * mm), kopf, Spacer(1, 10 * mm),
               Paragraph(f"Bestellung {bestellung.nummer}", titel), Spacer(1, 4 * mm)]
-    zeilen = [[absatz(t, fett) for t in ("Pos.", "Best.-Nr.", "Bezeichnung", "Menge", "EK netto", "Netto")]]
+    zeilen = [[absatz(t, fett) for t in ("Pos.", "Best.-Nr.", "Bezeichnung", "Menge", "Preis netto", "Gesamt netto")]]
     for i, p in enumerate(bestellung.positionen.select_related("artikel"), start=1):
         zeilen.append([str(i), absatz(p.bestellnummer or p.nummer, normal), absatz(p.bezeichnung, normal),
                        zahl(p.menge), euro(p.ek), euro(p.netto)])
-    t = Table(zeilen, colWidths=[10 * mm, 30 * mm, 70 * mm, 16 * mm, 22 * mm, 22 * mm], repeatRows=1)
+    t = Table(zeilen, colWidths=[12 * mm, 26 * mm, 66 * mm, 16 * mm, 24 * mm, 26 * mm], repeatRows=1)
     t.setStyle(TableStyle([("FONT", (0, 1), (-1, -1), "Helvetica", 9), ("VALIGN", (0, 0), (-1, -1), "TOP"),
                            ("ALIGN", (3, 0), (-1, -1), "RIGHT"), ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.black),
                            ("LINEBELOW", (0, 1), (-1, -1), 0.25, colors.lightgrey)]))
-    inhalt += [t, Spacer(1, 4 * mm), absatz(f"Summe netto: {euro(bestellung.summe_netto)}", fett)]
+    summen = [["Summe netto", euro(bestellung.summe_netto)]]
+    steuern = steuer_aufteilung(bestellung)
+    for prozent, steuer in steuern:
+        summen.append([f"Umsatzsteuer {zahl(prozent)} %", euro(steuer)])
+    summen.append(["Endsumme", euro(bestellung.summe_netto + sum((s for _, s in steuern), Decimal("0")))])
+    st = Table(summen, colWidths=[40 * mm, 30 * mm], hAlign="RIGHT")
+    st.setStyle(TableStyle([("ALIGN", (1, 0), (1, -1), "RIGHT"), ("FONT", (0, 0), (-1, -1), "Helvetica", 9),
+                            ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 10),
+                            ("LINEABOVE", (0, -1), (-1, -1), 0.8, colors.black)]))
+    inhalt += [t, Spacer(1, 4 * mm), KeepTogether([st])]  # Summenblock nie auf zwei Seiten
     if bestellung.bemerkung:
         inhalt += [Spacer(1, 4 * mm), absatz(bestellung.bemerkung, normal)]
     doc.build(inhalt, onFirstPage=seite, onLaterPages=seite)
