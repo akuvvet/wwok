@@ -23,7 +23,7 @@ from django.utils.functional import cached_property
 from apps.kern.kalender import (STANDARD_STICHTAGE, folgender_stichtag, ganzer_monat, halbmonat, monatsenden, stichtag_ab, stichtage_parsen,
                                  stichtage_text, tage_zaehlen, zeitraum)
 from apps.kern.models import Mandant, Zeitstempel
-from apps.stammdaten.models import Ansprechpartner, Artikel, Artikeltyp, Kunde, Zahlungsbedingung
+from apps.stammdaten.models import Ansprechpartner, Artikel, Artikeltyp, Kunde, Steuerart, Steuersatz, Zahlungsbedingung
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +293,10 @@ class Beleg(Zeitstempel):
                                          help_text="Vorläufiger Beleg: letzte Aktivität des Benutzers; ohne Lebenszeichen der geöffneten Maske wird verworfen.")
     abo = models.ForeignKey("Abo", on_delete=models.SET_NULL, null=True, blank=True, related_name="belege", editable=False,
                             help_text="Wiederkehrende Bestellung, aus der die Bestellung entstand")
+    steuerart = models.PositiveSmallIntegerField(
+        "Steuerart", choices=Steuerart.choices, default=Steuerart.INLAND, editable=False,
+        help_text="Aus dem Kunden übernommen, solange der Beleg offen ist (Gutschrift zur Rechnung: wie die Rechnung); "
+                  "EG-Ausland und Drittland rechnen ohne MwSt.")
     summe_netto = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
     summe_steuer = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
     summe_brutto = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), editable=False)
@@ -353,6 +357,63 @@ class Beleg(Zeitstempel):
     @property
     def gesperrt(self) -> bool:
         return self.abgeschlossen and (self.art in GESPERRT_NACH_ABSCHLUSS or self.proforma_fest)
+
+    @property
+    def steuerfrei(self) -> bool:
+        """Kunde EG-Ausland oder Drittland: alle Preise ohne MwSt (Vorgabe des Nutzers 26.11.2026)."""
+        return self.steuerart != Steuerart.INLAND
+
+    def steuer_fuer(self, prozent) -> Decimal:
+        """Steuersatz einer neuen Position in diesem Beleg: 0 bei steuerfreiem Beleg, sonst der Satz des Artikels."""
+        return Decimal("0") if self.steuerfrei else Decimal(prozent)
+
+    def soll_steuerart(self) -> int:
+        """Gutschrift zur Rechnung folgt der Rechnung, sonst gilt die Steuerart des Kunden."""
+        if self.art == Belegart.GUTSCHRIFT and self.vorgaenger_id:
+            v = Beleg.objects.filter(pk=self.vorgaenger_id).values_list("art", "steuerart").first()
+            if v and v[0] == Belegart.RECHNUNG:
+                return v[1]
+        return Kunde.objects.filter(pk=self.kunde_id).values_list("steuerart", flat=True).first() or Steuerart.INLAND
+
+    def steuerart_uebernehmen(self) -> bool:
+        """Offener Beleg: Steuerart neu bestimmen; bei einer Änderung bekommen alle Positionen den neuen Satz (0 % bzw. den Satz
+        des Artikels, ohne Artikel den Standardsatz). Gibt True zurück, wenn sich etwas geändert hat (dann berechne() aufrufen)."""
+        if self.abgeschlossen or not self.pk:
+            return False
+        soll = self.soll_steuerart()
+        if soll == self.steuerart:
+            return False
+        self.steuerart = soll
+        Beleg.objects.filter(pk=self.pk).update(steuerart=soll)
+        standard = Steuersatz.standard()
+        standard = standard.prozent if standard else Decimal("19")
+        for p in self.positionen.select_related("artikel__steuersatz"):
+            neu = Decimal("0") if self.steuerfrei else (p.artikel.steuersatz.prozent if p.artikel_id else standard)
+            if neu != p.steuer_prozent:
+                Position.objects.filter(pk=p.pk).update(steuer_prozent=neu)
+        return True
+
+    def steuerhinweise(self) -> list:
+        """Pflichthinweise (§ 14a UStG) für Belege ohne MwSt; leer bei Steuerart Inland."""
+        if not self.steuerfrei:
+            return []
+        typen = set(self.positionen.filter(gruppe__isnull=True).values_list("typ", flat=True))
+        leistung, lieferung = "L" in typen, bool(typen - {"L"}) or not typen
+        hinweise = []
+        if self.steuerart == Steuerart.EG:
+            if lieferung:
+                hinweise.append("Steuerfreie innergemeinschaftliche Lieferung (§ 4 Nr. 1b i. V. m. § 6a UStG).")
+            if leistung:
+                hinweise.append("Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge, § 13b UStG).")
+            ust = (self.kunde.ust_id or "").strip()
+            if ust:
+                hinweise.append(f"USt-ID des Kunden: {ust}")
+        else:
+            if lieferung:
+                hinweise.append("Steuerfreie Ausfuhrlieferung (§ 4 Nr. 1a i. V. m. § 6 UStG).")
+            if leistung:
+                hinweise.append("Leistung nicht im Inland steuerbar.")
+        return hinweise
 
     @property
     def proforma_fest(self) -> bool:
@@ -655,7 +716,12 @@ class Beleg(Zeitstempel):
             self.nummer = Nummernkreis.naechste(self.mandant, self.art, self.belegdatum.year)
         if not self.pk and self.vorlaeufig and self.zuletzt_aktiv is None:
             self.zuletzt_aktiv = timezone.now()
+        neu = not self.pk
+        if neu and not self.abgeschlossen:
+            self.steuerart = self.soll_steuerart()
         super().save(*args, **kwargs)
+        if not neu and not self.abgeschlossen and self.steuerart_uebernehmen():  # z. B. anderer Kunde
+            self.berechne()
 
     def kaeufer_aus_anschrift(self):
         """Füllt die strukturierten Käuferfelder aus der Rechnungsanschrift des Belegs (Namen, Straße, „PLZ Ort“, optional Land);
@@ -940,6 +1006,13 @@ class Beleg(Zeitstempel):
                              "mit „Speichern: abschließen & Nummer vergeben“ gespeichert wird (sonst wird beides verworfen).")
         if not self.positionen.exists():
             raise ValueError("Beleg ohne Positionen kann nicht abgeschlossen werden.")
+        if self.steuerart_uebernehmen():  # Steuerart des Kunden wurde inzwischen geändert
+            self.berechne()
+        if self.art in (Belegart.RECHNUNG, Belegart.GUTSCHRIFT, Belegart.PROFORMA) and self.steuerart == Steuerart.EG \
+                and not (self.kunde.ust_id or "").strip():
+            # Entscheidung des Nutzers 26.11.2026: ohne MwSt in die EU nur an Unternehmen mit USt-ID
+            raise ValueError(f"Kunde {self.kunde.nummer} ist EG-Ausland, hat aber keine USt-ID: Ohne MwSt geht es nur mit USt-ID. "
+                             "Bitte beim Kunden (Steuer & Bank) die USt-ID eintragen oder die Steuerart 1 (mit MwSt) wählen.")
         if self.art in (Belegart.AUFTRAG, Belegart.LIEFERSCHEIN, Belegart.RECHNUNG) and not (p_erlaubt and self.art == Belegart.AUFTRAG) \
                 and self.p_positionen().exists():
             raise ValueError(f"{self.get_art_display()} enthält Preislistenartikel (P) – nur als Angebot möglich. "
@@ -1848,6 +1921,8 @@ class Position(Zeitstempel):
             # freie Gutschrift (ohne Rechnung): meist Kulanz oder Nachlass – Standard „keine Ware zurück“, in Spalte B änderbar
             standard = Ruecknahme.KEINE if self.beleg.freie_gutschrift else Ruecknahme.REPARATUR
             self.ruecknahme = standard if erste is None else erste
+        if self.beleg.steuerfrei:  # Kunde EG-Ausland/Drittland: ohne MwSt (Vorgabe des Nutzers 26.11.2026)
+            self.steuer_prozent = Decimal("0")
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

@@ -46,7 +46,7 @@ class Command(BaseCommand):
                 raise CommandError(f"Spalte '{name}' fehlt")
             spalte[schluessel] = kopf.index(name)
         bildspalten = [kopf.index(n) for n in BILDSPALTEN if n in kopf]
-        steuer = {s.nummer: s for s in Steuersatz.objects.exclude(nummer=None)}
+        saetze = list(Steuersatz.objects.all())
         kategorien = {k.nummer: k for k in Kategorie.objects.exclude(nummer=None)}
         hersteller = {}
         for h in Hersteller.objects.order_by("kennzeichen"):
@@ -65,7 +65,7 @@ class Command(BaseCommand):
                 doppelt += 1
                 continue
             gesehen.add(nummer)
-            satz = steuer.get(int(z[spalte["steuersatz"]]))
+            satz = Steuersatz.finden(text(z[spalte["steuersatz"]]) or "1", saetze)  # ID 1 = 19 %, 2 = 7 %; leer = 1
             if satz is None:
                 raise CommandError(f"Artikel {nummer}: Steuersatz {z[spalte['steuersatz']]} unbekannt")
             kategorie = kategorien.get(text(z[spalte["kategorie"]]))

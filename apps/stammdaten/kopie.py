@@ -75,7 +75,7 @@ def dubletten_zu_preisliste(eintrag) -> list:
 def neuer_artikel_aus_preisliste(eintrag) -> Artikel:
     """Ungespeicherter Lagerartikel aus einer Preislistenzeile. Der günstigste Preislisten-EK der Gruppe wird Import-EK (Herkunft
     „Import“, maßgebend nach der EK-Rangfolge); VK1–VK3 bleiben leer und folgen EK + Aufschlag. Nicht online, Bestand 0."""
-    steuer = Steuersatz.objects.filter(nummer=1).first() or Steuersatz.objects.order_by("-prozent").first()
+    steuer = Steuersatz.standard()
     hersteller = Hersteller.objects.filter(name__iexact=eintrag.hersteller).first() if eintrag.hersteller else None
     artikel = Artikel(
         nummer=Stammnummer.vorschlag(Artikeltyp.A), typ=Artikeltyp.A, bezeichnung=eintrag.bezeichnung[:Artikel._meta.get_field("bezeichnung").max_length],

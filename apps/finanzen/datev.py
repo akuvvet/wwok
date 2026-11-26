@@ -27,7 +27,13 @@ def debitor(kunde) -> str:
     return kunde.nummer if kunde.nummer.isdigit() else "10000"
 
 
-def erloeskonto(mandant, prozent: Decimal) -> str:
+def erloeskonto(mandant, prozent: Decimal, beleg=None, typ="") -> str:
+    """Steuerart des Kunden EG-Ausland/Drittland (Entscheidung des Nutzers 26.11.2026, SKR03): innergem. Lieferung 8125,
+    Leistung an EU-Unternehmen 8338, Ausfuhr 8120 – am Mandanten änderbar."""
+    if beleg is not None and beleg.steuerfrei:
+        if beleg.steuerart == 2:
+            return (mandant.konto_eg_leistung or "8338") if typ == "L" else (mandant.konto_eg_lieferung or "8125")
+        return mandant.konto_ausfuhr or "8120"
     if prozent == Decimal("19"):
         return mandant.konto_erloes_19
     if prozent == Decimal("7"):
@@ -44,7 +50,7 @@ def beleg_zeilen(beleg):
     zuordnung = mandant.kostenstellen_zuordnung()
     netto, je_konto = defaultdict(Decimal), defaultdict(lambda: defaultdict(Decimal))
     for p in beleg.positionen.select_related("artikel"):
-        konto = erloeskonto(mandant, p.steuer_prozent)
+        konto = erloeskonto(mandant, p.steuer_prozent, beleg, p.typ)
         stelle = (p.artikel.kostenstelle if p.artikel_id else "").strip().lower()
         if p.steuer_prozent == Decimal("19") and stelle in zuordnung:
             konto = zuordnung[stelle]
@@ -55,10 +61,13 @@ def beleg_zeilen(beleg):
     if nebenkosten:
         hoechster = max(netto, default=Decimal("19"))
         netto[hoechster] += nebenkosten
-        je_konto[hoechster][erloeskonto(mandant, hoechster)] += nebenkosten
+        # Versand folgt der Ware: das Konto der größten Position dieses Satzes (ohne MwSt: Lieferung vor Leistung)
+        ziel = max(je_konto[hoechster].items(), key=lambda e: e[1])[0] if beleg.steuerfrei and je_konto[hoechster] \
+            else erloeskonto(mandant, hoechster, beleg)
+        je_konto[hoechster][ziel] += nebenkosten
     for satz, basis in sorted(netto.items()):
         brutto = runden(basis) + runden(basis * satz / 100)
-        konten = sorted(je_konto[satz].items()) or [(erloeskonto(mandant, satz), Decimal("1"))]
+        konten = sorted(je_konto[satz].items()) or [(erloeskonto(mandant, satz, beleg), Decimal("1"))]
         gesamt = sum((w for _, w in konten), Decimal("0"))
         rest = brutto
         for i, (konto, wert) in enumerate(konten):

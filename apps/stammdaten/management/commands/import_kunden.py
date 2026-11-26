@@ -25,6 +25,15 @@ def erste_adresse(wert):
     return next((a.strip() for a in re.split(r"[,;]", text(wert)) if a.strip()), "")
 
 
+
+def steuerart(wert) -> int:
+    """1 = mit MwSt, 2 = EG-Ausland, 3 = Drittland (Vorgabe des Nutzers 26.11.2026); leer oder unbekannt = 1."""
+    try:
+        zahl = int(float(str(wert).strip().replace(",", ".") or 1))
+    except ValueError:
+        return 1
+    return zahl if zahl in (1, 2, 3) else 1
+
 class Command(BaseCommand):
     help = ("Importiert Kunden aus der Mention-Tabelle. Je Kunden-Nr. ein Kunde, je Zeile (Lfd.Nr.) ein "
             "Ansprechpartner; Zeile mit der kleinsten Lfd.Nr. ist der Hauptkontakt.")
@@ -54,6 +63,8 @@ class Command(BaseCommand):
             "E-Mail", "Telefon 1", "Eingabedatum", "Preis (1-6)", "Limit", "Umsatzsteuer-ID", "ZB 1", "Lfd.Nr.",
             "Online", "IBAN", "SWIFT", "Bank", "Kategorie")}
         c["anrede"] = spalte("Titel", 1)  # zweite Spalte "Titel": 1 = Herr, 2 = Frau
+        # Steuerart wie in Mention (1 = mit MwSt, 2 = EG-Ausland, 3 = Drittland), Spalte optional; fehlt sie: 1
+        steuerspalte = next((kopf.index(n) for n in ("Steuerart", "Steuer", "MwSt", "Steuerschlüssel") if n in kopf), None)
 
         gruppen = defaultdict(list)
         for i in range(1, blatt.nrows):
@@ -92,6 +103,7 @@ class Command(BaseCommand):
                 "ust_id": erster_wert("Umsatzsteuer-ID"),
                 "kundenart": KUNDENART.get(text(k[c["Kategorie"]]), Kundenart.ENDKUNDE),
                 "preisstufe": min(max(int(k[c["Preis (1-6)"]] or 1), 1), 3),
+                "steuerart": steuerart(k[steuerspalte] if steuerspalte is not None else ""),
                 "zahlungsbedingung": zb.get(zb_nr),
                 "iban": erster_wert("IBAN"), "bic": erster_wert("SWIFT"), "bank": erster_wert("Bank"),
                 "kontoinhaber": firma if erster_wert("IBAN") else "",

@@ -701,7 +701,7 @@ def artikel_aus_preisliste(eintrag):
                 break
     if artikel is None:
         nummer = Stammnummer.naechste("A")
-        steuer = Steuersatz.objects.filter(nummer=1).first() or Steuersatz.objects.order_by("-prozent").first()
+        steuer = Steuersatz.standard()
         if steuer is None:
             raise ValueError("Es ist kein Steuersatz angelegt.")
         hersteller = Hersteller.objects.filter(name__iexact=eintrag.hersteller).first() if eintrag.hersteller else None

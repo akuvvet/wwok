@@ -295,7 +295,7 @@ class MandantAdmin(admin.ModelAdmin):
                             "description": "Zugang zum Mail-Postfach dieses Mandanten. Alle Angaben einschließlich Passwort "
                                            "werden hier eingetragen; mit „Testmail senden“ lässt sich der Versand prüfen."}),
         ("DATEV und Konten", {"fields": ["datev_berater", "datev_mandant", "datev_zahlungen", "konto_erloes_19", "konto_erloes_7", "konto_erloes_0",
-                                         "konto_bank", "konto_kasse", "konto_skonto", "kostenstellen_konten"]}),
+                                         "konto_eg_lieferung", "konto_eg_leistung", "konto_ausfuhr", "konto_bank", "konto_kasse", "konto_skonto", "kostenstellen_konten"]}),
         ("Online-Shops (Shopware)", {"fields": ["shopware_shops"],
                                      "description": "Shopware-Shops haben eine eigene Anbindung (Bestand, Preise, Bestellungen)."}),
         ("Verlauf", {"fields": ["angelegt_am", "geaendert_am", "geaendert_von"]}),

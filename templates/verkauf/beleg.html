@@ -13,6 +13,7 @@
     <p class="zeile" style="margin:0">
       <a href="{% url 'verkauf:kunde' beleg.kunde.pk %}"><strong>{{ beleg.kunde.nummer }} · {{ beleg.kunde.name1 }}</strong></a>
       <span>{{ beleg.belegdatum|date:"d.m.Y" }}</span>
+      {% if beleg.steuerfrei %}<span class="marke" title="Steuerart des Kunden: alle Preise ohne MwSt">ohne MwSt · {% if beleg.steuerart == 2 %}EG-Ausland{% if not beleg.kunde.ust_id %} – USt-ID fehlt!{% endif %}{% else %}Drittland{% endif %}</span>{% endif %}
       {% if beleg.art == "RE" %}<span>Lieferdatum: {% if beleg.lieferdatum %}{{ beleg.lieferdatum|date:"d.m.Y" }}{% else %}siehe Positionen{% endif %}</span>{% endif %}
       {% if pf_status %}<span class="marke{% if pf_status.code == 'bezahlt' or pf_status.code == 'umgewandelt' or pf_status.code == 'ueberzahlt' %} ok{% elif pf_status.code == 'storniert' or pf_status.code == 'offen' or pf_status.code == 'teilbezahlt' %} gesperrt{% endif %}" title="Zahlstatus der Proforma-Rechnung">{{ pf_status.text }}{% if pf_status.code == 'teilbezahlt' or pf_status.code == 'offen' %} · offen {{ pf_status.offen|floatformat:"2g" }} €{% elif pf_status.code == 'ueberzahlt' or pf_status.code == 'guthaben' %} · {{ pf_status.offen|floatformat:"2g" }} €{% endif %}</span>
       {% elif beleg.gesperrt %}<span class="marke gesperrt">abgeschlossen &amp; gesperrt</span>

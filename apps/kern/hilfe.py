@@ -176,6 +176,12 @@ HILFE = (
        [_weg("Aus dem Beleg", "Abgeschlossenen Lieferschein oder Rechnung öffnen → Symbol Versand → DHL-Label automatisch erzeugen (Paket) oder Briefmarke kaufen & Etikett drucken (Brief)",
              "Alternativ die Sendungsnummer von Hand eintragen und Versand speichern. Versendungen stehen unten mit Sendungsverfolgung, Versand-Mail und Erstatten.")],
        "verkauf:belege", "Verkauf → Alle Belege"),
+    _h("steuerart", "Wie rechne ich für einen Kunden im Ausland ohne MwSt?",
+       "ohne mwst, steuerfrei, eg-ausland, eu ausland, drittland, ausland, reverse charge, innergemeinschaftlich, ausfuhr, steuerart, netto rechnung, ust-id ausland",
+       [_weg("Am Kunden", "Kunde bearbeiten → Steuer & Bank → Steuerart 2 (EG-Ausland) oder 3 (Drittland) → bei EG-Ausland die USt-ID eintragen → Speichern",
+             "Alle Preise werden dann ohne MwSt berechnet; offene Belege des Kunden rechnen sofort neu, abgeschlossene bleiben. Ohne USt-ID lässt sich eine EG-Rechnung nicht abschließen. "
+             "Die Rechnung trägt den Pflichthinweis (innergemeinschaftliche Lieferung, Reverse Charge oder Ausfuhr). Standard ist 1 (mit MwSt).")],
+       "verkauf:start", "Verkauf → Kunde"),
     _h("xrechnung", "Wie erzeuge ich eine XRechnung (E-Rechnung) für einen Kunden?",
        "xrechnung, e-rechnung, erechnung, zugferd, leitweg, behörde, elektronische rechnung, xml rechnung",
        [_weg("Aus der Rechnung", "Abgeschlossene Rechnung oder Gutschrift öffnen → Mehr → XRechnung (XML) herunterladen",

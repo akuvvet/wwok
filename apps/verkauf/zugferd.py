@@ -42,6 +42,23 @@ def _kategorie(prozent) -> str:
     return "S" if Decimal(prozent) > 0 else "Z"
 
 
+# Steuerart des Kunden EG-Ausland / Drittland (Entscheidung des Nutzers 26.11.2026): Kategorie und Befreiungsgrund (BT-120/121)
+BEFREIUNG = {
+    "K": ("VATEX-EU-IC", "Steuerfreie innergemeinschaftliche Lieferung"),
+    "AE": ("VATEX-EU-AE", "Steuerschuldnerschaft des Leistungsempfängers"),
+    "G": ("VATEX-EU-G", "Steuerfreie Ausfuhrlieferung"),
+}
+
+
+def kategorie_der_position(beleg, typ, prozent) -> str:
+    """S/Z im Inland; ohne MwSt: EG-Lieferung K, EG-Leistung (Typ L) AE, Drittland G."""
+    if not beleg.steuerfrei:
+        return _kategorie(prozent)
+    if beleg.steuerart == 2:
+        return "AE" if typ == "L" else "K"
+    return "G"
+
+
 def kaeuferanschrift(beleg) -> dict:
     """Käufer der E-Rechnung: die am Beleg geführte Anschrift; Altbelege ohne diese Felder fallen auf den Kundenstamm zurück."""
     if beleg.kaeufer_ort:
@@ -138,19 +155,26 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
         abrechnung = kind(zeile, "ram", "SpecifiedLineTradeSettlement")
         steuer = kind(abrechnung, "ram", "ApplicableTradeTax")
         kind(steuer, "ram", "TypeCode", "VAT")
-        kind(steuer, "ram", "CategoryCode", _kategorie(p.steuer_prozent))
+        kind(steuer, "ram", "CategoryCode", kategorie_der_position(beleg, p.typ, p.steuer_prozent))
         kind(steuer, "ram", "RateApplicablePercent", _betrag(p.steuer_prozent))
         kind(kind(abrechnung, "ram", "SpecifiedTradeSettlementLineMonetarySummation"), "ram", "LineTotalAmount", _betrag(gesamt))
 
     # Steuerbasis je Satz wie in Beleg.berechne(): Positionen plus Nebenkosten auf dem höchsten Satz
+    # Schlüssel (Kategorie, Satz): ohne MwSt können Lieferung (K) und Leistung (AE) mit 0 % nebeneinander stehen
     saetze = {}
     for p in positionen:
-        saetze[p.steuer_prozent] = saetze.get(p.steuer_prozent, Decimal("0")) + p.netto_gesamt
+        schluessel = (kategorie_der_position(beleg, p.typ, p.steuer_prozent), p.steuer_prozent)
+        saetze[schluessel] = saetze.get(schluessel, Decimal("0")) + p.netto_gesamt
     nebenkosten = beleg.versandkosten + beleg.verpackung + beleg.versicherung
     summe_positionen = sum(saetze.values(), Decimal("0"))
     saetze, rabatte = beleg.nach_rabatt(saetze)  # Belegrabatt als Nachlass je Steuersatz
     rabatt_summe = sum(rabatte.values(), Decimal("0"))
-    nebensatz = max(saetze, default=Decimal("19"))
+    if beleg.steuerfrei:  # Versand folgt der Ware; nur Leistungen: wie die Leistung
+        kats = {kat for kat, _ in saetze}
+        nebensatz = ("K" if "K" in kats or not kats else "AE", Decimal("0")) if beleg.steuerart == 2 else ("G", Decimal("0"))
+    else:
+        hoechst = max((satz for _, satz in saetze), default=Decimal("19"))
+        nebensatz = (_kategorie(hoechst), hoechst)
     if nebenkosten:
         saetze[nebensatz] = saetze.get(nebensatz, Decimal("0")) + nebenkosten
 
@@ -211,16 +235,20 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
             kind(kind(zahlart, "ram", "PayeeSpecifiedCreditorFinancialInstitution"), "ram", "BICID", m.bic.replace(" ", "").upper())
 
     steuer_summe = Decimal("0")
-    for satz, basis in sorted(saetze.items()):
+    for (kat, satz), basis in sorted(saetze.items(), key=lambda e: (e[0][1], e[0][0])):
         betrag = (basis * satz / 100).quantize(CENT, rounding=ROUND_HALF_UP)
         steuer_summe += betrag
         t = kind(abrechnung, "ram", "ApplicableTradeTax")
         kind(t, "ram", "CalculatedAmount", _betrag(betrag))
         kind(t, "ram", "TypeCode", "VAT")
+        if kat in BEFREIUNG:
+            kind(t, "ram", "ExemptionReason", BEFREIUNG[kat][1])
         kind(t, "ram", "BasisAmount", _betrag(basis))
-        kind(t, "ram", "CategoryCode", _kategorie(satz))
+        kind(t, "ram", "CategoryCode", kat)
+        if kat in BEFREIUNG:
+            kind(t, "ram", "ExemptionReasonCode", BEFREIUNG[kat][0])
         kind(t, "ram", "RateApplicablePercent", _betrag(satz))
-    for satz, betrag in sorted(rabatte.items()):
+    for (kat, satz), betrag in sorted(rabatte.items(), key=lambda e: (e[0][1], e[0][0])):
         if not betrag:
             continue
         nachlass = kind(abrechnung, "ram", "SpecifiedTradeAllowanceCharge")
@@ -229,7 +257,7 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
         kind(nachlass, "ram", "Reason", f"Belegrabatt {_betrag(beleg.rabatt_prozent)} %")
         t = kind(nachlass, "ram", "CategoryTradeTax")
         kind(t, "ram", "TypeCode", "VAT")
-        kind(t, "ram", "CategoryCode", _kategorie(satz))
+        kind(t, "ram", "CategoryCode", kat)
         kind(t, "ram", "RateApplicablePercent", _betrag(satz))
     if nebenkosten:
         zuschlag = kind(abrechnung, "ram", "SpecifiedTradeAllowanceCharge")
@@ -238,8 +266,8 @@ def xml_erzeugen(beleg, xrechnung=False) -> bytes:
         kind(zuschlag, "ram", "Reason", "Versand, Verpackung und Versicherung")
         t = kind(zuschlag, "ram", "CategoryTradeTax")
         kind(t, "ram", "TypeCode", "VAT")
-        kind(t, "ram", "CategoryCode", _kategorie(nebensatz))
-        kind(t, "ram", "RateApplicablePercent", _betrag(nebensatz))
+        kind(t, "ram", "CategoryCode", nebensatz[0])
+        kind(t, "ram", "RateApplicablePercent", _betrag(nebensatz[1]))
 
     bedingungen = kind(abrechnung, "ram", "SpecifiedTradePaymentTerms")
     if beleg.zahlungstext:

@@ -550,8 +550,8 @@ def _position_neu(request, beleg_id):
             preis = preislistenpreis(eintrag, beleg.kunde)
         if preis is None:
             raise ValueError("Für Preislistenartikel ist noch kein Aufschlag hinterlegt (Verwaltung → Globale Preisvorgabe) – bitte den Preis eintragen.")
-        standard = Steuersatz.objects.filter(nummer=1).first()
-        steuer_pl = standard.prozent if standard else Decimal("19")
+        standard = Steuersatz.standard()
+        steuer_pl = beleg.steuer_fuer(standard.prozent if standard else Decimal("19"))
         if gruppe_pl and anderer_steuersatz(steuer_pl, gruppe_pl):
             gruppe_pl = None
         if gruppe_pl:
@@ -573,7 +573,7 @@ def _position_neu(request, beleg_id):
     if not bezeichnung:
         raise ValueError("Artikel oder Bezeichnung fehlt.")
     preis = dezimal(request.POST.get("preis"))
-    steuer = artikel.steuersatz.prozent if artikel else Decimal("19")
+    steuer = beleg.steuer_fuer(artikel.steuersatz.prozent if artikel else Decimal("19"))
     if gruppe and anderer_steuersatz(steuer, gruppe):
         gruppe = None
     if gruppe:

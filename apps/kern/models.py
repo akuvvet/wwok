@@ -100,6 +100,13 @@ class Mandant(Zeitstempel):
     konto_erloes_19 = models.CharField("Erlöskonto 19 %", max_length=8, default="8400")
     konto_erloes_7 = models.CharField("Erlöskonto 7 %", max_length=8, default="8300")
     konto_erloes_0 = models.CharField("Erlöskonto steuerfrei", max_length=8, default="8200")
+    # Kunden mit Steuerart EG-Ausland / Drittland (Entscheidung des Nutzers 26.11.2026, SKR03); leer = Vorgabe
+    konto_eg_lieferung = models.CharField("Erlöskonto innergem. Lieferung (EG)", max_length=8, blank=True, default="8125",
+                                          help_text="Leer = 8125")
+    konto_eg_leistung = models.CharField("Erlöskonto Leistung an EU-Unternehmen", max_length=8, blank=True, default="8338",
+                                         help_text="Leer = 8338 (Steuerschuldnerschaft des Leistungsempfängers)")
+    konto_ausfuhr = models.CharField("Erlöskonto Ausfuhr (Drittland)", max_length=8, blank=True, default="8120",
+                                     help_text="Leer = 8120")
     konto_bank = models.CharField("Bankkonto", max_length=8, default="1200")
     konto_kasse = models.CharField("Kassenkonto", max_length=8, default="1000")
     konto_skonto = models.CharField("Konto gewährte Skonti", max_length=8, default="8736")
