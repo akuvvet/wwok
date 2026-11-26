@@ -1644,7 +1644,7 @@ def belege(request):
         liste = liste.filter(art=art)
     # Aufruf ohne Filter (z. B. über das Menü): Standard „Entwurf“ und „letzte 30 Tage“. Ein geleertes Feld zeigt alles;
     # Links mit eigenen Filtern (Dashboard, globale Suche) bleiben unbegrenzt.
-    standard_30 = not any(k != "seite" for k in request.GET)
+    standard_30 = not any(k not in ("seite", "pos") for k in request.GET)  # „pos“ markiert nur eine Zeile, es filtert nicht
     status = request.GET.get("status", "offen" if standard_30 else "")
     if status == "offen":
         liste = liste.filter(abgeschlossen=False)
@@ -1683,15 +1683,23 @@ def belege(request):
         zeitraum[feld] = wert
     parameter = request.GET.copy()
     parameter.pop("seite", None)
+    parameter.pop("pos", None)  # eine Seite weiter zeigt andere Belege: die Markierung bleibt nicht stehen
     seite = Paginator(liste.order_by("-belegdatum", "-id"), 50).get_page(request.GET.get("seite"))
     seite.object_list = Beleg.versand_markieren(seite.object_list)
     from apps.finanzen.anzahlung import status_je_proforma
     zahlstatus = status_je_proforma(seite.object_list)
     for b in seite.object_list:
         b.zahlstatus = zahlstatus.get(b.pk)
+    # Geteilte Ansicht: unten die Positionen der angeklickten Zeile. Gewählt wird nur aus der angezeigten Seite –
+    # damit gehört der Beleg immer dem Mandanten und passt zu den gesetzten Filtern, ohne zweite Prüfung.
+    gewaehlt = None
+    if (pos := request.GET.get("pos", "")).isdigit():
+        gewaehlt = next((b for b in seite.object_list if b.pk == int(pos)), None)
+    positionen = (list(gewaehlt.positionen.select_related("artikel", "preisliste_artikel__lieferant")) if gewaehlt else [])
     return render(request, "verkauf/belege.html", {
         "seite": seite, "q": q, "art": art, "status": status, "zahlung": zahlung, "von": zeitraum["von"], "bis": zeitraum["bis"],
-        "standard_30": standard_30, "arten": Belegart.choices, "parameter": parameter.urlencode(), "anzahl": seite.paginator.count})
+        "standard_30": standard_30, "arten": Belegart.choices, "parameter": parameter.urlencode(), "anzahl": seite.paginator.count,
+        "gewaehlt": gewaehlt, "positionen": positionen})
 
 @mit_mandant
 def suche(request):
