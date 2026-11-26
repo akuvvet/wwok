@@ -1,5 +1,6 @@
-"""Leistungsartikel aus einer CSV- oder Excel-Datei einlesen. Die Spalten werden an der Kopfzeile erkannt.
-Alles oder nichts: Bei einem Fehler in einer Zeile wird nichts importiert."""
+"""Leistungsartikel (L) und Artikel (A) aus einer CSV- oder Excel-Datei einlesen. Die Spalten werden an der Kopfzeile erkannt.
+Alles oder nichts: Bei einem Fehler in einer Zeile wird nichts importiert. Artikel-Import und Beispieldateien: Wunsch des Nutzers
+26.11.2026."""
 import math
 import re
 from datetime import date, time, timedelta
@@ -14,7 +15,7 @@ from apps.einkauf.assistent import format_erkennen
 from apps.einkauf.models import Dateityp
 from apps.einkauf.preislisten import tabelle, text, zahl
 
-from .models import Artikel, Artikeltyp, Leistungskategorie, Steuersatz
+from .models import Artikel, Artikeltyp, EkHerkunft, Hersteller, Kategorie, Leistungskategorie, Steuersatz
 
 SPALTEN = {
     "nummer": ("nummer", "nr", "artikelnummer", "artikelnr", "artnr", "leistungsnummer", "leistungsnr"),
@@ -29,9 +30,23 @@ SPALTEN = {
     "steuersatz": ("steuersatz", "mwst", "ust", "steuer"),
     "nicht_aktiv": ("nichtaktiv", "inaktiv"),
 }
+# Artikel (Typ A): EK statt Kosten, dazu Hersteller, Kennungen, Gewicht, Garantie, Online und Kostenstelle
+SPALTEN_A = {**{f: n for f, n in SPALTEN.items() if f != "kosten"},
+             "kategorie": ("kategorie", "warengruppe", "gruppe", "kategorienummer"),
+             "ek_manuell": ("ek", "ekpreis", "eknetto", "einkaufspreis", "ekpreisnetto"),
+             "uvp": ("uvp", "uvpnetto"),
+             "hersteller": ("hersteller", "marke", "herstellername"),
+             "herstellernummer": ("herstellernummer", "herstellernr", "herstellerartikelnummer", "hstnr", "mpn"),
+             "ean": ("ean", "gtin", "ean13", "barcode"),
+             "gewicht_kg": ("gewicht", "gewichtkg"),
+             "garantie_monate": ("garantie", "garantiemonate"),
+             "online": ("online", "shop"),
+             "kostenstelle": ("kostenstelle", "kost1")}
 GELDFELDER = ("kosten", "vk1", "vk2", "vk3")
 TEXTFELDER = ("bezeichnung", "bezeichnung_erweitert", "mengeneinheit")
-EINZEILIG = ("nummer", "bezeichnung", "kategorie", "mengeneinheit")
+GELDFELDER_A = ("ek_manuell", "vk1", "vk2", "vk3", "uvp")
+TEXTFELDER_A = ("bezeichnung", "bezeichnung_erweitert", "mengeneinheit", "herstellernummer", "ean", "kostenstelle")
+EINZEILIG = ("nummer", "bezeichnung", "kategorie", "mengeneinheit", "hersteller", "herstellernummer", "ean", "kostenstelle")
 JA = {"1", "1.0", "1,0", "ja", "j", "x", "y", "yes", "true", "wahr"}
 NEIN = {"0", "0.0", "0,0", "nein", "n", "no", "false", "falsch"}
 DEUTSCH = re.compile(r"[1-9]\d{0,2}(\.\d{3})+(,\d{1,2})?|\d+(,\d{1,2})?")
@@ -49,10 +64,10 @@ def kopfname(wert) -> str:
     return "".join(c for c in text(wert).lower() if c.isalnum())
 
 
-def spalten_finden(kopf) -> dict:
+def spalten_finden(kopf, typ=Artikeltyp.L) -> dict:
     namen = [kopfname(k) for k in kopf]
     spalten = {}
-    for feld, moegliche in SPALTEN.items():
+    for feld, moegliche in (SPALTEN_A if typ == Artikeltyp.A else SPALTEN).items():
         for name in moegliche:
             if name in namen:
                 spalten[feld] = namen.index(name)
@@ -66,7 +81,7 @@ def spalten_finden(kopf) -> dict:
 def zelle_pruefen(feld, wert):
     """Lehnt ab, was Excel statt eines Werts liefert: Datum, Wahrheitswert, Fehlerzelle. Ein Zeilenumbruch in einem
     einzeiligen Feld kommt meist von einem offenen Anführungszeichen, das die Folgezeilen verschluckt."""
-    if ((isinstance(wert, bool) and feld != "nicht_aktiv") or isinstance(wert, (date, time, timedelta))
+    if ((isinstance(wert, bool) and feld not in ("nicht_aktiv", "online")) or isinstance(wert, (date, time, timedelta))
             or (isinstance(wert, float) and not math.isfinite(wert)) or (isinstance(wert, str) and EXCEL_FEHLER.fullmatch(wert))):
         raise ValueError(f"Spalte {feld}: Inhalt ungültig: '{text(wert)}'")
     if feld in EINZEILIG and isinstance(wert, str) and "\n" in wert:
@@ -130,29 +145,72 @@ def kategorie_holen(wert, gemerkt, neue):
     return gemerkt[schluessel]
 
 
-def _zeile_uebernehmen(a, zelle, saetze):
+def kategorie_finden(wert):
+    """Artikelkategorie (Typ A) über die Nummer, sonst den Namen. Gleicher Name an mehreren Stellen im Baum ist mehrdeutig;
+    eine neue Kategorie wird erst beim Speichern angelegt (oberste Ebene, offline)."""
+    treffer = Kategorie.objects.filter(nummer__iexact=wert).first()
+    if treffer is None:
+        namen = list(Kategorie.objects.filter(name__iexact=wert)[:2])
+        if len(namen) > 1:
+            raise ValueError(f"Kategorie „{wert}“ gibt es mehrfach – bitte die Kategorienummer angeben.")
+        treffer = namen[0] if namen else None
+    return treffer
+
+
+def dezimal(wert, feld, stellen=3) -> Decimal:
+    """Gewicht und Garantie: Zahl aus Excel oder Text mit Komma oder Punkt; nicht negativ."""
+    try:
+        if isinstance(wert, (int, float)) and not isinstance(wert, bool):
+            d = Decimal(str(wert))
+        else:
+            t = re.sub(r"\s|kg", "", text(wert), flags=re.IGNORECASE)
+            d = Decimal(t.replace(".", "").replace(",", ".") if "," in t else t)
+    except InvalidOperation:
+        raise ValueError(f"Spalte {feld}: keine Zahl: '{text(wert)}'")
+    if not d.is_finite() or d < 0 or d >= Decimal("1E6"):
+        raise ValueError(f"Spalte {feld}: Wert ungültig: '{text(wert)}'")
+    return d.quantize(Decimal(1).scaleb(-stellen), rounding=ROUND_HALF_UP)
+
+
+def ja_nein(zelle, feld):
+    wert = text(zelle(feld)).lower()
+    if wert not in JA | NEIN:
+        raise ValueError(f"Spalte {feld}: Inhalt ungültig: '{wert}'")
+    return wert in JA
+
+
+def _zeile_uebernehmen(a, zelle, saetze, typ=Artikeltyp.L):
     """Trägt die gefüllten Zellen in den Artikel ein; leere Zellen lassen den vorhandenen Wert stehen."""
-    for feld in TEXTFELDER:
+    for feld in (TEXTFELDER_A if typ == Artikeltyp.A else TEXTFELDER):
         if zelle(feld):
             setattr(a, feld, text(zelle(feld)))
-    for feld in GELDFELDER:
+    for feld in (GELDFELDER_A if typ == Artikeltyp.A else GELDFELDER):
         if zelle(feld) != "":
             setattr(a, feld, geld(zelle(feld)))
     if zelle("nicht_aktiv") != "":
-        wert = text(zelle("nicht_aktiv")).lower()
-        if wert not in JA | NEIN:
-            raise ValueError(f"Spalte nicht_aktiv: Inhalt ungültig: '{wert}'")
-        a.nicht_aktiv = wert in JA
+        a.nicht_aktiv = ja_nein(zelle, "nicht_aktiv")
+    if typ == Artikeltyp.A:
+        if a.ean and not (a.ean.isdigit() and len(a.ean) in (8, 12, 13, 14)):
+            raise ValueError(f"Spalte ean: 8, 12, 13 oder 14 Ziffern erwartet: '{a.ean}'")
+        if zelle("gewicht_kg") != "":
+            a.gewicht_kg = dezimal(zelle("gewicht_kg"), "gewicht")
+        if zelle("garantie_monate") != "":
+            monate = dezimal(zelle("garantie_monate"), "garantie", 0)
+            if monate > 600:
+                raise ValueError(f"Spalte garantie: Wert ungültig: '{text(zelle('garantie_monate'))}'")
+            a.garantie_monate = int(monate)
+        if zelle("online") != "":
+            a.online = ja_nein(zelle, "online")
     if zelle("steuersatz") != "":
         a.steuersatz = steuersatz_finden(zelle("steuersatz"), saetze)
 
 
-def importieren(dateiname: str, inhalt: bytes):
-    """Gibt (neu, geändert, unverändert, neue Kategorien) zurück."""
+def importieren(dateiname: str, inhalt: bytes, typ=Artikeltyp.L):
+    """Gibt (neu, geändert, unverändert, neue Kategorien) zurück. typ: L = Leistungsartikel, A = Artikel (Lagerartikel)."""
     zeilen = datei_lesen(dateiname, inhalt)
     if not zeilen:
         raise ImportFehler("Die Datei ist leer.")
-    spalten = spalten_finden(zeilen[0])
+    spalten = spalten_finden(zeilen[0], typ)
     saetze = list(Steuersatz.objects.all())
 
     def zellen(zeile):
@@ -187,15 +245,22 @@ def importieren(dateiname: str, inhalt: bytes):
             continue
         gesehen.add(schluessel)
         neu = a is None
-        if not neu and a.typ != Artikeltyp.L:
+        if not neu and a.typ != typ:
             fehler.append(f"Zeile {nr}: {nummer} ist schon als {a.get_typ_display()} angelegt.")
             continue
         if neu:
-            a = Artikel(nummer=nummer, typ=Artikeltyp.L, steuersatz=saetze[0] if saetze else None)
-        vorher = {f: getattr(a, f) for f in (*TEXTFELDER, *GELDFELDER, "nicht_aktiv", "steuersatz_id")}
+            a = Artikel(nummer=nummer, typ=typ, steuersatz=saetze[0] if saetze else None)
+        felder = ((*TEXTFELDER_A, *GELDFELDER_A, "gewicht_kg", "garantie_monate", "online") if typ == Artikeltyp.A
+                  else (*TEXTFELDER, *GELDFELDER))
+        vorher = {f: getattr(a, f) for f in (*felder, "nicht_aktiv", "steuersatz_id")}
         try:
-            _zeile_uebernehmen(a, zelle, saetze)
+            _zeile_uebernehmen(a, zelle, saetze, typ)
             kategorie = text(zelle("kategorie"))
+            hersteller = text(zelle("hersteller")) if typ == Artikeltyp.A else ""
+            if typ == Artikeltyp.A and kategorie:
+                kategorie_finden(kategorie)  # mehrdeutig: schon hier melden
+            if len(hersteller) > 150:
+                raise ValueError("Der Herstellername ist zu lang.")
             if neu and not a.bezeichnung:
                 raise ValueError("Die Bezeichnung fehlt.")
             if neu and a.steuersatz_id is None:
@@ -212,7 +277,9 @@ def importieren(dateiname: str, inhalt: bytes):
             fehler.append(f"Zeile {nr}: Der Kategoriename ist zu lang.")
             continue
         geaendert = neu or any(getattr(a, f) != w for f, w in vorher.items())
-        geplant.append((a, kategorie, neu, geaendert))
+        if typ == Artikeltyp.A and a.ek_manuell != vorher["ek_manuell"]:
+            a.ek_herkunft_setzen(EkHerkunft.MANUELL)
+        geplant.append((a, kategorie, hersteller, neu, geaendert))
     if fehler:
         raise ImportFehler("Nichts importiert. Bitte diese Zeilen in der Datei korrigieren:", fehler)
 
@@ -220,11 +287,26 @@ def importieren(dateiname: str, inhalt: bytes):
     kategorien, neue_kategorien = {}, []
     try:
         with transaction.atomic():
-            for a, kategorie, neu, geaendert in geplant:
-                if kategorie:
+            hersteller_ = {}
+            for a, kategorie, hersteller, neu, geaendert in geplant:
+                if kategorie and typ == Artikeltyp.A:
+                    eintrag = kategorien.get(kategorie.lower()) or kategorie_finden(kategorie)
+                    if eintrag is None:
+                        eintrag = Kategorie.objects.create(name=kategorie)  # neu: oberste Ebene, offline
+                        neue_kategorien.append(eintrag)
+                    kategorien[kategorie.lower()] = eintrag
+                    if eintrag.pk != a.kategorie_id:
+                        a.kategorie, geaendert = eintrag, True
+                elif kategorie:
                     eintrag = kategorie_holen(kategorie, kategorien, neue_kategorien)
                     if eintrag.pk != a.leistungskategorie_id:
                         a.leistungskategorie, geaendert = eintrag, True
+                if hersteller:
+                    if hersteller.lower() not in hersteller_:
+                        hersteller_[hersteller.lower()] = (Hersteller.objects.filter(name__iexact=hersteller).first()
+                                                           or Hersteller.objects.create(name=hersteller))
+                    if hersteller_[hersteller.lower()].pk != a.hersteller_id:
+                        a.hersteller, geaendert = hersteller_[hersteller.lower()], True
                 if geaendert:
                     a.save()
                 zaehler["neu" if neu else "geaendert" if geaendert else "gleich"] += 1
