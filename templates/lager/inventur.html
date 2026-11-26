@@ -11,8 +11,19 @@
       {% for k in kategorien %}<option value="{{ k.pk }}" {% if kategorie == k.pk|stringformat:"s" %}selected{% endif %}>{{ k.einrueckung }}{{ k.name }}</option>{% endfor %}</select></div>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="nicht_aktiv" value="1" {% if nicht_aktiv %}checked{% endif %}> Nicht aktiv</label>
     <noscript><button type="submit" class="leise">Filtern</button></noscript>
-    <button type="button" class="leise" onclick="window.print()">Zählliste drucken</button>
   </form>
+  {# Wunsch des Nutzers 26.11.2026: nur die Liste drucken (PDF, ganze gefilterte Liste), Export und Import als CSV/Excel #}
+  <div class="zeile" style="gap:8px;align-items:center;flex-wrap:wrap">
+    <a class="knopf leise" data-ausgabe="pdf" target="_blank" rel="noopener" href="?{{ request.GET.urlencode }}{% if request.GET %}&amp;{% endif %}ausgabe=pdf">Zählliste drucken</a>
+    <a class="knopf leise" data-ausgabe="xlsx" href="?{{ request.GET.urlencode }}{% if request.GET %}&amp;{% endif %}ausgabe=xlsx">Export Excel</a>
+    <a class="knopf leise" data-ausgabe="csv" href="?{{ request.GET.urlencode }}{% if request.GET %}&amp;{% endif %}ausgabe=csv">Export CSV</a>
+    <form method="post" enctype="multipart/form-data" action="{% url 'lager:inventur_import' %}" class="zeile" style="gap:6px;align-items:center;margin:0">{% csrf_token %}
+      <label for="inventur-datei" style="margin:0">Zählung einlesen (CSV/Excel):</label>
+      <input type="file" id="inventur-datei" name="datei" accept=".csv,.txt,.xlsx,.xls" required>
+      <button type="submit" class="leise">Einlesen</button>
+    </form>
+  </div>
+  <p class="fein" style="opacity:.8">Einlesen: Datei mit den Spalten „Artikel“ (Artikelnummer) und „gezählt“, am einfachsten die exportierte Liste ausfüllen. Es folgt eine Vorschau mit den Differenzen; gebucht wird erst dort.</p>
   <p style="opacity:.8">Ohne Suchbegriff stehen hier nur Artikel mit Bestand; die Suche findet auch Artikel mit Bestand 0. Gezählte Menge eintragen; leere Zeilen bleiben unverändert. Eingetragene Mengen bleiben beim Suchen, Filtern und Blättern erhalten. Beim Speichern werden Differenzen automatisch als Inventurbuchung gebucht. Wurde ein Artikel seit dem Öffnen der Liste verkauft oder eingebucht, wird er nicht gebucht und gemeldet.</p>
   <form method="post" id="zaehlliste">{% csrf_token %}
   <div data-ergebnis data-mandant="{{ request.mandant.pk }}">
@@ -73,5 +84,12 @@
     });
     einsetzen();
   })();
+  // Druck/Export mit den aktuellen Filtern (der Live-Filter ändert die Adresse ohne Neuladen)
+  document.querySelectorAll('a[data-ausgabe]').forEach(function (a) {
+    a.addEventListener('click', function () {
+      var p = new URLSearchParams(location.search); p.delete('seite'); p.set('ausgabe', a.dataset.ausgabe);
+      a.href = location.pathname + '?' + p.toString();
+    });
+  });
 </script>
 {% endblock %}

@@ -16,6 +16,7 @@ urlpatterns = [
     path("artikel/<int:artikel_id>/reparatur/", views.reparatur_buchen, name="reparatur"),
     path("seriennummer/<int:seriennummer_id>/einlagern/", views.seriennummer_einlagern, name="seriennummer_einlagern"),
     path("inventur/", views.inventur_liste, name="inventur_liste"),
+    path("inventur/import/", views.inventur_import, name="inventur_import"),
     path("artikel/<int:artikel_id>/stamm/", views.stamm, name="stamm"),
     path("artikel-details/", views.artikel_details, name="artikel_details"),
 ]

@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.kern.models import Mandant
@@ -327,14 +328,8 @@ def gutschrift_retoure(request, beleg_id):
     return redirect("verkauf:beleg", beleg_id=beleg.pk)
 
 
-@mit_mandant
-def inventur_liste(request):
-    """Zählliste mit Erfassung: gezählte Mengen eintragen, Differenzen werden gebucht.
-    Standard: nur aktive Artikel; Haken „Nicht aktiv“ zeigt nur die als nicht aktiv markierten.
-    Ohne Suchbegriff stehen nur Artikel mit Bestand in der Liste (Zählliste zum Drucken). Mit Suchbegriff auch Artikel mit Bestand 0,
-    damit sich ein Artikel einzählen lässt, der laut System nicht da ist; ein Treffer auf die Artikelnummer steht oben.
-    Suche, Kategorie und dieser Haken grenzen nur die Anzeige ein; gebucht wird jede eingetragene Zählung,
-    auch wenn der Artikel nach einem Filterwechsel gerade nicht angezeigt wird (die Maske trägt die Werte mit)."""
+def _inventur_zeilen(request):
+    """Zeilen der Zählliste nach Suche, Kategorie und Haken „Nicht aktiv“ (ganze Liste, ohne Blättern)."""
     summen = {s["artikel"]: s["s"] for s in Lagerbewegung.objects.filter(mandant=request.mandant)
               .values("artikel").annotate(s=Sum("menge"))}
     plaetze = {d.artikel_id: d.lagerplatz for d in ArtikelMandant.objects.filter(mandant=request.mandant)}
@@ -343,6 +338,85 @@ def inventur_liste(request):
     nicht_aktiv = request.GET.get("nicht_aktiv") == "1"
     lagerartikel = Artikel.objects.filter(typ="A")
     alle = lagerartikel.filter(pk__in=[a for a, s in summen.items() if s])
+    artikel = nach_kategorie(suche(q, lagerartikel, request.mandant) if q else alle, kategorie).filter(nicht_aktiv=nicht_aktiv)
+    zeilen_ = sorted(({"artikel": a, "soll": summen.get(a.pk) or Decimal("0"), "platz": plaetze.get(a.pk, "")}
+                      for a in artikel.select_related("kategorie")),
+                     key=lambda z: (z["artikel"].nummer.lower() != q.lower(), z["platz"], z["artikel"].nummer))
+    return zeilen_, q, kategorie, nicht_aktiv
+
+
+def _inventur_ausgabe(request, ausgabe, zeilen_, q, kategorie, nicht_aktiv):
+    """Zählliste drucken (PDF, nur die Liste) bzw. als CSV/Excel exportieren (Wunsch des Nutzers 26.11.2026)."""
+    from django.http import HttpResponse
+
+    from .inventur_datei import csv_export, xlsx_export, zaehlliste_pdf
+    filter_text = " · ".join(t for t in (
+        f"Suche „{q}“" if q else "",
+        f"Kategorie {Kategorie.objects.filter(pk=kategorie).first()}" if kategorie.isdigit() else "",
+        "nur nicht aktive Artikel" if nicht_aktiv else "") if t)
+    name = f"zaehlliste-{request.mandant.kurzname}-{timezone.localdate():%Y-%m-%d}".lower()
+    if ausgabe == "pdf":
+        antwort = HttpResponse(zaehlliste_pdf(zeilen_, request.mandant, filter_text), content_type="application/pdf")
+        antwort["Content-Disposition"] = f'inline; filename="{name}.pdf"'
+    elif ausgabe == "csv":
+        antwort = HttpResponse(csv_export(zeilen_), content_type="text/csv; charset=utf-8")
+        antwort["Content-Disposition"] = f'attachment; filename="{name}.csv"'
+    else:
+        antwort = HttpResponse(xlsx_export(zeilen_, request.mandant),
+                               content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        antwort["Content-Disposition"] = f'attachment; filename="{name}.xlsx"'
+    return antwort
+
+
+@mit_mandant
+@require_POST
+def inventur_import(request):
+    """Gezählte Mengen aus CSV/Excel: zeigt eine Vorschau mit Soll, gezählt und Differenz; gebucht wird erst dort
+    über „Differenzen buchen“ (derselbe Weg wie in der Zählliste, mit Prüfung auf Buchungen seit dem Einlesen)."""
+    from .inventur_datei import InventurImportFehler, import_lesen
+    datei = request.FILES.get("datei")
+    if datei is None:
+        messages.error(request, "Bitte eine CSV- oder Excel-Datei auswählen.")
+        return redirect("lager:inventur_liste")
+    try:
+        mengen, fehler, anzahl = import_lesen(datei.name, datei.read())
+    except InventurImportFehler as f:
+        messages.error(request, str(f))
+        return redirect("lager:inventur_liste")
+    gefunden = {a.nummer.lower(): a for a in Artikel.objects.filter(nummer__in=list(mengen))}
+    for n in [n for n in mengen if n.lower() not in gefunden]:  # Groß-/Kleinschreibung der Datei egal
+        a = Artikel.objects.filter(nummer__iexact=n).first()
+        if a is not None:
+            gefunden[n.lower()] = a
+    je_artikel = {}
+    for nummer, menge in mengen.items():
+        a = gefunden.get(nummer.lower())
+        if a is None:
+            fehler.append(f"{nummer}: Artikel nicht gefunden")
+        elif a.typ != "A":
+            fehler.append(f"{nummer}: kein Lagerartikel (Leistung oder Gruppe), wird nicht gezählt")
+        else:
+            z = je_artikel.setdefault(a.pk, {"artikel": a, "gezaehlt": Decimal("0"), "zeilen": 0})
+            z["gezaehlt"] += menge
+            z["zeilen"] += anzahl.get(nummer, 1)
+    zeilen_ = sorted(je_artikel.values(), key=lambda z: z["artikel"].nummer)
+    for z in zeilen_:
+        z["soll"] = bestand(request.mandant, z["artikel"])
+        z["differenz"] = z["gezaehlt"] - z["soll"]
+    return render(request, "lager/inventur_import.html", {
+        "zeilen": zeilen_, "fehler": fehler, "dateiname": datei.name,
+        "abweichungen": sum(1 for z in zeilen_ if z["differenz"])})
+
+
+@mit_mandant
+def inventur_liste(request):
+    """Zählliste mit Erfassung: gezählte Mengen eintragen, Differenzen werden gebucht.
+    Standard: nur aktive Artikel; Haken „Nicht aktiv“ zeigt nur die als nicht aktiv markierten.
+    Ohne Suchbegriff stehen nur Artikel mit Bestand in der Liste (Zählliste zum Drucken). Mit Suchbegriff auch Artikel mit Bestand 0,
+    damit sich ein Artikel einzählen lässt, der laut System nicht da ist; ein Treffer auf die Artikelnummer steht oben.
+    Suche, Kategorie und dieser Haken grenzen nur die Anzeige ein; gebucht wird jede eingetragene Zählung,
+    auch wenn der Artikel nach einem Filterwechsel gerade nicht angezeigt wird (die Maske trägt die Werte mit)."""
+    lagerartikel = Artikel.objects.filter(typ="A")
     if request.method == "POST":
         gebucht = 0
         gesendet = [k[9:] for k, v in request.POST.items() if k.startswith("gezaehlt_") and k[9:].isdigit() and v.strip()]
@@ -355,10 +429,10 @@ def inventur_liste(request):
                     messages.error(request, f"{a.nummer}: {fehler}")
         messages.success(request, f"{gebucht} Differenzbuchung(en) erstellt.")
         return redirect(request.get_full_path())
-    artikel = nach_kategorie(suche(q, lagerartikel, request.mandant) if q else alle, kategorie).filter(nicht_aktiv=nicht_aktiv)
-    zeilen_ = sorted(({"artikel": a, "soll": summen.get(a.pk) or Decimal("0"), "platz": plaetze.get(a.pk, "")}
-                      for a in artikel.select_related("kategorie")),
-                     key=lambda z: (z["artikel"].nummer.lower() != q.lower(), z["platz"], z["artikel"].nummer))
+    zeilen_, q, kategorie, nicht_aktiv = _inventur_zeilen(request)
+    ausgabe = request.GET.get("ausgabe", "")
+    if ausgabe in ("pdf", "csv", "xlsx"):
+        return _inventur_ausgabe(request, ausgabe, zeilen_, q, kategorie, nicht_aktiv)
     # Blättern wie in allen Tabellen (Wunsch des Nutzers 20.11.2026); eingetragene Zählungen merkt sich die Seite im Browser
     seite, parameter = blaettern(request, zeilen_, 100)
     return render(request, "lager/inventur.html", {

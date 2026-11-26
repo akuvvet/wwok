@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block titel %}Inventur einlesen – wwok{% endblock %}
+{% block inhalt %}
+<a href="{% url 'lager:inventur_liste' %}" data-escape style="display:none">zurück</a>
+<div class="karte">
+  <h1>Zählung einlesen · Mandant {{ request.mandant }}</h1>
+  <p>Datei <strong>{{ dateiname }}</strong>: {{ zeilen|length }} Artikel gezählt, davon {{ abweichungen }} mit Differenz. Bitte prüfen; gebucht wird erst mit „Differenzen buchen“.
+    Wurde ein Artikel seit dem Einlesen verkauft oder eingebucht, wird er nicht gebucht und gemeldet.</p>
+  {% if fehler %}<div class="hinweis" role="alert"><strong>Nicht übernommen ({{ fehler|length }}):</strong><ul>{% for f in fehler %}<li>{{ f }}</li>{% endfor %}</ul></div>{% endif %}
+  <form method="post" action="{% url 'lager:inventur_liste' %}" id="import-buchen">{% csrf_token %}
+  <table>
+    <tr><th>Artikel</th><th>Bezeichnung</th><th class="zahl">Soll</th><th class="zahl">gezählt</th><th class="zahl">Differenz</th></tr>
+    {% for z in zeilen %}
+    <tr><td>{{ z.artikel.nummer }}</td><td>{{ z.artikel.bezeichnung }}{% if z.zeilen > 1 %} <span class="fein" style="opacity:.7">({{ z.zeilen }} Zeilen addiert)</span>{% endif %}</td>
+      <td class="zahl">{{ z.soll|floatformat:"-3" }}</td><td class="zahl">{{ z.gezaehlt|floatformat:"-3" }}</td>
+      <td class="zahl"{% if z.differenz %} style="font-weight:600;color:{% if z.differenz < 0 %}var(--rot, #b00020){% else %}var(--gruen, #1b7f3b){% endif %}"{% endif %}>{% if z.differenz > 0 %}+{% endif %}{{ z.differenz|floatformat:"-3" }}
+        <input type="hidden" name="soll_{{ z.artikel.pk }}" value="{{ z.soll|stringformat:'s' }}"><input type="hidden" name="gezaehlt_{{ z.artikel.pk }}" value="{{ z.gezaehlt|stringformat:'s' }}"></td></tr>
+    {% empty %}<tr><td colspan="5">Keine gezählten Artikel in der Datei.</td></tr>{% endfor %}
+  </table>
+  <p>{% if zeilen %}<button type="submit">Differenzen buchen</button> {% endif %}<a class="knopf leise" href="{% url 'lager:inventur_liste' %}">Abbrechen</a></p>
+  </form>
+</div>
+<script>
+  document.getElementById('import-buchen').addEventListener('submit', function (e) {  // Doppelklick: nur einmal buchen
+    if (this.dataset.gesendet) { e.preventDefault(); return; }
+    this.dataset.gesendet = '1';
+  });
+</script>
+{% endblock %}
