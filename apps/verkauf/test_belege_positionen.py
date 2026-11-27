@@ -77,6 +77,10 @@ class BelegePositionenTest(TestCase):
         self.assertNotIn("Monitor 27 Zoll", html)  # nur die Positionen der markierten Zeile
         self.assertNotIn("{#", html)  # ein mehrzeiliges {# … #} ist kein Kommentar und stünde sichtbar auf der Seite
         self.assertIn(f'data-beleg="{beleg.pk}" tabindex="0" aria-selected="true"', html)
+        # Pos. und Artikel-Nr. haben feste Breiten, lange Artikelnummern stehen voll im Tooltip
+        self.assertIn('table-layout:fixed', html)
+        self.assertIn('<col style="width:56px"><col style="width:170px">', html)
+        self.assertIn('title="TAS-4711"', html)
 
     def test_jede_zeile_ist_anklickbar_und_nur_eine_im_tabulatorweg(self):
         for i in (1, 2, 3):
