@@ -1,2 +1,2 @@
 """wwok – Web-Warenwirtschaft. Die Versionsnummer steht nur hier; die Fußzeile zeigt sie an."""
-__version__ = "0.42.1"
+__version__ = "0.42.2"

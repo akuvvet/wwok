@@ -14,6 +14,9 @@
   #content > * { flex:none; }
   #content > #content-main > :last-child { margin-bottom:0; }
   #content > #content-main { flex:1 1 auto; min-height:0; overflow:auto; }
+  /* Knöpfe „Importieren“, „… hinzufügen“, „Verlauf“: Django zieht sie mit margin-top:-48px neben die Überschrift; im
+     scrollenden #content-main würden sie dort abgeschnitten (27.11.2026) – deshalb oben rechts im Inhaltsbereich */
+  #content > #content-main > .object-tools { margin-top:0; margin-bottom:10px; }
   /* Startseite (colMS): Hauptbereich links, „Neueste Aktionen“ rechts, beide scrollen eigenständig */
   #content > #content-related { max-height:30vh; overflow:auto; float:none; width:auto; margin:0 0 16px; }
   .dashboard #content { width:auto; }  /* Django begrenzt die Startseite sonst auf 600px */

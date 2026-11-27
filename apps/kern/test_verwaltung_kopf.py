@@ -34,6 +34,13 @@ class VerwaltungKopfTest(TestCase):
         self.assertIn("align-self:stretch; height:100%;", html)  # Inhaltsspalte über die volle Höhe
         self.assertRegex(html, r"#wwok-menusuche \{[^}]*margin-left:auto;")  # Suchfeld rechts in der Leiste
 
+    def test_knoepfe_ueber_der_liste_werden_nicht_abgeschnitten(self):
+        # „Importieren“ / „… hinzufügen“ lagen mit Djangos margin-top:-48px oberhalb des scrollenden Bereichs – unsichtbar
+        r = self.client.get(reverse("admin:stammdaten_artikel_changelist"))
+        self.assertContains(r, "#content > #content-main > .object-tools { margin-top:0;")
+        self.assertContains(r, 'class="object-tools"')
+        self.assertContains(r, reverse("admin:stammdaten_artikel_import"))
+
     def test_startseite_neueste_aktionen_rechts_als_spalte(self):
         html = self.client.get(reverse("admin:index")).content.decode()
         self.assertIn('id="content" class="colMS"', html)
