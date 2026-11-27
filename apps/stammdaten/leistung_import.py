@@ -1,13 +1,17 @@
 """Leistungsartikel (L) und Artikel (A) aus einer CSV- oder Excel-Datei einlesen. Die Spalten werden an der Kopfzeile erkannt.
 Alles oder nichts: Bei einem Fehler in einer Zeile wird nichts importiert. Artikel-Import und Beispieldateien: Wunsch des Nutzers
 26.11.2026."""
+import io
 import math
 import re
+import zipfile
+from contextlib import nullcontext
 from datetime import date, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from types import SimpleNamespace
 
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.db import DataError, IntegrityError, transaction
 from django.db.models import Q
 
@@ -15,7 +19,8 @@ from apps.einkauf.assistent import format_erkennen
 from apps.einkauf.models import Dateityp
 from apps.einkauf.preislisten import tabelle, text, zahl
 
-from .models import Artikel, Artikeltyp, EkHerkunft, Hersteller, Kategorie, Leistungskategorie, Steuersatz
+from .models import (BILD_FORMATE, MAX_BILDER, Artikel, ArtikelBild, Artikeltyp, EkHerkunft, Hersteller, Kategorie,
+                     Leistungskategorie, Steuersatz)
 
 SPALTEN = {
     "nummer": ("nummer", "nr", "artikelnummer", "artikelnr", "artnr", "leistungsnummer", "leistungsnr"),
@@ -51,6 +56,14 @@ JA = {"1", "1.0", "1,0", "ja", "j", "x", "y", "yes", "true", "wahr"}
 NEIN = {"0", "0.0", "0,0", "nein", "n", "no", "false", "falsch"}
 DEUTSCH = re.compile(r"[1-9]\d{0,2}(\.\d{3})+(,\d{1,2})?|\d+(,\d{1,2})?")
 MIT_PUNKT = re.compile(r"\d+\.\d{1,2}")
+# Bilder beim Artikelimport (Wunsch des Nutzers 27.11.2026): Spalten „Abbildung 1“ … „Abbildung 10“ (wie im Mention-Export)
+# mit Dateiname oder Pfad – zählt nur der Dateiname –, die Dateien selbst kommen als ZIP. Höchstens 2 MB pro Bild.
+BILDSPALTEN = {pos: (f"abbildung{pos}", f"bild{pos}", *(("abbildung", "bild", "hauptbild") if pos == 1 else ()))
+               for pos in range(1, MAX_BILDER + 1)}
+MAX_IMPORT_BILD = 2 * 1024 * 1024
+MAX_ZIP = 100 * 1024 * 1024
+MAX_ZIP_EINTRAEGE = 5000
+BILDENDUNGEN = (".jpg", ".jpeg", ".png", ".webp")
 EXCEL_FEHLER = re.compile(r"#(N/A|NULL!|DIV/0!|VALUE!|REF!|NAME\?|NUM!)", re.IGNORECASE)
 
 
@@ -58,6 +71,94 @@ class ImportFehler(Exception):
     def __init__(self, meldung, fehler=()):
         super().__init__(meldung)
         self.fehler = list(fehler)
+
+
+def bilddateiname(wert) -> str:
+    """Aus „C:\\Mention\\Bilder\\21882.jpg“ oder „bilder/21882.jpg“ wird „21882.jpg“."""
+    return text(wert).replace("\\", "/").rsplit("/", 1)[-1].strip()
+
+
+class BilderZip:
+    """Bilddateien aus einem hochgeladenen ZIP, gefunden über den Dateinamen (Groß-/Kleinschreibung egal, Ordner im ZIP egal).
+    Gelesen wird erst, wenn ein Bild gebraucht wird, und nie mehr als 2 MB je Datei."""
+
+    def __init__(self, datei):
+        try:
+            self.zip = zipfile.ZipFile(datei)
+        except (zipfile.BadZipFile, OSError, ValueError):
+            raise ImportFehler("Die Bilder-Datei ist kein gültiges ZIP-Archiv.")
+        eintraege = [i for i in self.zip.infolist() if not i.is_dir() and not i.filename.startswith("__MACOSX/")]
+        if len(eintraege) > MAX_ZIP_EINTRAEGE:
+            self.zip.close()
+            raise ImportFehler(f"Das ZIP enthält mehr als {MAX_ZIP_EINTRAEGE} Dateien.")
+        self.dateien = {}  # kleiner Name -> ZipInfo, None = mehrfach vorhanden
+        for info in eintraege:
+            name = bilddateiname(info.filename)
+            if name and not name.startswith("."):
+                self.dateien[name.lower()] = None if name.lower() in self.dateien else info
+
+    @classmethod
+    def oeffnen(cls, datei):
+        return cls(datei) if datei else nullcontext(None)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.zip.close()
+
+    def holen(self, name) -> bytes:
+        schluessel = name.lower()
+        if schluessel not in self.dateien:
+            raise ValueError(f"Bild {name} fehlt im ZIP.")
+        info = self.dateien[schluessel]
+        if info is None:
+            raise ValueError(f"Bild {name} steht mehrfach im ZIP (verschiedene Ordner).")
+        if info.file_size > MAX_IMPORT_BILD:
+            raise ValueError(f"Bild {name} ist größer als 2 MB.")
+        try:
+            with self.zip.open(info) as f:
+                daten = f.read(MAX_IMPORT_BILD + 1)
+        except (zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError):  # beschädigt oder verschlüsselt
+            raise ValueError(f"Bild {name} lässt sich nicht aus dem ZIP lesen.")
+        if len(daten) > MAX_IMPORT_BILD:
+            raise ValueError(f"Bild {name} ist größer als 2 MB.")
+        return daten
+
+
+def bild_pruefen(name, daten):
+    """Nur echte JPG-, PNG- oder WEBP-Bilder (Inhalt, nicht nur die Endung)."""
+    from PIL import Image
+    if not name.lower().endswith(BILDENDUNGEN):
+        raise ValueError(f"Bild {name}: nur JPG, PNG oder WEBP.")
+    try:
+        with Image.open(io.BytesIO(daten)) as bild:
+            format_ = bild.format
+            bild.verify()
+    except Exception:  # Pillow meldet kaputte oder zu große Bilder mit verschiedenen Ausnahmen
+        raise ValueError(f"Bild {name}: keine gültige Bilddatei.")
+    if format_ not in BILD_FORMATE:
+        raise ValueError(f"Bild {name}: nur JPG, PNG oder WEBP.")
+
+
+def bilder_uebernehmen(artikel, geplante_bilder, bilder) -> int:
+    """Setzt die Bilder an ihre Position; ein vorhandenes Bild dort wird ersetzt, ein gleiches bleibt. Gibt die Anzahl
+    neuer oder ersetzter Bilder zurück."""
+    anzahl = 0
+    for pos, name in geplante_bilder:
+        daten = bilder.holen(name)
+        vorhanden = ArtikelBild.objects.filter(artikel=artikel, position=pos).first()
+        if vorhanden:
+            try:
+                with vorhanden.bild.open("rb") as f:
+                    if f.read(MAX_IMPORT_BILD + 1) == daten:
+                        continue
+            except (OSError, ValueError):
+                pass  # Datei fehlt auf der Platte: neu speichern
+            vorhanden.delete()
+        ArtikelBild(artikel=artikel, position=pos).bild.save(name, ContentFile(daten), save=True)
+        anzahl += 1
+    return anzahl
 
 
 def kopfname(wert) -> str:
@@ -72,6 +173,11 @@ def spalten_finden(kopf, typ=Artikeltyp.L) -> dict:
             if name in namen:
                 spalten[feld] = namen.index(name)
                 break
+    if typ == Artikeltyp.A:
+        for pos, moegliche in BILDSPALTEN.items():
+            treffer = next((namen.index(n) for n in moegliche if n in namen), None)
+            if treffer is not None:
+                spalten[f"bild{pos}"] = treffer
     fehlend = [n for n, feld in (("Nummer", "nummer"), ("Bezeichnung", "bezeichnung")) if feld not in spalten]
     if fehlend:
         raise ImportFehler(f"In der Kopfzeile fehlt: {', '.join(fehlend)}.")
@@ -200,8 +306,12 @@ def _zeile_uebernehmen(a, zelle, saetze, typ=Artikeltyp.L):
         a.steuersatz = steuersatz_finden(zelle("steuersatz"), saetze)
 
 
-def importieren(dateiname: str, inhalt: bytes, typ=Artikeltyp.L):
-    """Gibt (neu, geändert, unverändert, neue Kategorien) zurück. typ: L = Leistungsartikel, A = Artikel (Lagerartikel)."""
+def importieren(dateiname: str, inhalt: bytes, typ=Artikeltyp.L, bilder=None, statistik=None):
+    """Gibt (neu, geändert, unverändert, neue Kategorien) zurück. typ: L = Leistungsartikel, A = Artikel (Lagerartikel).
+    bilder: BilderZip für die Spalten „Abbildung 1–10“; ohne ZIP werden diese Spalten übersprungen. In statistik (dict)
+    stehen danach „bilder“ (neu oder ersetzt) und „ohne_zip“ (übersprungene Bildangaben)."""
+    statistik = {} if statistik is None else statistik
+    statistik.update(bilder=0, ohne_zip=0)
     zeilen = datei_lesen(dateiname, inhalt)
     if not zeilen:
         raise ImportFehler("Die Datei ist leer.")
@@ -272,10 +382,24 @@ def importieren(dateiname: str, inhalt: bytes, typ=Artikeltyp.L):
         if len(kategorie) > 150:
             fehler.append(f"Zeile {nr}: Der Kategoriename ist zu lang.")
             continue
+        geplante_bilder = []
+        try:
+            for pos in range(1, MAX_BILDER + 1):
+                name = bilddateiname(zelle(f"bild{pos}")) if f"bild{pos}" in spalten else ""
+                if not name:
+                    continue
+                if bilder is None:
+                    statistik["ohne_zip"] += 1
+                    continue
+                bild_pruefen(name, bilder.holen(name))
+                geplante_bilder.append((pos, name))
+        except ValueError as e:
+            fehler.append(f"Zeile {nr}: {e}")
+            continue
         geaendert = neu or any(getattr(a, f) != w for f, w in vorher.items())
         if typ == Artikeltyp.A and a.ek_manuell != vorher["ek_manuell"]:
             a.ek_herkunft_setzen(EkHerkunft.MANUELL)
-        geplant.append((a, kategorie, hersteller, neu, geaendert))
+        geplant.append((a, kategorie, hersteller, neu, geaendert, geplante_bilder))
     if fehler:
         raise ImportFehler("Nichts importiert. Bitte diese Zeilen in der Datei korrigieren:", fehler)
 
@@ -284,7 +408,7 @@ def importieren(dateiname: str, inhalt: bytes, typ=Artikeltyp.L):
     try:
         with transaction.atomic():
             hersteller_ = {}
-            for a, kategorie, hersteller, neu, geaendert in geplant:
+            for a, kategorie, hersteller, neu, geaendert, geplante_bilder in geplant:
                 if kategorie and typ == Artikeltyp.A:
                     eintrag = kategorien.get(kategorie.lower()) or kategorie_finden(kategorie)
                     if eintrag is None:
@@ -305,6 +429,10 @@ def importieren(dateiname: str, inhalt: bytes, typ=Artikeltyp.L):
                         a.hersteller, geaendert = hersteller_[hersteller.lower()], True
                 if geaendert:
                     a.save()
+                if geplante_bilder:
+                    anzahl = bilder_uebernehmen(a, geplante_bilder, bilder)
+                    statistik["bilder"] += anzahl
+                    geaendert = geaendert or anzahl > 0
                 zaehler["neu" if neu else "geaendert" if geaendert else "gleich"] += 1
     except (IntegrityError, DataError):  # z. B. Büro und Buro: für die Datenbank kann das derselbe Eintrag sein
         raise ImportFehler("Nichts importiert: Zwei Nummern oder Kategorien gelten für die Datenbank als gleich. Bitte die Schreibweise in der Datei prüfen.")

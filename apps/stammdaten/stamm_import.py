@@ -15,9 +15,10 @@ from .models import Hersteller, Kategorie, Leistungskategorie
 BEISPIELE = {
     "artikel": (["Nummer", "Bezeichnung", "Erweiterte Bezeichnung", "Kategorie", "Hersteller", "Herstellernummer", "EAN", "EK",
                  "VK1", "VK2", "VK3", "UVP", "Einheit", "Steuersatz", "Gewicht", "Garantie", "Online", "nicht aktiv",
-                 "Kostenstelle"],
+                 "Kostenstelle", "Abbildung 1", "Abbildung 2"],
                 [["99001", "Netzteil 600W ATX 120mm Lüfter", "Leises ATX-Netzteil mit 120-mm-Lüfter", "Netzteile", "LC-Power",
-                  "LC600H-12", "4260070120017", 18.5, 29.9, 27.9, 25.9, 34.9, "Stück", 19, 1.2, 24, "nein", "nein", "100"]]),
+                  "LC600H-12", "4260070120017", 18.5, 29.9, 27.9, 25.9, 34.9, "Stück", 19, 1.2, 24, "nein", "nein", "100",
+                  "99001.jpg", ""]]),
     "leistungsartikel": (["Nummer", "Bezeichnung", "Erweiterte Bezeichnung", "Kategorie", "Kosten", "VK1", "VK2", "VK3", "Einheit",
                           "Steuersatz", "nicht aktiv"],
                          [["40098", "Montage PC", "Zusammenbau und Test eines PCs", "Werkstatt", 20, 35, "", "", "Std.", 19,
