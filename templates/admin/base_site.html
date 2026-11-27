@@ -17,6 +17,11 @@
   /* Knöpfe „Importieren“, „… hinzufügen“, „Verlauf“: Django zieht sie mit margin-top:-48px neben die Überschrift; im
      scrollenden #content-main würden sie dort abgeschnitten (27.11.2026) – deshalb oben rechts im Inhaltsbereich */
   #content > #content-main > .object-tools { margin-top:0; margin-bottom:10px; }
+  /* Listen mit Suchleiste: die Knöpfe stehen rechts in der Suchleiste (Wunsch des Nutzers 27.11.2026) */
+  #toolbar.wwok-mit-knoepfen { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  #toolbar.wwok-mit-knoepfen > form { flex:1 1 auto; min-width:0; }
+  #toolbar.wwok-mit-knoepfen > .object-tools { float:none; margin:0 0 0 auto; display:flex; gap:8px; flex-wrap:wrap; }
+  #toolbar.wwok-mit-knoepfen > .object-tools li { margin:0; }
   /* Startseite (colMS): Hauptbereich links, „Neueste Aktionen“ rechts, beide scrollen eigenständig */
   #content > #content-related { max-height:30vh; overflow:auto; float:none; width:auto; margin:0 0 16px; }
   .dashboard #content { width:auto; }  /* Django begrenzt die Startseite sonst auf 600px */
@@ -49,6 +54,9 @@
 </style>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
+    // Knöpfe „Importieren“ / „… hinzufügen“ rechts in die Suchleiste der Liste (ohne Suchleiste bleiben sie über der Liste)
+    var werkzeug = document.getElementById('toolbar'), knoepfe = document.querySelector('#content-main > .object-tools');
+    if (werkzeug && knoepfe) { werkzeug.classList.add('wwok-mit-knoepfen'); werkzeug.appendChild(knoepfe); }
     // Verwaltungslisten: Anzahl pro Seite wählen (wird je Liste gemerkt, zurück auf Seite 1)
     document.querySelectorAll('select[data-pro-seite]').forEach(function (s) {
       s.addEventListener('change', function () {
