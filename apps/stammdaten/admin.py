@@ -56,6 +56,7 @@ class StammImportMixin:
     import_titel = ""
     import_hinweis = ""  # HTML: Spalten und Regeln
     import_rechte = ()  # zusätzliche Rechte, z. B. weil fehlende Kategorien angelegt werden
+    import_bilder = False  # Artikel: zweites Feld für die Bilder als ZIP (27.11.2026)
 
     def import_ausfuehren(self, dateiname, inhalt) -> str:
         raise NotImplementedError
@@ -96,17 +97,21 @@ class StammImportMixin:
         fehler = []
         if request.method == "POST":
             datei = request.FILES.get("datei")
+            bilder = request.FILES.get("bilder") if self.import_bilder else None
             if datei is None or datei.size > 5 * 1024 * 1024:
                 fehler = ["Bitte eine CSV- oder Excel-Datei bis 5 MB auswählen."]
+            elif bilder is not None and bilder.size > leistung_import.MAX_ZIP:
+                fehler = ["Das ZIP mit den Bildern darf höchstens 100 MB groß sein. Bitte in mehreren Teilen importieren."]
             else:
                 try:
-                    messages.success(request, self.import_ausfuehren(datei.name, datei.read()))
+                    zusatz = [bilder] if self.import_bilder else []
+                    messages.success(request, self.import_ausfuehren(datei.name, datei.read(), *zusatz))
                     return redirect(reverse(f"admin:{self.opts.app_label}_{self.opts.model_name}_changelist"))
                 except ImportFehler as e:
                     fehler = [str(e)] + e.fehler[:30] + (["…"] if len(e.fehler) > 30 else [])
         return TemplateResponse(request, "admin/stammdaten/import.html", {
             **self.admin_site.each_context(request), "title": self.import_titel, "opts": self.opts, "fehler": fehler,
-            "hinweis": self.import_hinweis,
+            "hinweis": self.import_hinweis, "import_bilder": self.import_bilder,
             "beispiel_csv": reverse(f"admin:{self._import_name('beispiel')}", args=["csv"]),
             "beispiel_xlsx": reverse(f"admin:{self._import_name('beispiel')}", args=["xlsx"]),
             "liste_url": reverse(f"admin:{self.opts.app_label}_{self.opts.model_name}_changelist")})
@@ -262,16 +267,30 @@ class ArtikelAdmin(StammImportMixin, VerwendungsschutzMixin, BlaetternAdminMixin
     import_hinweis = (
         "Importiert Artikel (Typ A, Lagerartikel). Pflicht: <strong>Nummer; Bezeichnung</strong>, dazu wahlweise <strong>Erweiterte "
         "Bezeichnung; Kategorie; Hersteller; Herstellernummer; EAN; EK; VK1; VK2; VK3; UVP; Einheit; Steuersatz; Gewicht (kg); "
-        "Garantie (Monate); Online; nicht aktiv; Kostenstelle</strong>.<ul>"
+        "Garantie (Monate); Online; nicht aktiv; Kostenstelle; Abbildung 1 … Abbildung 10</strong>.<ul>"
         "<li>Vorhandene Nummer: Der Artikel wird aktualisiert, leere Zellen lassen den alten Wert stehen. Leistungen und Gruppen werden nicht verändert.</li>"
         "<li>Kategorie über Nummer oder Namen; fehlende Kategorien werden auf oberster Ebene angelegt (offline). Fehlende Hersteller werden angelegt.</li>"
         "<li>EK wird als manueller EK eingetragen. Ohne Steuersatz gilt der höchste Satz (19 oder 1 = 19 %, 7 oder 2 = 7 %).</li>"
         "<li>Der Bestand wird nicht importiert, dafür die Inventur verwenden.</li>"
-        "<li>Bei einem Fehler in einer Zeile wird nichts importiert.</li></ul>")
+        "<li><strong>Bilder:</strong> In „Abbildung 1“ (Hauptbild) bis „Abbildung 10“ steht der Dateiname, z. B. 21882.jpg; ein "
+        "Pfad wie C:\\Mention\\Bilder\\21882.jpg geht auch, es zählt nur der Dateiname. Die Bilddateien unten als ZIP mitgeben "
+        "(JPG, PNG oder WEBP, höchstens 2 MB pro Bild, ZIP bis 100 MB). Ein vorhandenes Bild an derselben Stelle wird ersetzt, "
+        "eine leere Zelle lässt es stehen. Ohne ZIP werden die Bildspalten übersprungen.</li>"
+        "<li>Bei einem Fehler in einer Zeile (auch ein fehlendes oder zu großes Bild) wird nichts importiert.</li></ul>")
+    import_bilder = True
 
-    def import_ausfuehren(self, dateiname, inhalt):
-        neu, geaendert, gleich, kategorien = leistung_import.importieren(dateiname, inhalt, m.Artikeltyp.A)
-        return f"{neu} neu, {geaendert} geändert, {gleich} unverändert, {kategorien} neue Kategorie(n)."
+    def import_ausfuehren(self, dateiname, inhalt, bilder_zip=None):
+        statistik = {}
+        with leistung_import.BilderZip.oeffnen(bilder_zip) as bilder:
+            neu, geaendert, gleich, kategorien = leistung_import.importieren(dateiname, inhalt, m.Artikeltyp.A, bilder=bilder,
+                                                                             statistik=statistik)
+        meldung = f"{neu} neu, {geaendert} geändert, {gleich} unverändert, {kategorien} neue Kategorie(n)."
+        if statistik["bilder"]:
+            meldung += f" {statistik['bilder']} Bild(er) übernommen."
+        if statistik["ohne_zip"]:
+            meldung += (f" {statistik['ohne_zip']} Bildangabe(n) übersprungen: Für Bilder die Bilddateien als ZIP mit "
+                        "hochladen.")
+        return meldung
     list_display = ["nummer", "typ", "bezeichnung", "hersteller", "herstellernummer", "vk1", "radar_ampel", "online", "aktiv"]
     list_filter = [AuffaelligFilter, "typ", "online", "nicht_aktiv", "kategorie", "hersteller"]
     search_fields = ["nummer", "bezeichnung", "herstellernummer", *m.KENNUNGEN]

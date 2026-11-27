@@ -10,6 +10,8 @@
 {% if fehler %}<ul class="errorlist">{% for f in fehler %}<li>{{ f }}</li>{% endfor %}</ul>{% endif %}
 <form method="post" enctype="multipart/form-data">{% csrf_token %}
   <p><input type="file" name="datei" accept=".csv,.txt,.xlsx,.xls" required></p>
+  {% if import_bilder %}<p><label for="id_bilder"><strong>Bilder (ZIP, freiwillig):</strong></label><br>
+    <input type="file" name="bilder" id="id_bilder" accept=".zip,application/zip"></p>{% endif %}
   <input type="submit" value="Importieren" class="default">
 </form>
 {% endblock %}
