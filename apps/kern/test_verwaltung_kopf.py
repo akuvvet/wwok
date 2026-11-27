@@ -40,6 +40,10 @@ class VerwaltungKopfTest(TestCase):
         self.assertContains(r, "#content > #content-main > .object-tools { margin-top:0;")
         self.assertContains(r, 'class="object-tools"')
         self.assertContains(r, reverse("admin:stammdaten_artikel_import"))
+        # und stehen rechts in der Suchleiste (#toolbar), Wunsch des Nutzers 27.11.2026
+        self.assertContains(r, "werkzeug.classList.add('wwok-mit-knoepfen'); werkzeug.appendChild(knoepfe);")
+        self.assertContains(r, "#toolbar.wwok-mit-knoepfen > .object-tools { float:none; margin:0 0 0 auto;")
+        self.assertContains(r, 'id="toolbar"')
 
     def test_startseite_neueste_aktionen_rechts_als_spalte(self):
         html = self.client.get(reverse("admin:index")).content.decode()

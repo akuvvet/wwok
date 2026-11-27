@@ -168,7 +168,7 @@ HILFE = (
        "verkauf:start", "Verkauf → Kunde"),
     _h("stammdaten_import", "Wie importiere ich Artikel, Leistungen, Kategorien oder Hersteller?",
        "artikel importieren, leistungsartikel importieren, kategorien importieren, leistungskategorien importieren, hersteller importieren, stammdaten import, excel, csv, beispieldatei, vorlage import",
-       [_weg("In der Verwaltung", "Verwaltung → Stammdaten → Artikel, Leistungsartikel, Kategorien, Leistungskategorien oder Hersteller → Knopf „Importieren“ oben rechts über der Liste (neben „hinzufügen“) → Beispieldatei (Excel oder CSV) herunterladen und ausfüllen → Datei wählen → Importieren",
+       [_weg("In der Verwaltung", "Verwaltung → Stammdaten → Artikel, Leistungsartikel, Kategorien, Leistungskategorien oder Hersteller → Knopf „Importieren“ rechts in der Suchleiste über der Liste (neben „hinzufügen“) → Beispieldatei (Excel oder CSV) herunterladen und ausfüllen → Datei wählen → Importieren",
              "Spalten werden an der Überschrift erkannt. Vorhandene Einträge werden aktualisiert, leere Zellen lassen alte Werte stehen. Bei einem Fehler wird nichts importiert. Den Bestand bucht die Inventur.")],
        "admin:stammdaten_artikel_import", "Verwaltung → Artikel → Importieren"),
     _h("versand", "Wie erzeuge ich ein Versandlabel (DHL oder Deutsche Post)?",
